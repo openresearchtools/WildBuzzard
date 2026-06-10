@@ -9,4 +9,3 @@ export("DIST_SUBDIR")
 
 include("../../../browser/branding/branding-common.mozbuild")
 FirefoxBranding()
-
