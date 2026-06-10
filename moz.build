@@ -180,6 +180,7 @@ DIRS += [
     "testing",
     "third_party/python",
     "wildbuzzard",
+    "waterfox",
 ]
 
 if CONFIG["MOZ_APPSERVICES_IN_TREE"]:
