@@ -8,6 +8,7 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
+  StatusBar: "resource:///modules/StatusBar.sys.mjs",
   StyleSheetUtils: "resource:///modules/StyleSheetUtils.sys.mjs",
   WaterfoxBrowserStyle: "resource:///modules/WaterfoxBrowserStyle.sys.mjs",
   WaterfoxTheme: "resource:///modules/WaterfoxTheme.sys.mjs",
@@ -67,6 +68,17 @@ export const WaterfoxGlue = {
       "chrome://browser/skin/waterfox/general.css"
     );
     lazy.WaterfoxTheme.init();
+
+    lazy.StatusBar.init();
+    Services.obs.addObserver(this, "browser-delayed-startup-finished");
+  },
+
+  observe(subject, topic) {
+    switch (topic) {
+      case "browser-delayed-startup-finished":
+        lazy.StatusBar.onWindowOpened(subject);
+        break;
+    }
   },
 
   // Runs once per profile upgrade. Migrations for profiles coming from
