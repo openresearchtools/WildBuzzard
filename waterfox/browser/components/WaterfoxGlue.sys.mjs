@@ -8,6 +8,7 @@ const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
+  StyleSheetUtils: "resource:///modules/StyleSheetUtils.sys.mjs",
 });
 
 const MIGRATION_PREF = "browser.migration.waterfox_version";
@@ -26,6 +27,10 @@ export const WaterfoxGlue = {
         console.error("ExperimentAPI startup init failed", error)
       );
     }
+
+    lazy.StyleSheetUtils.registerStylesheet(
+      "chrome://browser/skin/waterfox/general.css"
+    );
   },
 
   // Runs once per profile upgrade. Migrations for profiles coming from
