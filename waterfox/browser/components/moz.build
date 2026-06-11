@@ -11,6 +11,7 @@ DIRS += [
     "tabgrouping",
     "theme",
     "uicustomizations",
+    "urlbar",
     "utils",
 ]
 
