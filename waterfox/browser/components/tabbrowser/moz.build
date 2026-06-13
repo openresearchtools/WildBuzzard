@@ -4,14 +4,10 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-DIRS += ["components", "themes"]
-
-DIST_SUBDIR = "browser"
-export("DIST_SUBDIR")
-
-JS_PREFERENCE_PP_FILES += [
-    "app/profile/00-general.js",
-    "app/profile/02-privacy.js",
-    "app/profile/03-features.js",
-    "app/profile/05-treetabs.js",
+EXTRA_JS_MODULES += [
+    "TreeTabsMigration.sys.mjs",
+    "TreeTabsService.sys.mjs",
+    "TreeTabsStore.sys.mjs",
 ]
+
+XPCSHELL_TESTS_MANIFESTS += ["test/xpcshell/xpcshell.toml"]
