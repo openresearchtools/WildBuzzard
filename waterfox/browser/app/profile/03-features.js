@@ -58,6 +58,8 @@ pref("browser.urlbar.trending.featureGate", false);
 
 pref("browser.search.separatePrivateDefault.ui.enabled", true);
 
+pref("browser.startup.upgradeDialog.enabled", true);
+
 // Tab features.
 pref("browser.newtab.url", "");
 pref("browser.restart_menu.purgecache", false);
