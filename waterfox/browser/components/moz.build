@@ -4,6 +4,7 @@
 
 DIRS += [
     "aboutcfg",
+    "aboutpasswords",
     "privatetab",
     "remotesettings",
     "settings",
