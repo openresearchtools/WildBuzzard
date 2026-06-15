@@ -18,6 +18,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   UICustomizations: "resource:///modules/UICustomizations.sys.mjs",
   WaterfoxBrowserStyle: "resource:///modules/WaterfoxBrowserStyle.sys.mjs",
   WaterfoxTheme: "resource:///modules/WaterfoxTheme.sys.mjs",
+  WaterfoxThemeColors: "resource:///modules/WaterfoxThemeColors.sys.mjs",
 });
 
 const MIGRATION_PREF = "browser.migration.waterfox_version";
@@ -78,6 +79,7 @@ export const WaterfoxGlue = {
       "chrome://browser/skin/waterfox/general.css"
     );
     lazy.WaterfoxTheme.init();
+    lazy.WaterfoxThemeColors.init();
 
     lazy.PrivateTab.init();
     lazy.StatusBar.init();
