@@ -55,6 +55,7 @@ pref("browser.urlbar.trending.featureGate", false);
 pref("browser.search.separatePrivateDefault.ui.enabled", true);
 
 // Tab features.
+pref("browser.newtab.url", "");
 pref("browser.closeShortcut.disabled", false);
 pref("browser.tabs.closeButtons", false);
 pref("browser.tabs.copyallurls", false);
