@@ -10,6 +10,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
   StatusBar: "resource:///modules/StatusBar.sys.mjs",
   StyleSheetUtils: "resource:///modules/StyleSheetUtils.sys.mjs",
+  TabFeatures: "resource:///modules/TabFeatures.sys.mjs",
   UICustomizations: "resource:///modules/UICustomizations.sys.mjs",
   WaterfoxBrowserStyle: "resource:///modules/WaterfoxBrowserStyle.sys.mjs",
   WaterfoxTheme: "resource:///modules/WaterfoxTheme.sys.mjs",
@@ -71,6 +72,7 @@ export const WaterfoxGlue = {
     lazy.WaterfoxTheme.init();
 
     lazy.StatusBar.init();
+    lazy.TabFeatures.init();
     lazy.UICustomizations.init();
     Services.obs.addObserver(this, "browser-delayed-startup-finished");
   },

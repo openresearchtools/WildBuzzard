@@ -54,7 +54,10 @@ pref("browser.urlbar.trending.featureGate", false);
 
 pref("browser.search.separatePrivateDefault.ui.enabled", true);
 
+// Tab features.
 pref("browser.closeShortcut.disabled", false);
+pref("browser.tabs.closeButtons", false);
+pref("browser.tabs.pinnedIconOnly", true);
 
 pref("browser.download.always_ask_before_handling_new_types", true);
 pref("browser.download.manager.addToRecentDocs", false);
