@@ -54,6 +54,8 @@ pref("browser.urlbar.trending.featureGate", false);
 
 pref("browser.search.separatePrivateDefault.ui.enabled", true);
 
+pref("browser.closeShortcut.disabled", false);
+
 pref("browser.download.always_ask_before_handling_new_types", true);
 pref("browser.download.manager.addToRecentDocs", false);
 pref("browser.download.open_pdf_attachments_inline", true);
