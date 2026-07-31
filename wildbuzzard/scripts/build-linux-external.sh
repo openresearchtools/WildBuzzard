@@ -153,6 +153,7 @@ fi
   echo "ac_add_options --enable-application=browser"
   echo "ac_add_options --enable-optimize"
   echo "ac_add_options --disable-debug"
+  echo "ac_add_options --disable-crashreporter"
   if [[ -x "${state_dir}/sccache/sccache" ]]; then
     echo "ac_add_options --with-ccache=${state_dir}/sccache/sccache"
   elif command -v ccache >/dev/null 2>&1; then
