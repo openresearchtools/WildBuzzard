@@ -363,7 +363,7 @@ var CustomizableUIInternal = {
       "spring",
       "vertical-spacer",
       "urlbar-container",
-      "waterfox-blocker-toolbar-button",
+      "wildbuzzard-blocker-toolbar-button",
       "spring",
       "downloads-button",
       AppConstants.MOZ_DEV_EDITION ? "developer-button" : null,
@@ -380,7 +380,7 @@ var CustomizableUIInternal = {
         defaultPlacements: navbarPlacements,
         verticalTabsDefaultPlacements: [
           "firefox-view-button",
-          "waterfox-blocker-toolbar-button",
+          "wildbuzzard-blocker-toolbar-button",
           "alltabs-button",
         ],
         defaultCollapsed: false,
@@ -856,14 +856,14 @@ var CustomizableUIInternal = {
     }
 
     if (currentVersion < 23) {
-      // Waterfox 140 betas registered the blocker button as an external
+      // WildBuzzard 140 betas registered the blocker button as an external
       // widget which queued it via gFuturePlacements; that path appended to
       // the navbar end. Remove any existing placement so it can be inserted
-      // at its default position via placeNewDefaultWidgetsInArea. Waterfox
+      // at its default position via placeNewDefaultWidgetsInArea. WildBuzzard
       // 140 release profiles are version 23 or later and keep their layout.
       for (let area of Object.keys(gSavedState.placements)) {
         let placements = gSavedState.placements[area];
-        let idx = placements.indexOf("waterfox-blocker-toolbar-button");
+        let idx = placements.indexOf("wildbuzzard-blocker-toolbar-button");
         if (idx !== -1) {
           placements.splice(idx, 1);
         }

@@ -28,4 +28,4 @@ user_pref("browser.startup.couldRestoreSession.count", -1);
 user_pref("extensions.formautofill.useml", false);
 
 // Tests that exercise the blocker enable it with local filter endpoints.
-user_pref("waterfox.blocker.enabled", false);
+user_pref("wildbuzzard.blocker.enabled", false);

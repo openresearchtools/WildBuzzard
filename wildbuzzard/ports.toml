@@ -10,47 +10,47 @@ status = "staged"
 [[port]]
 name = "content blocker: backend"
 source_commit = "7cffa4909548a778ac82688b6199be93ad0d047a"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "content blocker: window actors"
 source_commit = "c5a54201a7001b651f8141b09fd9dce169cf40b1"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "content blocker: blocked-page interstitial"
 source_commit = "0a256172593832004faebb204140c788f537ac55"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "content blocker: toolbar and panel"
 source_commit = "8c89645d8853702bf19a100fefcd57d513f92d3c"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "content blocker: extension conflict detector"
 source_commit = "7353de4376c3ecaec8ae23bc1bea4bca4c316e8d"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "content blocker: offline lists and assets"
 source_commit = "21eb71ac6075841b7601b46b0fc638e6002154b6"
-status = "license-review-required"
+status = "staged"
 
 [[port]]
 name = "content blocker: compatibility filters"
 source_commit = "09247d98b40a0c757e2b89453ff3d835ee379de9"
-status = "license-review-required"
+status = "staged"
 
 [[port]]
 name = "content blocker: settings and exceptions"
 source_commit = "6f7aaa702a0d27eaf4e48ef347868d490f8e320d"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "content blocker: preferences integration"
 source_commit = "4bf762e7205807027f77b30e409b9f6da3273c23"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "privacy-oriented default preferences"

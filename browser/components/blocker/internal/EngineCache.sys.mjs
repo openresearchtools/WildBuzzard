@@ -1,0 +1,228 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+import { CACHE_ROOT_DIR_NAME } from "resource:///modules/WildBuzzardBlockerUtils.sys.mjs";
+
+const ENGINE_CACHE_NAME_RE = /^adblock-engine\..+\.cache$/;
+const CACHE_META_NAME_RE = /^cache-meta\..+\.json$/;
+
+function engineCacheFileName() {
+  return `adblock-engine.${Services.appinfo.appBuildID}.cache`;
+}
+
+function cacheMetaFileName() {
+  return `cache-meta.${Services.appinfo.appBuildID}.json`;
+}
+
+function bytesToHex(binaryString) {
+  let out = "";
+  for (let i = 0; i < binaryString.length; i++) {
+    out += `0${binaryString.charCodeAt(i).toString(16)}`.slice(-2);
+  }
+  return out;
+}
+
+function nowISO() {
+  return new Date().toISOString();
+}
+
+function cacheRootPath() {
+  const f = Services.dirsvc.get("ProfD", Ci.nsIFile);
+  f.append(CACHE_ROOT_DIR_NAME);
+  return f.path;
+}
+
+function engineCachePath() {
+  const f = Services.dirsvc.get("ProfD", Ci.nsIFile);
+  f.append(CACHE_ROOT_DIR_NAME);
+  f.append(engineCacheFileName());
+  return f.path;
+}
+
+function cacheMetaPath() {
+  const f = Services.dirsvc.get("ProfD", Ci.nsIFile);
+  f.append(CACHE_ROOT_DIR_NAME);
+  f.append(cacheMetaFileName());
+  return f.path;
+}
+
+function atomicWriteOptions(path) {
+  return { tmpPath: `${path}.tmp` };
+}
+
+function computeListsHash(descriptors, listRecords) {
+  const makeRecordKey = (url, filename) => JSON.stringify([url, filename]);
+  const byKey = new Map(
+    listRecords.map(record => [
+      makeRecordKey(record.url, record.filename),
+      record,
+    ])
+  );
+  const descriptorKeys = new Set();
+
+  const hasher = Cc["@mozilla.org/security/hash;1"].createInstance(
+    Ci.nsICryptoHash
+  );
+  hasher.init(hasher.SHA256);
+
+  const encoder = new TextEncoder();
+  const separatorBytes = encoder.encode("\n---\n");
+  const updateHash = (url, filename, content) => {
+    const descriptorBytes = encoder.encode(`${url}\n${filename}\n`);
+    hasher.update(descriptorBytes, descriptorBytes.length);
+
+    const contentBytes = encoder.encode(content);
+    hasher.update(contentBytes, contentBytes.length);
+    hasher.update(separatorBytes, separatorBytes.length);
+  };
+
+  for (const descriptor of descriptors) {
+    const key = makeRecordKey(descriptor.url, descriptor.filename);
+    descriptorKeys.add(key);
+    updateHash(descriptor.url, descriptor.filename, byKey.get(key)?.text ?? "");
+  }
+
+  const extraRecordKeys = Array.from(byKey.keys())
+    .filter(key => !descriptorKeys.has(key))
+    .sort();
+  for (const key of extraRecordKeys) {
+    const record = byKey.get(key);
+    updateHash(record.url, record.filename, record.text ?? "");
+  }
+
+  return bytesToHex(hasher.finish(false));
+}
+
+async function readJSON(path, fallbackValue) {
+  try {
+    const bytes = await IOUtils.read(path);
+    return JSON.parse(new TextDecoder().decode(bytes));
+  } catch (err) {
+    if (err?.result !== Cr.NS_ERROR_FILE_NOT_FOUND) {
+      console.warn(`[WildBuzzardBlocker] Failed reading JSON ${path}:`, err);
+    }
+    return fallbackValue;
+  }
+}
+
+async function writeJSON(path, value) {
+  const bytes = new TextEncoder().encode(JSON.stringify(value));
+  await IOUtils.write(path, bytes, atomicWriteOptions(path));
+}
+
+export const EngineCache = {
+  async clear() {
+    try {
+      await IOUtils.remove(engineCachePath(), { ignoreAbsent: true });
+    } catch (err) {
+      console.warn(
+        "[WildBuzzardBlocker] Failed removing engine cache file:",
+        err
+      );
+    }
+
+    try {
+      await IOUtils.remove(cacheMetaPath(), { ignoreAbsent: true });
+    } catch (err) {
+      console.warn(
+        "[WildBuzzardBlocker] Failed removing cache metadata file:",
+        err
+      );
+    }
+  },
+
+  async cleanupStale() {
+    const root = cacheRootPath();
+    if (!(await IOUtils.exists(root))) {
+      return;
+    }
+
+    const keep = new Set([engineCacheFileName(), cacheMetaFileName()]);
+    for (const path of await IOUtils.getChildren(root)) {
+      const name = path.split(/[\\/]/).pop();
+      if (keep.has(name)) {
+        continue;
+      }
+
+      if (ENGINE_CACHE_NAME_RE.test(name) || CACHE_META_NAME_RE.test(name)) {
+        await IOUtils.remove(path, { ignoreAbsent: true });
+      }
+    }
+  },
+
+  async ensureRootDir() {
+    await IOUtils.makeDirectory(cacheRootPath(), {
+      createAncestors: true,
+      ignoreExisting: true,
+    });
+  },
+
+  async matchesCurrentLists(descriptors, listRecords) {
+    if (
+      !(await IOUtils.exists(engineCachePath())) ||
+      !(await IOUtils.exists(cacheMetaPath()))
+    ) {
+      return false;
+    }
+
+    if (!listRecords.length) {
+      return false;
+    }
+
+    const cacheMeta = await readJSON(cacheMetaPath(), null);
+    if (!cacheMeta?.listsHash) {
+      return false;
+    }
+
+    return computeListsHash(descriptors, listRecords) === cacheMeta.listsHash;
+  },
+
+  async read() {
+    return IOUtils.read(engineCachePath());
+  },
+
+  readSync() {
+    const file = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+    file.initWithPath(engineCachePath());
+    if (!file.exists() || file.fileSize === 0) {
+      return null;
+    }
+
+    const stream = Cc[
+      "@mozilla.org/network/file-input-stream;1"
+    ].createInstance(Ci.nsIFileInputStream);
+    stream.init(file, 0x01 /* PR_RDONLY */, 0, 0);
+    try {
+      const binaryStream = Cc[
+        "@mozilla.org/binaryinputstream;1"
+      ].createInstance(Ci.nsIBinaryInputStream);
+      binaryStream.setInputStream(stream);
+      return binaryStream.readByteArray(file.fileSize);
+    } finally {
+      stream.close();
+    }
+  },
+
+  async write(engine, descriptors, listRecords) {
+    if (!engine) {
+      return;
+    }
+
+    await this.ensureRootDir();
+
+    const serialized = engine.serialize();
+    const bytes =
+      serialized instanceof Uint8Array
+        ? serialized
+        : new Uint8Array(serialized);
+    const path = engineCachePath();
+    await IOUtils.write(path, bytes, atomicWriteOptions(path));
+
+    const listsHash = computeListsHash(descriptors, listRecords);
+    await writeJSON(cacheMetaPath(), {
+      createdAt: nowISO(),
+      listsHash,
+    });
+  },
+};

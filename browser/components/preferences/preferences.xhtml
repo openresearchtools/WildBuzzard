@@ -41,7 +41,7 @@
 
   <link rel="localization" href="branding/brand.ftl"/>
   <link rel="localization" href="browser/browser.ftl"/>
-  <link rel="localization" href="browser/waterfox/blocker.ftl"/>
+  <link rel="localization" href="browser/wildbuzzard/blocker.ftl"/>
     <!-- Used by fontbuilder.js -->
   <link rel="localization" href="browser/preferences/fonts.ftl"/>
   <link rel="localization" href="browser/preferences/moreFromMozilla.ftl"/>
@@ -98,6 +98,7 @@
   <script type="module" src="chrome://browser/content/preferences/widgets/sync-engines-list.mjs"></script>
   <script type="module" src="chrome://browser/content/preferences/widgets/update-information.mjs"></script>
   <script type="module" src="chrome://browser/content/preferences/widgets/update-state.mjs"></script>
+  <script type="module" src="chrome://browser/content/blocker/BlockerSettingsPane.mjs"></script>
   <script type="module" src="chrome://browser/content/ipprotection/bandwidth-usage.mjs"></script>
 </head>
 
@@ -142,8 +143,8 @@
       </html:moz-page-nav-button>
       <html:moz-page-nav-button id="category-ad-blocking"
         view="paneAdBlocking"
-        iconsrc="chrome://browser/content/blocker/waterfoxShield.svg"
-        data-l10n-id="pane-waterfox-blocker-title">
+        iconsrc="chrome://browser/content/blocker/blockerShield.svg"
+        data-l10n-id="pane-wildbuzzard-blocker-title">
       </html:moz-page-nav-button>
       <html:moz-page-nav-button id="category-passwords-autofill"
         view="panePasswordsAutofill"

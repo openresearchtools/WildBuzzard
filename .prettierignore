@@ -1805,3 +1805,7 @@ tools/ts/test/baselines/
 try_task_config.json
 xpcom/idl-parser/xpidl/fixtures/xpctest.d.json
 **/package-lock.json
+# Generated ad-blocking engine resources. Keep byte-for-byte donor/upstream
+# formatting so their provenance and future generated updates remain reviewable.
+browser/components/blocker/assets/resources/resources.json
+browser/components/blocker/assets/resources/ubo-scriptlets.json

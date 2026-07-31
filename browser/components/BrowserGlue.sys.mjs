@@ -75,6 +75,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   WebChannel: "resource://gre/modules/WebChannel.sys.mjs",
   WebProtocolHandlerRegistrar:
     "resource:///modules/WebProtocolHandlerRegistrar.sys.mjs",
+  WildBuzzardBlockerStartup:
+    "resource:///modules/WildBuzzardBlockerStartup.sys.mjs",
   WindowsRegistry: "resource://gre/modules/WindowsRegistry.sys.mjs",
   setTimeout: "resource://gre/modules/Timer.sys.mjs",
 });
@@ -386,6 +388,7 @@ BrowserGlue.prototype = {
   // (i.e. before the first window is opened)
   _beforeUIStartup: function BG__beforeUIStartup() {
     lazy.SessionStartup.init();
+    lazy.WildBuzzardBlockerStartup.init();
 
     // check if we're in safe mode
     if (Services.appinfo.inSafeMode) {
