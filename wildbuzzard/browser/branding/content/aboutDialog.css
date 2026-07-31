@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
+/* stylelint-disable stylelint-plugin-mozilla/use-design-tokens */
 
 @media not ((prefers-contrast) and (prefers-color-scheme: light)) {
   #aboutDialogContainer {

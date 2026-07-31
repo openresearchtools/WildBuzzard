@@ -71,7 +71,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   TelemetryReportingPolicy:
     "resource://gre/modules/TelemetryReportingPolicy.sys.mjs",
   TRRRacer: "resource:///modules/TRRPerformance.sys.mjs",
-  WaterfoxUpgradeMessage: "resource:///modules/WaterfoxUpgradeMessage.sys.mjs",
+  WildBuzzardUpgradeMessage:
+    "resource:///modules/WildBuzzardUpgradeMessage.sys.mjs",
   WebChannel: "resource://gre/modules/WebChannel.sys.mjs",
   WebProtocolHandlerRegistrar:
     "resource:///modules/WebProtocolHandlerRegistrar.sys.mjs",
@@ -1556,7 +1557,7 @@ BrowserGlue.prototype = {
         "tabbrowser-confirm-session-restore-checkbox",
       ]);
 
-    // Waterfox: the quit prompt can flip session restore on the way out.
+    // WildBuzzard: the quit prompt can flip session restore on the way out.
     const startupPref = Services.prefs.getIntPref("browser.startup.page");
     let restoreSession = { value: startupPref == 3 };
 
@@ -1618,7 +1619,7 @@ BrowserGlue.prototype = {
       win.gBrowser.removeTab(win.gBrowser.selectedTab);
     }
 
-    // Waterfox: persist the session restore choice only when actually
+    // WildBuzzard: persist the session restore choice only when actually
     // quitting, and only when it changed.
     if (buttonPressed == 0 && restoreSession.value != (startupPref == 3)) {
       Services.prefs.setIntPref(
@@ -1651,7 +1652,7 @@ BrowserGlue.prototype = {
   },
 
   async _showUpgradeDialog() {
-    const data = await lazy.WaterfoxUpgradeMessage.getUpgradeMessage();
+    const data = await lazy.WildBuzzardUpgradeMessage.getUpgradeMessage();
     const { gBrowser } = lazy.BrowserWindowTracker.getTopWindow({
       allowFromInactiveWorkspace: true,
     });
@@ -1727,7 +1728,7 @@ BrowserGlue.prototype = {
     // request and is limited in various ways, e.g., major upgrades.
     await lazy.TelemetryReportingPolicy.ensureUserIsNotified();
 
-    const dialogVersion = lazy.WaterfoxUpgradeMessage.dialogVersion;
+    const dialogVersion = lazy.WildBuzzardUpgradeMessage.dialogVersion;
     const dialogVersionPref = "browser.startup.upgradeDialog.version";
     const dialogReason = await (async () => {
       if (!lazy.BrowserHandler.majorUpgrade) {
@@ -1750,7 +1751,7 @@ BrowserGlue.prototype = {
         return "disallow-postUpdate";
       }
 
-      const showUpgradeDialog = lazy.WaterfoxUpgradeMessage.enabled;
+      const showUpgradeDialog = lazy.WildBuzzardUpgradeMessage.enabled;
 
       return showUpgradeDialog ? "" : "disabled";
     })();

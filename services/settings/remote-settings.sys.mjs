@@ -19,8 +19,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   SyncHistory: "resource://services-settings/SyncHistory.sys.mjs",
   UptakeTelemetry: "resource://services-settings/UptakeTelemetry.sys.mjs",
   Utils: "resource://services-settings/Utils.sys.mjs",
-  WaterfoxSettingsPolicy:
-    "resource://services-settings/WaterfoxSettingsPolicy.sys.mjs",
+  WildBuzzardSettingsPolicy:
+    "resource://services-settings/WildBuzzardSettingsPolicy.sys.mjs",
 });
 
 const PREF_SETTINGS_BRANCH = "services.settings.";
@@ -539,7 +539,7 @@ function remoteSettingsFunction() {
         // This collection has no associated client (eg. preview, other platform...)
         continue;
       }
-      if (!lazy.WaterfoxSettingsPolicy.canSync(bucket, collection)) {
+      if (!lazy.WildBuzzardSettingsPolicy.canSync(bucket, collection)) {
         // Records for this collection only ever come from bundled dumps.
         continue;
       }

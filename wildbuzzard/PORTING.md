@@ -4,16 +4,18 @@
 
 ## Source model
 
-1. Start every WildBuzzard generation from a signed, named Mozilla Firefox ESR
-   release ref and record its full commit ID in `upstreams.toml`.
+1. Start every WildBuzzard generation from Mozilla's current Firefox ESR
+   security branch. Record the immutable release base and the exact security
+   head commit in `upstreams.toml`.
 2. Treat `base/*` and `waterfox` as immutable evidence. Never develop on them.
 3. Recreate `integration/waterfox-port` from the current ESR base, then port
    narrowly scoped donor commits into it.
 4. Move reviewed changes to `wildbuzzard/esr153` as small, independently
    auditable commits. Record the full donor commit in the commit message with a
    `Source-Waterfox-Commit:` trailer.
-5. Rebase by rebuilding the integration branch on the next official ESR
-   release. Do not merge an entire Waterfox release into the product branch.
+5. Rebase the integration branch onto each ESR security head and rebuild it
+   again for the next ESR generation. Do not merge a Waterfox product branch
+   into the product history.
 
 ## License and provenance
 
@@ -36,7 +38,7 @@
   add floating Git dependencies, downloaded build-time binaries, or a second
   copy of `adblock-rs`.
 
-Firefox 153.0 ESR already vendors the same `adblock-rs` 0.12.1 tree used by the
+Firefox ESR 153 already vendors the same `adblock-rs` 0.12.1 tree used by the
 Waterfox donor snapshot. WildBuzzard therefore ports bindings and product
 integration against that existing tree.
 

@@ -1,0 +1,10 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+browser.jar:
+%   skin browser classic/1.0 %skin/classic/browser/
+    skin/classic/browser/userChrome.css                       (lepton/leptonChrome.css)
+    skin/classic/browser/lepton/                              (lepton/icons/*.svg)
+    skin/classic/browser/wildbuzzard/general.css                 (wildbuzzard/general.css)
+    skin/classic/browser/vertical-tabs-tree.css               (vertical-tabs-tree.css)

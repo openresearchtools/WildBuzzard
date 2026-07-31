@@ -1,0 +1,4 @@
+[DEFAULT]
+firefox-appdir = "browser"
+
+["test_wildbuzzard_remote_settings_policy.js"]

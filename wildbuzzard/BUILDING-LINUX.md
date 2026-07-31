@@ -17,6 +17,7 @@ wildbuzzard-builds/
     └── <UTC>-<commit>-<pid>/
         ├── source/          clean detached checkout
         ├── obj/             build objects and dist packages
+        ├── artifacts/       installable WildBuzzard .deb
         ├── logs/
         └── build-manifest.txt
 ```
@@ -48,6 +49,11 @@ Useful variants:
 The script deliberately ignores uncommitted files. Commit the intended port
 before invoking it. Every run records the exact full commit ID in
 `build-manifest.txt`.
+
+The `all` action builds the browser, runs the native blocker tests and every
+WildBuzzard component test, creates Mozilla's Linux tar archive, and then
+packages that archive as an `amd64` Debian package. Packaging runs entirely in
+the external run directory and does not use `sudo`.
 
 `ccache` is useful across Firefox ESR updates because unchanged C/C++ translation
 units and headers still produce cache hits. The cache lives outside individual

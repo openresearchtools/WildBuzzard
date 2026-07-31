@@ -1,4 +1,10 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
+# -*- Mode: python; indent-tabs-mode: nil; tab-width: 40 -*-
+# vim: set filetype=python:
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+DIRS += ["components", "extensions/common", "themes"]
 
 DIST_SUBDIR = "browser"
 export("DIST_SUBDIR")
@@ -7,6 +13,9 @@ export("DIST_SUBDIR")
 # WildBuzzard policy therefore overrides inherited vendor defaults without
 # rewriting the upstream ESR preference file on every rebase.
 JS_PREFERENCE_PP_FILES += [
+    "app/profile/00-general.js",
+    "app/profile/02-privacy.js",
+    "app/profile/03-features.js",
+    "app/profile/05-treetabs.js",
     "app/profile/99-wildbuzzard.js",
 ]
-

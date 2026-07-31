@@ -19,6 +19,8 @@ test-manifest-toml:
         - 'testing/update/'
         - 'tools/lint/test/files/'
         - 'third_party/'
+        - 'wildbuzzard/ports.toml'
+        - 'wildbuzzard/upstreams.toml'
         - 'toolkit/components/uniffi-bindgen-gecko-js/askama.toml'
         - '**/.ruff.toml'
         - '**/ruff.toml'

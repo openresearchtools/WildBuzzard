@@ -9,7 +9,7 @@ const RESOURCE_BUNDLE_PATH = [
   "resources",
   "resources.json",
 ];
-const ENGINE_CONTRACT_ID = "@wildbuzzard.com/wildbuzzard-blocker-engine;1";
+const ENGINE_CONTRACT_ID = "@wildbuzzard.invalid/wildbuzzard-blocker-engine;1";
 
 let gResourcesJson;
 

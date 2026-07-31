@@ -31,8 +31,8 @@ legend {
   }
 }
 
-/* Waterfox-exclusive badges sit beside the group or section title. */
-moz-badge[type="waterfox-exclusive"] {
+/* WildBuzzard-exclusive badges sit beside the group or section title. */
+moz-badge[type="wildbuzzard-exclusive"] {
   align-self: center;
 }
 

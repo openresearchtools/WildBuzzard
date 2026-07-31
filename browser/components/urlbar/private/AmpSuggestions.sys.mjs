@@ -190,7 +190,7 @@ export class AmpSuggestions extends SuggestProvider {
       {
         name: "manage",
         l10n: {
-          id: "waterfox-urlbar-result-menu-manage-suggestions",
+          id: "wildbuzzard-urlbar-result-menu-manage-suggestions",
         },
       },
       {

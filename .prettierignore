@@ -62,7 +62,7 @@ toolkit/components/formautofill/shared/CreditCardRuleset.sys.mjs
 
 # Ignore preprocessed xhtml/html files
 browser/base/content/aboutDialog.xhtml
-waterfox/browser/base/content/aboutDialog.xhtml
+wildbuzzard/browser/base/content/aboutDialog.xhtml
 browser/base/content/browser.xhtml
 browser/base/content/default-bookmarks.html
 browser/base/content/hiddenWindowMac.xhtml
@@ -1013,9 +1013,10 @@ build/pgo/js-input/
 # browser/ exclusions
 browser/app/
 browser/branding/**/firefox-branding.js
-waterfox/browser/app/profile/
-waterfox/browser/branding/**/firefox-branding.js
-waterfox/browser/themes/lepton/prefs-lepton.js
+wildbuzzard/browser/app/profile/
+wildbuzzard/browser/branding/**/firefox-branding.js
+wildbuzzard/browser/themes/lepton/prefs-lepton.js
+wildbuzzard/browser/themes/lepton/leptonChrome.css
 # Gzipped test file.
 browser/base/content/test/general/gZipOfflineChild.html
 browser/base/content/test/urlbar/file_blank_but_not_blank.html

@@ -1,0 +1,4 @@
+[DEFAULT]
+tags = "wildbuzzard_upgrade"
+
+["browser_browserGlue_upgradeDialog_trigger.js"]

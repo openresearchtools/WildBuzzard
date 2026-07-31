@@ -1,0 +1,4 @@
+[DEFAULT]
+tags = "wildbuzzard_uicustomizations"
+
+["browser_uicustomizations.js"]

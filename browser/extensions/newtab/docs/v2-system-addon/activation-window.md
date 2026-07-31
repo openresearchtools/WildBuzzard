@@ -99,7 +99,7 @@ Messages for the activation window use the `ActivationWindowMessage` component a
     // OR
     message: { string_id: "activation-window-welcome-message-fluent-id" },
 
-    // Image (optional, defaults to the Waterfox branding logo if not provided)
+    // Image (optional, defaults to the WildBuzzard branding logo if not provided)
     imageSrc: "chrome://branding/content/about-logo.svg",
 
     primaryButton: {

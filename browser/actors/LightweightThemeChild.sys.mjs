@@ -5,7 +5,8 @@
 const lazy = {};
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  WaterfoxContentTheme: "resource:///modules/WaterfoxContentTheme.sys.mjs",
+  WildBuzzardContentTheme:
+    "resource:///modules/WildBuzzardContentTheme.sys.mjs",
 });
 
 /**
@@ -74,7 +75,7 @@ export class LightweightThemeChild extends JSWindowActorChild {
     const data = Services.cpmm.sharedData.get(
       `theme/${this._getChromeOuterWindowID()}`
     );
-    lazy.WaterfoxContentTheme.apply(this.contentWindow.document, data);
+    lazy.WildBuzzardContentTheme.apply(this.contentWindow.document, data);
 
     const event = Cu.cloneInto(
       {

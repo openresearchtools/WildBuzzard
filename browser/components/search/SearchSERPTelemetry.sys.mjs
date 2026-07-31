@@ -1211,7 +1211,7 @@ class TelemetryHandler {
    *   Returns a provider or undefined if no provider was found for the url.
    */
   _getProviderInfoForURL(url) {
-    // Waterfox: init returns early in builds without telemetry reporting,
+    // WildBuzzard: init returns early in builds without telemetry reporting,
     // leaving the provider info null, but the usage telemetry location
     // listener still calls through here.
     return this._searchProviderInfo?.find(info =>

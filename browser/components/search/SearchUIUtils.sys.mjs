@@ -520,7 +520,7 @@ export var SearchUIUtils = {
       // override: historically search opens in new tab
       where = "tab";
     }
-    // Waterfox: a search from a private container tab uses the private
+    // WildBuzzard: a search from a private container tab uses the private
     // engine but opens as a tab in the same container, not a window.
     let userContextId = window.gBrowser?.selectedTab?.userContextId || 0;
     let isPrivateContainerTab =

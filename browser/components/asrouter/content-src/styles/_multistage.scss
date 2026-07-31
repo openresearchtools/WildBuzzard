@@ -2206,59 +2206,59 @@ html {
     }
   }
 
-  .AW_WATERFOX_IMPORT {
+  .AW_WILDBUZZARD_IMPORT {
     migration-wizard {
       max-width: 520px;
       margin-block-start: var(--space-large);
     }
   }
 
-  .AW_WATERFOX_THEME_COLOR {
-    --waterfox-onboarding-split-accent: light-dark(#E7F3FF, #0D2640);
-    --waterfox-onboarding-split-background: linear-gradient(135deg, color-mix(in srgb, var(--waterfox-onboarding-split-accent) 36%, var(--background-color-canvas)), var(--background-color-canvas));
+  .AW_WILDBUZZARD_THEME_COLOR {
+    --wildbuzzard-onboarding-split-accent: light-dark(#E7F3FF, #0D2640);
+    --wildbuzzard-onboarding-split-background: linear-gradient(135deg, color-mix(in srgb, var(--wildbuzzard-onboarding-split-accent) 36%, var(--background-color-canvas)), var(--background-color-canvas));
 
-    &:has(.waterfox-color-smoke.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#EBE4DC, #3B332E);
+    &:has(.wildbuzzard-color-smoke.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#EBE4DC, #3B332E);
     }
 
-    &:has(.waterfox-color-ash.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#DFE3F2, #303641);
+    &:has(.wildbuzzard-color-ash.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#DFE3F2, #303641);
     }
 
-    &:has(.waterfox-color-sun.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#FFD25F, #4A3800);
+    &:has(.wildbuzzard-color-sun.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#FFD25F, #4A3800);
     }
 
-    &:has(.waterfox-color-spark.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#FF9B6A, #4A2816);
+    &:has(.wildbuzzard-color-spark.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#FF9B6A, #4A2816);
     }
 
-    &:has(.waterfox-color-flame.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#FF8FA6, #4D1F2B);
+    &:has(.wildbuzzard-color-flame.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#FF8FA6, #4D1F2B);
     }
 
-    &:has(.waterfox-color-flare.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#FF7FCA, #4A1739);
+    &:has(.wildbuzzard-color-flare.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#FF7FCA, #4A1739);
     }
 
-    &:has(.waterfox-color-lavender.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#C58CFF, #3B1A56);
+    &:has(.wildbuzzard-color-lavender.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#C58CFF, #3B1A56);
     }
 
-    &:has(.waterfox-color-dusk.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#B5A0FF, #2D1B55);
+    &:has(.wildbuzzard-color-dusk.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#B5A0FF, #2D1B55);
     }
 
-    &:has(.waterfox-color-lagoon.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#79C8FF, #173B56);
+    &:has(.wildbuzzard-color-lagoon.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#79C8FF, #173B56);
     }
 
-    &:has(.waterfox-color-tide.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#80D5E5, #163D46);
+    &:has(.wildbuzzard-color-tide.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#80D5E5, #163D46);
     }
 
-    &:has(.waterfox-color-pine.selected) {
-      --waterfox-onboarding-split-accent: light-dark(#80DCA8, #173D2A);
+    &:has(.wildbuzzard-color-pine.selected) {
+      --wildbuzzard-onboarding-split-accent: light-dark(#80DCA8, #173D2A);
     }
 
     .main-content-inner {
@@ -2274,7 +2274,7 @@ html {
       margin: 0;
     }
 
-    .tiles-single-select-section.waterfox-theme-mode {
+    .tiles-single-select-section.wildbuzzard-theme-mode {
       flex-wrap: nowrap;
       justify-content: flex-start;
       width: max-content;
@@ -2322,15 +2322,15 @@ html {
           z-index: 0;
         }
 
-        .icon.waterfox-theme-mode-system {
+        .icon.wildbuzzard-theme-mode-system {
           mask-image: url('chrome://browser/skin/device-desktop.svg');
         }
 
-        .icon.waterfox-theme-mode-light {
+        .icon.wildbuzzard-theme-mode-light {
           mask-image: url('chrome://browser/skin/weather/sunny.svg');
         }
 
-        .icon.waterfox-theme-mode-dark {
+        .icon.wildbuzzard-theme-mode-dark {
           mask-image: url('chrome://browser/skin/weather/night-hazy-moonlight.svg');
         }
 
@@ -2343,7 +2343,7 @@ html {
       }
     }
 
-    .tiles-single-select-section.waterfox-color-grid {
+    .tiles-single-select-section.wildbuzzard-color-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
       justify-content: flex-start;
@@ -2403,7 +2403,7 @@ html {
     }
 
     @media only screen and (width <= 900px) {
-      .tiles-single-select-section.waterfox-color-grid {
+      .tiles-single-select-section.wildbuzzard-color-grid {
         grid-template-columns: repeat(auto-fit, minmax(82px, 1fr));
       }
     }

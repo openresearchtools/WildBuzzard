@@ -23,7 +23,7 @@ const FIREFOX_BOOKMARK_ROOTS = [
 ];
 
 /**
- * Imports selected data from Firefox profiles outside the current Waterfox profile.
+ * Imports selected data from Firefox profiles outside the current WildBuzzard profile.
  */
 export class FirefoxImportMigrator extends MigratorBase {
   static get key() {

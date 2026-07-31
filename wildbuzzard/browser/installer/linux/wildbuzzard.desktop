@@ -1,0 +1,23 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[Desktop Entry]
+Name=WildBuzzard
+Comment=Privacy-oriented browser for development agents
+Exec=wildbuzzard %u
+Icon=org.wildbuzzard.WildBuzzard
+Terminal=false
+Type=Application
+Categories=Network;WebBrowser;Development;
+MimeType=text/html;text/xml;application/xhtml+xml;application/xml;x-scheme-handler/http;x-scheme-handler/https;
+StartupNotify=true
+StartupWMClass=WildBuzzard
+Keywords=web;browser;internet;developer;
+Actions=new-window;private-window;
+
+[Desktop Action new-window]
+Name=Open a New Window
+Exec=wildbuzzard --new-window
+
+[Desktop Action private-window]
+Name=Open a New Private Window
+Exec=wildbuzzard --private-window

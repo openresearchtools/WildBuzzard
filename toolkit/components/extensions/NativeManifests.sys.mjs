@@ -30,11 +30,11 @@ const DOT_MOZILLA_DIR_NAME = `.${MOZILLA_DIR_NAME}`;
 /** @type {Record<string, Record<string, string>>} */
 const COMPAT_DIR_NAMES = {
   linux: {
-    ".waterfox": DOT_MOZILLA_DIR_NAME,
-    waterfox: MOZILLA_DIR_NAME,
+    ".wildbuzzard": DOT_MOZILLA_DIR_NAME,
+    wildbuzzard: MOZILLA_DIR_NAME,
   },
   macosx: {
-    Waterfox: "Mozilla",
+    WildBuzzard: "Mozilla",
   },
 };
 

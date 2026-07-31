@@ -12,8 +12,14 @@ add_task(async function test_close_shortcut_disabled() {
   let doc = win.document;
 
   ok(!doc.getElementById("key_close"), "Close tab shortcut is removed");
-  ok(!doc.getElementById("key_closeWindow"), "Close window shortcut is removed");
-  ok(!doc.getElementById("menu_close").hasAttribute("key"), "Close tab menu has no shortcut");
+  ok(
+    !doc.getElementById("key_closeWindow"),
+    "Close window shortcut is removed"
+  );
+  ok(
+    !doc.getElementById("menu_close").hasAttribute("key"),
+    "Close tab menu has no shortcut"
+  );
   ok(
     !doc.getElementById("menu_closeWindow").hasAttribute("key"),
     "Close window menu has no shortcut"

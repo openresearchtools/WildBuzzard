@@ -5,7 +5,7 @@ const { ListStore } = ChromeUtils.importESModule(
   "resource:///modules/internal/ListStore.sys.mjs"
 );
 
-const ENGINE_CONTRACT_ID = "@wildbuzzard.com/wildbuzzard-blocker-engine;1";
+const ENGINE_CONTRACT_ID = "@wildbuzzard.invalid/wildbuzzard-blocker-engine;1";
 
 function checkRequest(
   engine,

@@ -223,7 +223,7 @@
             "browser/tabbrowser.ftl",
             "browser/taskbartabs.ftl",
             "branding/brand.ftl",
-            "browser/waterfox/tabs.ftl",
+            "browser/wildbuzzard/tabs.ftl",
           ],
           true
         );
@@ -4797,7 +4797,7 @@
         ps.BUTTON_TITLE_CANCEL * ps.BUTTON_POS_1;
       let closingWindow = aCloseTabs == this.closingTabsEnum.ALL;
       let checkboxLabel = closingWindow ? checkbox : null;
-      // Waterfox: closing the window offers the session restore choice.
+      // WildBuzzard: closing the window offers the session restore choice.
       let startupPref = Services.prefs.getIntPref("browser.startup.page");
       let restoreSession = { value: startupPref == 3 };
       var buttonPressed = ps.confirmEx2(

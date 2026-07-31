@@ -43,8 +43,8 @@ export default class MozBadge extends MozLitElement {
     if (this.type == "new") {
       return "moz-badge-new2";
     }
-    if (this.type == "waterfox-exclusive") {
-      return "waterfox-settings-exclusive-badge";
+    if (this.type == "wildbuzzard-exclusive") {
+      return "wildbuzzard-settings-exclusive-badge";
     }
 
     return undefined;

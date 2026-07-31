@@ -107,7 +107,7 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // active view if the the view utilizes OpenSearch.
   ["contextualSearch.enabled", true],
 
-  // Waterfox: whether a single click in the urlbar or searchbar selects its
+  // WildBuzzard: whether a single click in the urlbar or searchbar selects its
   // whole value.
   ["clickSelectsAll", false],
 
@@ -126,7 +126,7 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   // "heuristic" result).  We fetch it as fast as possible.
   ["delay", 50],
 
-  // Waterfox: whether a double click in the urlbar or searchbar selects its
+  // WildBuzzard: whether a double click in the urlbar or searchbar selects its
   // whole value.
   ["doubleClickSelectsAll", false],
 

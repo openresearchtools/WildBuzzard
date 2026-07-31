@@ -31,7 +31,7 @@ export var PrivateBrowsingUtils = {
   isContentWindowPrivate: function pbu_isWindowPrivate(aWindow) {
     return (
       this.privacyContextFromWindow(aWindow).usePrivateBrowsing ||
-      // Waterfox: a selected private container tab counts as private so
+      // WildBuzzard: a selected private container tab counts as private so
       // content does not save form data.
       Services.prefs.getBoolPref("browser.tabs.selectedTabPrivate", false)
     );

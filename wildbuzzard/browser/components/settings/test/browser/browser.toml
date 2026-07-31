@@ -1,0 +1,8 @@
+[DEFAULT]
+support-files = ["head.js"]
+
+["browser_wildbuzzard_appearance.js"]
+
+["browser_wildbuzzard_data_collection.js"]
+
+["browser_wildbuzzard_tabs.js"]

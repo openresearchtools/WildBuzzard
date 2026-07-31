@@ -5451,7 +5451,7 @@ ${
           this.inputField.setSelectionRange(0, 0);
         }
 
-        // Waterfox: a double click selects everything when enabled.
+        // WildBuzzard: a double click selects everything when enabled.
         if (
           event.detail == 2 &&
           lazy.UrlbarPrefs.get("doubleClickSelectsAll")

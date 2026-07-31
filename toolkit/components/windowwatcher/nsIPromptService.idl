@@ -364,7 +364,7 @@ interface nsIPromptService : nsISupports
                     inout boolean aCheckState);
 
   /**
-   * Waterfox: like confirmEx, but with a second optional, labeled checkbox.
+   * WildBuzzard: like confirmEx, but with a second optional, labeled checkbox.
    *
    * @param aCheckMsg2
    *        Text to appear with the second checkbox. Null if no checkbox.

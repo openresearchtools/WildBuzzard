@@ -4,11 +4,14 @@ schema = 1
 
 [firefox]
 remote = "https://github.com/mozilla-firefox/firefox.git"
-ref = "FIREFOX_153_0esr_RELEASE"
-commit = "c754d4f2d60ffacfa3aaab1134fed75ed4c9d3ef"
-version = "153.0esr"
-branch = "base/firefox-153.0esr"
-tag = "upstream/firefox-153.0esr"
+ref = "esr153"
+commit = "1c7282e73f12cb9bc63ae9920e9c77d935804cc8"
+version = "153.1.0esr"
+tracking_branch = "mozilla/esr153"
+initial_release_ref = "FIREFOX_153_0esr_RELEASE"
+initial_release_commit = "c754d4f2d60ffacfa3aaab1134fed75ed4c9d3ef"
+immutable_branch = "base/firefox-153.0esr"
+immutable_tag = "upstream/firefox-153.0esr"
 
 [waterfox]
 remote = "https://github.com/BrowserWorks/waterfox.git"
@@ -26,5 +29,5 @@ upstream = "https://github.com/brave/adblock-rust/"
 license = "MPL-2.0"
 path = "third_party/rust/adblock"
 git_tree = "631bb7e5bdd677ffb1457e1d07ae32695607be6c"
-provided_by = "FIREFOX_153_0esr_RELEASE"
+provided_by = "1c7282e73f12cb9bc63ae9920e9c77d935804cc8"
 waterfox_tree_is_identical = true

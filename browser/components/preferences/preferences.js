@@ -565,7 +565,7 @@ function init_all() {
   }
 
   ChromeUtils.importESModule(
-    "chrome://browser/content/waterfox/settings/WaterfoxSettingsPanes.mjs",
+    "chrome://browser/content/wildbuzzard/settings/WildBuzzardSettingsPanes.mjs",
     { global: "current" }
   );
 

@@ -34,7 +34,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   setTimeout: "resource://gre/modules/Timer.sys.mjs",
 });
 
-const CONTRACT_ID = "@wildbuzzard.com/wildbuzzard-blocker-engine;1";
+const CONTRACT_ID = "@wildbuzzard.invalid/wildbuzzard-blocker-engine;1";
 
 // Prefs
 const PREF_ENABLED = "wildbuzzard.blocker.enabled";

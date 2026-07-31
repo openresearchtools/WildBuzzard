@@ -52,10 +52,10 @@ export default [
   "browser/branding/**/firefox-branding.js",
   "wildbuzzard/browser/branding/**/firefox-branding.js",
   "wildbuzzard/browser/app/profile/",
-  "waterfox/browser/branding/**/firefox-branding.js",
+  "wildbuzzard/browser/branding/**/firefox-branding.js",
   // Pre-processed default pref files
-  "waterfox/browser/app/profile/",
-  "waterfox/browser/themes/lepton/prefs-lepton.js",
+  "wildbuzzard/browser/app/profile/",
+  "wildbuzzard/browser/themes/lepton/prefs-lepton.js",
   // Gzipped test file.
   "browser/base/content/test/general/gZipOfflineChild.html",
   "browser/base/content/test/urlbar/file_blank_but_not_blank.html",

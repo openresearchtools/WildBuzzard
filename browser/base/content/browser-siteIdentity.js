@@ -481,7 +481,7 @@ var gIdentityHandler = {
     event.stopPropagation();
   },
 
-  // Waterfox: the cookie exception toggle in the site data footer.
+  // WildBuzzard: the cookie exception toggle in the site data footer.
   refreshSiteData() {
     document
       .getElementById("identity-popup-allow-sitedata-toggle")

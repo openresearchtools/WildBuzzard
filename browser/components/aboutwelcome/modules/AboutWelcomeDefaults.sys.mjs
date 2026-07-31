@@ -22,7 +22,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   ASRouterScreenUtils:
     "resource:///modules/asrouter/ASRouterScreenUtils.sys.mjs",
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
-  WaterfoxOnboarding: "resource:///modules/WaterfoxOnboarding.sys.mjs",
+  WildBuzzardOnboarding: "resource:///modules/WildBuzzardOnboarding.sys.mjs",
 });
 
 const isMSIX =
@@ -663,7 +663,7 @@ const MR_ABOUT_WELCOME_DEFAULT = {
         position: "split",
         split_narrow_bkg_position: "-60px",
         image_alt_text: {
-          string_id: "waterfox-onboarding-logo-image-alt",
+          string_id: "wildbuzzard-onboarding-logo-image-alt",
         },
         background:
           "url('chrome://branding/content/about-logo.svg') var(--mr-secondary-position) no-repeat light-dark(rgba(252, 245, 240, 1), rgba(33, 3, 64, 1))",
@@ -807,7 +807,7 @@ const MR_ABOUT_WELCOME_DEFAULT = {
         position: "split",
         split_narrow_bkg_position: "-60px",
         image_alt_text: {
-          string_id: "waterfox-onboarding-logo-image-alt",
+          string_id: "wildbuzzard-onboarding-logo-image-alt",
         },
         background:
           "url('chrome://branding/content/about-logo.svg') var(--mr-secondary-position) no-repeat light-dark(rgba(252, 245, 240, 1), rgba(33, 3, 64, 1))",
@@ -928,7 +928,7 @@ const MR_ABOUT_WELCOME_DEFAULT = {
         position: "split",
         split_narrow_bkg_position: "-60px",
         image_alt_text: {
-          string_id: "waterfox-onboarding-logo-image-alt",
+          string_id: "wildbuzzard-onboarding-logo-image-alt",
         },
         background:
           "url('chrome://branding/content/about-logo.svg') var(--mr-secondary-position) no-repeat light-dark(rgba(252, 245, 240, 1), rgba(33, 3, 64, 1))",
@@ -1141,7 +1141,7 @@ const MR_ABOUT_WELCOME_DEFAULT = {
         position: "split",
         split_narrow_bkg_position: "-42px",
         image_alt_text: {
-          string_id: "waterfox-onboarding-logo-image-alt",
+          string_id: "wildbuzzard-onboarding-logo-image-alt",
         },
         title: {
           string_id: "onboarding-refresh-import-title",
@@ -1248,7 +1248,7 @@ const MR_ABOUT_WELCOME_DEFAULT = {
         position: "split",
         split_narrow_bkg_position: "-228px",
         image_alt_text: {
-          string_id: "waterfox-onboarding-logo-image-alt",
+          string_id: "wildbuzzard-onboarding-logo-image-alt",
         },
         background:
           "url('chrome://branding/content/about-logo.svg') var(--mr-secondary-position) no-repeat light-dark(rgba(252, 245, 240, 1), rgba(33, 3, 64, 1))",
@@ -1278,7 +1278,7 @@ const MR_ABOUT_WELCOME_DEFAULT = {
         position: "split",
         split_narrow_bkg_position: "-228px",
         image_alt_text: {
-          string_id: "waterfox-onboarding-logo-image-alt",
+          string_id: "wildbuzzard-onboarding-logo-image-alt",
         },
         background:
           "url('chrome://branding/content/about-logo.svg') var(--mr-secondary-position) no-repeat light-dark(rgba(252, 245, 240, 1), rgba(33, 3, 64, 1))",
@@ -1392,7 +1392,7 @@ async function getAttributionContent() {
 // Return default multistage welcome content
 function getDefaults() {
   return (
-    lazy.WaterfoxOnboarding.getDefaults() ||
+    lazy.WildBuzzardOnboarding.getDefaults() ||
     Cu.cloneInto(MR_ABOUT_WELCOME_DEFAULT, {})
   );
 }

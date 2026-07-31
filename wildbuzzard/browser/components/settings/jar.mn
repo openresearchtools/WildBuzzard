@@ -1,0 +1,10 @@
+browser.jar:
+%   content browser %content/browser/ contentaccessible=yes
+    content/browser/wildbuzzard/settings/WildBuzzardSettingsPanes.mjs          (WildBuzzardSettingsPanes.mjs)
+    content/browser/wildbuzzard/settings/wildbuzzardAppearance.mjs             (wildbuzzardAppearance.mjs)
+    content/browser/wildbuzzard/settings/wildbuzzardAppearance.css             (wildbuzzardAppearance.css)
+    content/browser/wildbuzzard/settings/wildbuzzardDataCollection.mjs         (wildbuzzardDataCollection.mjs)
+    content/browser/wildbuzzard/settings/wildbuzzardHome.mjs                   (wildbuzzardHome.mjs)
+    content/browser/wildbuzzard/settings/wildbuzzardPrivacy.mjs                (wildbuzzardPrivacy.mjs)
+    content/browser/wildbuzzard/settings/wildbuzzardSearch.mjs                 (wildbuzzardSearch.mjs)
+    content/browser/wildbuzzard/settings/wildbuzzardTabs.mjs                   (wildbuzzardTabs.mjs)

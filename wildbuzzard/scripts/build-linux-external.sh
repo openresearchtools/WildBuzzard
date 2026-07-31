@@ -138,6 +138,17 @@ run_step() {
   ) 2>&1 | tee "${log_dir}/${name}.log"
 }
 
+run_product_tests() {
+  run_step product-tests ./mach test \
+    wildbuzzard/browser/components
+}
+
+run_deb_package() {
+  run_step deb-package ./wildbuzzard/scripts/package-deb.sh \
+    --dist-dir "${object_dir}/dist" \
+    --output-dir "${run_root}/artifacts"
+}
+
 if [[ "${run_bootstrap}" == true ]]; then
   run_step bootstrap ./mach --no-interactive bootstrap \
     --application-choice browser \
@@ -173,10 +184,12 @@ case "${action}" in
     run_step blocker-tests ./mach test \
       browser/components/blocker/test/unit \
       browser/components/blocker/test/browser
+    run_product_tests
     ;;
   package)
     run_step build ./mach build
     run_step package ./mach package
+    run_deb_package
     ;;
   all)
     run_step configure ./mach configure
@@ -184,7 +197,9 @@ case "${action}" in
     run_step blocker-tests ./mach test \
       browser/components/blocker/test/unit \
       browser/components/blocker/test/browser
+    run_product_tests
     run_step package ./mach package
+    run_deb_package
     ;;
 esac
 
