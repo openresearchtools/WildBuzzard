@@ -2460,6 +2460,16 @@ pref("privacy.resistFingerprinting.skipEarlyBlankFirstPaint", true);
 
 pref("browser.contentblocking.database.enabled", true);
 
+// WildBuzzard's built-in content blocker.
+pref("wildbuzzard.blocker.enabled", true);
+pref("wildbuzzard.blocker.ui.enabled", true);
+pref("wildbuzzard.blocker.showBadge", true);
+pref("wildbuzzard.blocker.filterListUrls", "[]");
+pref("wildbuzzard.blocker.enabledLists", "{}");
+pref("wildbuzzard.blocker.extensionDetectionDismissed", false);
+pref("wildbuzzard.blocker.dismissedExtensionInstallWarnings", "[]");
+pref("wildbuzzard.blocker.coexist", false);
+
 // Enable Strip on Share by default on desktop
 pref("privacy.query_stripping.strip_on_share.enabled", true);
 

@@ -1,0 +1,12 @@
+[DEFAULT]
+firefox-appdir = "browser"
+support-files = [
+  "file_early_scriptlet_injection.html",
+  "head.js",
+]
+
+["browser_blocked_page_bypass.js"]
+
+["browser_blocker_settings_registration.js"]
+
+["browser_early_scriptlet_injection.js"]

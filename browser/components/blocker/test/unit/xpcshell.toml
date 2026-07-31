@@ -1,0 +1,18 @@
+[DEFAULT]
+firefox-appdir = "browser"
+
+["test_extension_detector.js"]
+
+["test_list_atomic_writes.js"]
+
+["test_list_fetch_limits.js"]
+
+["test_list_preprocessor.js"]
+
+["test_list_write_serialization.js"]
+
+["test_redirect_resources.js"]
+
+["test_replace_response_filter.js"]
+
+["test_wildbuzzard_unbreak.js"]

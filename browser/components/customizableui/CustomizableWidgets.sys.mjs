@@ -324,15 +324,15 @@ export const CustomizableWidgets = [
     },
   },
   {
-    id: "waterfox-blocker-toolbar-button",
-    l10nId: "waterfox-blocker-toolbar-button",
+    id: "wildbuzzard-blocker-toolbar-button",
+    l10nId: "wildbuzzard-blocker-toolbar-button",
     defaultArea: "nav-bar",
     introducedInVersion: 25,
     onCreated(aNode) {
       aNode.setAttribute("badged", "true");
-      // Match the default of the lazy getter in WaterfoxBlockerPanel.
+      // Match the default of the lazy getter in WildBuzzardBlockerPanel.
       aNode.hidden = !Services.prefs.getBoolPref(
-        "waterfox.blocker.ui.enabled",
+        "wildbuzzard.blocker.ui.enabled",
         false
       );
     },
@@ -341,10 +341,10 @@ export const CustomizableWidgets = [
       if (!win?.gBrowser) {
         return;
       }
-      const { WaterfoxBlockerPanel } = ChromeUtils.importESModule(
-        "resource:///modules/WaterfoxBlockerPanel.sys.mjs"
+      const { WildBuzzardBlockerPanel } = ChromeUtils.importESModule(
+        "resource:///modules/WildBuzzardBlockerPanel.sys.mjs"
       );
-      WaterfoxBlockerPanel._openToolbarPanel(win, aEvent);
+      WildBuzzardBlockerPanel._openToolbarPanel(win, aEvent);
     },
   },
   {

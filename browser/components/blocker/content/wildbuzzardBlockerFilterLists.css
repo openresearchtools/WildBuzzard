@@ -1,0 +1,85 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#WildBuzzardBlockerFilterListsWindow {
+  width: 52em;
+  min-height: 40em;
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-scroll-container {
+  overflow-y: auto;
+  max-height: 25em;
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-category {
+  margin-bottom: var(--space-small);
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-category-header {
+  border-radius: var(--border-radius-small);
+  padding: var(--space-xsmall);
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-category-header:hover {
+  background-color: var(--button-background-color-hover);
+  cursor: pointer;
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-category-title {
+  font-weight: var(--font-weight-semibold);
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-category-counter {
+  margin-inline-start: var(--space-small);
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-category-lists {
+  padding-inline-start: calc(var(--size-item-xsmall) + var(--space-small));
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-list-row {
+  margin-block: var(--space-xxsmall);
+  padding-inline-end: var(--space-xsmall);
+}
+
+#WildBuzzardBlockerFilterListsWindow .twisty {
+  width: var(--size-item-xsmall);
+  height: var(--size-item-xsmall);
+  margin-inline-end: var(--space-small);
+  -moz-context-properties: fill;
+  fill: currentColor;
+  list-style-image: url("chrome://global/skin/icons/arrow-right-12.svg");
+}
+
+#WildBuzzardBlockerFilterListsWindow .twisty.open {
+  list-style-image: url("chrome://global/skin/icons/arrow-down-12.svg");
+}
+
+#WildBuzzardBlockerFilterListsWindow #wildbuzzardBlockerFilterListsSearch {
+  width: 100%;
+}
+
+#WildBuzzardBlockerFilterListsWindow #wildbuzzardBlockerFilterListsToolbar {
+  padding: var(--space-xsmall);
+  gap: var(--space-small);
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-list-link-icon {
+  width: var(--size-item-xsmall);
+  height: var(--size-item-xsmall);
+  margin-inline-start: var(--space-xsmall);
+  -moz-context-properties: fill;
+  fill: currentColor;
+  opacity: var(--opacity-deemphasized-strong);
+  cursor: pointer;
+  list-style-image: url("chrome://global/skin/icons/open-in-new.svg");
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-list-link-icon:hover {
+  opacity: 1;
+}
+
+#WildBuzzardBlockerFilterListsWindow .wildbuzzard-blocker-list-updated {
+  font-size: var(--font-size-small);
+}

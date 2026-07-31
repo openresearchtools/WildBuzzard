@@ -1,0 +1,33 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#WildBuzzardBlockerCustomFilterListsDialog {
+  width: 45em;
+  min-height: 36em;
+}
+
+#WildBuzzardBlockerCustomFilterListsDialog #url {
+  flex: 1;
+}
+
+#WildBuzzardBlockerCustomFilterListsDialog #urlListBox {
+  flex: 1 auto;
+  height: 18em;
+  min-height: calc(2 * var(--size-item-large));
+}
+
+#WildBuzzardBlockerCustomFilterListsDialog #urlCol,
+#WildBuzzardBlockerCustomFilterListsDialog #urlListBox > richlistitem {
+  min-height: var(--size-item-large);
+}
+
+#WildBuzzardBlockerCustomFilterListsDialog #urlListBox > richlistitem > hbox {
+  flex: 1;
+  align-items: center;
+}
+
+#WildBuzzardBlockerCustomFilterListsDialog #urlCol {
+  flex: 3 3 auto;
+  width: 0;
+}
