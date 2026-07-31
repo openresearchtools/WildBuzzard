@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
 # Porting policy
 
@@ -20,10 +20,10 @@
 - Keep every existing copyright, SPDX, MPL, GPL, Creative Commons, attribution,
   and source notice in a donor file or asset.
 - Modifications to MPL-covered files retain their MPL-2.0 notices. They may
-  additionally be distributed under AGPL-3.0-only as part of the WildBuzzard
+  additionally be distributed under AGPL-3.0-or-later as part of the WildBuzzard
   Larger Work where MPL-2.0 section 3.3 permits.
 - New WildBuzzard-original files use `SPDX-License-Identifier:
-  AGPL-3.0-only`, except when a port or dependency requires another compatible
+  AGPL-3.0-or-later`, except when a port or dependency requires another compatible
   notice.
 - Do not relabel Waterfox-authored work as Mozilla- or WildBuzzard-authored.
 - Review code and data separately. Filter lists, scriptlets, resources, and
