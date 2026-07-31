@@ -1,4 +1,4 @@
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
 # WildBuzzard source layout
 
@@ -25,7 +25,7 @@ No Waterfox code has been placed on the product branch merely by creating these
 refs. Candidate ports are tracked in [`ports.toml`](ports.toml), and the rules
 for accepting them are in [`PORTING.md`](PORTING.md).
 
-WildBuzzard is distributed as an AGPL-3.0-only combined work. Inherited
+WildBuzzard is distributed as an AGPL-3.0-or-later combined work. Inherited
 file-level licenses and notices remain in force; see
 [`LICENSE-POLICY.md`](LICENSE-POLICY.md).
 

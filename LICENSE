@@ -1,5 +1,6 @@
 WildBuzzard is distributed as a combined work under the GNU Affero General
-Public License, version 3.0 only. The complete AGPL-3.0 text is in COPYING.
+Public License, version 3.0 or (at your option) any later version. The complete
+AGPL-3.0 text is in COPYING.
 
 This repository contains substantial inherited and third-party material under
 other licenses. Existing file-level copyright, SPDX, MPL, GPL, Creative
@@ -8,7 +9,7 @@ for that material and must not be removed. In particular:
 
 * Mozilla and Waterfox source files remain covered by their existing MPL-2.0
   notices. Where MPL-2.0 section 3.3 permits use of a Secondary License, those
-  files are additionally distributed under AGPL-3.0-only as part of the
+  files are additionally distributed under AGPL-3.0-or-later as part of the
   WildBuzzard Larger Work.
 * GPL-covered code and data remain under their stated GPL version.
 * Creative Commons and other data licenses remain attached to their respective
@@ -16,7 +17,8 @@ for that material and must not be removed. In particular:
 * Files marked "Incompatible With Secondary Licenses" are not offered under
   AGPL by WildBuzzard.
 * WildBuzzard-original files carrying
-  `SPDX-License-Identifier: AGPL-3.0-only` are licensed under AGPL-3.0-only.
+  `SPDX-License-Identifier: AGPL-3.0-or-later` are licensed under
+  AGPL-3.0-or-later.
 
 See toolkit/content/license.html for the inherited Mozilla copyright and
 licensing notices, including copies of the licenses concerned. See
