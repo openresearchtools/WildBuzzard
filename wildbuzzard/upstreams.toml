@@ -1,0 +1,28 @@
+schema = 1
+
+[firefox]
+remote = "https://github.com/mozilla-firefox/firefox.git"
+ref = "FIREFOX_153_0esr_RELEASE"
+commit = "c754d4f2d60ffacfa3aaab1134fed75ed4c9d3ef"
+version = "153.0esr"
+branch = "base/firefox-153.0esr"
+tag = "upstream/firefox-153.0esr"
+
+[waterfox]
+remote = "https://github.com/BrowserWorks/waterfox.git"
+ref = "current"
+commit = "8ae6e039a06bcff8173cb4a4c0262beb21f81286"
+mozilla_base_commit = "75427e175edea62d70dd576f57e030fd48ca1621"
+branch = "waterfox"
+tag = "donor/waterfox-current-20260730"
+role = "donor-only"
+
+[adblock_engine]
+package = "adblock"
+version = "0.12.1"
+upstream = "https://github.com/brave/adblock-rust/"
+license = "MPL-2.0"
+path = "third_party/rust/adblock"
+git_tree = "631bb7e5bdd677ffb1457e1d07ae32695607be6c"
+provided_by = "FIREFOX_153_0esr_RELEASE"
+waterfox_tree_is_identical = true
