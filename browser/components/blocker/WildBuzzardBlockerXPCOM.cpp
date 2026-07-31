@@ -122,8 +122,9 @@ NS_IMETHODIMP
 WildBuzzardBlockerXPCOM::InitFromLists(const nsTArray<nsCString>& aFilterLists) {
   nsTArray<nsCString> rules;
   for (const nsCString& listText : aFilterLists) {
-    for (const nsACString& token :
-         nsCCharSeparatedTokenizer(listText, '\n').ToRange()) {
+    // Do not use nsCCharSeparatedTokenizer here: its default whitespace
+    // handling consumes '\n' before it can act as the requested separator.
+    for (const nsACString& token : listText.Split('\n')) {
       nsCString rule(token);
       rule.Trim(" \t\r");
       if (rule.IsEmpty() || rule.First() == '!' || rule.First() == '[') {

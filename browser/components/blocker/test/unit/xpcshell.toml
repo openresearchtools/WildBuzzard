@@ -1,5 +1,6 @@
 [DEFAULT]
 firefox-appdir = "browser"
+head = "head.js"
 
 ["test_extension_detector.js"]
 

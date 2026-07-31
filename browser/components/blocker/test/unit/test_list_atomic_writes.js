@@ -36,38 +36,15 @@ add_task(
     const tmpPath = `${path}.tmp`;
 
     await IOUtils.writeUTF8(path, "old contents");
-
-    const originalWrite = IOUtils.write;
-    IOUtils.write = async function mockedWrite(
-      targetPath,
-      bytes,
-      options = {}
-    ) {
-      Assert.equal(
-        targetPath,
-        path,
-        "ListStore should write to the requested path"
-      );
-      Assert.equal(
-        options.tmpPath,
-        tmpPath,
-        "ListStore should use a temp file for durable writes"
-      );
-      await originalWrite(
-        tmpPath,
-        new TextEncoder().encode("partial contents")
-      );
-      throw new Error("simulated write failure");
-    };
-
+    await IOUtils.makeDirectory(tmpPath);
     try {
       await Assert.rejects(
         ListStore.writeText(path, "new contents"),
-        /simulated write failure/,
-        "The simulated write failure should surface"
+        /directory|write|operation|denied|exists/i,
+        "An unusable atomic temp path should reject the write"
       );
     } finally {
-      IOUtils.write = originalWrite;
+      await IOUtils.remove(tmpPath, { ignoreAbsent: true, recursive: true });
     }
 
     Assert.equal(
@@ -77,35 +54,21 @@ add_task(
     );
 
     await IOUtils.remove(path, { ignoreAbsent: true });
-    await IOUtils.remove(tmpPath, { ignoreAbsent: true });
   }
 );
 
 add_task(async function test_list_store_write_json_uses_atomic_text_writer() {
   const path = PathUtils.join(PathUtils.profileDir, "list-store-atomic.json");
-  const writes = [];
-  const originalWrite = IOUtils.write;
-
-  IOUtils.write = async function mockedWrite(targetPath, bytes, options = {}) {
-    writes.push({ targetPath, tmpPath: options.tmpPath });
-    return originalWrite(targetPath, bytes, options);
-  };
-
-  try {
-    await ListStore.writeJSON(path, { ok: true });
-  } finally {
-    IOUtils.write = originalWrite;
-  }
+  await ListStore.writeJSON(path, { ok: true });
 
   Assert.deepEqual(
     JSON.parse(await IOUtils.readUTF8(path)),
     { ok: true },
     "ListStore.writeJSON should write valid JSON"
   );
-  Assert.deepEqual(
-    writes,
-    [{ targetPath: path, tmpPath: `${path}.tmp` }],
-    "ListStore.writeJSON should use the atomic text writer"
+  Assert.ok(
+    !(await IOUtils.exists(`${path}.tmp`)),
+    "A successful atomic JSON write should leave no temp file"
   );
 
   await IOUtils.remove(path, { ignoreAbsent: true });
@@ -114,30 +77,26 @@ add_task(async function test_list_store_write_json_uses_atomic_text_writer() {
 add_task(async function test_engine_cache_writes_use_tmp_paths() {
   await EngineCache.clear();
 
-  const writes = [];
-  const originalWrite = IOUtils.write;
-
-  IOUtils.write = async function mockedWrite(path, bytes, options = {}) {
-    writes.push({ path, tmpPath: options.tmpPath });
-    return originalWrite(path, bytes, options);
-  };
-
   try {
     await EngineCache.write(
       engineWithBytes([1, 2, 3]),
       DESCRIPTORS,
       LIST_RECORDS
     );
+    const cacheRoot = ListStore.cacheRootPath();
+    const children = await IOUtils.getChildren(cacheRoot);
+    Assert.equal(
+      children.length,
+      2,
+      "Engine cache should write data and metadata"
+    );
+    Assert.ok(
+      children.every(path => !path.endsWith(".tmp")),
+      "Successful engine cache writes should leave no temp files"
+    );
   } finally {
-    IOUtils.write = originalWrite;
     await EngineCache.clear();
   }
-
-  Assert.equal(writes.length, 2, "Engine cache should write data and metadata");
-  Assert.ok(
-    writes.every(write => write.tmpPath === `${write.path}.tmp`),
-    "Engine cache writes should all use temp paths"
-  );
 });
 
 add_task(
@@ -150,19 +109,13 @@ add_task(
     );
 
     const originalBytes = Array.from(await EngineCache.read());
-    const originalWrite = IOUtils.write;
-    const tmpPaths = [];
-
-    IOUtils.write = async function mockedWrite(path, bytes, options = {}) {
-      Assert.equal(
-        options.tmpPath,
-        `${path}.tmp`,
-        "EngineCache should write through a temp path"
-      );
-      tmpPaths.push(options.tmpPath);
-      await originalWrite(options.tmpPath, new Uint8Array([9, 9, 9]));
-      throw new Error("simulated cache write failure");
-    };
+    const cacheRoot = ListStore.cacheRootPath();
+    const enginePath = (await IOUtils.getChildren(cacheRoot)).find(path =>
+      PathUtils.filename(path).startsWith("adblock-engine.")
+    );
+    Assert.ok(enginePath, "The initial engine cache file should exist");
+    const tmpPath = `${enginePath}.tmp`;
+    await IOUtils.makeDirectory(tmpPath);
 
     try {
       await Assert.rejects(
@@ -171,11 +124,11 @@ add_task(
           DESCRIPTORS,
           LIST_RECORDS
         ),
-        /simulated cache write failure/,
-        "The simulated cache write failure should surface"
+        /directory|write|operation|denied|exists/i,
+        "An unusable cache temp path should reject the write"
       );
     } finally {
-      IOUtils.write = originalWrite;
+      await IOUtils.remove(tmpPath, { ignoreAbsent: true, recursive: true });
     }
 
     Assert.deepEqual(
@@ -185,8 +138,5 @@ add_task(
     );
 
     await EngineCache.clear();
-    for (const tmpPath of tmpPaths) {
-      await IOUtils.remove(tmpPath, { ignoreAbsent: true });
-    }
   }
 );

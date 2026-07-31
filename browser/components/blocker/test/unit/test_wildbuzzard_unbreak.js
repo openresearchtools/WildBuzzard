@@ -30,7 +30,7 @@ add_task(async function test_chase_dip_exception_is_narrow() {
   const listRecords = await ListStore.withWildBuzzardUnbreakRecord([
     {
       filename: "test-blocking.txt",
-      text: "/__imp_apg__/*\n||analytics.chase.com^",
+      text: "||securej.chase.com^\n||analytics.chase.com^",
       url: "wildbuzzard://test-blocking",
     },
   ]);

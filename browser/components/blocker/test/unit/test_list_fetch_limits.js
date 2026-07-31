@@ -104,13 +104,13 @@ function opaqueRedirectResponse() {
 }
 
 async function withMockedFetch(fetchImpl, task) {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = fetchImpl;
+  const originalFetch = WildBuzzardBlockerService._fetch;
+  WildBuzzardBlockerService._fetch = fetchImpl;
 
   try {
-    await task();
+    await task(fetchImpl);
   } finally {
-    globalThis.fetch = originalFetch;
+    WildBuzzardBlockerService._fetch = originalFetch;
   }
 }
 
@@ -182,7 +182,8 @@ add_task(async function test_read_list_response_rejects_streaming_over_cap() {
     "Overflowing streams should be cancelled"
   );
   Assert.ok(
-    stream.cancelReason instanceof Error,
+    typeof stream.cancelReason === "object" &&
+      stream.cancelReason?.message?.includes("Fetched list exceeds"),
     "Stream cancellation should receive the overflow error"
   );
 });
