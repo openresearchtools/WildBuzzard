@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+DIST_SUBDIR = "browser"
+export("DIST_SUBDIR")
+
+# This file is intentionally loaded after browser/app/profile/firefox.js.
+# WildBuzzard policy therefore overrides inherited vendor defaults without
+# rewriting the upstream ESR preference file on every rebase.
+JS_PREFERENCE_PP_FILES += [
+    "app/profile/99-wildbuzzard.js",
+]
+

@@ -1,0 +1,15 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<svg xmlns="http://www.w3.org/2000/svg" width="420" height="72" viewBox="0 0 420 72" role="img" aria-label="WildBuzzard">
+  <style>
+    .wordmark {
+      fill: #10243c;
+      font: 700 48px/1 system-ui, sans-serif;
+      letter-spacing: -1.5px;
+    }
+    @media (prefers-color-scheme: dark) {
+      .wordmark { fill: #f4fbff; }
+    }
+  </style>
+  <text class="wordmark" x="4" y="53">WildBuzzard</text>
+</svg>
+

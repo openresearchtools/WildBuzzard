@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+# Keep Firefox in the user-agent for website compatibility while giving the
+# installed application, profile, and package their own WildBuzzard identity.
+imply_option("MOZ_APP_UA_NAME", "Firefox")
+imply_option("MOZ_APP_PROFILE", "WildBuzzard")
+imply_option("MOZ_TELEMETRY_REPORTING", False)
+imply_option("--with-app-basename", "WildBuzzard")
+imply_option("--with-distribution-id", "org.wildbuzzard")
