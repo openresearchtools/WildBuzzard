@@ -5,7 +5,7 @@ schema = 1
 [[port]]
 name = "content blocker: Rust engine bindings"
 source_commit = "a050b40a68dc7d12371f71b32fb4b2dc615ebdda"
-status = "planned"
+status = "staged"
 
 [[port]]
 name = "content blocker: backend"
