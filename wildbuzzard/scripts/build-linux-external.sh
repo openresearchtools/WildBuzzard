@@ -127,6 +127,9 @@ git -C "${checkout_dir}" checkout --detach "${commit}"
 export MOZBUILD_STATE_PATH="${state_dir}"
 export CCACHE_DIR="${ccache_dir}"
 export SCCACHE_DIR="${sccache_dir}"
+# Normalize the per-run checkout prefix out of cache keys. Without this,
+# otherwise identical source files in fresh runner directories miss the cache.
+export SCCACHE_BASEDIR="${checkout_dir}"
 
 run_step() {
   local name="$1"
