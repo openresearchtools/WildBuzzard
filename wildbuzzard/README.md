@@ -1,3 +1,5 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+
 # WildBuzzard source layout
 
 WildBuzzard is built from an official Firefox ESR release, not from the
@@ -22,3 +24,7 @@ are in [`upstreams.toml`](upstreams.toml).
 No Waterfox code has been placed on the product branch merely by creating these
 refs. Candidate ports are tracked in [`ports.toml`](ports.toml), and the rules
 for accepting them are in [`PORTING.md`](PORTING.md).
+
+WildBuzzard is distributed as an AGPL-3.0-only combined work. Inherited
+file-level licenses and notices remain in force; see
+[`LICENSE-POLICY.md`](LICENSE-POLICY.md).
