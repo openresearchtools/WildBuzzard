@@ -1,9 +1,9 @@
-<!-- SPDX-License-Identifier: AGPL-3.0-only -->
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
 # WildBuzzard licensing policy
 
 WildBuzzard is distributed as a combined work under
-`AGPL-3.0-only`. This choice applies strong copyleft to WildBuzzard-original
+`AGPL-3.0-or-later`. This choice applies strong copyleft to WildBuzzard-original
 browser, agent, automation, service, and user-interface work, including the
 source-availability requirement for modified AGPL software used over a network.
 
@@ -13,8 +13,8 @@ It does not erase or replace inherited licenses.
 
 | Material | Governing treatment |
 | --- | --- |
-| WildBuzzard-original source | `AGPL-3.0-only` |
-| Mozilla and Waterfox MPL files | Preserve MPL-2.0 notices; additionally distribute under AGPL-3.0-only only where MPL-2.0 section 3.3 permits |
+| WildBuzzard-original source | `AGPL-3.0-or-later` |
+| Mozilla and Waterfox MPL files | Preserve MPL-2.0 notices; additionally distribute under AGPL-3.0-or-later only where MPL-2.0 section 3.3 permits |
 | MPL files marked incompatible with Secondary Licenses | MPL only; exclude from any claim of AGPL secondary licensing |
 | `adblock-rs` | MPL-2.0 notice retained |
 | uBlock Origin code, scriptlets, resources, and lists | Retain the applicable GPL-3.0 notice and exact source revision |
