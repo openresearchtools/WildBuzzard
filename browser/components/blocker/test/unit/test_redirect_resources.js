@@ -2,7 +2,6 @@
  * http://creativecommons.org/publicdomain/zero/1.0/ */
 
 const RESOURCE_BUNDLE_PATH = [
-  "wildbuzzard",
   "browser",
   "components",
   "blocker",

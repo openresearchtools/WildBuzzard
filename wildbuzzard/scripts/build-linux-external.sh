@@ -92,8 +92,15 @@ object_dir="${run_root}/obj"
 log_dir="${run_root}/logs"
 state_dir="${build_root}/state"
 ccache_dir="${build_root}/ccache"
+sccache_dir="${build_root}/sccache"
 
-mkdir -p -- "${run_root}" "${object_dir}" "${log_dir}" "${state_dir}" "${ccache_dir}"
+mkdir -p -- \
+  "${run_root}" \
+  "${object_dir}" \
+  "${log_dir}" \
+  "${state_dir}" \
+  "${ccache_dir}" \
+  "${sccache_dir}"
 
 if ! git -C "${source_repo}" diff --quiet ||
   ! git -C "${source_repo}" diff --cached --quiet; then
@@ -105,18 +112,6 @@ fi
 # Firefox's multi-gigabyte history; all generated files still stay external.
 git clone --shared --no-checkout -- "${source_repo}" "${checkout_dir}"
 git -C "${checkout_dir}" checkout --detach "${commit}"
-
-{
-  echo "mk_add_options MOZ_OBJDIR=${object_dir}"
-  echo "mk_add_options AUTOCLOBBER=1"
-  echo "mk_add_options MOZ_MAKE_FLAGS=-j${jobs}"
-  echo "ac_add_options --enable-application=browser"
-  echo "ac_add_options --enable-optimize"
-  echo "ac_add_options --disable-debug"
-  if command -v ccache >/dev/null 2>&1; then
-    echo "ac_add_options --with-ccache=$(command -v ccache)"
-  fi
-} >"${checkout_dir}/.mozconfig"
 
 {
   echo "commit=${commit}"
@@ -131,6 +126,7 @@ git -C "${checkout_dir}" checkout --detach "${commit}"
 
 export MOZBUILD_STATE_PATH="${state_dir}"
 export CCACHE_DIR="${ccache_dir}"
+export SCCACHE_DIR="${sccache_dir}"
 
 run_step() {
   local name="$1"
@@ -143,8 +139,26 @@ run_step() {
 }
 
 if [[ "${run_bootstrap}" == true ]]; then
-  run_step bootstrap ./mach bootstrap --application-choice browser
+  run_step bootstrap ./mach --no-interactive bootstrap \
+    --application-choice browser \
+    --no-system-changes
 fi
+
+# Bootstrap installs Mozilla's pinned sccache into the state directory. Write
+# the configuration afterwards so a fresh runner uses it on its first build.
+{
+  echo "mk_add_options MOZ_OBJDIR=${object_dir}"
+  echo "mk_add_options AUTOCLOBBER=1"
+  echo "mk_add_options MOZ_MAKE_FLAGS=-j${jobs}"
+  echo "ac_add_options --enable-application=browser"
+  echo "ac_add_options --enable-optimize"
+  echo "ac_add_options --disable-debug"
+  if [[ -x "${state_dir}/sccache/sccache" ]]; then
+    echo "ac_add_options --with-ccache=${state_dir}/sccache/sccache"
+  elif command -v ccache >/dev/null 2>&1; then
+    echo "ac_add_options --with-ccache=$(command -v ccache)"
+  fi
+} >"${checkout_dir}/.mozconfig"
 
 case "${action}" in
   configure)
@@ -175,4 +189,4 @@ esac
 
 echo "Build run complete: ${run_root}"
 echo "Packages, when requested, are under: ${object_dir}/dist"
-echo "Shared ccache: ${ccache_dir}"
+echo "Shared sccache: ${sccache_dir}"

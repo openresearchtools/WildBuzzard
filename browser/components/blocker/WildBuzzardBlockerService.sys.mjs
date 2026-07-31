@@ -1859,7 +1859,7 @@ export const WildBuzzardBlockerService = {
     descriptor,
     redirectMode = getListFetchRedirectMode(descriptor)
   ) {
-    const response = await fetch(descriptor.url, {
+    const response = await this._fetch(descriptor.url, {
       cache: "no-store",
       redirect: redirectMode,
     });
@@ -1876,6 +1876,10 @@ export const WildBuzzardBlockerService = {
       lastModified: response.headers.get("Last-Modified") || "",
       text,
     };
+  },
+
+  _fetch(...args) {
+    return fetch(...args);
   },
 
   _getCustomFilterListUrls() {

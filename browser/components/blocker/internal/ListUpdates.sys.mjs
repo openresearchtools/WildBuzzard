@@ -112,7 +112,8 @@ async function fetchList(
   descriptor,
   metadataEntry,
   conditional,
-  redirectMode = "manual"
+  redirectMode = "manual",
+  fetchImpl = fetch
 ) {
   const headers = new Headers();
 
@@ -123,7 +124,7 @@ async function fetchList(
     headers.set("If-Modified-Since", metadataEntry.lastModified);
   }
 
-  const response = await fetch(descriptor.url, {
+  const response = await fetchImpl(descriptor.url, {
     cache: "no-store",
     headers,
     redirect: redirectMode,
@@ -152,8 +153,9 @@ async function fetchList(
  * Tracks list refresh runs so only one update pass is in flight at a time.
  */
 export class ListUpdatesState {
-  constructor() {
+  constructor({ fetchImpl = fetch } = {}) {
     this._updateInProgress = false;
+    this._fetch = fetchImpl;
   }
 
   async updateIfNeeded() {
@@ -211,7 +213,8 @@ export class ListUpdatesState {
               descriptor,
               oldEntry,
               true,
-              getListFetchRedirectMode(descriptor)
+              getListFetchRedirectMode(descriptor),
+              this._fetch
             );
 
             if (result.notModified) {

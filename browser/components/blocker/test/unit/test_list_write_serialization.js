@@ -44,13 +44,13 @@ function textResponse(text, etag) {
 }
 
 async function withMockedFetch(fetchImpl, task) {
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = fetchImpl;
+  const originalFetch = WildBuzzardBlockerService._fetch;
+  WildBuzzardBlockerService._fetch = fetchImpl;
 
   try {
-    await task();
+    await task(fetchImpl);
   } finally {
-    globalThis.fetch = originalFetch;
+    WildBuzzardBlockerService._fetch = originalFetch;
   }
 }
 
@@ -139,8 +139,8 @@ add_task(async function test_bootstrap_and_update_list_writes_are_serialized() {
           }
           return textResponse(updateBody, '"update"');
         },
-        async () => {
-          const updateState = new ListUpdatesState();
+        async fetchImpl => {
+          const updateState = new ListUpdatesState({ fetchImpl });
           const initPromise = WildBuzzardBlockerService._fetchAndPersistLists([
             descriptor,
           ]);
