@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: AGPL-3.0-only
+# SPDX-License-Identifier: AGPL-3.0-or-later
 #
 # Build a committed WildBuzzard revision in a runner-style checkout. Nothing is
 # configured, compiled, cached, or packaged in the developer source checkout.
@@ -100,7 +100,10 @@ if ! git -C "${source_repo}" diff --quiet ||
   echo "Note: the developer checkout is dirty; this run builds committed ${commit} only."
 fi
 
-git clone --no-local --no-checkout -- "${source_repo}" "${checkout_dir}"
+# The checkout has its own index and worktree, while Git objects are borrowed
+# read-only from the developer repository. This avoids copying and recompressing
+# Firefox's multi-gigabyte history; all generated files still stay external.
+git clone --shared --no-checkout -- "${source_repo}" "${checkout_dir}"
 git -C "${checkout_dir}" checkout --detach "${commit}"
 
 {
