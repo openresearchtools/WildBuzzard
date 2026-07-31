@@ -28,3 +28,6 @@ for accepting them are in [`PORTING.md`](PORTING.md).
 WildBuzzard is distributed as an AGPL-3.0-only combined work. Inherited
 file-level licenses and notices remain in force; see
 [`LICENSE-POLICY.md`](LICENSE-POLICY.md).
+
+Linux builds and blocker tests run from a clean external checkout; see
+[`BUILDING-LINUX.md`](BUILDING-LINUX.md).
