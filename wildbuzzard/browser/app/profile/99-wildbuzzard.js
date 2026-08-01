@@ -54,10 +54,13 @@ pref("toolkit.telemetry.dap.helper.url", "", locked);
 pref("app.shield.optoutstudies.enabled", false, locked);
 pref("app.normandy.enabled", false, locked);
 pref("app.normandy.api_url", "", locked);
+pref("app.normandy.shieldLearnMoreUrl", "about:blank", locked);
 pref("messaging-system.rsexperimentloader.enabled", false, locked);
 
-// Firefox Remote Settings and sponsored/recommendation feeds.
-pref("services.settings.server", "", locked);
+// Firefox Remote Settings and sponsored/recommendation feeds. The data: URL is
+// a syntactically valid, local-only endpoint; it prevents startup code from
+// manufacturing a relative URL or contacting a vendor when polling is invoked.
+pref("services.settings.server", "data:,#remote-settings-disabled/v1", locked);
 pref("services.settings.preview_enabled", false, locked);
 pref("security.remote_settings.intermediates.enabled", false, locked);
 pref("security.remote_settings.crlite_filters.enabled", false, locked);
@@ -275,6 +278,7 @@ pref("signon.firefoxRelay.manage_url", "about:blank", locked);
 pref("signon.firefoxRelay.terms_of_service_url", "about:blank", locked);
 pref("signon.firefoxRelay.privacy_policy_url", "about:blank", locked);
 pref("signon.recipes.remoteRecipes.enabled", false, locked);
+pref("signon.management.page.breachAlertUrl", "about:blank", locked);
 
 // Do not contact Mozilla's add-on discovery, recommendation, blocklist, or
 // update services. Local/manual extension installation remains available.
@@ -314,7 +318,11 @@ pref("browser.lna.warning.infoURL", "about:blank", locked);
 pref("pdfjs.altTextLearnMoreUrl", "about:blank", locked);
 pref("pdfjs.commentLearnMoreUrl", "about:blank", locked);
 pref("media.decoder-doctor.new-issue-endpoint", "about:blank", locked);
-pref("devtools.performance.recording.ui-base-url", "about:blank", locked);
+pref(
+  "devtools.performance.recording.ui-base-url",
+  "http://localhost:4242/",
+  locked
+);
 pref("devtools.remote.adb.extensionURL", "", locked);
 
 // Do not use Mozilla connectivity probes or account/sync backends.
@@ -323,6 +331,7 @@ pref("network.connectivity-service.enabled", false, locked);
 pref("network.connectivity-service.IPv4.url", "", locked);
 pref("network.connectivity-service.IPv6.url", "", locked);
 pref("captivedetect.canonicalURL", "about:blank", locked);
+pref("captivedetect.canonicalContent", "", locked);
 pref("browser.region.network.url", "", locked);
 pref("geo.provider.network.url", "", locked);
 pref("services.sync.enabled", false, locked);
@@ -335,10 +344,12 @@ pref("webextensions.storage.sync.serverURL", "", locked);
 pref("network.trr.mode", 5, locked);
 pref("network.trr.uri", "", locked);
 pref("network.trr.custom_uri", "", locked);
+pref("network.trr_ui.skip_reason_learn_more_url", "about:blank", locked);
 
 // Experimental Mozilla-hosted browser surfaces and model services.
 pref("browser.smartwindow.enabled", false, locked);
 pref("browser.smartwindow.endpoint", "", locked);
+pref("browser.smartwindow.firstrun.explainerURL", "about:blank", locked);
 pref("browser.smartwindow.worldcup.enabled", false, locked);
 pref("browser.smartwindow.worldcup.endpointURL", "", locked);
 pref("browser.ipProtection.enabled", false, locked);

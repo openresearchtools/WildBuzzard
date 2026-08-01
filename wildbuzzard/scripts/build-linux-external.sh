@@ -141,9 +141,39 @@ run_step() {
   ) 2>&1 | tee "${log_dir}/${name}.log"
 }
 
+run_blocker_tests() {
+  run_step blocker-xpcshell-tests ./mach xpcshell-test \
+    browser/components/blocker/test/unit/xpcshell.toml
+  run_step blocker-browser-tests ./mach mochitest --flavor browser \
+    browser/components/blocker/test/browser/browser.toml
+}
+
 run_product_tests() {
-  run_step product-tests ./mach test \
-    wildbuzzard/browser/components
+  local manifest
+  local relative_manifest
+  local component
+
+  while IFS= read -r manifest; do
+    relative_manifest="${manifest#"${checkout_dir}/"}"
+    component="${relative_manifest#wildbuzzard/browser/components/}"
+    component="${component%%/*}"
+    run_step "product-browser-${component}" ./mach mochitest \
+      --flavor browser "${relative_manifest}"
+  done < <(
+    find "${checkout_dir}/wildbuzzard/browser/components" \
+      -path '*/test/browser/browser.toml' -print | sort
+  )
+
+  while IFS= read -r manifest; do
+    relative_manifest="${manifest#"${checkout_dir}/"}"
+    component="${relative_manifest#wildbuzzard/browser/components/}"
+    component="${component%%/*}"
+    run_step "product-xpcshell-${component}" ./mach xpcshell-test \
+      "${relative_manifest}"
+  done < <(
+    find "${checkout_dir}/wildbuzzard/browser/components" \
+      -path '*/test/*/xpcshell.toml' -print | sort
+  )
 }
 
 run_deb_package() {
@@ -184,9 +214,7 @@ case "${action}" in
     ;;
   test)
     run_step build ./mach build
-    run_step blocker-tests ./mach test \
-      browser/components/blocker/test/unit \
-      browser/components/blocker/test/browser
+    run_blocker_tests
     run_product_tests
     ;;
   package)
@@ -197,9 +225,7 @@ case "${action}" in
   all)
     run_step configure ./mach configure
     run_step build ./mach build
-    run_step blocker-tests ./mach test \
-      browser/components/blocker/test/unit \
-      browser/components/blocker/test/browser
+    run_blocker_tests
     run_product_tests
     run_step package ./mach package
     run_deb_package

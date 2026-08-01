@@ -45,7 +45,7 @@ const TREE_MIGRATION_TEST_PREFS = [
   OLD_TREE_PREF_CLOSE_PARENT_BEHAVIOR,
   OLD_TREE_PREF_MAX_DEPTH,
   "browser.tabs.verticalTabs.tree.autoCollapse.onSelect",
-  "browser.tabs.verticalTabs.tree.autoCollapse.onAttach",
+  "browser.tabs.verticalTabs.tree.autoExpand.onAttach",
   "browser.tabs.verticalTabs.tree.successorControl",
   "browser.tabs.verticalTabs.tree.doubleClickBehavior",
   "browser.tabs.verticalTabs.tree.sticky.activeTab",

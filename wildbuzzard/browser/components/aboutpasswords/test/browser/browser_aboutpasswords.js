@@ -34,12 +34,12 @@ add_task(async function test_about_passwords_loads_and_filters() {
 
     is(doc.location.href, "about:passwords", "The classic password page loads");
     is(
-      tree.view.getCellText(0, { id: "siteCol" }),
+      tree.view.getCellText(0, tree.columns.getNamedColumn("siteCol")),
       "https://example.com",
       "The saved login origin appears"
     );
     is(
-      tree.view.getCellText(0, { id: "userCol" }),
+      tree.view.getCellText(0, tree.columns.getNamedColumn("userCol")),
       "wildbuzzard-user",
       "The saved login username appears"
     );

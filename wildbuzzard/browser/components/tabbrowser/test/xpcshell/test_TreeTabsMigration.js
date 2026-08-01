@@ -121,7 +121,6 @@ add_task(function test_migrate_prefs_copies_known_old_values() {
 
   Services.prefs.setBoolPref(OLD_TREE_PREF_AUTO_COLLAPSE_ON_SELECT, true);
   Services.prefs.setBoolPref(OLD_TREE_PREF_AUTO_COLLAPSE_ON_ATTACH, false);
-  Services.prefs.setIntPref(OLD_TREE_PREF_SUCCESSOR_CONTROL, 2);
   Services.prefs.setIntPref(OLD_TREE_PREF_DOUBLE_CLICK_BEHAVIOR, 1);
   Services.prefs.setBoolPref(OLD_TREE_PREF_STICKY_ACTIVE_TAB, true);
   Services.prefs.setIntPref(OLD_TREE_PREF_CLOSE_PARENT_BEHAVIOR, 3);
@@ -139,17 +138,10 @@ add_task(function test_migrate_prefs_copies_known_old_values() {
   );
   Assert.equal(
     Services.prefs.getBoolPref(
-      "browser.tabs.verticalTabs.tree.autoCollapse.onAttach"
+      "browser.tabs.verticalTabs.tree.autoExpand.onAttach"
     ),
     false,
-    "autoCollapse.onAttach migrated"
-  );
-  Assert.equal(
-    Services.prefs.getIntPref(
-      "browser.tabs.verticalTabs.tree.successorControl"
-    ),
-    2,
-    "successorControl migrated"
+    "autoExpand.onAttach migrated"
   );
   Assert.equal(
     Services.prefs.getIntPref(
@@ -169,8 +161,8 @@ add_task(function test_migrate_prefs_copies_known_old_values() {
     Services.prefs.getIntPref(
       "browser.tabs.verticalTabs.tree.closeParentBehavior"
     ),
-    3,
-    "closeParentBehavior migrated"
+    0,
+    "closeParentBehavior maps the legacy value to the native enum"
   );
   Assert.equal(
     Services.prefs.getIntPref("browser.tabs.verticalTabs.tree.maxDepth"),

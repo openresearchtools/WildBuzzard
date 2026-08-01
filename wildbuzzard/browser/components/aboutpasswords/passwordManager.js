@@ -149,6 +149,7 @@ async function setFilter(aFilterString) {
 
 const signonsTreeView = {
   _filterSet: [],
+  _filterActive: false,
   _lastSelectedRanges: [],
   selection: null,
 
@@ -227,7 +228,7 @@ const signonsTreeView = {
   _getVisibleLoginsCached() {
     const now = Date.now();
     if (now - this._lastUpdateTime > 100 || !this._cachedVisibleLogins) {
-      this._cachedVisibleLogins = this._filterSet.length
+      this._cachedVisibleLogins = this._filterActive
         ? this._filterSet
         : signons;
       this._lastUpdateTime = now;
@@ -428,7 +429,7 @@ function _SignonSelected() {
 }
 
 async function DeleteSignon() {
-  const syncNeeded = !!signonsTreeView._filterSet.length;
+  const syncNeeded = signonsTreeView._filterActive;
   const tree = signonsTree;
   const view = signonsTreeView;
   const table = view._getVisibleLoginsCached();
@@ -486,7 +487,7 @@ async function _DeleteAllSignons() {
     return;
   }
 
-  const syncNeeded = !!signonsTreeView._filterSet.length;
+  const syncNeeded = signonsTreeView._filterActive;
   const view = signonsTreeView;
   const table = view._getVisibleLoginsCached();
 
@@ -623,6 +624,7 @@ function SignonColumnSort(column) {
 async function SignonClearFilter() {
   const singleSelection = signonsTreeView.selection.count === 1;
 
+  signonsTreeView._filterActive = false;
   signonsTreeView._filterSet = [];
   await LoadSignons();
 
@@ -700,7 +702,8 @@ const debouncedFilterPasswords = debounce(async () => {
 
   const newFilterSet = _filterPasswords(filterField.value, signonsTreeView);
 
-  const oldLength = signonsTreeView._filterSet.length;
+  const oldLength = signonsTreeView.rowCount;
+  signonsTreeView._filterActive = true;
   signonsTreeView._filterSet = newFilterSet;
   signonsTreeView.invalidateCache();
 

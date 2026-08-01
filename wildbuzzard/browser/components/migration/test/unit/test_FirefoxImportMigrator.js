@@ -32,18 +32,21 @@ add_setup(async function setup() {
   let currentProfilePath = Services.dirsvc.get("ProfD", Ci.nsIFile).path;
 
   await createFirefoxProfile(
-    PathUtils.join(firefoxRoot, "Profiles/default"),
+    PathUtils.join(firefoxRoot, "Profiles", "default"),
     "default"
   );
   await createFirefoxProfile(
-    PathUtils.join(firefoxRoot, "Profiles/duplicate"),
+    PathUtils.join(firefoxRoot, "Profiles", "duplicate"),
     "duplicate"
   );
   await createFirefoxProfile(absoluteProfilePath, "absolute");
-  await IOUtils.makeDirectory(PathUtils.join(firefoxRoot, "Profiles/empty"), {
-    createAncestor: true,
-    ignoreExisting: true,
-  });
+  await IOUtils.makeDirectory(
+    PathUtils.join(firefoxRoot, "Profiles", "empty"),
+    {
+      createAncestor: true,
+      ignoreExisting: true,
+    }
+  );
 
   await writeProfilesIni(firefoxRoot, [
     {
@@ -111,7 +114,9 @@ add_task(async function test_profile_discovery() {
     "Firefox import reuses the Firefox source ID"
   );
 
-  gDefaultSourceProfile = profiles.find(profile => profile.name == "default");
+  gDefaultSourceProfile = profiles.find(
+    profile => PathUtils.filename(profile.id) == "default"
+  );
 });
 
 add_task(async function test_available_resource_types() {
@@ -210,15 +215,15 @@ add_task(async function test_import_profile_resources() {
   Assert.equal(cookie.value, "value-default", "The cookie value matches");
 
   let logins = await Services.logins.searchLoginsAsync({
-    origin: "https://example.com/default",
+    origin: "https://default.example.com",
   });
   Assert.equal(logins.length, 1, "The login was imported");
   Assert.equal(logins[0].username, "username-default", "The username matches");
   Assert.equal(logins[0].password, "password-default", "The password matches");
   Assert.equal(
     logins[0].formActionOrigin,
-    "https://example.com/default",
-    "The form action origin matches"
+    "https://default.example.com",
+    "The password manager normalizes the form action to its origin"
   );
 });
 
@@ -496,9 +501,9 @@ async function createLoginsFile(profilePath, suffix) {
     logins: [
       {
         id: 1,
-        hostname: `https://example.com/${suffix}`,
+        hostname: `https://${suffix}.example.com`,
         httpRealm: null,
-        formSubmitURL: `https://example.com/${suffix}`,
+        formSubmitURL: `https://${suffix}.example.com/login`,
         usernameField: "username",
         passwordField: "password",
         encryptedUsername: `username-${suffix}`,

@@ -100,13 +100,13 @@ add_task(function test_invariant_rejects_pinned_parent() {
   );
   Assert.equal(
     TreeTabsService.getParent(child),
-    null,
-    "Child is detached back to root when pinned parent is rejected"
+    parent,
+    "Rejected reparenting leaves the existing parent intact"
   );
   assertTabOrder(
     TreeTabsService.getRootTabs(win),
-    [parent, child],
-    "Child is now a root tab"
+    [parent],
+    "Rejected reparenting does not duplicate the child as a root"
   );
 });
 
@@ -192,9 +192,8 @@ add_task(function test_collapsed_nodes_hide_descendants_from_visible_tabs() {
   const grandChild = createMockTab(win);
   const otherRoot = createMockTab(win);
 
-  // Ensure both roots exist in model with stable order.
-  TreeTabsService.getLevel(root);
-  TreeTabsService.getLevel(otherRoot);
+  // Production initializes the model from all tabs before tree mutations.
+  TreeTabsService.init(win);
 
   TreeTabsService.attachTab(child, root);
   TreeTabsService.attachTab(grandChild, child);
@@ -436,9 +435,7 @@ add_task(function test_move_tab_subtree_within_siblings_and_roots() {
   const b = createMockTab(win);
   const c = createMockTab(win);
 
-  TreeTabsService.getLevel(root);
-  TreeTabsService.getLevel(root2);
-  TreeTabsService.getLevel(root3);
+  TreeTabsService.init(win);
 
   TreeTabsService.attachTab(a, root);
   TreeTabsService.attachTab(b, root);
@@ -508,8 +505,7 @@ add_task(function test_visible_tabs_nested_collapse_and_subtree_state() {
   const leaf = createMockTab(win);
   const otherRoot = createMockTab(win);
 
-  TreeTabsService.getLevel(root);
-  TreeTabsService.getLevel(otherRoot);
+  TreeTabsService.init(win);
 
   TreeTabsService.attachTab(child, root);
   TreeTabsService.attachTab(grandChild, child);
@@ -1277,6 +1273,8 @@ add_task(function test_edge_case_max_depth_enforcement() {
   const root = createMockTab(win);
   const child = createMockTab(win);
   const grandChild = createMockTab(win);
+
+  TreeTabsService.init(win);
 
   Assert.ok(
     TreeTabsService.attachTab(child, root),

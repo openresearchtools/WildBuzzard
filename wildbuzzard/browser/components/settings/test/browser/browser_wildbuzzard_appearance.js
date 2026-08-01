@@ -14,65 +14,59 @@ add_task(async function test_appearance_group_renders() {
   let tab = await openPrefsTab("appearance");
   let doc = tab.linkedBrowser.contentDocument;
 
-  let group = await settingGroupRenders(doc, "wildbuzzardAppearance");
+  let group = await settingGroupRenders(doc, "wildbuzzardBrowserStyle");
   ok(group, "The WildBuzzard styling group renders on the appearance pane");
 
-  let select = doc
-    .getElementById("setting-control-wildbuzzard-lepton-mode")
-    ?.querySelector("moz-select");
-  ok(select, "The Lepton mode select renders");
-  is(
-    select.value,
-    "default-themes",
-    "Lepton applies to stock themes by default"
+  let picker = doc
+    .getElementById("setting-control-wildbuzzard-browser-style")
+    ?.querySelector("moz-visual-picker");
+  ok(picker, "The browser style visual picker renders");
+  is(picker.value, "nova", "Nova is the default browser style");
+  Assert.deepEqual(
+    [...picker.querySelectorAll("moz-visual-picker-item")].map(
+      item => item.value
+    ),
+    ["nova", "proton", "photon"],
+    "Nova, Proton, and Photon are all available"
   );
 
-  let prefChanged = TestUtils.waitForPrefChange(MODE_PREF);
-  select.value = "off";
-  select.dispatchEvent(new Event("change", { bubbles: true }));
-  await prefChanged;
-  is(Services.prefs.getIntPref(MODE_PREF), 2, "Turning Lepton off writes 2");
-
-  let toggleControl = doc.getElementById(
-    "setting-control-wildbuzzard-appearance-autohide-tabbar"
-  );
-  let toggle = toggleControl?.querySelector("moz-toggle");
-  ok(toggle, "The autohide tab bar toggle renders");
-  await TestUtils.waitForCondition(
-    () => toggle.disabled,
-    "The Lepton toggles disable while Lepton is off"
-  );
+  let details = await settingGroupRenders(doc, "wildbuzzardAppearanceDetails");
+  ok(details, "The detailed appearance controls render");
 
   BrowserTestUtils.removeTab(tab);
 });
 
-add_task(async function test_preset_select_writes_block() {
+add_task(async function test_photon_picker_writes_style_block() {
   let tab = await openPrefsTab("appearance");
   let doc = tab.linkedBrowser.contentDocument;
 
-  await settingGroupRenders(doc, "wildbuzzardAppearance");
-  let select = doc
-    .getElementById("setting-control-wildbuzzard-lepton-preset")
-    ?.querySelector("moz-select");
-  ok(select, "The preset select renders");
-  is(select.value, "lepton", "The shipped defaults read as the Lepton preset");
+  await settingGroupRenders(doc, "wildbuzzardBrowserStyle");
+  let picker = doc
+    .getElementById("setting-control-wildbuzzard-browser-style")
+    ?.querySelector("moz-visual-picker");
+  ok(picker, "The browser style visual picker renders");
 
   let prefChanged = TestUtils.waitForPrefChange(
-    "userChrome.tab.photon_like_padding"
+    "userChrome.tab.photon_like_contextline"
   );
-  select.value = "photon";
-  select.dispatchEvent(new Event("change", { bubbles: true }));
+  picker.value = "photon";
+  picker.dispatchEvent(new Event("change", { bubbles: true }));
   await prefChanged;
 
   is(
-    Services.prefs.getBoolPref("userChrome.tab.photon_like_padding"),
+    Services.prefs.getIntPref(MODE_PREF),
+    1,
+    "Choosing Photon enables WildBuzzard styling for stock themes"
+  );
+  is(
+    Services.prefs.getBoolPref("userChrome.tab.photon_like_contextline"),
     true,
-    "The Photon preset writes its block"
+    "Choosing Photon writes its style block"
   );
   is(
     Services.prefs.getBoolPref("userChrome.tab.lepton_like_padding"),
-    false,
-    "The colliding Lepton padding pref turns off"
+    true,
+    "Photon enables the Lepton padding style"
   );
 
   for (let pref of [

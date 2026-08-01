@@ -47,3 +47,67 @@ add_task(async function test_required_offline_dumps_are_bundled() {
 
   Assert.deepEqual(missing, [], "required offline dumps are bundled");
 });
+
+add_task(function test_vendor_services_are_disabled_and_locked() {
+  const booleanPolicy = new Map([
+    ["app.update.enabled", false],
+    ["datareporting.policy.dataSubmissionEnabled", false],
+    ["identity.fxaccounts.enabled", false],
+    ["services.sync.enabled", false],
+    ["toolkit.telemetry.enabled", false],
+  ]);
+  const stringPolicy = new Map([
+    ["app.update.url.override", ""],
+    ["dom.push.serverURL", ""],
+    ["extensions.update.url", ""],
+    ["services.settings.server", "data:,#remote-settings-disabled/v1"],
+    ["toolkit.telemetry.server", ""],
+  ]);
+
+  for (const [name, expected] of booleanPolicy) {
+    Assert.ok(Services.prefs.prefIsLocked(name), `${name} is policy-locked`);
+    Assert.equal(
+      Services.prefs.getBoolPref(name),
+      expected,
+      `${name} has the offline value`
+    );
+  }
+
+  for (const [name, expected] of stringPolicy) {
+    Assert.ok(Services.prefs.prefIsLocked(name), `${name} is policy-locked`);
+    Assert.equal(
+      Services.prefs.getStringPref(name),
+      expected,
+      `${name} has the offline value`
+    );
+  }
+});
+
+add_task(function test_no_vendor_service_urls_remain_in_effective_prefs() {
+  const forbiddenVendor =
+    /https?:\/\/(?:[^/]*\.)?(?:browserworks\.(?:com|org)|firefox\.com|mozilla\.(?:com|net|org)|waterfox\.net)(?:[/:]|$)/i;
+  const remaining = [];
+
+  for (const name of Services.prefs.getChildList("")) {
+    if (Services.prefs.getPrefType(name) !== Services.prefs.PREF_STRING) {
+      continue;
+    }
+
+    let value;
+    try {
+      value = Services.prefs.getStringPref(name);
+    } catch (ex) {
+      continue;
+    }
+
+    if (forbiddenVendor.test(value)) {
+      remaining.push(`${name}=${value}`);
+    }
+  }
+
+  Assert.deepEqual(
+    remaining,
+    [],
+    "effective preferences contain no Mozilla, Firefox, Waterfox, or BrowserWorks service URLs"
+  );
+});

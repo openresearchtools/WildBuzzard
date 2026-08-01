@@ -353,8 +353,8 @@ add_task(function test_try_restore_tab_from_session_data() {
     "Child starts expanded"
   );
 
-  const restored = TreeTabsStore.tryRestoreTabFromSessionData(child);
-  Assert.ok(restored, "Restore from session data succeeds");
+  TreeTabsStore.onTabRestoring(child);
+  TreeTabsStore.onTabRestored(child);
   Assert.equal(
     TreeTabsService.getParent(child),
     parent,
@@ -400,8 +400,8 @@ add_task(function test_try_restore_parent_reclaims_root_children() {
   );
 
   // Simulate undo-close: parent comes back and reclaims children.
-  const restored = TreeTabsStore.tryRestoreTabFromSessionData(parent);
-  Assert.ok(restored, "Restore succeeds for parent with saved children");
+  TreeTabsStore.onTabRestoring(parent);
+  TreeTabsStore.onTabRestored(parent);
   Assert.equal(
     TreeTabsService.getParent(childA),
     parent,

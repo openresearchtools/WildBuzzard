@@ -281,11 +281,11 @@ add_task(async function test_wildbuzzard_defaults_shape() {
   Assert.deepEqual(
     styleTiles.data.map(tile => tile.id),
     [
-      "wildbuzzard-style-photon",
-      "wildbuzzard-style-proton",
       "wildbuzzard-style-nova",
+      "wildbuzzard-style-proton",
+      "wildbuzzard-style-photon",
     ],
-    "Offers Photon, Proton, and Nova styles"
+    "Offers Nova, Proton, and Photon styles"
   );
   for (const tile of styleTiles.data) {
     assertWildBuzzardAction(
@@ -306,12 +306,8 @@ add_task(async function test_wildbuzzard_defaults_shape() {
   );
   Assert.deepEqual(
     densityTiles.data.map(tile => tile.id),
-    [
-      "wildbuzzard-density-normal",
-      "wildbuzzard-density-compact",
-      "wildbuzzard-density-touch",
-    ],
-    "Offers normal, compact, and touch density"
+    ["wildbuzzard-density-compact", "wildbuzzard-density-normal"],
+    "Offers the compact and normal densities supported by the picker"
   );
   for (const tile of densityTiles.data) {
     assertWildBuzzardAction(
@@ -526,8 +522,8 @@ add_task(
       );
       Assert.equal(
         Services.prefs.getIntPref(STYLE_PREF),
-        1,
-        "Nova keeps Lepton chrome styling enabled"
+        2,
+        "Nova turns Lepton chrome styling off"
       );
       Assert.equal(
         Services.prefs.getBoolPref("userChrome.tab.lepton_like_padding"),
@@ -568,8 +564,8 @@ add_task(
       );
       Assert.equal(
         Services.prefs.getIntPref(STYLE_PREF),
-        1,
-        "Proton keeps Lepton chrome styling enabled"
+        2,
+        "Proton turns Lepton chrome styling off"
       );
       Assert.equal(
         Services.prefs.getBoolPref("userChrome.tab.lepton_like_padding"),

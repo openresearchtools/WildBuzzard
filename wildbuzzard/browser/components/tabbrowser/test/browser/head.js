@@ -243,6 +243,10 @@ async function closeExtraTabs() {
 
 async function resetTreeTabsTestState() {
   await closeTabContextMenu();
+  const sidebarContainer = document.getElementById("sidebar-box");
+  if (sidebarContainer && !sidebarContainer.hidden) {
+    await SidebarController.hide({ dismissPanel: true });
+  }
   // Disable tree tabs before closing tabs to avoid tree operations during teardown
   if (Services.prefs.getBoolPref(PREF_TREE_ENABLED, false)) {
     Services.prefs.setBoolPref(PREF_TREE_ENABLED, false);

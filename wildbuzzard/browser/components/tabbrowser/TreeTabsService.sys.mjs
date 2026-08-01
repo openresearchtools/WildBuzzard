@@ -103,10 +103,11 @@ export const TreeTabsService = {
     if (!this._isEnabled()) {
       return 0;
     }
-    const { state } = this._getStateForTab(tab);
+    const { state } = this._getStateForTab(tab, { create: true });
     if (!state || !tab) {
       return 0;
     }
+    this._ensureNode(state, tab);
     return this._getLevelFromState(state, tab);
   },
 

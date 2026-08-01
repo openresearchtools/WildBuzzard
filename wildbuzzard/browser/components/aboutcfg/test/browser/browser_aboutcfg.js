@@ -30,7 +30,7 @@ add_task(async function test_about_cfg_loads_and_filters() {
       "Waiting for the filtered pref row"
     );
     is(
-      tree.view.getCellText(0, { id: "prefCol" }),
+      tree.view.getCellText(0, tree.columns.getNamedColumn("prefCol")),
       "browser.aboutConfig.showWarning",
       "Filtering finds the about:config warning pref"
     );
