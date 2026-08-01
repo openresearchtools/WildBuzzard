@@ -17,5 +17,6 @@ JS_PREFERENCE_PP_FILES += [
     "app/profile/02-privacy.js",
     "app/profile/03-features.js",
     "app/profile/05-treetabs.js",
-    "app/profile/99-wildbuzzard.js",
 ]
+
+JS_PREFERENCE_FILES += ["app/profile/99-wildbuzzard.js"]
