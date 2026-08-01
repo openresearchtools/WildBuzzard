@@ -222,11 +222,39 @@ pref("identity.mobilepromo.android", "", locked);
 pref("identity.mobilepromo.ios", "", locked);
 pref("identity.fxaccounts.enabled", false, locked);
 pref("identity.fxaccounts.toolbar.enabled", false, locked);
-pref("identity.fxaccounts.remote.root", "", locked);
-pref("identity.fxaccounts.remote.profile.uri", "", locked);
-pref("identity.fxaccounts.remote.oauth.uri", "", locked);
-pref("identity.fxaccounts.remote.pairing.uri", "", locked);
-pref("identity.sync.tokenserver.uri", "", locked);
+// The preferences UI constructs account-management URLs even with accounts
+// disabled. Use RFC 2606's non-resolving .invalid namespace so those code paths
+// remain well-formed without retaining or contacting a vendor service.
+pref(
+  "identity.fxaccounts.remote.root",
+  "https://accounts.wildbuzzard.invalid/",
+  locked
+);
+pref(
+  "identity.fxaccounts.auth.uri",
+  "https://accounts.wildbuzzard.invalid/auth/v1",
+  locked
+);
+pref(
+  "identity.fxaccounts.remote.profile.uri",
+  "https://accounts.wildbuzzard.invalid/profile/v1",
+  locked
+);
+pref(
+  "identity.fxaccounts.remote.oauth.uri",
+  "https://accounts.wildbuzzard.invalid/oauth/v1",
+  locked
+);
+pref(
+  "identity.fxaccounts.remote.pairing.uri",
+  "wss://accounts.wildbuzzard.invalid/pair",
+  locked
+);
+pref(
+  "identity.sync.tokenserver.uri",
+  "https://accounts.wildbuzzard.invalid/sync/1.5",
+  locked
+);
 pref("identity.sendtabpromo.url", "about:blank", locked);
 pref("identity.sendtab.deviceissues.url", "about:blank", locked);
 pref(
