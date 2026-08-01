@@ -59,7 +59,7 @@ fi
 
 version="$(
   basename -- "${archive}" |
-    sed -E 's/^wildbuzzard-([^.]+(\\.[^.]+)*)\\.en-US\\.linux-x86_64\\.tar\\.(xz|bz2|gz)$/\\1/'
+    sed -E 's/^wildbuzzard-([^.]+(\.[^.]+)*)\.en-US\.linux-x86_64\.tar\.(xz|bz2|gz)$/\1/'
 )"
 if [[ -z "${version}" || "${version}" == "$(basename -- "${archive}")" ]]; then
   echo "Could not derive a Debian version from $(basename -- "${archive}")" >&2
