@@ -99,6 +99,7 @@ const lazy = XPCOMUtils.declareLazy({
 });
 
 const UNLIMITED_MAX_RESULTS = 99;
+const WILDBUZZARD_AGENT_URL = "http://127.0.0.1:8765/";
 
 let getBoundsWithoutFlushing = element =>
   element.documentGlobal.windowUtils.getBoundsWithoutFlushing(element);
@@ -1114,6 +1115,24 @@ ${
     let isMouseEvent = MouseEvent.isInstance(event);
     if (isMouseEvent && event.button == 2) {
       // Do nothing for right clicks.
+      return;
+    }
+
+    if (
+      this.#isAddressbar &&
+      this.valueIsTyped &&
+      this.untrimmedValue.trim().toLowerCase() === "agent"
+    ) {
+      this.window.switchToTabHavingURI(
+        Services.io.newURI(WILDBUZZARD_AGENT_URL),
+        true,
+        {
+          ignoreQueryString: true,
+          triggeringPrincipal:
+            Services.scriptSecurityManager.getSystemPrincipal(),
+        }
+      );
+      this.view.close();
       return;
     }
 

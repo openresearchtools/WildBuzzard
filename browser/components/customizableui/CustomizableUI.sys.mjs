@@ -67,7 +67,7 @@ const kSubviewEvents = ["ViewShowing", "ViewHiding"];
  * The current version. We can use this to auto-add new default widgets as necessary.
  * (would be const but isn't because of testing purposes)
  */
-var kVersion = 25;
+var kVersion = 27;
 
 /**
  * Buttons removed from built-ins by version they were removed. kVersion must be
@@ -362,8 +362,9 @@ var CustomizableUIInternal = {
         : "home-button",
       "spring",
       "vertical-spacer",
-      "urlbar-container",
       "wildbuzzard-blocker-toolbar-button",
+      "urlbar-container",
+      "wildbuzzard-agent-toolbar-button",
       "spring",
       "downloads-button",
       AppConstants.MOZ_DEV_EDITION ? "developer-button" : null,
@@ -381,6 +382,7 @@ var CustomizableUIInternal = {
         verticalTabsDefaultPlacements: [
           "firefox-view-button",
           "wildbuzzard-blocker-toolbar-button",
+          "wildbuzzard-agent-toolbar-button",
           "alltabs-button",
         ],
         defaultCollapsed: false,
@@ -866,6 +868,24 @@ var CustomizableUIInternal = {
         let idx = placements.indexOf("wildbuzzard-blocker-toolbar-button");
         if (idx !== -1) {
           placements.splice(idx, 1);
+        }
+      }
+    }
+
+    if (currentVersion < 27) {
+      const navbarPlacements =
+        gSavedState.placements[CustomizableUI.AREA_NAVBAR];
+      if (navbarPlacements) {
+        const blocker = "wildbuzzard-blocker-toolbar-button";
+        const blockerIndex = navbarPlacements.indexOf(blocker);
+        if (blockerIndex !== -1) {
+          navbarPlacements.splice(blockerIndex, 1);
+          const urlbarIndex = navbarPlacements.indexOf("urlbar-container");
+          navbarPlacements.splice(
+            urlbarIndex === -1 ? navbarPlacements.length : urlbarIndex,
+            0,
+            blocker
+          );
         }
       }
     }

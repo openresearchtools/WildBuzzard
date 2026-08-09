@@ -10,10 +10,12 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --action ACTION    configure, build, test, package, or all (default: build)"
+  echo "  --action ACTION    configure, build, test, package, appimage, or all (default: build)"
   echo "  --build-root DIR   external build root (default: ../wildbuzzard-builds)"
   echo "  --jobs NUMBER      parallel build jobs (default: all logical CPUs)"
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
+  echo "  --working-tree     include tracked and untracked developer changes"
+  echo "  --pi-web-runtime FILE  Pi Web runtime ZIP to include in the browser package"
   echo "  --bootstrap        run mach bootstrap before the requested action"
   echo "  --help             show this help"
 }
@@ -25,6 +27,8 @@ action="build"
 build_ref="HEAD"
 jobs="$(nproc)"
 run_bootstrap=false
+include_working_tree=false
+pi_web_runtime=""
 
 while (($#)); do
   case "$1" in
@@ -44,6 +48,14 @@ while (($#)); do
       build_ref="${2:?--ref requires a Git ref}"
       shift 2
       ;;
+    --working-tree)
+      include_working_tree=true
+      shift
+      ;;
+    --pi-web-runtime)
+      pi_web_runtime="${2:?--pi-web-runtime requires a file}"
+      shift 2
+      ;;
     --bootstrap)
       run_bootstrap=true
       shift
@@ -60,8 +72,16 @@ while (($#)); do
   esac
 done
 
+if [[ -n "${pi_web_runtime}" ]]; then
+  pi_web_runtime="$(realpath -- "${pi_web_runtime}")"
+  if [[ ! -f "${pi_web_runtime}" ]]; then
+    echo "--pi-web-runtime must name a ZIP file" >&2
+    exit 2
+  fi
+fi
+
 case "${action}" in
-  configure|build|test|package|all) ;;
+  configure|build|test|package|appimage|all) ;;
   *)
     echo "Unsupported action: ${action}" >&2
     exit 2
@@ -104,7 +124,11 @@ mkdir -p -- \
 
 if ! git -C "${source_repo}" diff --quiet ||
   ! git -C "${source_repo}" diff --cached --quiet; then
-  echo "Note: the developer checkout is dirty; this run builds committed ${commit} only."
+  if [[ "${include_working_tree}" == true ]]; then
+    echo "Note: this run includes the developer working tree over ${commit}."
+  else
+    echo "Note: the developer checkout is dirty; this run builds committed ${commit} only."
+  fi
 fi
 
 # The checkout has its own index and worktree, while Git objects are borrowed
@@ -113,14 +137,44 @@ fi
 git clone --shared --no-checkout -- "${source_repo}" "${checkout_dir}"
 git -C "${checkout_dir}" checkout --detach "${commit}"
 
+if [[ "${include_working_tree}" == true ]]; then
+  git -C "${source_repo}" diff --binary "${commit}" -- \
+    >"${run_root}/working-tree.patch"
+  if [[ -s "${run_root}/working-tree.patch" ]]; then
+    git -C "${checkout_dir}" apply --binary "${run_root}/working-tree.patch"
+  fi
+  while IFS= read -r -d '' path; do
+    mkdir -p -- "${checkout_dir}/$(dirname -- "${path}")"
+    cp -a -- "${source_repo}/${path}" "${checkout_dir}/${path}"
+  done < <(
+    git -C "${source_repo}" ls-files \
+      --others --exclude-standard -z
+  )
+fi
+
+build_commit="${commit}"
+if [[ "${include_working_tree}" == true ]]; then
+  git -C "${checkout_dir}" add --all
+  if ! git -C "${checkout_dir}" diff --cached --quiet; then
+    git -C "${checkout_dir}" \
+      -c user.name="WildBuzzard Build" \
+      -c user.email="build@wildbuzzard.invalid" \
+      commit -m "WildBuzzard external build snapshot"
+    build_commit="$(git -C "${checkout_dir}" rev-parse HEAD)"
+  fi
+fi
+
 {
-  echo "commit=${commit}"
+  echo "base_commit=${commit}"
+  echo "build_commit=${build_commit}"
   echo "ref=${build_ref}"
   echo "source_repo=${source_repo}"
   echo "run_root=${run_root}"
   echo "object_dir=${object_dir}"
   echo "jobs=${jobs}"
   echo "action=${action}"
+  echo "working_tree=${include_working_tree}"
+  echo "pi_web_runtime=${pi_web_runtime}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
 
@@ -133,12 +187,19 @@ export SCCACHE_BASEDIR="${checkout_dir}"
 
 run_step() {
   local name="$1"
+  local log_file="${log_dir}/${name}.log"
   shift
   echo "==> ${name}"
-  (
+  if (
     cd -- "${checkout_dir}"
     "$@"
-  ) 2>&1 | tee "${log_dir}/${name}.log"
+  ) >"${log_file}" 2>&1; then
+    echo "Completed ${name}; log: ${log_file}"
+  else
+    local status=$?
+    echo "Failed ${name}; log: ${log_file}" >&2
+    return "${status}"
+  fi
 }
 
 run_blocker_tests() {
@@ -182,6 +243,12 @@ run_deb_package() {
     --output-dir "${run_root}/artifacts"
 }
 
+run_appimage_package() {
+  run_step appimage-package ./wildbuzzard/scripts/package-appimage.sh \
+    --dist-dir "${object_dir}/dist" \
+    --output-dir "${run_root}/artifacts"
+}
+
 if [[ "${run_bootstrap}" == true ]]; then
   run_step bootstrap ./mach --no-interactive bootstrap \
     --application-choice browser \
@@ -198,6 +265,9 @@ fi
   echo "ac_add_options --enable-optimize"
   echo "ac_add_options --disable-debug"
   echo "ac_add_options --disable-crashreporter"
+  if [[ -n "${pi_web_runtime}" ]]; then
+    echo "ac_add_options --with-wildbuzzard-pi-web-runtime=${pi_web_runtime}"
+  fi
   if [[ -x "${state_dir}/sccache/sccache" ]]; then
     echo "ac_add_options --with-ccache=${state_dir}/sccache/sccache"
   elif command -v ccache >/dev/null 2>&1; then
@@ -221,6 +291,12 @@ case "${action}" in
     run_step build ./mach build
     run_step package ./mach package
     run_deb_package
+    run_appimage_package
+    ;;
+  appimage)
+    run_step build ./mach build
+    run_step package ./mach package
+    run_appimage_package
     ;;
   all)
     run_step configure ./mach configure
@@ -229,6 +305,7 @@ case "${action}" in
     run_product_tests
     run_step package ./mach package
     run_deb_package
+    run_appimage_package
     ;;
 esac
 

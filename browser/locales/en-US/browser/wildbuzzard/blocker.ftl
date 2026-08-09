@@ -94,6 +94,10 @@ wildbuzzard-blocker-toolbar-button =
     .label = Ad blocking
     .tooltiptext = Ad blocking
 
+wildbuzzard-agent-toolbar-button =
+    .label = Agent
+    .tooltiptext = Open Agent
+
 wildbuzzard-blocker-panel-not-available = Not available on this page
 
 wildbuzzard-blocker-panel-toggle =

@@ -33,6 +33,18 @@
                 "optional": true,
                 "default": true,
                 "description": "Whether or not the sidebar is opened at install. Default is <code>true</code>."
+              },
+              "open_on_new_window": {
+                "type": "boolean",
+                "optional": true,
+                "default": false,
+                "description": "Whether the sidebar is opened in every new browser window."
+              },
+              "default_position": {
+                "type": "string",
+                "enum": ["start", "end"],
+                "optional": true,
+                "description": "The side of the browser where this sidebar opens."
               }
             },
             "optional": true

@@ -1,4 +1,6 @@
 [DEFAULT]
 tags = "wildbuzzard_uicustomizations"
 
+["browser_agentToolbar.js"]
+
 ["browser_uicustomizations.js"]

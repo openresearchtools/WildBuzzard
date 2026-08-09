@@ -1,4 +1,6 @@
 [DEFAULT]
 tags = "wildbuzzard_urlbar"
 
+["browser_agentAlias.js"]
+
 ["browser_doubleClickSelectsAll.js"]

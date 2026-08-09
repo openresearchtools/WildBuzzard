@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+browser.jar:
+    builtin-addons/wildbuzzard-agent/manifest.json (manifest.json)
+    builtin-addons/wildbuzzard-agent/background.js (background.js)
+    builtin-addons/wildbuzzard-agent/experiment-apis/ (experiment-apis/**)

@@ -1,0 +1,5 @@
+#!/bin/sh
+
+app_root=${APPDIR:-$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)}
+export MOZ_APP_LAUNCHER=${APPIMAGE:-${app_root}/AppRun}
+exec "${app_root}/usr/lib/wildbuzzard/wildbuzzard" "$@"

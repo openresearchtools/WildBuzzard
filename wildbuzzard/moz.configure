@@ -7,3 +7,31 @@ imply_option("MOZ_APP_PROFILE", "WildBuzzard")
 imply_option("MOZ_TELEMETRY_REPORTING", False)
 imply_option("--with-app-basename", "WildBuzzard")
 imply_option("--with-distribution-id", "org.wildbuzzard")
+
+option(
+    "--with-wildbuzzard-pi-web-runtime",
+    nargs=1,
+    help="Path to the Pi Web runtime ZIP bundled with WildBuzzard",
+)
+
+
+@depends("--with-wildbuzzard-pi-web-runtime")
+@imports("os")
+def wildbuzzard_pi_web_runtime(value):
+    if not value:
+        return
+    path = os.path.abspath(value[0])
+    if not os.path.isfile(path):
+        die(f"Cannot find Pi Web runtime at {path}")
+    return path
+
+
+set_config("WILDBUZZARD_PI_WEB_RUNTIME", wildbuzzard_pi_web_runtime)
+
+
+@depends(wildbuzzard_pi_web_runtime)
+def wildbuzzard_has_pi_web_runtime(path):
+    return bool(path)
+
+
+set_define("WILDBUZZARD_PI_WEB_RUNTIME", wildbuzzard_has_pi_web_runtime)

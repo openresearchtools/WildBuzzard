@@ -17,7 +17,7 @@ wildbuzzard-builds/
     └── <UTC>-<commit>-<pid>/
         ├── source/          clean detached checkout
         ├── obj/             build objects and dist packages
-        ├── artifacts/       installable WildBuzzard .deb
+        ├── artifacts/       installable WildBuzzard .deb and AppImage
         ├── logs/
         └── build-manifest.txt
 ```
@@ -37,6 +37,12 @@ Useful variants:
 # Build an exact committed revision.
 ./wildbuzzard/scripts/build-linux-external.sh --action package --ref <commit>
 
+# Build the current working tree with a committed Pi Web runtime bundle.
+./wildbuzzard/scripts/build-linux-external.sh \
+  --working-tree \
+  --pi-web-runtime /absolute/path/to/wildbuzzard-pi-web-runtime-linux-x64.zip \
+  --action appimage
+
 # Bootstrap a new build host, then build.
 ./wildbuzzard/scripts/build-linux-external.sh --bootstrap --action build
 
@@ -46,14 +52,24 @@ Useful variants:
   --action all
 ```
 
-The script deliberately ignores uncommitted files. Commit the intended port
-before invoking it. Every run records the exact full commit ID in
-`build-manifest.txt`.
+The script ignores uncommitted files unless `--working-tree` is supplied.
+Every run records the base commit and whether it included that snapshot in
+`build-manifest.txt`. Pi Web runtime builds require a clean, committed local
+Pi Web fork and always record its exact commit separately.
 
-The `all` action builds the browser, runs the native blocker tests and every
-WildBuzzard component test, creates Mozilla's Linux tar archive, and then
-packages that archive as an `amd64` Debian package. Packaging runs entirely in
-the external run directory and does not use `sudo`.
+The `appimage` action builds the browser, creates Mozilla's Linux tar archive,
+and packages it as a self-contained AppImage. When a Pi Web runtime ZIP is
+supplied, its Node.js, Pi, Pi Web, and native dependencies are included in that
+image. The `all` action also runs the native blocker tests and every WildBuzzard
+component test, and creates both an `amd64` Debian package and an AppImage.
+Packaging runs entirely in the external run directory and does not use `sudo`.
+
+Run the AppImage normally on a system with FUSE support. On build or test hosts
+without FUSE, use:
+
+```bash
+APPIMAGE_EXTRACT_AND_RUN=1 ./WildBuzzard-*.AppImage
+```
 
 `ccache` is useful across Firefox ESR updates because unchanged C/C++ translation
 units and headers still produce cache hits. The cache lives outside individual

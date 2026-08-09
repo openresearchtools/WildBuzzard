@@ -26,6 +26,10 @@
   list-style-image: url("chrome://browser/skin/back.svg");
 }
 
+#wildbuzzard-agent-toolbar-button {
+  list-style-image: url("chrome://browser/skin/agent.svg");
+}
+
 #forward-button {
   list-style-image: url("chrome://browser/skin/forward.svg");
 }

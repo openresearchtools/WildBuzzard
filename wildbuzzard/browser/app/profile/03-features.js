@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-// New tab page: keep the page local, no sponsored or remote content.
+// New tab page: use the locally hosted Pi Web service.
 pref("browser.newtabpage.activity-stream.asrouter.providers.cfr", "{}", locked);
 pref("browser.newtabpage.activity-stream.asrouter.providers.message-groups", "{}", locked);
 pref("browser.newtabpage.activity-stream.asrouter.providers.messaging-experiments", "{}", locked);
@@ -60,8 +60,19 @@ pref("browser.search.separatePrivateDefault.ui.enabled", true);
 
 pref("browser.startup.upgradeDialog.enabled", true);
 
+// Browser control reuses native Marionette/BiDi/DevTools implementation
+// modules in-process through the authenticated Agent bridge. Do not expose
+// separate unauthenticated WebDriver listeners, even on loopback.
+pref(
+  "wildbuzzard.agent.browserControl.webdriverTransport.enabled",
+  false,
+  locked
+);
+pref("remote.prefs.recommended", false, locked);
+
 // Tab features.
-pref("browser.newtab.url", "");
+pref("browser.newtab.url", "http://127.0.0.1:8765/");
+pref("browser.startup.homepage", "http://127.0.0.1:8765/");
 pref("browser.restart_menu.purgecache", false);
 pref("browser.restart_menu.requireconfirm", true);
 pref("browser.restart_menu.showpanelmenubtn", true);

@@ -42,6 +42,13 @@ this.sidebarAction = class extends ExtensionAPI {
     this.menuId = `menubar_menu_${this.id}`;
 
     this.browserStyle = options.browser_style;
+    this.defaultPosition = options.default_position;
+    this.openOnNewWindow =
+      options.open_on_new_window &&
+      !(
+        extension.isAppProvided &&
+        (Cu.isInAutomation || Services.env.get("MOZ_HEADLESS"))
+      );
 
     this.defaults = {
       enabled: true,
@@ -59,8 +66,12 @@ this.sidebarAction = class extends ExtensionAPI {
     });
 
     // We need to ensure our elements are available before session restore.
-    this.windowOpenListener = window => {
+    this.windowOpenListener = async window => {
       this.createMenuItem(window, this.globals);
+      if (this.openOnNewWindow) {
+        await window.SidebarController.promiseInitialized;
+        this.open(window);
+      }
     };
     windowTracker.addOpenListener(this.windowOpenListener);
 
@@ -132,10 +143,11 @@ this.sidebarAction = class extends ExtensionAPI {
       this.updateWindow(window);
       let { SidebarController } = window;
       if (
-        (install || SidebarController.lastOpenedId == this.id) &&
-        this.extension.manifest.sidebar_action.open_at_install
+        this.openOnNewWindow ||
+        ((install || SidebarController.lastOpenedId == this.id) &&
+          this.extension.manifest.sidebar_action.open_at_install)
       ) {
-        SidebarController.show(this.id);
+        this.open(window).catch(Cu.reportError);
       }
     }
   }
@@ -151,12 +163,24 @@ this.sidebarAction = class extends ExtensionAPI {
       menuId: this.menuId,
       title: details.title,
       extensionId: this.extension.id,
-      onload: () =>
-        SidebarController.browser.contentWindow.loadPanel(
-          this.extension.id,
-          this.panel,
-          this.browserStyle
-        ),
+      onload: () => {
+        const loadPanel = () => {
+          let { contentWindow } = SidebarController.browser;
+          if (typeof contentWindow.loadPanel != "function") {
+            SidebarController.browser.addEventListener("load", loadPanel, {
+              capture: true,
+              once: true,
+            });
+            return;
+          }
+          contentWindow.loadPanel(
+            this.extension.id,
+            this.panel,
+            this.browserStyle
+          );
+        };
+        loadPanel();
+      },
     });
   }
 
@@ -357,11 +381,19 @@ this.sidebarAction = class extends ExtensionAPI {
    *
    * @param {ChromeWindow} window
    */
-  open(window) {
+  async open(window) {
     let { SidebarController } = window;
     if (SidebarController && this.extension.canAccessWindow(window)) {
-      SidebarController.show(this.id);
+      await SidebarController.promiseInitialized;
+      if (this.defaultPosition) {
+        Services.prefs.setBoolPref(
+          SidebarController.POSITION_START_PREF,
+          this.defaultPosition === "start"
+        );
+      }
+      return SidebarController.showInitially(this.id);
     }
+    return false;
   }
 
   /**
@@ -387,7 +419,7 @@ this.sidebarAction = class extends ExtensionAPI {
     }
 
     if (!this.isOpen(window)) {
-      SidebarController.show(this.id);
+      this.open(window);
     } else {
       SidebarController.hide();
     }
