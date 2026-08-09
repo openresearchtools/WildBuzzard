@@ -23,7 +23,8 @@ class TCPServerSocketParent : public mozilla::net::PTCPServerSocketParent,
   NS_DECL_CYCLE_COLLECTING_ISUPPORTS
 
   TCPServerSocketParent(PNeckoParent* neckoParent, uint16_t aLocalPort,
-                        uint16_t aBacklog, bool aUseArrayBuffers);
+                        uint16_t aBacklog, bool aUseArrayBuffers,
+                        bool aLoopbackOnly);
 
   void Init();
 

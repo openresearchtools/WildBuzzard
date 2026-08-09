@@ -47,13 +47,15 @@ export class NetworkListener {
   #listening;
   #navigationManager;
   #networkEventsMap;
+  #options;
 
-  constructor(navigationManager, decodedBodySizeMap) {
+  constructor(navigationManager, decodedBodySizeMap, options = {}) {
     lazy.EventEmitter.decorate(this);
 
     this.#listening = false;
     this.#decodedBodySizeMap = decodedBodySizeMap;
     this.#navigationManager = navigationManager;
+    this.#options = options;
 
     // This map is going to be used in NetworkEventRecord,
     // but because we need to have one instance of the map per session,
@@ -71,8 +73,8 @@ export class NetworkListener {
     }
 
     this.#devtoolsNetworkObserver = new lazy.NetworkObserver({
-      decodeResponseBodies: false,
-      responseBodyLimit: 0,
+      decodeResponseBodies: this.#options.decodeResponseBodies ?? false,
+      responseBodyLimit: this.#options.responseBodyLimit ?? 0,
       ignoreChannelFunction: this.#ignoreChannelFunction,
       onNetworkEvent: this.#onNetworkEvent,
     });

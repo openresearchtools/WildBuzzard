@@ -1,0 +1,33 @@
+WildBuzzard Browser Tools
+
+This directory contains software derived from BrowserOS:
+https://github.com/browseros-ai/BrowserOS
+Upstream revision: 5a4a9ef8f64522a9f20ccc212642ee4bba35ad49
+
+BrowserOS is licensed under the GNU Affero General Public License version 3
+or any later version. Derived files retain SPDX-License-Identifier:
+AGPL-3.0-or-later and BrowserOS contributor attribution.
+
+The WildBuzzard Gecko integration is an independent implementation of the
+BrowserOS browser-tool contract for Mozilla Gecko.
+
+Principal upstream references:
+- packages/browseros-agent/packages/browser-core/src/core/snapshot/
+- packages/browseros-agent/packages/browser-mcp/src/tools/
+- packages/browseros-agent/crates/browseros-core/src/
+- packages/browseros-agent/crates/browseros-mcp/src/
+
+This directory also adapts architecture, lifecycle behavior, and Firefox
+protocol integration from Mozilla Firefox DevTools MCP:
+https://github.com/mozilla/firefox-devtools-mcp
+Upstream revision: 0d7d20017b433cff13d52f8fd57106d9d59087bb
+Upstream version: 0.9.15
+
+Firefox DevTools MCP is available under either the MIT License or the Apache
+License 2.0. WildBuzzard elects the MIT License for adapted portions. Its
+copyright notice and MIT terms are reproduced in MOZILLA-MCP-LICENSE.
+
+Mozilla's public tool names are not exposed as a second model-facing API.
+Their Firefox transport, console, network, debugging, download, screenshot,
+input, and lifecycle behavior is adapted behind the BrowserOS-compatible
+WildBuzzard tool contract.

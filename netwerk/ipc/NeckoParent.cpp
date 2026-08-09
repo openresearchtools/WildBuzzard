@@ -354,8 +354,7 @@ mozilla::ipc::IPCResult NeckoParent::RecvConnectBaseChannel(
       new nsBaseParentChannel(ContentParent::Cast(Manager())->GetRemoteType());
 
   nsCOMPtr<nsIChannel> channel;
-  NS_LinkRedirectChannels(channelId,
-                          ContentParent::Cast(Manager())->ChildID(),
+  NS_LinkRedirectChannels(channelId, ContentParent::Cast(Manager())->ChildID(),
                           parentChannel, getter_AddRefs(channel));
   return IPC_OK();
 }
@@ -426,14 +425,16 @@ bool NeckoParent::DeallocPTCPSocketParent(PTCPSocketParent* actor) {
 already_AddRefed<PTCPServerSocketParent>
 NeckoParent::AllocPTCPServerSocketParent(const uint16_t& aLocalPort,
                                          const uint16_t& aBacklog,
-                                         const bool& aUseArrayBuffers) {
-  return do_AddRef(
-      new TCPServerSocketParent(this, aLocalPort, aBacklog, aUseArrayBuffers));
+                                         const bool& aUseArrayBuffers,
+                                         const bool& aLoopbackOnly) {
+  return do_AddRef(new TCPServerSocketParent(this, aLocalPort, aBacklog,
+                                             aUseArrayBuffers, aLoopbackOnly));
 }
 
 mozilla::ipc::IPCResult NeckoParent::RecvPTCPServerSocketConstructor(
     PTCPServerSocketParent* aActor, const uint16_t& aLocalPort,
-    const uint16_t& aBacklog, const bool& aUseArrayBuffers) {
+    const uint16_t& aBacklog, const bool& aUseArrayBuffers,
+    const bool& aLoopbackOnly) {
   if (!StaticPrefs::dom_tcpsocket_in_child_enabled()) {
     return IPC_FAIL(this, "tcp socket not enabled");
   }

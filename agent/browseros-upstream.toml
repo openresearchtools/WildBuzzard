@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+name = "BrowserOS"
+repository = "https://github.com/browseros-ai/BrowserOS.git"
+commit = "5a4a9ef8f64522a9f20ccc212642ee4bba35ad49"
+license = "AGPL-3.0-or-later"
+license_file = "agent/extensions/browser-tools/LICENSE"
+reference_paths = [
+  "packages/browseros-agent/crates/browseros-core",
+  "packages/browseros-agent/crates/browseros-mcp",
+  "packages/browseros-agent/packages/browser-mcp"
+]

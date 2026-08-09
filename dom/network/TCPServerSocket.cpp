@@ -45,11 +45,13 @@ NS_INTERFACE_MAP_BEGIN_CYCLE_COLLECTION(TCPServerSocket)
 NS_INTERFACE_MAP_END_INHERITING(DOMEventTargetHelper)
 
 TCPServerSocket::TCPServerSocket(nsIGlobalObject* aGlobal, uint16_t aPort,
-                                 bool aUseArrayBuffers, uint16_t aBacklog)
+                                 bool aUseArrayBuffers, bool aLoopbackOnly,
+                                 uint16_t aBacklog)
     : DOMEventTargetHelper(aGlobal),
       mPort(aPort),
       mBacklog(aBacklog),
-      mUseArrayBuffers(aUseArrayBuffers) {}
+      mUseArrayBuffers(aUseArrayBuffers),
+      mLoopbackOnly(aLoopbackOnly) {}
 
 TCPServerSocket::~TCPServerSocket() = default;
 
@@ -60,8 +62,8 @@ nsresult TCPServerSocket::Init() {
   }
 
   if (XRE_GetProcessType() == GeckoProcessType_Content) {
-    mServerBridgeChild =
-        TCPServerSocketChild::Create(this, mPort, mBacklog, mUseArrayBuffers);
+    mServerBridgeChild = TCPServerSocketChild::Create(
+        this, mPort, mBacklog, mUseArrayBuffers, mLoopbackOnly);
     return NS_OK;
   }
 
@@ -69,7 +71,7 @@ nsresult TCPServerSocket::Init() {
   mServerSocket =
       do_CreateInstance("@mozilla.org/network/server-socket;1", &rv);
   NS_ENSURE_SUCCESS(rv, rv);
-  rv = mServerSocket->Init(mPort, false, mBacklog);
+  rv = mServerSocket->Init(mPort, mLoopbackOnly, mBacklog);
   NS_ENSURE_SUCCESS(rv, rv);
   rv = mServerSocket->GetPort(&mPort);
   NS_ENSURE_SUCCESS(rv, rv);
@@ -89,8 +91,8 @@ already_AddRefed<TCPServerSocket> TCPServerSocket::Constructor(
   }
   bool useArrayBuffers =
       aOptions.mBinaryType == TCPSocketBinaryType::Arraybuffer;
-  RefPtr<TCPServerSocket> socket =
-      new TCPServerSocket(global, aPort, useArrayBuffers, aBacklog);
+  RefPtr<TCPServerSocket> socket = new TCPServerSocket(
+      global, aPort, useArrayBuffers, aOptions.mLoopbackOnly, aBacklog);
   nsresult rv = socket->Init();
   if (NS_WARN_IF(NS_FAILED(rv))) {
     aRv = NS_ERROR_FAILURE;

@@ -113,10 +113,11 @@ class NeckoParent : public PNeckoParent {
 
   already_AddRefed<PTCPServerSocketParent> AllocPTCPServerSocketParent(
       const uint16_t& aLocalPort, const uint16_t& aBacklog,
-      const bool& aUseArrayBuffers);
+      const bool& aUseArrayBuffers, const bool& aLoopbackOnly);
   virtual mozilla::ipc::IPCResult RecvPTCPServerSocketConstructor(
       PTCPServerSocketParent*, const uint16_t& aLocalPort,
-      const uint16_t& aBacklog, const bool& aUseArrayBuffers) override;
+      const uint16_t& aBacklog, const bool& aUseArrayBuffers,
+      const bool& aLoopbackOnly) override;
 
   PTCPSocketParent* AllocPTCPSocketParent(const nsAString& host,
                                           const uint16_t& port);

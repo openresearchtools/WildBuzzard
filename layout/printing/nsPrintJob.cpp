@@ -1359,7 +1359,8 @@ nsresult nsPrintJob::ReflowPrintObject(const UniquePtr<nsPrintObject>& aPO) {
     if (mPrintSettings->GetOutputFormat() ==
             nsIPrintSettings::kOutputFormatPDF &&
         StaticPrefs::
-            print_save_as_pdf_use_page_rule_size_as_paper_size_enabled()) {
+            print_save_as_pdf_use_page_rule_size_as_paper_size_enabled() &&
+        mPrintSettings->GetUsePageRuleSizeAsPaperSize()) {
       mMaybeCSSPageSize = sizeAndOrientation.size;
       if (sizeAndOrientation.size) {
         pageSize = sizeAndOrientation.size.value();
@@ -1372,7 +1373,10 @@ nsresult nsPrintJob::ReflowPrintObject(const UniquePtr<nsPrintObject>& aPO) {
     // FinishPrintPreview, so that the frontend can reflect this.
     // The new document has not yet been reflowed, so we have to query the
     // original document for any CSS page-size.
-    if (sizeAndOrientation.orientation) {
+    if (sizeAndOrientation.orientation &&
+        (mPrintSettings->GetOutputFormat() !=
+             nsIPrintSettings::kOutputFormatPDF ||
+         mPrintSettings->GetUsePageRuleSizeAsPaperSize())) {
       switch (sizeAndOrientation.orientation.value()) {
         case StylePageSizeOrientation::Landscape:
           if (pageSize.width < pageSize.height) {

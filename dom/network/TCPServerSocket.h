@@ -23,7 +23,7 @@ class TCPServerSocket final : public DOMEventTargetHelper,
                               public nsIServerSocketListener {
  public:
   TCPServerSocket(nsIGlobalObject* aGlobal, uint16_t aPort,
-                  bool aUseArrayBuffers, uint16_t aBacklog);
+                  bool aUseArrayBuffers, bool aLoopbackOnly, uint16_t aBacklog);
 
   NS_DECL_ISUPPORTS_INHERITED
   NS_DECL_CYCLE_COLLECTION_SCRIPT_HOLDER_CLASS_INHERITED(TCPServerSocket,
@@ -69,6 +69,8 @@ class TCPServerSocket final : public DOMEventTargetHelper,
   // True if any accepted sockets should use array buffers for received
   // messages.
   bool mUseArrayBuffers;
+  // True when the listener must only accept connections from this machine.
+  bool mLoopbackOnly;
 };
 
 }  // namespace dom

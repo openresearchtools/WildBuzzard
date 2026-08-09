@@ -27,11 +27,11 @@ NS_INTERFACE_MAP_END
 // static
 RefPtr<TCPServerSocketChild> TCPServerSocketChild::Create(
     TCPServerSocket* aServerSocket, uint16_t aLocalPort, uint16_t aBacklog,
-    bool aUseArrayBuffers) {
+    bool aUseArrayBuffers, bool aLoopbackOnly) {
   // c'tor is private, so we can't use fancy things like MakeRefPtr
   RefPtr<TCPServerSocketChild> result(new TCPServerSocketChild(aServerSocket));
   gNeckoChild->SendPTCPServerSocketConstructor(result, aLocalPort, aBacklog,
-                                               aUseArrayBuffers);
+                                               aUseArrayBuffers, aLoopbackOnly);
   return result;
 }
 

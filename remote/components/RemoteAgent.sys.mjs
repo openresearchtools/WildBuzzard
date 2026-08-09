@@ -141,10 +141,10 @@ class RemoteAgentParentProcess {
   /**
    * Syncs the WebDriver active flag with the web content processes.
    *
-   * @param {boolean} value - Flag indicating if Remote Agent is active or not.
+   * @param {boolean} _value - Flag indicating if Remote Agent is active or not.
    */
-  updateWebdriverActiveFlag(value) {
-    Services.ppmm.sharedData.set(SHARED_DATA_ACTIVE_KEY, value);
+  updateWebdriverActiveFlag(_value) {
+    Services.ppmm.sharedData.set(SHARED_DATA_ACTIVE_KEY, false);
     Services.ppmm.sharedData.flush();
   }
 
@@ -431,7 +431,20 @@ class RemoteAgentParentProcess {
         this.#allowOrigins = this.#handleAllowOriginsFlag(subject);
         this.allowSystemAccess = this.#handleAllowSystemAccessFlag(subject);
 
-        this.#enabled = this.#handleRemoteDebuggingPortFlag(subject);
+        {
+          const enabledByCommandLine =
+            this.#handleRemoteDebuggingPortFlag(subject);
+          const enabledForWildBuzzardAgent = Services.prefs.getBoolPref(
+            "wildbuzzard.agent.browserControl.webdriverTransport.enabled",
+            false
+          );
+          if (enabledForWildBuzzardAgent && !enabledByCommandLine) {
+            // Use an ephemeral loopback port. A WebDriver session created
+            // through Marionette receives the resulting BiDi websocket URL.
+            this.#port = 0;
+          }
+          this.#enabled = enabledByCommandLine || enabledForWildBuzzardAgent;
+        }
 
         if (this.#enabled) {
           // Add annotation to crash report to indicate whether the

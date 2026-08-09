@@ -97,6 +97,46 @@ event.synthesizeMouseAtPoint = function (left, top, event, win) {
 };
 
 /**
+ * Complete an active native drag session at a viewport point.
+ *
+ * WebDriver pointer actions start and move Gecko drag sessions, but the
+ * generic EventUtils mouseup path intentionally does not synthesize `drop`.
+ * Browser-control drag-and-drop needs the complete user-visible sequence.
+ *
+ * @param {number} left - Viewport X coordinate in CSS pixels.
+ * @param {number} top - Viewport Y coordinate in CSS pixels.
+ * @param {DOMWindow} win - Content window that owns the drag session.
+ *
+ * @returns {boolean} Whether Gecko accepted and dispatched the drop.
+ */
+event.synthesizeDropAtPoint = function (left, top, win) {
+  const windowUtils = win.windowUtils;
+  const dragSession = windowUtils.dragSession;
+  if (!dragSession) {
+    return false;
+  }
+  const target = win.document.elementFromPoint(left, top);
+  if (!target) {
+    dragSession.endDragSession(false, 0);
+    throw new Error(`No drop target at (${left}, ${top})`);
+  }
+  const eventUtils = _getEventUtils(win);
+  try {
+    const drop = eventUtils.createDragEventObject(
+      "drop",
+      target,
+      win,
+      dragSession.dataTransfer,
+      { clientX: left, clientY: top }
+    );
+    eventUtils.sendDragEvent(drop, target, win);
+  } finally {
+    dragSession.endDragSession(false, 0);
+  }
+  return true;
+};
+
+/**
  * Synthesize a touch event at a point.
  *
  * If the type is specified in opts, a touch event of that type is

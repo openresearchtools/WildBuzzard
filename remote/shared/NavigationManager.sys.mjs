@@ -347,6 +347,12 @@ class NavigationRegistry extends EventEmitter {
     const { contextDetails, errorName, url } = data;
 
     const context = this.#getContextFromContextDetails(contextDetails);
+    if (!context) {
+      lazy.logger.trace(
+        lazy.truncate`No browsing context found to commit navigation for url: ${url}`
+      );
+      return null;
+    }
     const navigableId = lazy.NavigableManager.getIdForBrowsingContext(context);
     const navigation = this.#navigations.get(navigableId);
 

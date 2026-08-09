@@ -27,7 +27,8 @@ class TCPServerSocketChild : public mozilla::net::PTCPServerSocketChild,
   static RefPtr<TCPServerSocketChild> Create(TCPServerSocket* aServerSocket,
                                              uint16_t aLocalPort,
                                              uint16_t aBacklog,
-                                             bool aUseArrayBuffers);
+                                             bool aUseArrayBuffers,
+                                             bool aLoopbackOnly);
 
   void Close();
 

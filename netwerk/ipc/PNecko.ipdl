@@ -79,7 +79,8 @@ parent:
 
   async PWebSocket(nullable PBrowser browser, SerializedLoadContext loadContext,
                    uint32_t aSerialID);
-  async PTCPServerSocket(uint16_t localPort, uint16_t backlog, bool useArrayBuffers);
+  async PTCPServerSocket(uint16_t localPort, uint16_t backlog,
+                         bool useArrayBuffers, bool loopbackOnly);
   async PUDPSocket(nullable nsIPrincipal principal, nsCString filter);
 
   async PDNSRequest(nsCString hostName, nsCString trrServer, int32_t port,

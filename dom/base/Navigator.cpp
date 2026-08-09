@@ -33,9 +33,14 @@
 #  include "mozilla/StaticPrefs_fuzzing.h"
 #endif
 #include "BatteryManager.h"
+#include "BrowserChild.h"
 #include "Connection.h"
+#include "MediaManager.h"
+#include "ReferrerInfo.h"
+#include "WidgetUtils.h"
 #include "mozilla/ClearOnShutdown.h"
 #include "mozilla/Hal.h"
+#include "mozilla/PermissionDelegateHandler.h"
 #include "mozilla/StaticPrefs_media.h"
 #include "mozilla/StaticPrefs_network.h"
 #include "mozilla/StaticPrefs_pdfjs.h"
@@ -48,16 +53,19 @@
 #include "mozilla/dom/CredentialsContainer.h"
 #include "mozilla/dom/Event.h"  // for Event
 #include "mozilla/dom/FeaturePolicyUtils.h"
+#include "mozilla/dom/FormData.h"
 #include "mozilla/dom/GamepadServiceTest.h"
 #include "mozilla/dom/LockManager.h"
 #include "mozilla/dom/MIDIAccessManager.h"
 #include "mozilla/dom/MIDIOptionsBinding.h"
 #include "mozilla/dom/MediaCapabilities.h"
+#include "mozilla/dom/MediaDevices.h"
 #include "mozilla/dom/MediaSession.h"
 #include "mozilla/dom/ModelContext.h"
 #include "mozilla/dom/NavigatorLogin.h"
 #include "mozilla/dom/Permissions.h"
 #include "mozilla/dom/PrivateAttribution.h"
+#include "mozilla/dom/Promise.h"
 #include "mozilla/dom/ServiceWorkerContainer.h"
 #include "mozilla/dom/StorageManager.h"
 #include "mozilla/dom/TCPSocket.h"
@@ -67,40 +75,28 @@
 #include "mozilla/dom/VRDisplayEvent.h"
 #include "mozilla/dom/VRServiceTest.h"
 #include "mozilla/dom/WakeLockJS.h"
+#include "mozilla/dom/WorkerPrivate.h"
+#include "mozilla/dom/WorkerRunnable.h"
 #include "mozilla/dom/XRSystem.h"
 #include "mozilla/dom/power/PowerManagerService.h"
 #include "mozilla/dom/workerinternals/RuntimeService.h"
+#include "mozilla/ipc/URIUtils.h"
 #include "nsComponentManagerUtils.h"
 #include "nsGlobalWindowInner.h"
 #include "nsICookieManager.h"
 #include "nsICookieService.h"
-#include "nsIHttpChannel.h"
-#include "nsIPermissionManager.h"
-#include "nsMimeTypes.h"
-#include "nsNetUtil.h"
-#include "nsRFPService.h"
-#include "nsStringStream.h"
-#ifdef ENABLE_WEBDRIVER
-#  include "nsIMarionette.h"
-#  include "nsIRemoteAgent.h"
-#endif
-#include "BrowserChild.h"
-#include "MediaManager.h"
-#include "ReferrerInfo.h"
-#include "WidgetUtils.h"
-#include "mozilla/PermissionDelegateHandler.h"
-#include "mozilla/dom/FormData.h"
-#include "mozilla/dom/MediaDevices.h"
-#include "mozilla/dom/Promise.h"
-#include "mozilla/dom/WorkerPrivate.h"
-#include "mozilla/dom/WorkerRunnable.h"
-#include "mozilla/ipc/URIUtils.h"
 #include "nsIDocShell.h"
 #include "nsIExternalProtocolHandler.h"
+#include "nsIHttpChannel.h"
+#include "nsIPermissionManager.h"
 #include "nsIScriptError.h"
 #include "nsIUploadChannel2.h"
 #include "nsJSUtils.h"
+#include "nsMimeTypes.h"
+#include "nsNetUtil.h"
+#include "nsRFPService.h"
 #include "nsStreamUtils.h"
+#include "nsStringStream.h"
 
 #if defined(XP_WIN)
 #  include "mozilla/WindowsVersion.h"
@@ -2360,29 +2356,7 @@ dom::PrivateAttribution* Navigator::PrivateAttribution() {
 }
 
 /* static */
-bool Navigator::Webdriver() {
-#ifdef ENABLE_WEBDRIVER
-  nsCOMPtr<nsIMarionette> marionette = do_GetService(NS_MARIONETTE_CONTRACTID);
-  if (marionette) {
-    bool marionetteRunning = false;
-    marionette->GetRunning(&marionetteRunning);
-    if (marionetteRunning) {
-      return true;
-    }
-  }
-
-  nsCOMPtr<nsIRemoteAgent> agent = do_GetService(NS_REMOTEAGENT_CONTRACTID);
-  if (agent) {
-    bool remoteAgentRunning = false;
-    agent->GetRunning(&remoteAgentRunning);
-    if (remoteAgentRunning) {
-      return true;
-    }
-  }
-#endif
-
-  return false;
-}
+bool Navigator::Webdriver() { return false; }
 
 AutoplayPolicy Navigator::GetAutoplayPolicy(AutoplayPolicyMediaType aType) {
   if (!mWindow) {

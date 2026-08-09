@@ -89,10 +89,10 @@ class MarionetteParentProcess {
   /**
    * Syncs the Marionette active flag with the web content processes.
    *
-   * @param {boolean} value - Flag indicating if Marionette is active or not.
+   * @param {boolean} _value - Flag indicating if Marionette is active or not.
    */
-  updateWebdriverActiveFlag(value) {
-    Services.ppmm.sharedData.set(SHARED_DATA_ACTIVE_KEY, value);
+  updateWebdriverActiveFlag(_value) {
+    Services.ppmm.sharedData.set(SHARED_DATA_ACTIVE_KEY, false);
     Services.ppmm.sharedData.flush();
   }
 
@@ -123,7 +123,20 @@ class MarionetteParentProcess {
       case "command-line-startup":
         Services.obs.removeObserver(this, topic);
 
-        this.enabled = subject.handleFlag("marionette", false);
+        {
+          const enabledByCommandLine = subject.handleFlag("marionette", false);
+          const enabledForWildBuzzardAgent = Services.prefs.getBoolPref(
+            "wildbuzzard.agent.browserControl.webdriverTransport.enabled",
+            false
+          );
+          if (enabledForWildBuzzardAgent && !enabledByCommandLine) {
+            // The bundled Agent discovers the selected loopback port through
+            // MarionetteActivePort. Avoid a stable, externally predictable
+            // endpoint when the user did not explicitly request one.
+            lazy.MarionettePrefs.port = 0;
+          }
+          this.enabled = enabledByCommandLine || enabledForWildBuzzardAgent;
+        }
 
         if (this.enabled) {
           // Add annotation to crash report to indicate whether

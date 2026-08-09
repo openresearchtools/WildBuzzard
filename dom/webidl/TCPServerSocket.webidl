@@ -10,6 +10,7 @@
 
 dictionary ServerSocketOptions {
   TCPSocketBinaryType binaryType = "string";
+  boolean loopbackOnly = false;
 };
 
 [Func="mozilla::dom::TCPSocket::ShouldTCPSocketExist",

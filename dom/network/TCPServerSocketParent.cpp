@@ -24,10 +24,11 @@ NS_INTERFACE_MAP_END
 TCPServerSocketParent::TCPServerSocketParent(PNeckoParent* neckoParent,
                                              uint16_t aLocalPort,
                                              uint16_t aBacklog,
-                                             bool aUseArrayBuffers)
+                                             bool aUseArrayBuffers,
+                                             bool aLoopbackOnly)
     : mNeckoParent(neckoParent) {
-  mServerSocket =
-      new TCPServerSocket(nullptr, aLocalPort, aUseArrayBuffers, aBacklog);
+  mServerSocket = new TCPServerSocket(nullptr, aLocalPort, aUseArrayBuffers,
+                                      aLoopbackOnly, aBacklog);
   mServerSocket->SetServerBridgeParent(this);
 }
 
