@@ -24,6 +24,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
 
 const kPrefCustomizationDebug = "browser.uiCustomization.debug";
 const WILDBUZZARD_AGENT_URL = "http://127.0.0.1:8765/";
+const WILDBUZZARD_TORRENT_URL = "about:torrents";
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
   let { ConsoleAPI } = ChromeUtils.importESModule(
@@ -394,6 +395,61 @@ export const CustomizableWidgets = [
       const win = aEvent.view ?? aEvent.target.documentGlobal;
       win.switchToTabHavingURI(
         Services.io.newURI(WILDBUZZARD_AGENT_URL),
+        true,
+        {
+          ignoreQueryString: true,
+          triggeringPrincipal:
+            Services.scriptSecurityManager.getSystemPrincipal(),
+        }
+      );
+    },
+  },
+  {
+    id: "wildbuzzard-torrent-toolbar-button",
+    l10nId: "wildbuzzard-torrent-toolbar-button",
+    defaultArea: "nav-bar",
+    introducedInVersion: 29,
+    onCreated(aNode) {
+      const win = aNode.documentGlobal;
+      const update = () => {
+        const active = win.gBrowser.currentURI.spec.startsWith(
+          WILDBUZZARD_TORRENT_URL
+        );
+        aNode.toggleAttribute("checked", active);
+        aNode.setAttribute("aria-pressed", String(active));
+      };
+      const progressListener = {
+        onLocationChange(browser, webProgress) {
+          if (
+            webProgress.isTopLevel &&
+            browser === win.gBrowser.selectedBrowser
+          ) {
+            update();
+          }
+        },
+      };
+      const widgetListener = {
+        onWidgetInstanceRemoved(widgetId, document) {
+          if (
+            widgetId !== "wildbuzzard-torrent-toolbar-button" ||
+            document !== aNode.ownerDocument
+          ) {
+            return;
+          }
+          win.removeEventListener("TabSelect", update);
+          win.gBrowser.removeTabsProgressListener(progressListener);
+          lazy.CustomizableUI.removeListener(widgetListener);
+        },
+      };
+      win.addEventListener("TabSelect", update);
+      win.gBrowser.addTabsProgressListener(progressListener);
+      lazy.CustomizableUI.addListener(widgetListener);
+      update();
+    },
+    onCommand(aEvent) {
+      const win = aEvent.view ?? aEvent.target.documentGlobal;
+      win.switchToTabHavingURI(
+        Services.io.newURI(WILDBUZZARD_TORRENT_URL),
         true,
         {
           ignoreQueryString: true,

@@ -10,7 +10,8 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { homedir } from "node:os";
 import {
   basename,
@@ -21,7 +22,14 @@ import {
   resolve,
 } from "node:path";
 import process from "node:process";
-import WebTorrent from "webtorrent";
+import peerIdParser from "bittorrent-peerid";
+import nodeFetch from "node-fetch";
+import { SocksClient } from "socks";
+import { SocksProxyAgent } from "socks-proxy-agent";
+
+globalThis.fetch = nodeFetch;
+
+let WebTorrent;
 
 const API_VERSION = 1;
 const MAX_BODY_SIZE = 12 * 1024 * 1024;
@@ -41,7 +49,7 @@ async function readJSON(path, fallback) {
 
 async function writeJSON(path, value, mode = 0o600) {
   await mkdir(dirname(path), { recursive: true });
-  const temporary = `${path}.${process.pid}.tmp`;
+  const temporary = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode });
   await rename(temporary, path);
   await chmod(path, mode);
@@ -72,9 +80,126 @@ function clampInteger(value, minimum, maximum) {
     : minimum;
 }
 
-function publicRecord(record) {
+function connectionsFor(record, torEnabled) {
+  const torrent = record.runtime;
+  if (!torrent || torrent.destroyed) {
+    return [];
+  }
+  return torrent.wires.map((wire, index) => {
+    const peer = [...torrent._peers.values()].find(item => item.wire === wire);
+    let client = "Unknown";
+    try {
+      const parsed = peerIdParser(wire.peerId);
+      client = [parsed.client, parsed.version].filter(Boolean).join(" ");
+    } catch {}
+    const address =
+      peer?.addr ||
+      [wire.remoteAddress, wire.remotePort].filter(Boolean).join(":") ||
+      "Unknown";
+    const transport = wire.type?.startsWith("utp")
+      ? "µTP"
+      : wire.type === "webSeed"
+        ? "Web seed"
+        : "TCP";
+    const flags = [];
+    if (wire.peerChoking) {
+      flags.push("Choked");
+    }
+    if (wire.peerInterested) {
+      flags.push("Interested");
+    }
+    if (wire.type?.endsWith("Incoming")) {
+      flags.push("Incoming");
+    } else if (wire.type?.endsWith("Outgoing")) {
+      flags.push("Outgoing");
+    }
+    return {
+      id: `${wire.peerId?.toString("hex") || address}-${wire.type || index}`,
+      address,
+      client,
+      transport,
+      source: peer?.source || "unknown",
+      route: torEnabled ? "Tor" : "Direct",
+      downloadSpeed: Number(wire.downloadSpeed?.() || 0),
+      uploadSpeed: Number(wire.uploadSpeed?.() || 0),
+      downloaded: Number(wire.downloaded || 0),
+      uploaded: Number(wire.uploaded || 0),
+      status: flags.join(", ") || "Connected",
+    };
+  });
+}
+
+function publicRecord(record, includeConnections = true, torEnabled = false) {
   const { runtime, metainfoPath, ...result } = record;
+  result.connections = includeConnections
+    ? connectionsFor(record, torEnabled)
+    : [];
   return result;
+}
+
+function torProxy(value) {
+  const host = String(value?.host || "");
+  const port = Math.trunc(Number(value?.port));
+  if (host !== "127.0.0.1" || port < 1 || port > 65535) {
+    throw new Error("Tor mode requires a valid local SOCKS proxy");
+  }
+  return { host, port };
+}
+
+function torCredentials() {
+  return {
+    userId: randomBytes(16).toString("hex"),
+    password: randomBytes(16).toString("hex"),
+  };
+}
+
+function requestThroughAgent(url, agent, redirects = 0) {
+  return new Promise((resolveRequest, reject) => {
+    const parsed = new URL(url);
+    const request = (parsed.protocol === "https:" ? httpsRequest : httpRequest)(
+      parsed,
+      { agent },
+      response => {
+        if (
+          response.statusCode >= 300 &&
+          response.statusCode < 400 &&
+          response.headers.location &&
+          redirects < 5
+        ) {
+          response.resume();
+          resolveRequest(
+            requestThroughAgent(
+              new URL(response.headers.location, parsed).href,
+              agent,
+              redirects + 1
+            )
+          );
+          return;
+        }
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          response.resume();
+          reject(new Error(`Torrent request failed (${response.statusCode})`));
+          return;
+        }
+        const chunks = [];
+        let size = 0;
+        response.on("data", chunk => {
+          size += chunk.length;
+          if (size > MAX_BODY_SIZE) {
+            request.destroy(new Error("Torrent metadata is too large"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        response.on("end", () => resolveRequest(Buffer.concat(chunks)));
+      }
+    );
+    request.setTimeout(30000, () =>
+      request.destroy(new Error("Torrent request timed out"))
+    );
+    request.on("error", reject);
+    request.end();
+  });
 }
 
 class TorrentEngine {
@@ -92,7 +217,9 @@ class TorrentEngine {
       uploadLimit: Number(config.uploadLimit ?? -1),
       seedCompleted: config.seedCompleted !== false,
       downloadDirectory: config.downloadDirectory,
+      torEnabled: Boolean(config.torEnabled),
     };
+    this.torProxy = config.torEnabled ? torProxy(config.torProxy) : null;
   }
 
   async initialize() {
@@ -101,6 +228,7 @@ class TorrentEngine {
     await mkdir(this.config.downloadDirectory, { recursive: true });
     const saved = await readJSON(this.statePath, { records: [], settings: {} });
     Object.assign(this.settings, saved.settings || {});
+    this.settings.torEnabled = Boolean(this.config.torEnabled);
     for (const item of saved.records || []) {
       const record = {
         ...item,
@@ -119,21 +247,60 @@ class TorrentEngine {
       }
       this.records.set(record.id, record);
     }
-    this.client = new WebTorrent({
-      maxConns: clampInteger(this.config.maxConnections ?? 80, 10, 500),
-      downloadLimit: this.settings.downloadLimit,
-      uploadLimit: this.settings.uploadLimit,
-      natUpnp: this.config.natUpnp !== false,
-      natPmp: this.config.natPmp !== false,
-      lsd: this.config.lsd !== false,
-      utp: this.config.utp !== false,
-    });
-    this.client.on("error", error => {
-      this.lastError = error.message;
-    });
+    this.client = this.createClient();
     this.timer = setInterval(() => this.updateStats(), 1000);
     this.timer.unref();
     await this.reconcile();
+  }
+
+  createClient() {
+    const options = {
+      maxConns: clampInteger(this.config.maxConnections ?? 80, 10, 500),
+      downloadLimit: this.settings.downloadLimit,
+      uploadLimit: this.settings.uploadLimit,
+      dht: this.config.dht ?? true,
+      natUpnp: !this.settings.torEnabled && this.config.natUpnp !== false,
+      natPmp: !this.settings.torEnabled && this.config.natPmp !== false,
+      lsd: !this.settings.torEnabled && this.config.lsd !== false,
+      utp: !this.settings.torEnabled && this.config.utp !== false,
+      webSeeds: !this.settings.torEnabled,
+      acceptIncoming: !this.settings.torEnabled,
+    };
+    if (this.settings.torEnabled) {
+      const proxy = torProxy(this.torProxy);
+      const trackerAuth = torCredentials();
+      const proxyURL = new URL(`socks5h://${proxy.host}:${proxy.port}`);
+      proxyURL.username = trackerAuth.userId;
+      proxyURL.password = trackerAuth.password;
+      const agent = new SocksProxyAgent(proxyURL);
+      this.torAgent = agent;
+      options.dht = false;
+      options.torrentPort = 1;
+      options.trackerFilter = url => /^(https?|wss?):/i.test(url);
+      options.tracker = { proxyOpts: { httpAgent: agent, httpsAgent: agent } };
+      options.peerConnect = (destination, callback) => {
+        const auth = torCredentials();
+        SocksClient.createConnection({
+          command: "connect",
+          proxy: { type: 5, ...proxy, ...auth },
+          destination: {
+            host: destination.host,
+            port: Number(destination.port),
+          },
+          timeout: 30000,
+        })
+          .then(({ socket }) => callback(null, socket))
+          .catch(callback);
+      };
+    }
+    if (!this.settings.torEnabled) {
+      this.torAgent = null;
+    }
+    const client = new WebTorrent(options);
+    client.on("error", error => {
+      this.lastError = error.message;
+    });
+    return client;
   }
 
   async persist() {
@@ -141,7 +308,7 @@ class TorrentEngine {
       version: API_VERSION,
       settings: this.settings,
       records: [...this.records.values()].map(record => {
-        const value = publicRecord(record);
+        const value = publicRecord(record, false, this.settings.torEnabled);
         value.downloadSpeed = 0;
         value.uploadSpeed = 0;
         value.numPeers = 0;
@@ -158,17 +325,19 @@ class TorrentEngine {
       engine: `WebTorrent/${WebTorrent.VERSION}`,
       capabilities: {
         tcp: true,
-        udpTrackers: true,
+        udpTrackers: !this.settings.torEnabled,
         dht: Boolean(this.client.dht),
         utp: Boolean(this.client.utp),
         pex: Boolean(this.client.utPex),
         lsd: Boolean(this.client.lsd),
+        inbound: !this.settings.torEnabled,
+        tor: this.settings.torEnabled,
       },
       settings: this.settings,
       lastError: this.lastError || null,
       torrents: [...this.records.values()]
         .sort((a, b) => a.addedAt - b.addedAt)
-        .map(publicRecord),
+        .map(record => publicRecord(record, true, this.settings.torEnabled)),
     };
   }
 
@@ -271,12 +440,22 @@ class TorrentEngine {
     this.records.set(id, record);
     await this.persist();
     await this.reconcile();
-    return publicRecord(record);
+    return publicRecord(record, true, this.settings.torEnabled);
   }
 
   async inputFor(record) {
     if (record.metainfoPath) {
       return readFile(record.metainfoPath);
+    }
+    if (this.settings.torEnabled && record.source.startsWith("magnet:")) {
+      const magnet = new URL(record.source);
+      for (const name of ["as", "ws", "xs"]) {
+        magnet.searchParams.delete(name);
+      }
+      return magnet.href;
+    }
+    if (this.settings.torEnabled && /^https?:\/\//i.test(record.source)) {
+      return requestThroughAgent(record.source, this.torAgent);
     }
     return record.source;
   }
@@ -428,7 +607,7 @@ class TorrentEngine {
     }
     await this.persist();
     await this.reconcile();
-    return publicRecord(record);
+    return publicRecord(record, true, this.settings.torEnabled);
   }
 
   async updateRecord(id, update) {
@@ -455,20 +634,35 @@ class TorrentEngine {
       }
     }
     await this.persist();
-    return publicRecord(record);
+    return publicRecord(record, true, this.settings.torEnabled);
   }
 
   async updateSettings(update) {
+    let rebuild = false;
+    if (update.torEnabled !== undefined) {
+      const enabled = Boolean(update.torEnabled);
+      const proxy = enabled ? torProxy(update.torProxy) : null;
+      rebuild =
+        enabled !== this.settings.torEnabled ||
+        proxy?.host !== this.torProxy?.host ||
+        proxy?.port !== this.torProxy?.port;
+      this.settings.torEnabled = enabled;
+      this.torProxy = proxy;
+    }
     if (update.maxActive !== undefined) {
       this.settings.maxActive = clampInteger(update.maxActive, 1, 50);
     }
     if (update.downloadLimit !== undefined) {
       this.settings.downloadLimit = Number(update.downloadLimit);
-      this.client.throttleDownload(this.settings.downloadLimit);
+      if (!rebuild) {
+        this.client.throttleDownload(this.settings.downloadLimit);
+      }
     }
     if (update.uploadLimit !== undefined) {
       this.settings.uploadLimit = Number(update.uploadLimit);
-      this.client.throttleUpload(this.settings.uploadLimit);
+      if (!rebuild) {
+        this.client.throttleUpload(this.settings.uploadLimit);
+      }
     }
     if (update.seedCompleted !== undefined) {
       this.settings.seedCompleted = Boolean(update.seedCompleted);
@@ -480,9 +674,29 @@ class TorrentEngine {
       this.settings.downloadDirectory = resolve(update.downloadDirectory);
       await mkdir(this.settings.downloadDirectory, { recursive: true });
     }
+    if (rebuild) {
+      await this.rebuildClient();
+    }
+    this.config = {
+      ...this.config,
+      ...this.settings,
+      torProxy: this.torProxy,
+    };
+    await writeJSON(this.configPath, this.config);
     await this.persist();
     await this.reconcile();
     return this.settings;
+  }
+
+  async rebuildClient() {
+    const active = [...this.records.values()].filter(record => record.runtime);
+    for (const record of active) {
+      await this.stopRuntime(record);
+      record.state = "queued";
+    }
+    const client = this.client;
+    await new Promise(resolve => client.destroy(() => resolve()));
+    this.client = this.createClient();
   }
 
   async remove(id, deleteData) {
@@ -541,6 +755,7 @@ function send(response, status, body) {
 }
 
 async function serve(configPath) {
+  ({ default: WebTorrent } = await import("webtorrent"));
   const config = await readJSON(configPath, null);
   if (
     !config?.dataDirectory ||

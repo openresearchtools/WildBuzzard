@@ -12,6 +12,11 @@ not needed for native BitTorrent swarms. A source-only compatibility shim makes
 WebRTC capability detection return false. TCP, µTP, HTTP/UDP trackers, DHT,
 PEX, LSD, and web seeds remain enabled.
 
+Tor mode uses authenticated SOCKS5 hostname resolution for HTTP(S)/WebSocket
+trackers and every outgoing TCP peer. It disables µTP, UDP trackers, DHT, LSD,
+web seeds, NAT traversal, and incoming listeners so a failed Tor proxy stalls
+the torrent instead of falling back to the direct network.
+
 `npm audit` currently propagates GHSA-2p57-rm9w-gvfp from the `ip` package
 through `bittorrent-tracker`, `torrent-discovery`, and WebTorrent. WebTorrent
 uses the tracker package as a client. The affected `ip.isPublic()` function is

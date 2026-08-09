@@ -409,9 +409,12 @@ export default class Torrent extends EventEmitter {
     }
 
     // begin discovering peers via DHT and trackers
+    const announce = this.client.trackerFilter
+      ? this.announce.filter(this.client.trackerFilter)
+      : this.announce
     this.discovery = new Discovery({
       infoHash: this.infoHash,
-      announce: this.announce,
+      announce,
       peerId: this.client.peerId,
       dht: !this.private && this.client.dht,
       tracker: trackerOpts,
@@ -2118,61 +2121,85 @@ export default class Torrent extends EventEmitter {
       port: parts[1]
     }
 
-    if (this.client.utp && peer.type === Peer.TYPE_UTP_OUTGOING) {
-      const utpServer = this.client._utpServer
-      peer.conn = utpServer ? utpServer.connect(opts.port, opts.host) : utp.connect(opts.port, opts.host)
-    } else {
-      peer.conn = net.connect(opts)
-    }
-
-    const conn = peer.conn
-
     this._numPending += 1
     const donePending = once(() => { this._numPending -= 1 })
 
-    conn.once('connect', () => {
-      donePending()
-      if (!this.destroyed) peer.onConnect()
-    })
-    conn.once('error', err => {
-      donePending()
-      peer.destroy(err)
-    })
-    conn.once('close', donePending)
-    peer.startConnectTimeout()
-
-    // When connection closes, attempt reconnect after timeout (with exponential backoff)
-    conn.on('close', () => {
-      if (this.destroyed) return
-
-      if (peer.retries >= RECONNECT_WAIT.length) {
-        if (this.client.utp) {
-          const newPeer = this._addPeer(peer.addr, 'tcp', peer.source)
-          if (newPeer) newPeer.retries = 0
-        } else {
-          this._debug(
-            'conn %s closed: will not re-add (max %s attempts)',
-            peer.addr, RECONNECT_WAIT.length
-          )
-        }
+    const attachConnection = (err, conn, connected = false) => {
+      if (err) {
+        donePending()
+        peer.destroy(err)
         return
       }
+      if (this.destroyed || peer.destroyed) {
+        donePending()
+        conn.destroy()
+        return
+      }
+      peer.conn = conn
+      if (!connected) {
+        conn.once('connect', () => {
+          donePending()
+          if (!this.destroyed) peer.onConnect()
+        })
+      }
+      conn.once('error', err => {
+        donePending()
+        peer.destroy(err)
+      })
+      conn.once('close', donePending)
+      peer.startConnectTimeout()
+      if (connected) {
+        donePending()
+        peer.onConnect()
+      }
 
-      const ms = RECONNECT_WAIT[peer.retries]
-      this._debug(
-        'conn %s closed: will re-add to queue in %sms (attempt %s)',
-        peer.addr, ms, peer.retries + 1
-      )
-
-      const reconnectTimeout = setTimeout(() => {
+      // When connection closes, attempt reconnect after timeout (with exponential backoff)
+      conn.on('close', () => {
         if (this.destroyed) return
-        const host = addrToIPPort(peer.addr)[0]
-        const type = (this.client.utp && this._isIPv4(host)) ? 'utp' : 'tcp'
-        const newPeer = this._addPeer(peer.addr, type, peer.source)
-        if (newPeer) newPeer.retries = peer.retries + 1
-      }, ms)
-      if (reconnectTimeout.unref) reconnectTimeout.unref()
-    })
+
+        if (peer.retries >= RECONNECT_WAIT.length) {
+          if (this.client.utp) {
+            const newPeer = this._addPeer(peer.addr, 'tcp', peer.source)
+            if (newPeer) newPeer.retries = 0
+          } else {
+            this._debug(
+              'conn %s closed: will not re-add (max %s attempts)',
+              peer.addr, RECONNECT_WAIT.length
+            )
+          }
+          return
+        }
+
+        const ms = RECONNECT_WAIT[peer.retries]
+        this._debug(
+          'conn %s closed: will re-add to queue in %sms (attempt %s)',
+          peer.addr, ms, peer.retries + 1
+        )
+
+        const reconnectTimeout = setTimeout(() => {
+          if (this.destroyed) return
+          const host = addrToIPPort(peer.addr)[0]
+          const type = (this.client.utp && this._isIPv4(host)) ? 'utp' : 'tcp'
+          const newPeer = this._addPeer(peer.addr, type, peer.source)
+          if (newPeer) newPeer.retries = peer.retries + 1
+        }, ms)
+        if (reconnectTimeout.unref) reconnectTimeout.unref()
+      })
+    }
+
+    if (this.client.utp && peer.type === Peer.TYPE_UTP_OUTGOING) {
+      const utpServer = this.client._utpServer
+      attachConnection(null, utpServer ? utpServer.connect(opts.port, opts.host) : utp.connect(opts.port, opts.host))
+    } else if (this.client.peerConnect) {
+      peer.startConnectTimeout()
+      try {
+        this.client.peerConnect(opts, (err, conn) => attachConnection(err, conn, true))
+      } catch (err) {
+        attachConnection(err)
+      }
+    } else {
+      attachConnection(null, net.connect(opts))
+    }
   }
 
   /**

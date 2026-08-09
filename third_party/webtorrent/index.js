@@ -76,10 +76,13 @@ export default class WebTorrent extends EventEmitter {
     this.torrentPort = opts.torrentPort || 0
     this.dhtPort = opts.dhtPort || 0
     this.tracker = opts.tracker !== undefined ? opts.tracker : {}
+    this.trackerFilter = typeof opts.trackerFilter === 'function' ? opts.trackerFilter : null
     this.lsd = opts.lsd !== false
     this.utPex = opts.utPex !== false
     this.natUpnp = opts.natUpnp ?? true
     this.natPmp = opts.natPmp ?? true
+    this.acceptIncoming = opts.acceptIncoming !== false
+    this.peerConnect = typeof opts.peerConnect === 'function' ? opts.peerConnect : null
     this.torrents = []
     this.maxConns = Number(opts.maxConns) || 55
     this.utp = WebTorrent.UTP_SUPPORT && opts.utp !== false
@@ -115,7 +118,7 @@ export default class WebTorrent extends EventEmitter {
       if (globalThis.WRTC && !this.tracker.wrtc) this.tracker.wrtc = globalThis.WRTC
     }
 
-    if (typeof ConnPool === 'function') {
+    if (typeof ConnPool === 'function' && this.acceptIncoming) {
       this._connPool = new ConnPool(this)
     } else {
       queueMicrotask(() => {

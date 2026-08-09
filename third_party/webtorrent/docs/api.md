@@ -68,6 +68,9 @@ If `opts` is specified, then the default options (shown below) will be overridde
   natPmp: Boolean,         // Enable NAT port mapping via NAT-PMP (default=true). NodeJS only.
   webSeeds: Boolean,       // Enable BEP19 web seeds (default=true)
   utp: Boolean,            // Enable BEP29 uTorrent transport protocol (default=true)
+  acceptIncoming: Boolean, // Listen for incoming TCP/uTP peers (default=true)
+  peerConnect: Function,   // Connect an outgoing TCP peer through a custom transport
+  trackerFilter: Function, // Select which tracker URLs may be used
   seedOutgoingConnections: Boolean // Enable outgoing connections when seeding (default=true)
   blocklist: Array|String, // List of IP's to block
   downloadLimit: Number,   // Max download speed (bytes/sec) over all torrents (default=-1)

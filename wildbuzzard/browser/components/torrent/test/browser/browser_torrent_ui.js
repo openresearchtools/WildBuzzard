@@ -1,17 +1,70 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+const environmentNames = [
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_RUNTIME_DIR",
+];
+const originalEnvironment = new Map(
+  environmentNames.map(name => [name, Services.env.get(name)])
+);
+const testRoot = PathUtils.join(
+  PathUtils.tempDir,
+  `wildbuzzard-torrent-${Services.appinfo.processID}-${Date.now()}`
+);
+
+add_setup(async function isolate_torrent_runtime() {
+  for (const name of environmentNames) {
+    Services.env.set(name, PathUtils.join(testRoot, name.toLowerCase()));
+  }
+  registerCleanupFunction(async () => {
+    const { TorrentManager } = ChromeUtils.importESModule(
+      "resource:///modules/TorrentManager.sys.mjs"
+    );
+    await TorrentManager.request("POST", "/v1/shutdown", {}).catch(() => {});
+    await TestUtils.waitForCondition(
+      async () => !(await IOUtils.exists(TorrentManager.connectionPath)),
+      "The torrent service shut down"
+    );
+    for (const [name, value] of originalEnvironment) {
+      Services.env.set(name, value);
+    }
+    await IOUtils.remove(testRoot, { recursive: true, ignoreAbsent: true });
+  });
+});
+
 add_task(async function test_about_torrents_shell() {
   const tab = await BrowserTestUtils.openNewForegroundTab(
     gBrowser,
     "about:torrents"
   );
-  await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
-    const heading = content.document.querySelector("h1");
-    const dropTarget = content.document.getElementById("drop-target");
-    Assert.ok(heading, "The torrent client heading is present");
-    Assert.ok(dropTarget, "The torrent drop target is present");
-  });
-  BrowserTestUtils.removeTab(tab);
+  try {
+    await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
+      const heading = content.document.querySelector("h1");
+      const dropTarget = content.document.getElementById("drop-target");
+      const torToggle = content.document.getElementById("tor-enabled");
+      const toast = content.document.getElementById("toast");
+      Assert.ok(heading, "The torrent client heading is present");
+      Assert.ok(dropTarget, "The torrent drop target is present");
+      Assert.ok(torToggle, "The Tor routing toggle is present");
+      await ContentTaskUtils.waitForCondition(
+        () => content.document.querySelector(".summary-item") || !toast.hidden,
+        "The torrent client finished initializing",
+        100,
+        300
+      );
+      const summary = content.document.querySelector(".summary-item");
+      Assert.ok(summary, `The live summary rendered: ${toast.textContent}`);
+      await new Promise(resolve => content.setTimeout(resolve, 1200));
+      Assert.equal(
+        content.document.querySelector(".summary-item"),
+        summary,
+        "Periodic refresh preserves DOM identity"
+      );
+    });
+  } finally {
+    BrowserTestUtils.removeTab(tab);
+  }
 });
 
 add_task(async function test_magnet_redirects_to_torrent_client() {

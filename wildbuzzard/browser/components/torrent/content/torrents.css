@@ -377,11 +377,13 @@ button.secondary {
   color: var(--text-color-error);
 }
 
-.files-section {
+.files-section,
+.connections-section {
   border-block-start: var(--card-border);
 }
 
-.files-section h3 {
+.files-section h3,
+.connections-section h3 {
   padding: var(--space-large) var(--space-large) var(--space-small);
 }
 
@@ -407,13 +409,54 @@ button.secondary {
   font-size: var(--font-size-small);
 }
 
+.connections-empty {
+  margin: 0;
+  padding: var(--space-small) var(--space-large) var(--space-large);
+  color: var(--text-color-deemphasized);
+}
+
+.connections-scroll {
+  max-height: var(--size-layout-medium);
+  overflow: auto;
+}
+
+.connections-scroll table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+}
+
+.connections-scroll th,
+.connections-scroll td {
+  padding: var(--space-small) var(--space-medium);
+  border-block-start: var(--card-border);
+  text-align: start;
+}
+
+.connections-scroll th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+  background: var(--card-background-color);
+  color: var(--text-color-deemphasized);
+  font-weight: var(--font-weight-semibold);
+}
+
+.connections-scroll td[data-column="address"],
+.connections-scroll td[data-column="client"] {
+  max-width: var(--size-layout-small);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .settings-card {
   margin-block-start: var(--space-xlarge);
 }
 
 .settings-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(var(--size-layout-xsmall), 1fr)) minmax(var(--size-layout-small), 1.2fr) auto;
+  grid-template-columns: repeat(3, minmax(var(--size-layout-xsmall), 1fr)) repeat(2, minmax(var(--size-layout-small), 1.2fr)) auto;
   gap: var(--space-large);
   align-items: end;
   margin-block-start: var(--space-xlarge);

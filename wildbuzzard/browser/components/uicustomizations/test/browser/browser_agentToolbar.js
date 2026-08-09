@@ -8,6 +8,7 @@ const { sinon } = ChromeUtils.importESModule(
 );
 
 const AGENT_URL = "http://127.0.0.1:8765/";
+const TORRENT_URL = "about:torrents";
 
 add_task(function test_agent_button_uses_switch_or_open_route() {
   const button = document.getElementById("wildbuzzard-agent-toolbar-button");
@@ -37,6 +38,29 @@ add_task(function test_agent_button_uses_switch_or_open_route() {
   }
 });
 
+add_task(function test_torrent_button_uses_switch_or_open_route() {
+  const button = document.getElementById("wildbuzzard-torrent-toolbar-button");
+  ok(button, "Torrent button is present");
+
+  const sandbox = sinon.createSandbox();
+  try {
+    const switchOrOpen = sandbox.stub(window, "switchToTabHavingURI");
+    EventUtils.synthesizeMouseAtCenter(button, {}, window);
+
+    is(switchOrOpen.callCount, 1, "The button uses the switch-or-open route");
+    const call = switchOrOpen.firstCall;
+    is(call.args[0].spec, TORRENT_URL, "The torrent manager is opened");
+    is(call.args[1], true, "A missing torrent tab is opened");
+    ok(call.args[2].ignoreQueryString, "Torrent add URLs are reused");
+    ok(
+      call.args[2].triggeringPrincipal.isSystemPrincipal,
+      "The route is privileged"
+    );
+  } finally {
+    sandbox.restore();
+  }
+});
+
 add_task(function test_privacy_controls_are_placed_next_to_urlbar() {
   const placements = CustomizableUI.getWidgetIdsInArea(
     CustomizableUI.AREA_NAVBAR
@@ -51,5 +75,10 @@ add_task(function test_privacy_controls_are_placed_next_to_urlbar() {
     placements.indexOf("wildbuzzard-tor-toolbar-button"),
     blockerIndex - 1,
     "Tor is beside ad blocking"
+  );
+  is(
+    placements.indexOf("wildbuzzard-torrent-toolbar-button"),
+    placements.indexOf("wildbuzzard-agent-toolbar-button") + 1,
+    "Torrents is beside Agent"
   );
 });

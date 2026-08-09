@@ -98,6 +98,10 @@ wildbuzzard-agent-toolbar-button =
     .label = Agent
     .tooltiptext = Open Agent
 
+wildbuzzard-torrent-toolbar-button =
+    .label = Torrents
+    .tooltiptext = Open Torrents
+
 wildbuzzard-blocker-panel-not-available = Not available on this page
 
 wildbuzzard-blocker-panel-toggle =

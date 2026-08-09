@@ -10,6 +10,11 @@ const state = {
   status: null,
   selectedId: null,
   busy: false,
+  summary: null,
+  listItems: new Map(),
+  listOrder: "",
+  details: null,
+  capabilities: "",
 };
 
 const elements = {};
@@ -93,7 +98,7 @@ async function run(task, successId) {
   }
 }
 
-function createSummary(labelId, value) {
+function createSummary(labelId) {
   const item = document.createElement("div");
   item.className = "summary-item";
   const label = document.createElement("span");
@@ -101,9 +106,8 @@ function createSummary(labelId, value) {
   l10n(label, labelId);
   const output = document.createElement("strong");
   output.className = "summary-value";
-  output.textContent = value;
   item.append(label, output);
-  return item;
+  return { item, output };
 }
 
 function renderSummary() {
@@ -117,18 +121,24 @@ function renderSummary() {
   );
   const uploadSpeed = torrents.reduce((sum, item) => sum + item.uploadSpeed, 0);
   const peers = torrents.reduce((sum, item) => sum + item.numPeers, 0);
-  elements.summary.replaceChildren(
-    createSummary("wildbuzzard-torrents-summary-active", String(active.length)),
-    createSummary(
-      "wildbuzzard-torrents-summary-down",
-      formatBytes(downloadSpeed, true)
-    ),
-    createSummary(
-      "wildbuzzard-torrents-summary-up",
-      formatBytes(uploadSpeed, true)
-    ),
-    createSummary("wildbuzzard-torrents-summary-peers", String(peers))
-  );
+  if (!state.summary) {
+    state.summary = [
+      createSummary("wildbuzzard-torrents-summary-active"),
+      createSummary("wildbuzzard-torrents-summary-down"),
+      createSummary("wildbuzzard-torrents-summary-up"),
+      createSummary("wildbuzzard-torrents-summary-peers"),
+    ];
+    elements.summary.append(...state.summary.map(item => item.item));
+  }
+  const values = [
+    String(active.length),
+    formatBytes(downloadSpeed, true),
+    formatBytes(uploadSpeed, true),
+    String(peers),
+  ];
+  state.summary.forEach((item, index) => {
+    item.output.textContent = values[index];
+  });
 }
 
 function stateBadge(record) {
@@ -138,80 +148,286 @@ function stateBadge(record) {
   return badge;
 }
 
+function createListItem(record) {
+  const root = document.createElement("button");
+  root.type = "button";
+  root.className = "torrent-item";
+  root.dataset.id = record.id;
+  const titleRow = document.createElement("div");
+  titleRow.className = "torrent-title-row";
+  const name = document.createElement("span");
+  name.className = "torrent-name";
+  const badge = stateBadge(record);
+  titleRow.append(name, badge);
+  const progress = document.createElement("progress");
+  progress.max = 1;
+  const meta = document.createElement("div");
+  meta.className = "torrent-meta";
+  const amount = document.createElement("span");
+  const speed = document.createElement("span");
+  meta.append(amount, speed);
+  root.append(titleRow, progress, meta);
+  return { root, name, badge, progress, amount, speed };
+}
+
 function renderList() {
   const torrents = state.status.torrents;
   elements.empty.hidden = torrents.length !== 0;
   elements.list.hidden = torrents.length === 0;
-  const items = torrents.map(record => {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.className = "torrent-item";
-    item.dataset.id = record.id;
-    if (record.id === state.selectedId) {
-      item.classList.add("selected");
+  const ids = new Set(torrents.map(record => record.id));
+  for (const [id, item] of state.listItems) {
+    if (!ids.has(id)) {
+      item.root.remove();
+      state.listItems.delete(id);
     }
-    const titleRow = document.createElement("div");
-    titleRow.className = "torrent-title-row";
-    const name = document.createElement("span");
-    name.className = "torrent-name";
-    name.textContent = record.name;
-    titleRow.append(name, stateBadge(record));
-    const progress = document.createElement("progress");
-    progress.max = 1;
-    progress.value = record.progress;
-    const meta = document.createElement("div");
-    meta.className = "torrent-meta";
-    const amount = document.createElement("span");
-    amount.textContent = `${formatBytes(record.downloaded)} / ${formatBytes(record.length)}`;
-    const speed = document.createElement("span");
-    speed.textContent =
+  }
+  const ordered = torrents.map(record => {
+    let item = state.listItems.get(record.id);
+    if (!item) {
+      item = createListItem(record);
+      state.listItems.set(record.id, item);
+    }
+    item.root.classList.toggle("selected", record.id === state.selectedId);
+    item.root.setAttribute(
+      "aria-current",
+      record.id === state.selectedId ? "true" : "false"
+    );
+    item.name.textContent = record.name;
+    l10n(item.badge, `wildbuzzard-torrents-state-${record.state}`);
+    item.progress.value = record.progress;
+    item.amount.textContent = `${formatBytes(record.downloaded)} / ${formatBytes(record.length)}`;
+    item.speed.textContent =
       record.state === "seeding"
         ? `↑ ${formatBytes(record.uploadSpeed, true)}`
         : `↓ ${formatBytes(record.downloadSpeed, true)}`;
-    meta.append(amount, speed);
-    item.append(titleRow, progress, meta);
-    return item;
+    return item.root;
   });
-  elements.list.replaceChildren(...items);
+  const order = torrents.map(record => record.id).join("\n");
+  if (order !== state.listOrder) {
+    elements.list.append(...ordered);
+    state.listOrder = order;
+  }
 }
 
-function detailStat(labelId, value) {
+function detailStat(labelId) {
   const item = document.createElement("div");
   item.className = "detail-stat";
   const label = document.createElement("span");
   l10n(label, labelId);
   const output = document.createElement("strong");
-  output.textContent = value;
   item.append(label, output);
-  return item;
+  return { item, output };
 }
 
-function renderFiles(record) {
+function createFiles() {
   const section = document.createElement("section");
   section.className = "files-section";
   const heading = document.createElement("h3");
   l10n(heading, "wildbuzzard-torrents-files-heading");
   const list = document.createElement("div");
   list.className = "file-list";
-  for (const file of record.files) {
-    const row = document.createElement("label");
-    row.className = "file-row";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = file.selected;
-    checkbox.dataset.fileIndex = file.index;
-    const name = document.createElement("span");
-    name.className = "file-name";
-    name.textContent = file.path;
-    name.title = file.path;
-    const size = document.createElement("span");
-    size.className = "file-size";
-    size.textContent = `${formatPercent(file.progress)} · ${formatBytes(file.length)}`;
-    row.append(checkbox, name, size);
-    list.append(row);
-  }
   section.append(heading, list);
-  return section;
+  return { section, list, rows: new Map() };
+}
+
+function renderFiles(view, record) {
+  const indexes = new Set(record.files.map(file => String(file.index)));
+  for (const [index, row] of view.rows) {
+    if (!indexes.has(index)) {
+      row.root.remove();
+      view.rows.delete(index);
+    }
+  }
+  const ordered = [];
+  for (const file of record.files) {
+    const index = String(file.index);
+    let item = view.rows.get(index);
+    if (!item) {
+      const root = document.createElement("label");
+      root.className = "file-row";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.dataset.fileIndex = file.index;
+      const name = document.createElement("span");
+      name.className = "file-name";
+      const size = document.createElement("span");
+      size.className = "file-size";
+      root.append(checkbox, name, size);
+      item = { root, checkbox, name, size };
+      view.rows.set(index, item);
+    }
+    item.checkbox.checked = file.selected;
+    item.name.textContent = file.path;
+    item.name.title = file.path;
+    item.size.textContent = `${formatPercent(file.progress)} · ${formatBytes(file.length)}`;
+    ordered.push(item.root);
+  }
+  const order = record.files.map(file => file.index).join(",");
+  if (order !== view.order) {
+    view.list.append(...ordered);
+    view.order = order;
+  }
+}
+
+function createConnections() {
+  const section = document.createElement("section");
+  section.className = "connections-section";
+  const heading = document.createElement("h3");
+  l10n(heading, "wildbuzzard-torrents-connections-heading");
+  const empty = document.createElement("p");
+  empty.className = "connections-empty";
+  l10n(empty, "wildbuzzard-torrents-connections-empty");
+  const scroll = document.createElement("div");
+  scroll.className = "connections-scroll";
+  const table = document.createElement("table");
+  const head = document.createElement("thead");
+  const headRow = document.createElement("tr");
+  for (const id of [
+    "address",
+    "client",
+    "transport",
+    "source",
+    "route",
+    "down",
+    "up",
+    "downloaded",
+    "uploaded",
+    "status",
+  ]) {
+    const cell = document.createElement("th");
+    cell.scope = "col";
+    l10n(cell, `wildbuzzard-torrents-connection-${id}`);
+    headRow.append(cell);
+  }
+  head.append(headRow);
+  const body = document.createElement("tbody");
+  table.append(head, body);
+  scroll.append(table);
+  section.append(heading, empty, scroll);
+  return { section, empty, scroll, body, rows: new Map(), order: "" };
+}
+
+function createConnectionRow() {
+  const root = document.createElement("tr");
+  const cells = {};
+  for (const name of [
+    "address",
+    "client",
+    "transport",
+    "source",
+    "route",
+    "down",
+    "up",
+    "downloaded",
+    "uploaded",
+    "status",
+  ]) {
+    const cell = document.createElement("td");
+    cell.dataset.column = name;
+    root.append(cell);
+    cells[name] = cell;
+  }
+  return { root, cells };
+}
+
+function renderConnections(view, record) {
+  const connections = record.connections || [];
+  view.empty.hidden = connections.length !== 0;
+  view.scroll.hidden = connections.length === 0;
+  const ids = new Set(connections.map(connection => connection.id));
+  for (const [id, row] of view.rows) {
+    if (!ids.has(id)) {
+      row.root.remove();
+      view.rows.delete(id);
+    }
+  }
+  const ordered = connections.map(connection => {
+    let row = view.rows.get(connection.id);
+    if (!row) {
+      row = createConnectionRow();
+      view.rows.set(connection.id, row);
+    }
+    row.cells.address.textContent = connection.address;
+    row.cells.client.textContent = connection.client;
+    row.cells.transport.textContent = connection.transport;
+    row.cells.source.textContent = connection.source;
+    row.cells.route.textContent = connection.route;
+    row.cells.down.textContent = formatBytes(connection.downloadSpeed, true);
+    row.cells.up.textContent = formatBytes(connection.uploadSpeed, true);
+    row.cells.downloaded.textContent = formatBytes(connection.downloaded);
+    row.cells.uploaded.textContent = formatBytes(connection.uploaded);
+    row.cells.status.textContent = connection.status;
+    return row.root;
+  });
+  const order = connections.map(connection => connection.id).join("\n");
+  if (order !== view.order) {
+    view.body.append(...ordered);
+    view.order = order;
+  }
+}
+
+function createDetails(record) {
+  const header = document.createElement("div");
+  header.className = "detail-header";
+  const heading = document.createElement("h2");
+  const badge = stateBadge(record);
+  const progress = document.createElement("progress");
+  progress.className = "detail-progress";
+  progress.max = 1;
+  const error = document.createElement("p");
+  error.className = "error-message";
+  const stats = document.createElement("div");
+  stats.className = "detail-stat-row";
+  const statIds = ["progress", "eta", "down", "up", "peers", "ratio"];
+  const statViews = statIds.map(id =>
+    detailStat(`wildbuzzard-torrents-detail-${id}`)
+  );
+  stats.append(...statViews.map(item => item.item));
+  const actions = document.createElement("div");
+  actions.className = "action-row";
+  header.append(heading, badge, progress, error, stats, actions);
+  const files = createFiles();
+  const connections = createConnections();
+  elements.detailsContent.append(header, connections.section, files.section);
+  return {
+    id: record.id,
+    heading,
+    badge,
+    progress,
+    error,
+    statViews,
+    actions,
+    actionMode: "",
+    files,
+    connections,
+  };
+}
+
+function renderActions(view, record) {
+  const active = ["metadata", "checking", "downloading", "seeding"].includes(
+    record.state
+  );
+  const mode = active ? "active" : "inactive";
+  if (mode === view.actionMode) {
+    return;
+  }
+  const actions = active
+    ? [
+        button("wildbuzzard-torrents-action-pause", "pause"),
+        button("wildbuzzard-torrents-action-stop", "stop"),
+      ]
+    : [
+        button("wildbuzzard-torrents-action-resume", "resume", "primary"),
+        button("wildbuzzard-torrents-action-force", "force-start"),
+      ];
+  actions.push(
+    button("wildbuzzard-torrents-action-reannounce", "reannounce"),
+    button("wildbuzzard-torrents-action-show", "show"),
+    button("wildbuzzard-torrents-action-remove", "remove", "secondary danger"),
+    button("wildbuzzard-torrents-action-delete", "delete", "secondary danger")
+  );
+  view.actions.replaceChildren(...actions);
+  view.actionMode = mode;
 }
 
 function renderDetails() {
@@ -222,97 +438,71 @@ function renderDetails() {
   elements.detailsContent.hidden = !record;
   if (!record) {
     elements.detailsContent.replaceChildren();
+    state.details = null;
     return;
   }
-  const header = document.createElement("div");
-  header.className = "detail-header";
-  const heading = document.createElement("h2");
-  heading.textContent = record.name;
-  const status = stateBadge(record);
-  const progress = document.createElement("progress");
-  progress.className = "detail-progress";
-  progress.max = 1;
-  progress.value = record.progress;
-  const stats = document.createElement("div");
-  stats.className = "detail-stat-row";
-  stats.append(
-    detailStat(
-      "wildbuzzard-torrents-detail-progress",
-      formatPercent(record.progress)
-    ),
-    detailStat(
-      "wildbuzzard-torrents-detail-eta",
-      formatETA(record.timeRemaining)
-    ),
-    detailStat(
-      "wildbuzzard-torrents-detail-down",
-      formatBytes(record.downloadSpeed, true)
-    ),
-    detailStat(
-      "wildbuzzard-torrents-detail-up",
-      formatBytes(record.uploadSpeed, true)
-    ),
-    detailStat("wildbuzzard-torrents-detail-peers", String(record.numPeers)),
-    detailStat(
-      "wildbuzzard-torrents-detail-ratio",
-      Number(record.ratio).toFixed(2)
-    )
-  );
-  const actions = document.createElement("div");
-  actions.className = "action-row";
-  if (
-    ["metadata", "checking", "downloading", "seeding"].includes(record.state)
-  ) {
-    actions.append(
-      button("wildbuzzard-torrents-action-pause", "pause"),
-      button("wildbuzzard-torrents-action-stop", "stop")
-    );
-  } else {
-    actions.append(
-      button("wildbuzzard-torrents-action-resume", "resume", "primary"),
-      button("wildbuzzard-torrents-action-force", "force-start")
-    );
+  if (state.details?.id !== record.id) {
+    elements.detailsContent.replaceChildren();
+    state.details = createDetails(record);
   }
-  actions.append(
-    button("wildbuzzard-torrents-action-reannounce", "reannounce"),
-    button("wildbuzzard-torrents-action-show", "show"),
-    button("wildbuzzard-torrents-action-remove", "remove", "secondary danger"),
-    button("wildbuzzard-torrents-action-delete", "delete", "secondary danger")
-  );
-  if (record.error) {
-    const error = document.createElement("p");
-    error.className = "error-message";
-    error.textContent = record.error;
-    header.append(heading, status, progress, error, stats, actions);
-  } else {
-    header.append(heading, status, progress, stats, actions);
-  }
-  elements.detailsContent.replaceChildren(header, renderFiles(record));
+  const view = state.details;
+  view.heading.textContent = record.name;
+  l10n(view.badge, `wildbuzzard-torrents-state-${record.state}`);
+  view.progress.value = record.progress;
+  view.error.hidden = !record.error;
+  view.error.textContent = record.error || "";
+  const values = [
+    formatPercent(record.progress),
+    formatETA(record.timeRemaining),
+    formatBytes(record.downloadSpeed, true),
+    formatBytes(record.uploadSpeed, true),
+    String(record.numPeers),
+    Number(record.ratio).toFixed(2),
+  ];
+  view.statViews.forEach((item, index) => {
+    item.output.textContent = values[index];
+  });
+  renderActions(view, record);
+  renderFiles(view.files, record);
+  renderConnections(view.connections, record);
 }
 
 function renderCapabilities() {
   const labels = {
-    tcp: "TCP",
-    udpTrackers: "UDP trackers",
-    dht: "DHT",
-    utp: "µTP",
-    pex: "PEX",
-    lsd: "LSD",
+    tcp: "wildbuzzard-torrents-capability-tcp",
+    udpTrackers: "wildbuzzard-torrents-capability-udp-trackers",
+    dht: "wildbuzzard-torrents-capability-dht",
+    utp: "wildbuzzard-torrents-capability-utp",
+    pex: "wildbuzzard-torrents-capability-pex",
+    lsd: "wildbuzzard-torrents-capability-lsd",
+    inbound: "wildbuzzard-torrents-capability-inbound",
+    tor: "wildbuzzard-torrents-capability-tor",
   };
+  const enabled = Object.entries(state.status.capabilities)
+    .filter(([, value]) => value)
+    .map(([name]) => name);
+  const signature = enabled.join(",");
+  if (signature === state.capabilities) {
+    return;
+  }
   elements.capabilities.replaceChildren(
-    ...Object.entries(state.status.capabilities)
-      .filter(([, enabled]) => enabled)
-      .map(([name]) => {
-        const item = document.createElement("span");
-        item.className = "capability";
-        item.textContent = labels[name];
-        return item;
-      })
+    ...enabled.map(name => {
+      const item = document.createElement("span");
+      item.className = "capability";
+      return l10n(item, labels[name]);
+    })
   );
+  state.capabilities = signature;
 }
 
 function renderSettings() {
   const settings = state.status.settings;
+  l10n(
+    elements.torNotice,
+    settings.torEnabled
+      ? "wildbuzzard-torrents-tor-notice-on"
+      : "wildbuzzard-torrents-tor-notice"
+  );
   if (document.activeElement.closest?.("#settings-form")) {
     return;
   }
@@ -320,6 +510,7 @@ function renderSettings() {
   elements.downloadLimit.value = settings.downloadLimit;
   elements.uploadLimit.value = settings.uploadLimit;
   elements.seedCompleted.checked = settings.seedCompleted;
+  elements.torEnabled.checked = settings.torEnabled;
   elements.directory.textContent = settings.downloadDirectory;
   elements.directory.title = settings.downloadDirectory;
 }
@@ -406,6 +597,8 @@ async function initialize() {
     downloadLimit: document.getElementById("download-limit"),
     uploadLimit: document.getElementById("upload-limit"),
     seedCompleted: document.getElementById("seed-completed"),
+    torEnabled: document.getElementById("tor-enabled"),
+    torNotice: document.getElementById("tor-notice"),
     toast: document.getElementById("toast"),
   });
 
@@ -452,6 +645,7 @@ async function initialize() {
           downloadLimit: Number(elements.downloadLimit.value),
           uploadLimit: Number(elements.uploadLimit.value),
           seedCompleted: elements.seedCompleted.checked,
+          torEnabled: elements.torEnabled.checked,
         }),
       "wildbuzzard-torrents-settings-saved"
     );

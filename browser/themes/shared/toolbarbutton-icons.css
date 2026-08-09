@@ -30,6 +30,10 @@
   list-style-image: url("chrome://browser/skin/agent.svg");
 }
 
+#wildbuzzard-torrent-toolbar-button {
+  list-style-image: url("chrome://browser/skin/torrent.svg");
+}
+
 #wildbuzzard-tor-toolbar-button {
   list-style-image: url("chrome://browser/skin/tor.svg");
 

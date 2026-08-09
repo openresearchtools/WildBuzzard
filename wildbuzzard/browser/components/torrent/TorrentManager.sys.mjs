@@ -6,6 +6,7 @@ import { NetUtil } from "resource://gre/modules/NetUtil.sys.mjs";
 import { ServiceRequest } from "resource://gre/modules/ServiceRequest.sys.mjs";
 import { Subprocess } from "resource://gre/modules/Subprocess.sys.mjs";
 import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
+import { TorRouting } from "resource:///modules/TorRouting.sys.mjs";
 
 const LocalFile = Components.Constructor(
   "@mozilla.org/file/local;1",
@@ -150,6 +151,12 @@ class TorrentManagerImpl {
     this.runtimeDirectory = await this.#extractRuntime();
     await this.#writeConfig();
     await this.#ensureService();
+    if (this.config.torEnabled) {
+      await this.#request("PATCH", "/v1/settings", {
+        torEnabled: true,
+        torProxy: this.config.torProxy,
+      });
+    }
     return this.#request("GET", "/v1/status");
   }
 
@@ -239,6 +246,15 @@ class TorrentManagerImpl {
     const downloadDirectory =
       existing.downloadDirectory ||
       (await Downloads.getPreferredDownloadsDirectory());
+    const torEnabled = Boolean(existing.torEnabled);
+    let torProxy = null;
+    if (torEnabled) {
+      TorRouting.init();
+      torProxy = {
+        host: "127.0.0.1",
+        port: await TorRouting.ensureProxy(),
+      };
+    }
     const config = {
       ...existing,
       version: 1,
@@ -251,6 +267,8 @@ class TorrentManagerImpl {
       natUpnp: existing.natUpnp ?? true,
       natPmp: existing.natPmp ?? true,
       lsd: existing.lsd ?? true,
+      torEnabled,
+      torProxy,
     };
     await IOUtils.writeJSON(this.configPath, config, {
       tmpPath: `${this.configPath}.tmp`,
@@ -344,7 +362,8 @@ class TorrentManagerImpl {
         bypassProxy: true,
       });
       request.responseType = "json";
-      request.timeout = 5000;
+      request.timeout =
+        method === "PATCH" && path === "/v1/settings" ? 30000 : 5000;
       request.setRequestHeader("Authorization", `Bearer ${connection.token}`);
       request.setRequestHeader("Cache-Control", "no-store");
       if (body !== null) {
@@ -425,6 +444,10 @@ class TorrentManagerImpl {
     if (!/^https?:\/\//i.test(source)) {
       throw new Error("Enter a magnet link or an HTTP(S) torrent URL");
     }
+    await this.initialize();
+    if (this.config.torEnabled) {
+      return this.request("POST", "/v1/torrents", { source, downloadPath });
+    }
     return this.addTorrentBytes(
       await requestBytes(
         Services.io.newURI(source),
@@ -454,8 +477,30 @@ class TorrentManagerImpl {
     );
   }
 
-  updateSettings(settings) {
-    return this.request("PATCH", "/v1/settings", settings);
+  async updateSettings(settings) {
+    const update = { ...settings };
+    if (settings.torEnabled !== undefined) {
+      update.torEnabled = Boolean(settings.torEnabled);
+      if (update.torEnabled) {
+        TorRouting.init();
+        update.torProxy = {
+          host: "127.0.0.1",
+          port: await TorRouting.ensureProxy(),
+        };
+      } else {
+        update.torProxy = null;
+      }
+    }
+    const result = await this.request("PATCH", "/v1/settings", update);
+    this.config = { ...this.config, ...result };
+    if (settings.torEnabled !== undefined) {
+      this.config.torProxy = update.torProxy;
+    }
+    await IOUtils.writeJSON(this.configPath, this.config, {
+      tmpPath: `${this.configPath}.tmp`,
+    });
+    await IOUtils.setPermissions(this.configPath, 0o600);
+    return result;
   }
 
   remove(id, deleteData = false) {
