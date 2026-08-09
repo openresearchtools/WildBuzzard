@@ -35,6 +35,7 @@ const PLACES_ITEMS = [
 export const PrivateTab = {
   _initialized: false,
   _windows: new WeakSet(),
+  _additionalPrivateContextIds: new Set(),
   container: null,
 
   init() {
@@ -86,8 +87,11 @@ export const PrivateTab = {
   },
 
   isPrivate(tab) {
+    const contextId = tab?.userContextId;
     return (
-      !!this.container && tab?.userContextId == this.container.userContextId
+      !!contextId &&
+      (contextId == this.container?.userContextId ||
+        this._additionalPrivateContextIds.has(contextId))
     );
   },
 
@@ -96,7 +100,23 @@ export const PrivateTab = {
       browser?.getAttribute?.("usercontextid") || "0",
       10
     );
-    return !!contextId && contextId == this.container?.userContextId;
+    return (
+      !!contextId &&
+      (contextId == this.container?.userContextId ||
+        this._additionalPrivateContextIds.has(contextId))
+    );
+  },
+
+  registerPrivateContainer(container) {
+    if (container?.userContextId) {
+      this._additionalPrivateContextIds.add(container.userContextId);
+    }
+  },
+
+  markPrivateTab(tab) {
+    if (this.isPrivate(tab)) {
+      this._markPrivateTab(tab);
+    }
   },
 
   observe(_subject, topic) {
@@ -110,7 +130,12 @@ export const PrivateTab = {
       if (win.closed || !win.gBrowser) {
         continue;
       }
-      if (win.gBrowser.tabs.some(tab => !tab.closing && this.isPrivate(tab))) {
+      if (
+        win.gBrowser.tabs.some(
+          tab =>
+            !tab.closing && tab.userContextId == this.container.userContextId
+        )
+      ) {
         return true;
       }
     }
@@ -179,7 +204,10 @@ export const PrivateTab = {
       }
     });
     tabContainer.addEventListener("TabClose", event => {
-      if (this.isPrivate(event.target) && !this._anyPrivateTabs()) {
+      if (
+        event.target.userContextId == this.container.userContextId &&
+        !this._anyPrivateTabs()
+      ) {
         this.clearData();
       }
     });

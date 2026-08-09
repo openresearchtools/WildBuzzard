@@ -195,6 +195,7 @@
 
   skin/classic/browser/add-circle-fill.svg            (../shared/icons/add-circle-fill.svg)
   skin/classic/browser/agent.svg                      (../shared/icons/agent.svg)
+  skin/classic/browser/tor.svg                        (../shared/icons/tor.svg)
   skin/classic/browser/back.svg                       (../shared/icons/back.svg)
   skin/classic/browser/bookmark.svg                   (../shared/icons/bookmark.svg)
   skin/classic/browser/bookmark-12.svg                (../shared/icons/bookmark-12.svg)

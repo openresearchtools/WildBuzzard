@@ -41,6 +41,7 @@ Useful variants:
 ./wildbuzzard/scripts/build-linux-external.sh \
   --working-tree \
   --pi-web-runtime /absolute/path/to/wildbuzzard-pi-web-runtime-linux-x64.zip \
+  --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
   --action appimage
 
 # Bootstrap a new build host, then build.
@@ -63,6 +64,20 @@ supplied, its Node.js, Pi, Pi Web, and native dependencies are included in that
 image. The `all` action also runs the native blocker tests and every WildBuzzard
 component test, and creates both an `amd64` Debian package and an AppImage.
 Packaging runs entirely in the external run directory and does not use `sudo`.
+
+Build the pinned, unmodified Tor Project Arti subtree into the external Arti
+build directory before packaging:
+
+```bash
+./wildbuzzard/scripts/build-arti-runtime.sh
+```
+
+The script verifies that `third_party/arti` exactly matches the commit pinned
+in `wildbuzzard/third_party/arti.toml`, builds with Arti's locked dependencies,
+and prints the executable path to pass through `--arti-binary`. The resulting
+AppImage starts Arti only when a tab first enables Tor routing. See
+`wildbuzzard/TOR.md` for the routing model, update procedure, and anonymity
+scope.
 
 Run the AppImage normally on a system with FUSE support. On build or test hosts
 without FUSE, use:

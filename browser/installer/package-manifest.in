@@ -173,6 +173,10 @@
 #ifdef WILDBUZZARD_PI_WEB_RUNTIME
 @BINPATH@/runtime/pi-web/wildbuzzard-pi-web-runtime.zip
 #endif
+#ifdef WILDBUZZARD_ARTI_RUNTIME
+@BINPATH@/runtime/tor/arti@BIN_SUFFIX@
+@BINPATH@/runtime/tor/arti.toml
+#endif
 @RESPATH@/application.ini
 #ifdef MOZ_UPDATER
 # update-settings.ini has been removed on macOS.

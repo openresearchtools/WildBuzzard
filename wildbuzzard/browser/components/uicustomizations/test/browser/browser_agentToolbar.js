@@ -37,13 +37,19 @@ add_task(function test_agent_button_uses_switch_or_open_route() {
   }
 });
 
-add_task(function test_blocker_is_placed_next_to_urlbar() {
+add_task(function test_privacy_controls_are_placed_next_to_urlbar() {
   const placements = CustomizableUI.getWidgetIdsInArea(
     CustomizableUI.AREA_NAVBAR
   );
+  const blockerIndex = placements.indexOf("wildbuzzard-blocker-toolbar-button");
   is(
-    placements.indexOf("wildbuzzard-blocker-toolbar-button"),
+    blockerIndex,
     placements.indexOf("urlbar-container") - 1,
     "Ad blocking is immediately before the address bar"
+  );
+  is(
+    placements.indexOf("wildbuzzard-tor-toolbar-button"),
+    blockerIndex - 1,
+    "Tor is beside ad blocking"
   );
 });

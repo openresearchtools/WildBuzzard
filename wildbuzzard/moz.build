@@ -12,3 +12,16 @@ if CONFIG["WILDBUZZARD_PI_WEB_RUNTIME"]:
     FINAL_TARGET_FILES.runtime["pi-web"] += [
         "!wildbuzzard-pi-web-runtime.zip",
     ]
+
+if CONFIG["WILDBUZZARD_ARTI"]:
+    arti_name = "arti" + CONFIG["BIN_SUFFIX"]
+    GENERATED_FILES += [arti_name]
+    arti_binary = GENERATED_FILES[arti_name]
+    arti_binary.script = "copy_file.py"
+    arti_binary.flags = [CONFIG["WILDBUZZARD_ARTI"]]
+    arti_binary.extra_deps = ["%" + CONFIG["WILDBUZZARD_ARTI"]]
+
+    FINAL_TARGET_FILES.runtime["tor"] += [
+        "!" + arti_name,
+        "third_party/arti.toml",
+    ]

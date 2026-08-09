@@ -30,6 +30,18 @@
   list-style-image: url("chrome://browser/skin/agent.svg");
 }
 
+#wildbuzzard-tor-toolbar-button {
+  list-style-image: url("chrome://browser/skin/tor.svg");
+
+  &[checked] {
+    color: var(--purple-60);
+  }
+
+  &[busy] > .toolbarbutton-icon {
+    opacity: 0.65;
+  }
+}
+
 #forward-button {
   list-style-image: url("chrome://browser/skin/forward.svg");
 }

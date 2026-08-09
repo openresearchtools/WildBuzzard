@@ -35,3 +35,31 @@ def wildbuzzard_has_pi_web_runtime(path):
 
 
 set_define("WILDBUZZARD_PI_WEB_RUNTIME", wildbuzzard_has_pi_web_runtime)
+
+option(
+    "--with-wildbuzzard-arti",
+    nargs=1,
+    help="Path to the Arti binary bundled with WildBuzzard",
+)
+
+
+@depends("--with-wildbuzzard-arti")
+@imports("os")
+def wildbuzzard_arti(value):
+    if not value:
+        return
+    path = os.path.abspath(value[0])
+    if not os.path.isfile(path):
+        die(f"Cannot find Arti at {path}")
+    return path
+
+
+set_config("WILDBUZZARD_ARTI", wildbuzzard_arti)
+
+
+@depends(wildbuzzard_arti)
+def wildbuzzard_has_arti(path):
+    return bool(path)
+
+
+set_define("WILDBUZZARD_ARTI_RUNTIME", wildbuzzard_has_arti)

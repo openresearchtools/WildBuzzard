@@ -16,6 +16,7 @@ usage() {
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
   echo "  --working-tree     include tracked and untracked developer changes"
   echo "  --pi-web-runtime FILE  Pi Web runtime ZIP to include in the browser package"
+  echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --bootstrap        run mach bootstrap before the requested action"
   echo "  --help             show this help"
 }
@@ -29,6 +30,7 @@ jobs="$(nproc)"
 run_bootstrap=false
 include_working_tree=false
 pi_web_runtime=""
+arti_binary=""
 
 while (($#)); do
   case "$1" in
@@ -56,6 +58,10 @@ while (($#)); do
       pi_web_runtime="${2:?--pi-web-runtime requires a file}"
       shift 2
       ;;
+    --arti-binary)
+      arti_binary="${2:?--arti-binary requires a file}"
+      shift 2
+      ;;
     --bootstrap)
       run_bootstrap=true
       shift
@@ -76,6 +82,14 @@ if [[ -n "${pi_web_runtime}" ]]; then
   pi_web_runtime="$(realpath -- "${pi_web_runtime}")"
   if [[ ! -f "${pi_web_runtime}" ]]; then
     echo "--pi-web-runtime must name a ZIP file" >&2
+    exit 2
+  fi
+fi
+
+if [[ -n "${arti_binary}" ]]; then
+  arti_binary="$(realpath -- "${arti_binary}")"
+  if [[ ! -x "${arti_binary}" ]]; then
+    echo "--arti-binary must name an executable file" >&2
     exit 2
   fi
 fi
@@ -175,6 +189,7 @@ fi
   echo "action=${action}"
   echo "working_tree=${include_working_tree}"
   echo "pi_web_runtime=${pi_web_runtime}"
+  echo "arti_binary=${arti_binary}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
 
@@ -267,6 +282,9 @@ fi
   echo "ac_add_options --disable-crashreporter"
   if [[ -n "${pi_web_runtime}" ]]; then
     echo "ac_add_options --with-wildbuzzard-pi-web-runtime=${pi_web_runtime}"
+  fi
+  if [[ -n "${arti_binary}" ]]; then
+    echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"
   fi
   if [[ -x "${state_dir}/sccache/sccache" ]]; then
     echo "ac_add_options --with-ccache=${state_dir}/sccache/sccache"

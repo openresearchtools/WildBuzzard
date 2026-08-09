@@ -1,0 +1,8 @@
+name = "Arti"
+repository = "https://gitlab.torproject.org/tpo/core/arti.git"
+tag = "arti-v2.5.1"
+tag_object = "63278c1cdef888ee05b449d6096a98a3d9ccda5e"
+commit = "009354f78d1a61214a878d6f1712a50844e6c215"
+subtree = "third_party/arti"
+rust_version = "1.91"
+license = "MIT OR Apache-2.0"

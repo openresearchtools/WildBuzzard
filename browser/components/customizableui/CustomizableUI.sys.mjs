@@ -67,7 +67,7 @@ const kSubviewEvents = ["ViewShowing", "ViewHiding"];
  * The current version. We can use this to auto-add new default widgets as necessary.
  * (would be const but isn't because of testing purposes)
  */
-var kVersion = 27;
+var kVersion = 28;
 
 /**
  * Buttons removed from built-ins by version they were removed. kVersion must be
@@ -362,6 +362,7 @@ var CustomizableUIInternal = {
         : "home-button",
       "spring",
       "vertical-spacer",
+      "wildbuzzard-tor-toolbar-button",
       "wildbuzzard-blocker-toolbar-button",
       "urlbar-container",
       "wildbuzzard-agent-toolbar-button",
@@ -381,6 +382,7 @@ var CustomizableUIInternal = {
         defaultPlacements: navbarPlacements,
         verticalTabsDefaultPlacements: [
           "firefox-view-button",
+          "wildbuzzard-tor-toolbar-button",
           "wildbuzzard-blocker-toolbar-button",
           "wildbuzzard-agent-toolbar-button",
           "alltabs-button",

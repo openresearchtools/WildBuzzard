@@ -404,6 +404,58 @@ export const CustomizableWidgets = [
     },
   },
   {
+    id: "wildbuzzard-tor-toolbar-button",
+    l10nId: "wildbuzzard-tor-toolbar-button",
+    defaultArea: "nav-bar",
+    introducedInVersion: 28,
+    onCreated(aNode) {
+      const win = aNode.documentGlobal;
+      const { TorRouting } = ChromeUtils.importESModule(
+        "resource:///modules/TorRouting.sys.mjs"
+      );
+      const update = () => {
+        const status = TorRouting.statusForTab(win.gBrowser.selectedTab);
+        aNode.toggleAttribute("checked", status.active);
+        aNode.toggleAttribute("busy", status.busy);
+        aNode.setAttribute("aria-pressed", String(status.active));
+        aNode.setAttribute("aria-busy", String(status.busy));
+        let l10nId = "wildbuzzard-tor-toolbar-button";
+        if (status.error) {
+          l10nId = "wildbuzzard-tor-toolbar-button-error";
+        } else if (status.busy) {
+          l10nId = "wildbuzzard-tor-toolbar-button-starting";
+        } else if (status.active) {
+          l10nId = "wildbuzzard-tor-toolbar-button-on";
+        }
+        aNode.ownerDocument.l10n.setAttributes(aNode, l10nId);
+      };
+      const widgetListener = {
+        onWidgetInstanceRemoved(widgetId, document) {
+          if (
+            widgetId != "wildbuzzard-tor-toolbar-button" ||
+            document != aNode.ownerDocument
+          ) {
+            return;
+          }
+          win.removeEventListener("TabSelect", update);
+          win.removeEventListener(TorRouting.stateEvent, update);
+          lazy.CustomizableUI.removeListener(widgetListener);
+        },
+      };
+      win.addEventListener("TabSelect", update);
+      win.addEventListener(TorRouting.stateEvent, update);
+      lazy.CustomizableUI.addListener(widgetListener);
+      update();
+    },
+    onCommand(aEvent) {
+      const win = aEvent.view ?? aEvent.target.documentGlobal;
+      const { TorRouting } = ChromeUtils.importESModule(
+        "resource:///modules/TorRouting.sys.mjs"
+      );
+      TorRouting.toggle(win);
+    },
+  },
+  {
     id: "zoom-controls",
     type: "custom",
     tooltiptext: "zoom-controls.tooltiptext2",

@@ -16,6 +16,7 @@ DIRS += [
     "tabfeatures",
     "tabgrouping",
     "theme",
+    "tor",
     "uicustomizations",
     "upgrade",
     "urlbar",

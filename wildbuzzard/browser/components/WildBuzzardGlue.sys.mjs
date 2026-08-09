@@ -13,6 +13,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   StyleSheetUtils: "resource:///modules/StyleSheetUtils.sys.mjs",
   TabFeatures: "resource:///modules/TabFeatures.sys.mjs",
   TabGrouping: "resource:///modules/TabGrouping.sys.mjs",
+  TorRouting: "resource:///modules/TorRouting.sys.mjs",
   TreeTabsStore: "resource:///modules/TreeTabsStore.sys.mjs",
   TreeTabsUI: "resource:///modules/TreeTabsUI.sys.mjs",
   UICustomizations: "resource:///modules/UICustomizations.sys.mjs",
@@ -83,6 +84,7 @@ export const WildBuzzardGlue = {
     lazy.WildBuzzardThemeColors.init();
 
     lazy.PrivateTab.init();
+    lazy.TorRouting.init();
     lazy.StatusBar.init();
     lazy.TabFeatures.init();
     lazy.TabGrouping.init();
@@ -94,6 +96,7 @@ export const WildBuzzardGlue = {
     switch (topic) {
       case "browser-delayed-startup-finished":
         lazy.PrivateTab.onWindowOpened(subject);
+        lazy.TorRouting.onWindowOpened(subject);
         lazy.StatusBar.onWindowOpened(subject);
         lazy.TabFeatures.onWindowOpened(subject);
         lazy.TabGrouping.onWindowOpened(subject);
