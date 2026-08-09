@@ -109,6 +109,7 @@ if ! find "${utp_dir}/build" -type f -name '*.node' -print -quit | grep -q .; th
   echo "The source-built µTP module was not produced" >&2
   exit 1
 fi
+rm -rf -- "${utp_dir}/build/Release/obj.target"
 
 (
   cd -- "${app_dir}"
@@ -150,7 +151,7 @@ while IFS= read -r -d '' artifact; do
   case "${artifact_type}" in
     *ELF*|*Mach-O*|*PE32*)
       case "${artifact}" in
-        "${utp_dir}"/build/Release/*.node|"${utp_dir}"/build/Release/obj.target/*.node) ;;
+        "${utp_dir}"/build/Release/*.node) ;;
         *) unexpected_native+=("${artifact}: ${artifact_type}") ;;
       esac
       ;;
