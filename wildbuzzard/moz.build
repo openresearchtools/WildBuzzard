@@ -13,6 +13,17 @@ if CONFIG["WILDBUZZARD_PI_WEB_RUNTIME"]:
         "!wildbuzzard-pi-web-runtime.zip",
     ]
 
+if CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]:
+    GENERATED_FILES += ["wildbuzzard-torrent-runtime.zip"]
+    torrent_runtime = GENERATED_FILES["wildbuzzard-torrent-runtime.zip"]
+    torrent_runtime.script = "copy_file.py"
+    torrent_runtime.flags = [CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]]
+    torrent_runtime.extra_deps = ["%" + CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]]
+
+    FINAL_TARGET_FILES.runtime["torrent"] += [
+        "!wildbuzzard-torrent-runtime.zip",
+    ]
+
 if CONFIG["WILDBUZZARD_ARTI"]:
     arti_name = "arti" + CONFIG["BIN_SUFFIX"]
     GENERATED_FILES += [arti_name]

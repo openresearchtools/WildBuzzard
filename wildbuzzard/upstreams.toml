@@ -31,3 +31,12 @@ path = "third_party/rust/adblock"
 git_tree = "631bb7e5bdd677ffb1457e1d07ae32695607be6c"
 provided_by = "1c7282e73f12cb9bc63ae9920e9c77d935804cc8"
 waterfox_tree_is_identical = true
+
+[webtorrent]
+remote = "https://github.com/webtorrent/webtorrent.git"
+ref = "v3.0.21"
+commit = "e75f75c7ac6b755c2eb36842c51806da8ff560ff"
+version = "3.0.21"
+license = "MIT"
+path = "third_party/webtorrent"
+role = "embedded-torrent-engine"

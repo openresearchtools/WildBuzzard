@@ -17,6 +17,7 @@ DIRS += [
     "tabgrouping",
     "theme",
     "tor",
+    "torrent",
     "uicustomizations",
     "upgrade",
     "urlbar",

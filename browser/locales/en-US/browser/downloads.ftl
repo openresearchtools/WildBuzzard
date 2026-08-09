@@ -10,6 +10,10 @@ downloads-window =
 downloads-panel =
   .aria-label = Downloads
 
+downloads-torrents =
+  .label = Torrents
+  .tooltiptext = Open the built-in torrent client
+
 ##
 
 # The style attribute has the width of the Downloads Panel expressed using

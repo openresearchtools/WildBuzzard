@@ -1,0 +1,14 @@
+{
+  "name": "@wildbuzzard/torrent-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "utp-native": "2.5.3",
+    "webrtc-polyfill": "file:vendor/webrtc-disabled",
+    "webtorrent": "3.0.21"
+  }
+}

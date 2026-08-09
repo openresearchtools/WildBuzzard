@@ -37,6 +37,34 @@ def wildbuzzard_has_pi_web_runtime(path):
 set_define("WILDBUZZARD_PI_WEB_RUNTIME", wildbuzzard_has_pi_web_runtime)
 
 option(
+    "--with-wildbuzzard-torrent-runtime",
+    nargs=1,
+    help="Path to the WebTorrent runtime ZIP bundled with WildBuzzard",
+)
+
+
+@depends("--with-wildbuzzard-torrent-runtime")
+@imports("os")
+def wildbuzzard_torrent_runtime(value):
+    if not value:
+        return
+    path = os.path.abspath(value[0])
+    if not os.path.isfile(path):
+        die(f"Cannot find WebTorrent runtime at {path}")
+    return path
+
+
+set_config("WILDBUZZARD_TORRENT_RUNTIME", wildbuzzard_torrent_runtime)
+
+
+@depends(wildbuzzard_torrent_runtime)
+def wildbuzzard_has_torrent_runtime(path):
+    return bool(path)
+
+
+set_define("WILDBUZZARD_TORRENT_RUNTIME", wildbuzzard_has_torrent_runtime)
+
+option(
     "--with-wildbuzzard-arti",
     nargs=1,
     help="Path to the Arti binary bundled with WildBuzzard",

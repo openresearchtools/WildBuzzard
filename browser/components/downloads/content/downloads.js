@@ -245,6 +245,11 @@ var DownloadsPanel = {
           DownloadsPanel.showDownloadsHistory();
           return;
         }
+        if (aEvent.currentTarget == DownloadsView.downloadsTorrents) {
+          DownloadsPanel.hidePanel();
+          openTrustedLinkIn("about:torrents", "tab");
+          return;
+        }
 
         if (
           aEvent.currentTarget == DownloadsBlockedSubview.elements.deleteButton
@@ -414,6 +419,7 @@ var DownloadsPanel = {
     DownloadsView.richListBox.addEventListener("dragstart", this);
 
     DownloadsView.downloadsHistory.addEventListener("command", this);
+    DownloadsView.downloadsTorrents.addEventListener("command", this);
     DownloadsBlockedSubview.elements.deleteButton.addEventListener(
       "command",
       this
@@ -440,6 +446,7 @@ var DownloadsPanel = {
     DownloadsView.richListBox.removeEventListener("contextmenu", this);
     DownloadsView.richListBox.removeEventListener("dragstart", this);
     DownloadsView.downloadsHistory.removeEventListener("command", this);
+    DownloadsView.downloadsTorrents.removeEventListener("command", this);
     DownloadsBlockedSubview.elements.deleteButton.removeEventListener(
       "command",
       this
@@ -813,6 +820,12 @@ var DownloadsView = {
     delete this.downloadsHistory;
     return (this.downloadsHistory =
       document.getElementById("downloadsHistory"));
+  },
+
+  get downloadsTorrents() {
+    delete this.downloadsTorrents;
+    return (this.downloadsTorrents =
+      document.getElementById("downloadsTorrents"));
   },
 
   // Callback functions from DownloadsData
