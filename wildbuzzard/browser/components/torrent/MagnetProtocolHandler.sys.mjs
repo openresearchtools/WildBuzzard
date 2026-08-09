@@ -38,7 +38,12 @@ export class MagnetProtocolHandler {
         "tab"
       );
     });
-    throw Components.Exception("", Cr.NS_BINDING_ABORTED);
+    const channel = Services.io.newChannelFromURIWithLoadInfo(
+      Services.io.newURI("about:blank"),
+      loadInfo
+    );
+    channel.cancel(Cr.NS_BINDING_ABORTED);
+    return channel;
   }
 
   allowPort() {

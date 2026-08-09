@@ -21,10 +21,9 @@ add_task(async function test_magnet_redirects_to_torrent_client() {
   await BrowserTestUtils.browserLoaded(tab.linkedBrowser, false, url =>
     url.startsWith("about:torrents")
   );
-  Assert.stringStartsWith(
-    tab.linkedBrowser.currentURI.spec,
-    "about:torrents",
-    "Magnet navigation opens the native torrent client"
+  Assert.ok(
+    tab.linkedBrowser.currentURI.spec.startsWith("about:torrents"),
+    `Magnet navigation opens the native torrent client: ${tab.linkedBrowser.currentURI.spec}`
   );
   BrowserTestUtils.removeTab(tab);
 });
