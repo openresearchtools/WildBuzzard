@@ -173,6 +173,9 @@
 #ifdef WILDBUZZARD_PI_WEB_RUNTIME
 @BINPATH@/runtime/pi-web/wildbuzzard-pi-web-runtime.zip
 #endif
+#ifdef WILDBUZZARD_TORRENT_RUNTIME
+@BINPATH@/runtime/torrent/wildbuzzard-torrent-runtime.zip
+#endif
 #ifdef WILDBUZZARD_ARTI_RUNTIME
 @BINPATH@/runtime/tor/arti@BIN_SUFFIX@
 @BINPATH@/runtime/tor/arti.toml
