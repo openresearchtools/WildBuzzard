@@ -60,6 +60,10 @@ pref("browser.search.separatePrivateDefault.ui.enabled", true);
 
 pref("browser.startup.upgradeDialog.enabled", true);
 
+// Widevine support is built into desktop releases. Enable EME by default while
+// leaving the preference unlocked so users can disable proprietary DRM.
+pref("media.eme.enabled", true);
+
 // Browser control reuses native Marionette/BiDi/DevTools implementation
 // modules in-process through the authenticated Agent bridge. Do not expose
 // separate unauthenticated WebDriver listeners, even on loopback.

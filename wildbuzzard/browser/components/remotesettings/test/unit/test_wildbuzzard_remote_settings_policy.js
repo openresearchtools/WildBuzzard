@@ -11,6 +11,11 @@ const { WildBuzzardSettingsPolicy } = ChromeUtils.importESModule(
   "resource://services-settings/WildBuzzardSettingsPolicy.sys.mjs"
 );
 
+const GMP_MANAGER_URL =
+  "https://aus5.mozilla.org/update/3/GMP/%VERSION%/%BUILD_ID%/%BUILD_TARGET%/%LOCALE%/%CHANNEL%/%OS_VERSION%/%DISTRIBUTION%/%DISTRIBUTION_VERSION%/update.xml";
+const WIDEVINE_UPDATE_URL =
+  "https://update.googleapis.com/service/update2/crx?response=redirect&x=id%3D%GUID%%26uc&acceptformat=crx3&updaterversion=999";
+
 async function hasPackagedDump(bucket, collection) {
   if (await Utils.hasLocalDump(bucket, collection)) {
     return true;
@@ -83,9 +88,50 @@ add_task(function test_vendor_services_are_disabled_and_locked() {
   }
 });
 
+add_task(function test_drm_acquisition_is_enabled() {
+  const enabledPrefs = [
+    "browser.eme.ui.enabled",
+    "media.eme.enabled",
+    "media.gmp-provider.enabled",
+    "media.gmp-widevinecdm.enabled",
+    "media.gmp-widevinecdm.visible",
+  ];
+
+  for (const name of enabledPrefs) {
+    Assert.ok(Services.prefs.getBoolPref(name), `${name} is enabled`);
+  }
+
+  const defaults = Services.prefs.getDefaultBranch(null);
+  Assert.ok(
+    defaults.getBoolPref("media.gmp-manager.updateEnabled", true),
+    "GMP updates are enabled"
+  );
+  Assert.ok(
+    !Services.prefs.prefIsLocked("media.eme.enabled"),
+    "users can disable DRM"
+  );
+  Assert.ok(
+    !Services.prefs.prefIsLocked("media.gmp-manager.updateEnabled"),
+    "GMP updates are not policy-disabled"
+  );
+  Assert.equal(
+    Services.prefs.getStringPref("media.gmp-manager.url"),
+    GMP_MANAGER_URL,
+    "GMP metadata uses the signed Firefox endpoint"
+  );
+  Assert.equal(
+    Services.prefs.getStringPref("media.gmp-manager.chromium-update-url"),
+    WIDEVINE_UPDATE_URL,
+    "Widevine downloads use the Chromium component endpoint"
+  );
+});
+
 add_task(function test_no_vendor_service_urls_remain_in_effective_prefs() {
   const forbiddenVendor =
     /https?:\/\/(?:[^/]*\.)?(?:browserworks\.(?:com|org)|firefox\.com|mozilla\.(?:com|net|org)|waterfox\.net)(?:[/:]|$)/i;
+  const allowedVendorServices = new Map([
+    ["media.gmp-manager.url", GMP_MANAGER_URL],
+  ]);
   const remaining = [];
 
   for (const name of Services.prefs.getChildList("")) {
@@ -100,7 +146,10 @@ add_task(function test_no_vendor_service_urls_remain_in_effective_prefs() {
       continue;
     }
 
-    if (forbiddenVendor.test(value)) {
+    if (
+      forbiddenVendor.test(value) &&
+      allowedVendorServices.get(name) !== value
+    ) {
       remaining.push(`${name}=${value}`);
     }
   }
@@ -108,6 +157,6 @@ add_task(function test_no_vendor_service_urls_remain_in_effective_prefs() {
   Assert.deepEqual(
     remaining,
     [],
-    "effective preferences contain no Mozilla, Firefox, Waterfox, or BrowserWorks service URLs"
+    "effective preferences contain no unapproved vendor service URLs"
   );
 });

@@ -366,9 +366,6 @@ pref("browser.ml.chat.sidebar", false, locked);
 pref("browser.ml.linkPreview.enabled", false, locked);
 pref("security.certerrors.mitm.priming.enabled", false, locked);
 pref("security.certerrors.mitm.priming.endpoint", "", locked);
-pref("media.gmp-manager.updateEnabled", false, locked);
-pref("media.gmp-manager.url", "", locked);
-pref("media.gmp-manager.chromium-update-url", "", locked);
 
 // Partner-backed Safe Browsing would otherwise contact Google and Mozilla.
 // The native WildBuzzard blocker remains active; a locally maintained malware
