@@ -27,7 +27,7 @@ export class MagnetProtocolHandler {
     Services.tm.dispatchToMainThread(() => {
       const browser = browsingContext?.embedderElement;
       if (browser?.loadURI) {
-        browser.loadURI(target.spec, {
+        browser.loadURI(target, {
           triggeringPrincipal:
             Services.scriptSecurityManager.getSystemPrincipal(),
         });
