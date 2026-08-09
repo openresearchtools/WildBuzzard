@@ -21,7 +21,9 @@ export class MagnetProtocolHandler {
     const target = Services.io.newURI(
       `about:torrents?add=${encodeURIComponent(uri.spec)}`
     );
-    return Services.io.newChannelFromURIWithLoadInfo(target, loadInfo);
+    const channel = Services.io.newChannelFromURIWithLoadInfo(target, loadInfo);
+    loadInfo.resultPrincipalURI = target;
+    return channel;
   }
 
   allowPort() {
