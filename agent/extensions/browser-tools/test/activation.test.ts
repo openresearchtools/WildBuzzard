@@ -54,3 +54,15 @@ test("specialized prompts activate stored-data, file, and diagnostic tools", () 
     assert.ok(tools.includes(name), name);
   }
 });
+
+test("Tor and onion prompts activate browser interaction tools", () => {
+  for (const prompt of [
+    "Open this site in a Tor tab",
+    "Visit http://exampleexample.onion",
+  ]) {
+    const tools = browserToolsForPrompt(prompt);
+    for (const name of ["tabs", "navigate", "snapshot", "act", "read"]) {
+      assert.ok(tools.includes(name), `${prompt}: ${name}`);
+    }
+  }
+});

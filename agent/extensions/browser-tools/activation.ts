@@ -13,7 +13,7 @@ const INTERACTION_TOOLS = [
   "wait",
 ];
 const BROWSER_INTENT =
-  /https?:\/\/|www\.|\b(browser|browse|web(?:site|page)?|site|page|link|click|form|search online|youtube|github|duck\.ai|screenshot|bookmark|history|tab|window|download|upload|console|network|debug)\b/i;
+  /https?:\/\/|www\.|\.onion\b|\b(browser|browse|web(?:site|page)?|site|page|link|click|form|search online|youtube|github|duck\.ai|screenshot|bookmark|history|tab|window|download|upload|console|network|debug|tor|onion|dark web)\b/i;
 
 export const BROWSER_TOOL_NAMES = BROWSER_TOOL_CATALOG.map(tool => tool.name);
 

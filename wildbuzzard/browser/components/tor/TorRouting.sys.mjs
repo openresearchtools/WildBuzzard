@@ -49,10 +49,12 @@ export const TorRouting = {
   _initialized: false,
   _windows: new WeakSet(),
   _isolationKeys: new WeakMap(),
+  _pendingOnionNavigations: new WeakMap(),
   _startTask: null,
   _process: null,
   _port: 0,
   _busy: false,
+  _busyCount: 0,
   _lastError: "",
   container: null,
 
@@ -69,6 +71,7 @@ export const TorRouting = {
     lazy.PrivateTab.registerPrivateContainer(this.container);
     this.clearData();
     lazy.ProxyService.registerChannelFilter(this, 0);
+    Services.obs.addObserver(this, "http-on-modify-request");
     Services.obs.addObserver(this, "quit-application-granted");
   },
 
@@ -105,6 +108,30 @@ export const TorRouting = {
 
   isTorTab(tab) {
     return !!this.container && tab?.userContextId == this.userContextId;
+  },
+
+  isOnionURI(uri) {
+    if (!["http", "https"].includes(uri?.scheme)) {
+      return false;
+    }
+    try {
+      return uri.host.toLowerCase().replace(/\.$/, "").endsWith(".onion");
+    } catch {
+      return false;
+    }
+  },
+
+  onionURI(url) {
+    const value = String(url).trim();
+    const normalized = /^[^:/?#\s]+\.onion(?::\d+)?(?:[/?#]|$)/i.test(value)
+      ? `http://${value}`
+      : value;
+    try {
+      const uri = Services.io.newURI(normalized);
+      return this.isOnionURI(uri) ? uri : null;
+    } catch {
+      return null;
+    }
   },
 
   statusForTab(tab) {
@@ -187,9 +214,8 @@ export const TorRouting = {
     ) {
       return null;
     }
-    this._busy = true;
+    this._beginBusy();
     this._lastError = "";
-    this._notifyState();
     try {
       if (this.isTorTab(tab)) {
         return await this._reopenInContext(
@@ -205,17 +231,84 @@ export const TorRouting = {
       console.error("TorRouting toggle failed:", error);
       return null;
     } finally {
-      this._busy = false;
-      this._notifyState();
+      this._endBusy();
     }
   },
 
-  async _reopenInContext(win, tab, userContextId) {
+  _beginBusy() {
+    this._busyCount++;
+    this._busy = true;
+    this._notifyState();
+  },
+
+  _endBusy() {
+    this._busyCount = Math.max(0, this._busyCount - 1);
+    this._busy = this._busyCount > 0;
+    this._notifyState();
+  },
+
+  async createTab(win, options = {}) {
+    this.init();
+    if (!this.container) {
+      throw new Error(this._lastError || "Tor is unavailable");
+    }
+    if (lazy.PrivateBrowsingUtils.isWindowPrivate(win)) {
+      throw new Error("Tor tabs must be opened in a normal browser window");
+    }
+    await this.ensureProxy();
+    const tab = win.gBrowser.addTrustedTab(null, {
+      ...options,
+      skipLoad: true,
+      userContextId: this.userContextId,
+    });
+    this._markTorTab(tab);
+    return tab;
+  },
+
+  routeOnion(win, tab, url) {
+    this.init();
+    if (this.isTorTab(tab)) {
+      return Promise.resolve(tab);
+    }
+    const pending = this._pendingOnionNavigations.get(tab);
+    if (pending) {
+      pending.url = url;
+      return pending.task;
+    }
+    const request = { url, task: null };
+    request.task = (async () => {
+      this._beginBusy();
+      this._lastError = "";
+      try {
+        await this.ensureProxy();
+        if (tab.closing || !tab.isConnected) {
+          return null;
+        }
+        return await this._reopenInContext(
+          win,
+          tab,
+          this.userContextId,
+          request.url
+        );
+      } catch (error) {
+        this._lastError = error.message;
+        console.error("TorRouting onion navigation failed:", error);
+        return null;
+      } finally {
+        this._pendingOnionNavigations.delete(tab);
+        this._endBusy();
+      }
+    })();
+    this._pendingOnionNavigations.set(tab, request);
+    return request.task;
+  },
+
+  async _reopenInContext(win, tab, userContextId, requestedURL = null) {
     const { gBrowser, gURLBar } = win;
     const selected = tab == gBrowser.selectedTab;
     const focusUrlbar = selected && gURLBar.focused;
     const pinned = tab.pinned;
-    const url = this._reloadURL(tab.linkedBrowser.currentURI);
+    const url = requestedURL ?? this._reloadURL(tab.linkedBrowser.currentURI);
     const newTab = gBrowser.addTrustedTab(null, {
       skipLoad: true,
       tabGroup: tab.group ?? undefined,
@@ -463,10 +556,34 @@ export const TorRouting = {
     }
   },
 
-  observe(_subject, topic) {
+  observe(subject, topic) {
+    if (topic == "http-on-modify-request") {
+      const channel = subject.QueryInterface(Ci.nsIHttpChannel);
+      if (!this.isOnionURI(channel.URI)) {
+        return;
+      }
+      const context = channel.loadInfo?.browsingContext;
+      if (
+        channel.loadInfo?.originAttributes.userContextId == this.userContextId
+      ) {
+        return;
+      }
+      const browser = context?.top?.embedderElement;
+      const win = browser?.ownerGlobal;
+      const tab = win?.gBrowser?.getTabForBrowser(browser);
+      if (tab && this.isTorTab(tab)) {
+        return;
+      }
+      channel.cancel(Cr.NS_BINDING_ABORTED);
+      if (tab && context == context.top) {
+        this.routeOnion(win, tab, channel.URI.spec);
+      }
+      return;
+    }
     if (topic != "quit-application-granted") {
       return;
     }
+    Services.obs.removeObserver(this, "http-on-modify-request");
     lazy.ProxyService.unregisterChannelFilter(this);
     this.clearData();
     this._process?.kill();

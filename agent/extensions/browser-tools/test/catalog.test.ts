@@ -65,6 +65,10 @@ test("browser lifecycle and stored-data actions stay exposed", () => {
   assert.deepEqual(actions("history"), ["list", "open"]);
   assert.deepEqual(actions("bookmarks"), ["list", "create", "remove", "open"]);
   assert.deepEqual(actions("windows"), ["list", "create", "activate", "close"]);
+  const tabs = byName.get("tabs")?.parameters as {
+    properties?: { tor?: { type?: string } };
+  };
+  assert.equal(tabs.properties?.tor?.type, "boolean");
 });
 
 test("every browser tool has concise prompt metadata", () => {

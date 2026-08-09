@@ -20,8 +20,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   NetworkListener:
     "chrome://remote/content/shared/listeners/NetworkListener.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
+  PrivateTab: "resource:///modules/PrivateTab.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  TorRouting: "resource:///modules/TorRouting.sys.mjs",
   modal: "chrome://remote/content/shared/Prompt.sys.mjs",
   capture: "chrome://remote/content/shared/Capture.sys.mjs",
   ProgressListener: "chrome://remote/content/shared/Navigate.sys.mjs",
@@ -375,9 +377,13 @@ function headersObject(headers) {
 }
 
 function agentNavigationURI(url) {
+  const value = String(url).trim();
+  const normalized = /^[^:/?#\s]+\.onion(?::\d+)?(?:[/?#]|$)/i.test(value)
+    ? `http://${value}`
+    : value;
   let uri;
   try {
-    uri = Services.io.newURI(url);
+    uri = Services.io.newURI(normalized);
   } catch (error) {
     throw new Error(`Invalid URL: ${url} (${errorMessage(error)})`);
   }
@@ -935,13 +941,17 @@ class BrowserControlService {
     } else if (owner) {
       ownership = "other-agent";
     }
+    const tor = lazy.TorRouting.isTorTab(tab);
     return {
       page,
       pageId: page,
       url: browser.currentURI?.spec ?? "about:blank",
       title: browser.contentTitle || tab.label || "",
       active: window.gBrowser.selectedTab === tab,
-      private: lazy.PrivateBrowsingUtils.isWindowPrivate(window),
+      private:
+        lazy.PrivateBrowsingUtils.isWindowPrivate(window) ||
+        lazy.PrivateTab.isPrivate(tab),
+      tor,
       windowId:
         window.windowGlobalChild?.innerWindowId ??
         window.docShell.outerWindowID,
@@ -2336,7 +2346,7 @@ class BrowserControlService {
             `${heading}\n${entries
               .map(
                 page =>
-                  `[${page.page}] ${page.url}${page.title ? ` (${page.title})` : ""}${page.private ? " [PRIVATE]" : ""}${
+                  `[${page.page}] ${page.url}${page.title ? ` (${page.title})` : ""}${page.private ? " [PRIVATE]" : ""}${page.tor ? " [TOR]" : ""}${
                     page.ownership === "other-agent" && page.ownerLabel
                       ? `, owned by ${page.ownerLabel}`
                       : ""
@@ -2368,7 +2378,13 @@ class BrowserControlService {
       return this.ownershipTabsTool(action, args.page, clientId);
     }
     if (action === "new") {
-      const privateRequested = Boolean(args.private);
+      const requestedUrl = args.url ?? "about:blank";
+      const uri =
+        requestedUrl === "about:blank"
+          ? Services.io.newURI("about:blank")
+          : agentNavigationURI(requestedUrl);
+      const torRequested = Boolean(args.tor) || lazy.TorRouting.isOnionURI(uri);
+      const privateRequested = Boolean(args.private) && !torRequested;
       let window = this.windowForNewTab(
         args.windowId,
         privateRequested,
@@ -2380,15 +2396,15 @@ class BrowserControlService {
       ) {
         window = await this.openWindow(privateRequested);
       }
-      const requestedUrl = args.url ?? "about:blank";
-      const uri =
-        requestedUrl === "about:blank"
-          ? Services.io.newURI("about:blank")
-          : agentNavigationURI(requestedUrl);
-      const tab = window.gBrowser.addTrustedTab("about:blank", {
-        inBackground: args.background ?? true,
-        skipAnimation: true,
-      });
+      const tab = torRequested
+        ? await lazy.TorRouting.createTab(window, {
+            inBackground: args.background ?? true,
+            skipAnimation: true,
+          })
+        : window.gBrowser.addTrustedTab("about:blank", {
+            inBackground: args.background ?? true,
+            skipAnimation: true,
+          });
       if (!(args.background ?? true)) {
         window.gBrowser.selectedTab = tab;
       }
@@ -2437,7 +2453,10 @@ class BrowserControlService {
       } else {
         this.ensureSessionTabGroup(window, tab, clientId);
       }
-      return textResult(`opened page ${page}`, { page });
+      return textResult(`opened${torRequested ? " Tor" : ""} page ${page}`, {
+        page,
+        tor: torRequested,
+      });
     }
     if (action === "close") {
       if (args.page === undefined || args.page === null) {
@@ -2985,7 +3004,7 @@ class BrowserControlService {
 
   async navigateTool(args, captureSnapshot = true, signal) {
     throwIfAborted(signal);
-    const { browser } = this.pageForId(args.page);
+    let { browser } = this.pageForId(args.page);
     const action = args.action ?? "url";
     let startNavigation;
     if (action === "url") {
@@ -2993,6 +3012,12 @@ class BrowserControlService {
         throw new Error('navigate: url is required for action="url"');
       }
       const uri = agentNavigationURI(args.url);
+      if (
+        lazy.TorRouting.isOnionURI(uri) &&
+        !lazy.TorRouting.isTorTab(this.tabForBrowser(browser))
+      ) {
+        ({ browser } = await this.convertPageToTor(args.page, signal));
+      }
       startNavigation = () =>
         browser.loadURI(uri, {
           triggeringPrincipal:
@@ -3024,6 +3049,37 @@ class BrowserControlService {
       action,
       url: browser.currentURI?.spec ?? "about:blank",
     });
+  }
+
+  async convertPageToTor(page, signal) {
+    throwIfAborted(signal);
+    const { window, tab } = this.pageForId(page);
+    if (lazy.TorRouting.isTorTab(tab)) {
+      return this.pageForId(page);
+    }
+    const selected = window.gBrowser.selectedTab === tab;
+    const owner = this.pageOwners.get(page);
+    const torTab = await lazy.TorRouting.createTab(window, {
+      inBackground: !selected,
+      skipAnimation: true,
+      tabGroup: tab.group ?? undefined,
+      tabIndex: tab._tPos + 1,
+    });
+    if (tab.pinned) {
+      window.gBrowser.pinTab(torTab);
+    }
+    this.pageIds.set(torTab.linkedBrowser, page);
+    if (owner) {
+      lazy.SessionStore.setCustomTabValue(torTab, TAB_OWNER_KEY, owner);
+    }
+    if (selected) {
+      window.gBrowser.selectedTab = torTab;
+    }
+    window.gBrowser.removeTab(tab, {
+      animate: false,
+      skipPermitUnload: true,
+    });
+    return { window, tab: torTab, browser: torTab.linkedBrowser };
   }
 
   async navigateAndWait(browser, startNavigation, signal) {

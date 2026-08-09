@@ -9,6 +9,12 @@ const { PrivateTab } = ChromeUtils.importESModule(
 const { TorRouting } = ChromeUtils.importESModule(
   "resource:///modules/TorRouting.sys.mjs"
 );
+const { BrowserControl } = ChromeUtils.importESModule(
+  "chrome://remote/content/wildbuzzard/BrowserControl.sys.mjs"
+);
+const { UrlbarTestUtils } = ChromeUtils.importESModule(
+  "resource://testing-common/UrlbarTestUtils.sys.mjs"
+);
 
 const TEST_PORT_PREF = "wildbuzzard.tor.test.socksPort";
 const TEST_PORT = 19150;
@@ -53,6 +59,82 @@ add_task(async function test_toggle_reopens_in_private_tor_context() {
   );
   ok(!TorRouting.isTorTab(privateTab), "The replacement tab is direct");
   BrowserTestUtils.removeTab(privateTab);
+});
+
+add_task(async function test_agent_opens_owned_tor_tab() {
+  const clientId = "tor-browser-test-agent";
+  const result = await BrowserControl.dispatch(
+    "tabs",
+    { action: "new", tor: true },
+    PathUtils.profileDir,
+    clientId,
+    new AbortController().signal
+  );
+  const page = result.details.page;
+  const entry = BrowserControl.pageForId(page);
+
+  ok(TorRouting.isTorTab(entry.tab), "Agent-created tab uses Tor routing");
+  ok(PrivateTab.isPrivate(entry.tab), "Agent-created Tor tab is private");
+  const listing = await BrowserControl.dispatch(
+    "tabs",
+    { action: "list" },
+    PathUtils.profileDir,
+    clientId,
+    new AbortController().signal
+  );
+  const info = listing.details.pages.find(item => item.page == page);
+  ok(info.tor, "Agent tab metadata reports Tor routing");
+  ok(info.private, "Agent tab metadata reports private storage");
+
+  await BrowserControl.dispatch(
+    "tabs",
+    { action: "close", page },
+    PathUtils.profileDir,
+    clientId,
+    new AbortController().signal
+  );
+});
+
+add_task(async function test_user_onion_navigation_reopens_as_tor() {
+  const tab = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "about:blank"
+  );
+  const torTab = await TorRouting.routeOnion(
+    window,
+    tab,
+    "http://exampleexample.onion/"
+  );
+
+  ok(torTab, "Onion navigation creates a replacement tab");
+  ok(TorRouting.isTorTab(torTab), "Onion navigation automatically uses Tor");
+  ok(PrivateTab.isPrivate(torTab), "Automatic Tor navigation is private");
+  is(
+    await TorRouting.routeOnion(window, torTab, "http://anotherexample.onion/"),
+    torTab,
+    "An existing Tor tab is not replaced again"
+  );
+  BrowserTestUtils.removeTab(torTab);
+});
+
+add_task(async function test_urlbar_onion_navigation_uses_tor() {
+  UrlbarTestUtils.init(this);
+  const tab = await BrowserTestUtils.openNewForegroundTab(
+    gBrowser,
+    "about:blank"
+  );
+  await UrlbarTestUtils.inputIntoURLBar(window, "http://typedexample.onion/");
+  const opened = BrowserTestUtils.waitForEvent(
+    gBrowser.tabContainer,
+    "TabOpen"
+  );
+  EventUtils.synthesizeKey("KEY_Enter");
+  const torTab = (await opened).target;
+
+  ok(TorRouting.isTorTab(torTab), "Typed onion address opens in a Tor tab");
+  ok(PrivateTab.isPrivate(torTab), "Typed onion address is private");
+  ok(tab.closing || !tab.isConnected, "The direct tab was replaced");
+  BrowserTestUtils.removeTab(torTab);
 });
 
 add_task(function test_proxy_filter_uses_remote_dns_and_no_failover() {

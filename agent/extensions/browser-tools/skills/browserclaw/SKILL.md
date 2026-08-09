@@ -33,3 +33,9 @@ For development work, use the console, network, script-source, and logpoint
 tools against the same page ids instead of starting a second automation or
 debugging connection. Use `evaluate` only for small page-context scripts; the
 sandboxed `run` tool is the efficient choice for repeated or multi-page flows.
+
+For Tor browsing, open a task-owned tab with `tabs` action `new` and
+`tor: true`, or call `browser.pages.newPage(url, { tor: true })` inside `run`.
+Opening a `.onion` URL enables Tor automatically. Tor tabs use the bundled Tor
+runtime and isolated private storage; do not claim a normal user tab for onion
+browsing.

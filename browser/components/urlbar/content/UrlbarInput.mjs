@@ -64,6 +64,7 @@ const lazy = XPCOMUtils.declareLazy({
   ReaderMode: "moz-src:///toolkit/components/reader/ReaderMode.sys.mjs",
   SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SharingUtils: "resource:///modules/SharingUtils.sys.mjs",
+  TorRouting: "resource:///modules/TorRouting.sys.mjs",
   SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
   UrlbarController:
@@ -4317,6 +4318,20 @@ ${
     browser = this.window.gBrowser.selectedBrowser,
     keepViewOpen = false
   ) {
+    const onionURI = this.#isAddressbar ? lazy.TorRouting.onionURI(url) : null;
+    const tab = onionURI
+      ? this.window.gBrowser.getTabForBrowser(browser)
+      : null;
+    if (
+      onionURI &&
+      tab &&
+      openUILinkWhere == "current" &&
+      !lazy.TorRouting.isTorTab(tab)
+    ) {
+      this.view.close({ showFocusBorder: false });
+      lazy.TorRouting.routeOnion(this.window, tab, onionURI.spec);
+      return;
+    }
     if (this.#isAddressbar) {
       this.#prepareAddressbarLoad(
         url,

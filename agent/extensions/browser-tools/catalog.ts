@@ -26,7 +26,7 @@ const stringEnum = (values: readonly string[], options?: TSchemaOptions) =>
 const page = Type.Integer({ minimum: 0, description: "Page id from `tabs`." });
 
 export const BROWSER_TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
-  tabs: "List, open, activate, or close visible browser tabs",
+  tabs: "List, open, activate, or close visible browser and Tor tabs",
   tab_groups: "List, create, update, ungroup, or close tab groups",
   history: "Read recent browser history or open its visible sidebar",
   bookmarks: "Create, find, remove, or visibly open browser bookmarks",
@@ -58,6 +58,7 @@ export const BROWSER_TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
 
 export const BROWSER_TOOL_PROMPT_GUIDELINES = [
   'Use tabs action="new" for a task-owned tab; do not focus, rearrange, or close other tabs unless the user asks.',
+  'For Tor, use tabs action="new" with tor=true. A .onion URL turns Tor on automatically; never use a direct tab for .onion.',
   "Use snapshot -> act -> verify for interactive browser work; act already returns a settled diff.",
   "Use act fields[] to fill a whole form in one call, and snapshot again after navigation or major page changes.",
   "Use read for extraction, grep for targeted page search, and screenshot only when visual evidence matters.",
@@ -71,7 +72,7 @@ export const BROWSER_TOOL_CATALOG: readonly BrowserToolDefinition[] = [
     name: "tabs",
     label: "Browser Tabs",
     description:
-      "Manage browser tabs: list, show the active page, open, activate, claim, or close. Claim a user-owned tab only when the user explicitly asks you to control it; other agents' tabs cannot be claimed. Use the returned page id with snapshot/act/navigate.",
+      'Manage browser tabs: list, show the active page, open, activate, claim, or close. For Tor, call action="new" with tor=true; .onion URLs enable Tor automatically. Claim a user-owned tab only when the user explicitly asks you to control it; other agents\' tabs cannot be claimed. Use the returned page id with snapshot/act/navigate.',
     parameters: Type.Object(
       {
         action: Type.Optional(
@@ -79,7 +80,14 @@ export const BROWSER_TOOL_CATALOG: readonly BrowserToolDefinition[] = [
         ),
         url: optionalNullable(
           Type.String({
-            description: 'URL for action="new" (defaults to about:blank).',
+            description:
+              'URL for action="new" (defaults to about:blank). A .onion URL automatically opens as a Tor tab.',
+          })
+        ),
+        tor: Type.Optional(
+          Type.Boolean({
+            description:
+              'For action="new", route this tab through bundled Tor. Tor tabs use isolated private storage. Automatically true for .onion URLs.',
           })
         ),
         background: Type.Optional(
@@ -96,7 +104,8 @@ export const BROWSER_TOOL_CATALOG: readonly BrowserToolDefinition[] = [
         ),
         private: Type.Optional(
           Type.Boolean({
-            description: 'Open action="new" in a private browsing context.',
+            description:
+              'Open action="new" in a private browsing context. Tor tabs are already private, so tor=true takes precedence.',
           })
         ),
         windowId: optionalNullable(
@@ -716,7 +725,7 @@ export const BROWSER_TOOL_CATALOG: readonly BrowserToolDefinition[] = [
 The return shapes below are stable. Do NOT probe them at runtime (no typeof / Object.keys / getOwnPropertyNames) and do NOT re-open a page to inspect what a call returned; that just piles up duplicate tabs. Reuse a pageId across steps, and close a page with browser.pages.close(pageId) when you are done with it.
 
 Pages (pageId is a NUMBER):
-  browser.pages.newPage(url)   -> pageId (number). Use it directly; it is not an object. Opens in the background so it does not steal the user's focus; pass { background: false } only when the user asks to bring the tab to the front.
+  browser.pages.newPage(url, options?) -> pageId (number). Use it directly; it is not an object. Opens in the background so it does not steal the user's focus; pass { background: false } only when the user asks to bring the tab to the front. For Tor use { tor: true }; .onion URLs enable Tor automatically.
   browser.pages.close(pageId)  -> undefined. Call this when finished with a page. Close ONLY tabs you own (ownership "mine"); never close the user's or another agent's tabs.
   browser.pages.activate(pageId) -> undefined. Focus an owned tab.
   browser.pages.claim(pageId)  -> undefined. Claim a user tab only when the user explicitly asks; another agent's tab is rejected.
