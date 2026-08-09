@@ -16,6 +16,9 @@ const { setTimeout } = ChromeUtils.importESModule(
 const { ServiceRequest } = ChromeUtils.importESModule(
   "resource://gre/modules/ServiceRequest.sys.mjs"
 );
+const { NetUtil } = ChromeUtils.importESModule(
+  "resource://gre/modules/NetUtil.sys.mjs"
+);
 const { BrowserControl } = ChromeUtils.importESModule(
   "chrome://remote/content/wildbuzzard/BrowserControl.sys.mjs"
 );
@@ -36,6 +39,39 @@ const PI_WEB_URL = `http://127.0.0.1:${AGENT_PORT}/`;
 const CONFIG_FILE = "config.json";
 const STATE_FILE = "state.json";
 const CONNECTION_FILE = "browser-control.json";
+const RUNTIME_MANIFEST = "wildbuzzard-runtime.json";
+
+function runtimeBundleId(archivePath) {
+  const zip = new ZipReader(new LocalFile(archivePath));
+  try {
+    const entry = zip.getEntry(RUNTIME_MANIFEST);
+    const stream = zip.getInputStream(RUNTIME_MANIFEST);
+    let manifest;
+    try {
+      manifest = JSON.parse(
+        NetUtil.readInputStreamToString(stream, entry.realSize, {
+          charset: "utf-8",
+        })
+      );
+    } finally {
+      stream.close();
+    }
+    const id = [
+      manifest.schema,
+      manifest.piWebCommit,
+      manifest.browserToolsSha256,
+      manifest.browserRunnerSha256,
+      manifest.nodeVersion,
+      manifest.platform,
+    ].join("-");
+    if (!/^[0-9A-Za-z._-]+$/.test(id)) {
+      throw new Error("Invalid Pi Web runtime manifest");
+    }
+    return id;
+  } finally {
+    zip.close();
+  }
+}
 
 async function readAll(pipe) {
   const chunks = [];
@@ -164,8 +200,7 @@ class PiWebManager {
         "The bundled Pi Web runtime was not found. Build with --pi-web-runtime."
       );
     }
-    const stat = await IOUtils.stat(archivePath);
-    const bundleId = `${stat.size}-${String(stat.lastModified).replaceAll(/\D/g, "")}`;
+    const bundleId = runtimeBundleId(archivePath);
     const destination = PathUtils.join(this.bundleRoot, bundleId);
     const marker = PathUtils.join(destination, ".extraction-complete");
     if (await IOUtils.exists(marker)) {

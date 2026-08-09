@@ -19,6 +19,39 @@ const ZipReader = Components.Constructor(
 );
 
 const MAX_TORRENT_SIZE = 12 * 1024 * 1024;
+const RUNTIME_MANIFEST = "wildbuzzard-torrent-runtime.json";
+
+function runtimeBundleId(archivePath) {
+  const zip = new ZipReader(new LocalFile(archivePath));
+  try {
+    const entry = zip.getEntry(RUNTIME_MANIFEST);
+    const stream = zip.getInputStream(RUNTIME_MANIFEST);
+    let manifest;
+    try {
+      manifest = JSON.parse(
+        NetUtil.readInputStreamToString(stream, entry.realSize, {
+          charset: "utf-8",
+        })
+      );
+    } finally {
+      stream.close();
+    }
+    const id = [
+      manifest.schema,
+      manifest.wildbuzzardCommit,
+      manifest.webTorrentVersion,
+      manifest.packageLockSha256,
+      manifest.nodeVersion,
+      manifest.platform,
+    ].join("-");
+    if (!/^[0-9A-Za-z._-]+$/.test(id)) {
+      throw new Error("Invalid torrent runtime manifest");
+    }
+    return id;
+  } finally {
+    zip.close();
+  }
+}
 
 function encodeBase64(bytes) {
   let binary = "";
@@ -143,8 +176,7 @@ class TorrentManagerImpl {
         "The bundled torrent runtime was not found. Build with --torrent-runtime."
       );
     }
-    const stat = await IOUtils.stat(archivePath);
-    const bundleId = `${stat.size}-${String(stat.lastModified).replaceAll(/\D/g, "")}`;
+    const bundleId = runtimeBundleId(archivePath);
     const destination = PathUtils.join(this.bundleRoot, bundleId);
     const marker = PathUtils.join(destination, ".extraction-complete");
     if (await IOUtils.exists(marker)) {
