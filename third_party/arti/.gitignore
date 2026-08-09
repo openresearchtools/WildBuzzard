@@ -1,0 +1,25 @@
+/coverage/
+/coverage_meta/
+/coverage_meta_*/
+/target/
+/crates/*/target/
+/crates/*/target-coverage/
+/crates/*/fuzz/coverage/
+/crates/*/fuzz/target/
+/crates/*/fuzz/Cargo.lock
+/crates/*/fuzz-*.log
+*~
+*.swp
+*.tmp
+.#*
+\#*\#
+.cargo
+/arti-linux
+/arti-windows.exe
+/arti-macos
+/chutney
+/osxcross
+/.arti_rpc_test
+/tmp
+# test nets written from tests/chutney/
+/chutney-net
