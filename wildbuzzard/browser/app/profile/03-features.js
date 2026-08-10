@@ -75,8 +75,8 @@ pref(
 pref("remote.prefs.recommended", false, locked);
 
 // Tab features.
-pref("browser.newtab.url", "http://127.0.0.1:8765/");
-pref("browser.startup.homepage", "http://127.0.0.1:8765/");
+pref("browser.newtab.url", "about:agent");
+pref("browser.startup.homepage", "about:agent");
 pref("browser.restart_menu.purgecache", false);
 pref("browser.restart_menu.requireconfirm", true);
 pref("browser.restart_menu.showpanelmenubtn", true);

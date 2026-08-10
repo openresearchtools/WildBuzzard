@@ -9,7 +9,9 @@ async function startPiWeb() {
   const tabs = await browser.tabs.query({});
   await Promise.allSettled(
     tabs
-      .filter(tab => tab.url?.startsWith(status.url))
+      .filter(
+        tab => tab.url === status.pageUrl || tab.url?.startsWith(status.url)
+      )
       .map(tab => browser.tabs.reload(tab.id))
   );
 }
