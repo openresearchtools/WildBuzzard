@@ -17,6 +17,7 @@ usage() {
   echo "  --working-tree     include tracked and untracked developer changes"
   echo "  --pi-web-runtime FILE  Pi Web runtime ZIP to include in the browser package"
   echo "  --torrent-runtime FILE  WebTorrent runtime ZIP to include in the browser package"
+  echo "  --jackett-mini-runtime FILE  Jackett Mini runtime ZIP to include in the browser package"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --bootstrap        run mach bootstrap before the requested action"
   echo "  --help             show this help"
@@ -32,6 +33,7 @@ run_bootstrap=false
 include_working_tree=false
 pi_web_runtime=""
 torrent_runtime=""
+jackett_mini_runtime=""
 arti_binary=""
 
 while (($#)); do
@@ -62,6 +64,10 @@ while (($#)); do
       ;;
     --torrent-runtime)
       torrent_runtime="${2:?--torrent-runtime requires a file}"
+      shift 2
+      ;;
+    --jackett-mini-runtime)
+      jackett_mini_runtime="${2:?--jackett-mini-runtime requires a file}"
       shift 2
       ;;
     --arti-binary)
@@ -96,6 +102,14 @@ if [[ -n "${torrent_runtime}" ]]; then
   torrent_runtime="$(realpath -- "${torrent_runtime}")"
   if [[ ! -f "${torrent_runtime}" ]]; then
     echo "--torrent-runtime must name a ZIP file" >&2
+    exit 2
+  fi
+fi
+
+if [[ -n "${jackett_mini_runtime}" ]]; then
+  jackett_mini_runtime="$(realpath -- "${jackett_mini_runtime}")"
+  if [[ ! -f "${jackett_mini_runtime}" ]]; then
+    echo "--jackett-mini-runtime must name a ZIP file" >&2
     exit 2
   fi
 fi
@@ -204,6 +218,7 @@ fi
   echo "working_tree=${include_working_tree}"
   echo "pi_web_runtime=${pi_web_runtime}"
   echo "torrent_runtime=${torrent_runtime}"
+  echo "jackett_mini_runtime=${jackett_mini_runtime}"
   echo "arti_binary=${arti_binary}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
@@ -300,6 +315,9 @@ fi
   fi
   if [[ -n "${torrent_runtime}" ]]; then
     echo "ac_add_options --with-wildbuzzard-torrent-runtime=${torrent_runtime}"
+  fi
+  if [[ -n "${jackett_mini_runtime}" ]]; then
+    echo "ac_add_options --with-wildbuzzard-jackett-mini-runtime=${jackett_mini_runtime}"
   fi
   if [[ -n "${arti_binary}" ]]; then
     echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"

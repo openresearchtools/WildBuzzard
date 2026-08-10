@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import json
 import re
+import stat
 from pathlib import Path
 
 
@@ -23,18 +24,29 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def runtime_files(root):
+def runtime_files(root, excluded=()):
     entries = []
-    for path in sorted(candidate for candidate in root.rglob("*") if candidate.is_file()):
+    excluded = {path.resolve() for path in excluded}
+    seen_inodes = set()
+    for path in sorted(root.rglob("*")):
+        info = path.lstat()
+        if stat.S_ISLNK(info.st_mode) or not (
+            stat.S_ISDIR(info.st_mode) or stat.S_ISREG(info.st_mode)
+        ):
+            raise ValueError(f"runtime contains a link or special file: {path}")
+        if not stat.S_ISREG(info.st_mode) or path.resolve() in excluded:
+            continue
+        inode = (info.st_dev, info.st_ino)
+        if info.st_nlink != 1 or inode in seen_inodes:
+            raise ValueError(f"runtime contains a hard link: {path}")
+        seen_inodes.add(inode)
         relative = path.relative_to(root).as_posix()
-        entries.append(
-            {
-                "path": relative,
-                "sha256": sha256_file(path),
-                "size": path.stat().st_size,
-                "executable": bool(path.stat().st_mode & 0o111),
-            }
-        )
+        entries.append({
+            "path": relative,
+            "sha256": sha256_file(path),
+            "size": info.st_size,
+            "executable": bool(info.st_mode & 0o111),
+        })
     return entries
 
 
@@ -72,58 +84,49 @@ def main():
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--sbom", type=Path, required=True)
     args = parser.parse_args()
-    files = runtime_files(args.runtime)
-    canonical_files = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
-    runtime_digest = sha256_bytes(canonical_files)
+    preliminary_files = runtime_files(args.runtime, (args.manifest, args.sbom))
     lock_digest, packages = lock_inventory_from_source(args.source)
     catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
     license_inventory = {
         (entry["name"], entry["version"]): entry
-        for entry in json.loads(args.license_inventory.read_text(encoding="utf-8"))["packages"]
+        for entry in json.loads(args.license_inventory.read_text(encoding="utf-8"))[
+            "packages"
+        ]
     }
     if set(license_inventory) != set(packages):
         raise ValueError("NuGet license inventory differs from dependency locks")
-    manifest = {
-        "schemaVersion": 1,
-        "component": "jackett-mini",
-        "semanticVersion": "0.24.2360-wildbuzzard.1",
-        "upstreamVersion": "v0.24.2360",
-        "upstreamCommit": COMMIT,
-        "sourceSha256": args.source_sha256,
-        "platform": "linux",
-        "architecture": "x86_64",
-        "libc": "glibc",
-        "dependencyLockSha256": lock_digest,
-        "runtimeSha256": runtime_digest,
-        "protocolVersion": 1,
-        "providerPolicySha256": catalog["policySha256"],
-        "catalogFileSha256": sha256_file(args.catalog),
-        "license": "GPL-2.0-only",
-        "correspondingSource": "wildbuzzard/third_party/gpl2/jackett",
-        "sdkImage": args.sdk_image,
-        "executableName": "jackett-mini",
-        "updaterIncluded": False,
-        "dashboardIncluded": False,
-        "enabledProviderCount": len(catalog["enabledIndexerIds"]),
-        "files": files,
-    }
-    args.manifest.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
     package_id = "SPDXRef-Package-jackett-mini"
     spdx_packages = [
         {
             "SPDXID": package_id,
             "name": "jackett-mini",
-            "versionInfo": manifest["semanticVersion"],
+            "versionInfo": "0.24.2360-wildbuzzard.1",
             "downloadLocation": "NOASSERTION",
             "filesAnalyzed": True,
             "licenseConcluded": "GPL-2.0-only",
             "licenseDeclared": "GPL-2.0-only",
             "copyrightText": "NOASSERTION",
-            "checksums": [{"algorithm": "SHA256", "checksumValue": runtime_digest}],
+            "checksums": [
+                {
+                    "algorithm": "SHA256",
+                    "checksumValue": sha256_bytes(
+                        json.dumps(
+                            preliminary_files,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                        ).encode()
+                    ),
+                }
+            ],
         }
     ]
-    relationships = [{"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": package_id}]
+    relationships = [
+        {
+            "spdxElementId": "SPDXRef-DOCUMENT",
+            "relationshipType": "DESCRIBES",
+            "relatedSpdxElement": package_id,
+        }
+    ]
     for (name, version), content_hash in sorted(packages.items()):
         license_entry = license_inventory[(name, version)]
         dependency_id = spdx_id(f"Package-NuGet-{name}-{version}")
@@ -147,32 +150,80 @@ def main():
         if content_hash:
             package["comment"] = f"NuGet SHA-512 contentHash: {content_hash}"
         spdx_packages.append(package)
-        relationships.append({"spdxElementId": package_id, "relationshipType": "DEPENDS_ON", "relatedSpdxElement": dependency_id})
+        relationships.append({
+            "spdxElementId": package_id,
+            "relationshipType": "DEPENDS_ON",
+            "relatedSpdxElement": dependency_id,
+        })
     spdx_files = []
-    for index, entry in enumerate(files, 1):
+    for index, entry in enumerate(preliminary_files, 1):
         file_id = f"SPDXRef-File-{index}"
-        spdx_files.append(
-            {
-                "SPDXID": file_id,
-                "fileName": "./" + entry["path"],
-                "checksums": [{"algorithm": "SHA256", "checksumValue": entry["sha256"]}],
-                "licenseConcluded": "NOASSERTION",
-                "copyrightText": "NOASSERTION",
-            }
-        )
-        relationships.append({"spdxElementId": package_id, "relationshipType": "CONTAINS", "relatedSpdxElement": file_id})
+        spdx_files.append({
+            "SPDXID": file_id,
+            "fileName": "./" + entry["path"],
+            "checksums": [{"algorithm": "SHA256", "checksumValue": entry["sha256"]}],
+            "licenseConcluded": "NOASSERTION",
+            "copyrightText": "NOASSERTION",
+        })
+        relationships.append({
+            "spdxElementId": package_id,
+            "relationshipType": "CONTAINS",
+            "relatedSpdxElement": file_id,
+        })
     sbom = {
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
         "name": "jackett-mini-runtime",
-        "documentNamespace": f"https://wildbuzzard.invalid/spdx/jackett-mini/{runtime_digest}",
-        "creationInfo": {"created": "2026-08-09T05:38:52Z", "creators": ["Tool: WildBuzzard Jackett Mini builder"]},
+        "documentNamespace": f"https://wildbuzzard.invalid/spdx/jackett-mini/{args.source_sha256}",
+        "creationInfo": {
+            "created": "2026-08-09T05:38:52Z",
+            "creators": ["Tool: WildBuzzard Jackett Mini builder"],
+        },
         "packages": spdx_packages,
         "files": spdx_files,
         "relationships": relationships,
     }
-    args.sbom.write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    args.sbom.write_text(
+        json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    files = runtime_files(args.runtime, (args.manifest,))
+    canonical_files = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+    runtime_digest = sha256_bytes(canonical_files)
+    manifest = {
+        "schemaVersion": 1,
+        "component": "jackett-mini",
+        "semanticVersion": "0.24.2360-wildbuzzard.1",
+        "upstreamVersion": "v0.24.2360",
+        "upstreamCommit": COMMIT,
+        "sourceSha256": args.source_sha256,
+        "platform": "linux",
+        "architecture": "x86_64",
+        "libc": "glibc",
+        "dependencyLockSha256": lock_digest,
+        "runtimeSha256": runtime_digest,
+        "protocolVersion": 1,
+        "providerPolicySha256": catalog["policySha256"],
+        "catalogFileSha256": sha256_file(args.catalog),
+        "license": "GPL-2.0-only",
+        "correspondingSource": "source/jackett",
+        "sbom": "jackett-mini.spdx.json",
+        "licenseLocations": [
+            "licenses/jackett/LICENSE",
+            "licenses/jackett/THIRD_PARTY_NOTICES.md",
+            "licenses/dotnet/LICENSE.txt",
+            "licenses/dotnet/ThirdPartyNotices.txt",
+        ],
+        "sdkImage": args.sdk_image,
+        "executableName": "jackett-mini",
+        "updaterIncluded": False,
+        "dashboardIncluded": False,
+        "enabledProviderCount": len(catalog["enabledIndexerIds"]),
+        "files": files,
+    }
+    args.manifest.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":

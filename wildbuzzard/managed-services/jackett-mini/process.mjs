@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+/* global Buffer, process */
+
 import { createHash, randomBytes, randomInt } from "node:crypto";
-import { openSync, closeSync } from "node:fs";
 import {
   chmod,
   lstat,
   mkdir,
-  open,
+  open as openFile,
   readdir,
   readFile,
   realpath,
@@ -25,7 +26,7 @@ const START_ATTEMPTS = 8;
 
 async function sha256(filePath) {
   const hash = createHash("sha256");
-  const file = await open(filePath, "r");
+  const file = await openFile(filePath, "r");
   try {
     for await (const chunk of file.createReadStream()) {
       hash.update(chunk);
@@ -51,10 +52,14 @@ async function runtimeInventory(runtimeDirectory, relativeDirectory = "") {
     const fullPath = path.join(runtimeDirectory, relativePath);
     const info = await lstat(fullPath);
     if (info.isSymbolicLink()) {
-      throw new Error(`Jackett Mini runtime contains a symbolic link: ${relativePath}`);
+      throw new Error(
+        `Jackett Mini runtime contains a symbolic link: ${relativePath}`
+      );
     }
     if (info.isDirectory()) {
-      inventory.push(...(await runtimeInventory(runtimeDirectory, relativePath)));
+      inventory.push(
+        ...(await runtimeInventory(runtimeDirectory, relativePath))
+      );
     } else if (info.isFile()) {
       inventory.push({
         executable: Boolean(info.mode & 0o111),
@@ -63,7 +68,9 @@ async function runtimeInventory(runtimeDirectory, relativeDirectory = "") {
         size: info.size,
       });
     } else {
-      throw new Error(`Jackett Mini runtime contains a special file: ${relativePath}`);
+      throw new Error(
+        `Jackett Mini runtime contains a special file: ${relativePath}`
+      );
     }
   }
   return inventory;
@@ -96,7 +103,10 @@ async function readProcessStartTime(pid) {
   if (closingParenthesis < 0) {
     throw new Error("Malformed Linux process identity");
   }
-  const fields = value.slice(closingParenthesis + 2).trim().split(/\s+/);
+  const fields = value
+    .slice(closingParenthesis + 2)
+    .trim()
+    .split(/\s+/);
   if (fields.length < 20 || !/^\d+$/.test(fields[19])) {
     throw new Error("Linux process start time is unavailable");
   }
@@ -105,7 +115,9 @@ async function readProcessStartTime(pid) {
 
 async function processMatches(record) {
   try {
-    if ((await readProcessStartTime(record.pid)) !== record.linuxProcessStartTime) {
+    if (
+      (await readProcessStartTime(record.pid)) !== record.linuxProcessStartTime
+    ) {
       return false;
     }
     const executable = await realpath(`/proc/${record.pid}/exe`);
@@ -140,10 +152,10 @@ function requestJson({ port, capability, pathname, method = "GET", body }) {
       },
       response => {
         const chunks = [];
-        let length = 0;
+        let responseLength = 0;
         response.on("data", chunk => {
-          length += chunk.length;
-          if (length > 1024 * 1024) {
+          responseLength += chunk.length;
+          if (responseLength > 1024 * 1024) {
             request.destroy(new Error("Jackett Mini response exceeded limit"));
             return;
           }
@@ -161,7 +173,9 @@ function requestJson({ port, capability, pathname, method = "GET", body }) {
         });
       }
     );
-    request.on("timeout", () => request.destroy(new Error("Jackett Mini request timed out")));
+    request.on("timeout", () =>
+      request.destroy(new Error("Jackett Mini request timed out"))
+    );
     request.on("error", reject);
     if (serialized) {
       request.write(serialized);
@@ -209,11 +223,21 @@ async function choosePort() {
   throw new Error("No private Jackett Mini port was available");
 }
 
-async function waitForHealth(port, capability, child, expected, timeoutMs = 15000) {
+async function waitForHealth(
+  port,
+  capability,
+  child,
+  expected,
+  timeoutMs = 15000
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline && child.exitCode === null) {
     try {
-      const response = await requestJson({ port, capability, pathname: "/v1/health" });
+      const response = await requestJson({
+        port,
+        capability,
+        pathname: "/v1/health",
+      });
       const health = response.body;
       if (
         response.status === 200 &&
@@ -225,8 +249,7 @@ async function waitForHealth(port, capability, child, expected, timeoutMs = 1500
       ) {
         return health;
       }
-    } catch {
-    }
+    } catch {}
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   throw new Error("Jackett Mini did not become identity-verified and healthy");
@@ -244,6 +267,9 @@ async function loadManifest(manifestPath, runtimeDirectory) {
     manifest.upstreamCommit !== "0cd8622b735922a909a128d8d6943bb8565a640f" ||
     manifest.enabledProviderCount !== 60 ||
     manifest.license !== "GPL-2.0-only" ||
+    manifest.correspondingSource !== "source/jackett" ||
+    manifest.sbom !== "jackett-mini.spdx.json" ||
+    !Array.isArray(manifest.licenseLocations) ||
     manifest.executableName !== "jackett-mini" ||
     manifest.updaterIncluded !== false ||
     manifest.dashboardIncluded !== false ||
@@ -251,16 +277,46 @@ async function loadManifest(manifestPath, runtimeDirectory) {
   ) {
     throw new Error("Jackett Mini runtime manifest is incompatible");
   }
-  const files = (await runtimeInventory(runtimeDirectory)).sort((left, right) =>
-    left.path < right.path ? -1 : left.path > right.path ? 1 : 0
+  const inventory = await runtimeInventory(runtimeDirectory);
+  const relativeManifest = path.relative(
+    runtimeDirectory,
+    await realpath(manifestPath)
   );
+  const files = inventory
+    .filter(entry => entry.path !== relativeManifest)
+    .sort((left, right) => {
+      if (left.path < right.path) {
+        return -1;
+      }
+      if (left.path > right.path) {
+        return 1;
+      }
+      return 0;
+    });
   if (
+    inventory.length !==
+      files.length + (relativeManifest.startsWith("..") ? 0 : 1) ||
     JSON.stringify(files) !== JSON.stringify(manifest.files) ||
     sha256Bytes(JSON.stringify(files)) !== manifest.runtimeSha256
   ) {
     throw new Error("Jackett Mini runtime inventory or digest mismatch");
   }
-  const executablePath = await realpath(path.join(runtimeDirectory, manifest.executableName));
+  if (
+    !files.some(entry =>
+      entry.path.startsWith(`${manifest.correspondingSource}/`)
+    ) ||
+    !files.some(entry => entry.path === manifest.sbom) ||
+    manifest.licenseLocations.some(
+      license => !files.some(entry => entry.path === license)
+    )
+  ) {
+    throw new Error(
+      "Jackett Mini source, SBOM, or license inventory is incomplete"
+    );
+  }
+  const executablePath = await realpath(
+    path.join(runtimeDirectory, manifest.executableName)
+  );
   if (path.dirname(executablePath) !== runtimeDirectory) {
     throw new Error("Jackett Mini executable leaves the immutable runtime");
   }
@@ -302,8 +358,7 @@ async function acquireLock(stateDirectory) {
           if (owner.token === token) {
             await rm(lockDirectory, { recursive: true });
           }
-        } catch {
-        }
+        } catch {}
       };
     } catch (error) {
       if (error.code !== "EEXIST") {
@@ -318,7 +373,9 @@ async function acquireLock(stateDirectory) {
       }
       try {
         const owner = JSON.parse(await readFile(ownerPath, "utf8"));
-        stale = (await readProcessStartTime(owner.pid)) !== owner.linuxProcessStartTime;
+        stale =
+          (await readProcessStartTime(owner.pid)) !==
+          owner.linuxProcessStartTime;
       } catch {
         stale = Date.now() - info.mtimeMs > 2000;
       }
@@ -350,7 +407,11 @@ export async function ensureJackettMini({
   try {
     const runtime = await loadManifest(runtimeManifestPath, runtimeDirectory);
     const existing = await readConnection(connectionPath);
-    if (existing && (await processMatches(existing)) && (await healthMatches(existing))) {
+    if (
+      existing &&
+      (await processMatches(existing)) &&
+      (await healthMatches(existing))
+    ) {
       return existing;
     }
     if (existing) {
@@ -367,12 +428,11 @@ export async function ensureJackettMini({
         runtimeStateDirectory,
         `jackett-${randomBytes(8).toString("hex")}.pid`
       );
-      const stdoutPath = path.join(runtimeStateDirectory, "service.stdout.log");
-      const stderrPath = path.join(runtimeStateDirectory, "service.stderr.log");
-      await writeFile(capabilityPath, `${capability}\n`, { flag: "wx", mode: 0o600 });
+      await writeFile(capabilityPath, `${capability}\n`, {
+        flag: "wx",
+        mode: 0o600,
+      });
       await chmod(capabilityPath, 0o600);
-      const stdout = openSync(stdoutPath, "a", 0o600);
-      const stderr = openSync(stderrPath, "a", 0o600);
       const child = spawn(
         runtime.executablePath,
         [
@@ -390,12 +450,10 @@ export async function ensureJackettMini({
         ],
         {
           detached: true,
-          stdio: ["ignore", stdout, stderr],
+          stdio: "ignore",
           env: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", TZ: "UTC" },
         }
       );
-      closeSync(stdout);
-      closeSync(stderr);
       child.unref();
       try {
         const health = await waitForHealth(port, capability, child, {
@@ -482,7 +540,11 @@ export async function stopJackettMini({ runtimeStateDirectory }) {
 export async function inspectJackettMini({ runtimeStateDirectory }) {
   const connectionPath = path.join(runtimeStateDirectory, "connection.json");
   const record = await readConnection(connectionPath);
-  if (!record || !(await processMatches(record)) || !(await healthMatches(record))) {
+  if (
+    !record ||
+    !(await processMatches(record)) ||
+    !(await healthMatches(record))
+  ) {
     return null;
   }
   return record;

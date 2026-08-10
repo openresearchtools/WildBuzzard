@@ -41,6 +41,16 @@ license = "MIT"
 path = "third_party/webtorrent"
 role = "embedded-torrent-engine"
 
+[jackett_mini]
+remote = "https://github.com/Jackett/Jackett.git"
+ref = "v0.24.2360"
+commit = "0cd8622b735922a909a128d8d6943bb8565a640f"
+version = "0.24.2360"
+source_sha256 = "3816fea39546b5fa440d3e33b856e73500ee6129e91b14d839fc0f04c7f9bd3e"
+license = "GPL-2.0-only"
+path = "wildbuzzard/third_party/gpl2/jackett"
+role = "source-built-read-only-torrent-discovery-service"
+
 [pi_web_access]
 remote = "https://github.com/nicobailon/pi-web-access.git"
 ref = "692483ae782e41978fb2eba0eec70fd4056608c8"

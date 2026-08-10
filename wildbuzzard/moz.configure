@@ -65,6 +65,34 @@ def wildbuzzard_has_torrent_runtime(path):
 set_define("WILDBUZZARD_TORRENT_RUNTIME", wildbuzzard_has_torrent_runtime)
 
 option(
+    "--with-wildbuzzard-jackett-mini-runtime",
+    nargs=1,
+    help="Path to the Jackett Mini runtime ZIP bundled with WildBuzzard",
+)
+
+
+@depends("--with-wildbuzzard-jackett-mini-runtime")
+@imports("os")
+def wildbuzzard_jackett_mini_runtime(value):
+    if not value:
+        return
+    path = os.path.abspath(value[0])
+    if not os.path.isfile(path):
+        die(f"Cannot find Jackett Mini runtime at {path}")
+    return path
+
+
+set_config("WILDBUZZARD_JACKETT_MINI_RUNTIME", wildbuzzard_jackett_mini_runtime)
+
+
+@depends(wildbuzzard_jackett_mini_runtime)
+def wildbuzzard_has_jackett_mini_runtime(path):
+    return bool(path)
+
+
+set_define("WILDBUZZARD_JACKETT_MINI_RUNTIME", wildbuzzard_has_jackett_mini_runtime)
+
+option(
     "--with-wildbuzzard-arti",
     nargs=1,
     help="Path to the Arti binary bundled with WildBuzzard",
