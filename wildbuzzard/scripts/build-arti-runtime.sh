@@ -4,18 +4,23 @@
 set -Eeuo pipefail
 
 usage() {
-  echo "Usage: $0 [--build-root DIR]"
+  echo "Usage: $0 [--build-root DIR] [--binary FILE]"
 }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source_repo="$(cd -- "${script_dir}/../.." && pwd -P)"
 metadata="${source_repo}/wildbuzzard/third_party/arti.toml"
 build_root="$(dirname -- "${source_repo}")/wildbuzzard-arti-builds"
+input_binary=""
 
 while (($#)); do
   case "$1" in
     --build-root)
       build_root="${2:?--build-root requires a directory}"
+      shift 2
+      ;;
+    --binary)
+      input_binary="${2:?--binary requires a file}"
       shift 2
       ;;
     --help|-h)
@@ -38,6 +43,23 @@ arti_commit="$(read_pin commit)"
 arti_tag="$(read_pin tag)"
 arti_version="${arti_tag#arti-v}"
 arti_source="${source_repo}/third_party/arti"
+arti_tree="$(read_pin tree)"
+source_date_epoch="$(read_pin source_date_epoch)"
+build_rustc="$(read_pin build_rustc)"
+build_cargo="$(read_pin build_cargo)"
+binary_sha256="$(read_pin linux_x86_64_binary_sha256)"
+source_sha256="$(read_pin source_sha256)"
+cargo_lock_sha256="$(read_pin cargo_lock_sha256)"
+license_apache_sha256="$(read_pin license_apache_sha256)"
+license_mit_sha256="$(read_pin license_mit_sha256)"
+
+if [[ -n "${input_binary}" ]]; then
+  input_binary="$(realpath -- "${input_binary}")"
+  if [[ ! -f "${input_binary}" || ! -x "${input_binary}" || -L "${input_binary}" ]]; then
+    echo "--binary must name a regular executable file" >&2
+    exit 2
+  fi
+fi
 
 if ! git -C "${source_repo}" diff --quiet -- third_party/arti ||
   [[ -n "$(git -C "${source_repo}" ls-files --others --exclude-standard -- third_party/arti)" ]]; then
@@ -47,8 +69,22 @@ fi
 
 expected_tree="$(git -C "${source_repo}" rev-parse "${arti_commit}^{tree}")"
 actual_tree="$(git -C "${source_repo}" rev-parse HEAD:third_party/arti)"
-if [[ "${expected_tree}" != "${actual_tree}" ]]; then
+if [[ "${expected_tree}" != "${actual_tree}" || "${actual_tree}" != "${arti_tree}" ]]; then
   echo "The Arti subtree does not match pinned commit ${arti_commit}" >&2
+  exit 2
+fi
+if [[ "$(git -C "${source_repo}" show -s --format=%ct "${arti_commit}")" != "${source_date_epoch}" ]]; then
+  echo "The Arti commit timestamp differs from the release pin" >&2
+  exit 2
+fi
+if [[ "$(sha256sum "${arti_source}/Cargo.lock" | awk '{ print $1 }')" != "${cargo_lock_sha256}" || \
+  "$(sha256sum "${arti_source}/LICENSE-APACHE" | awk '{ print $1 }')" != "${license_apache_sha256}" || \
+  "$(sha256sum "${arti_source}/LICENSE-MIT" | awk '{ print $1 }')" != "${license_mit_sha256}" ]]; then
+  echo "The Arti lock or licenses differ from the release pins" >&2
+  exit 2
+fi
+if [[ "$(rustc --version)" != "${build_rustc}" || "$(cargo --version)" != "${build_cargo}" ]]; then
+  echo "The Arti build toolchain differs from the release pins" >&2
   exit 2
 fi
 
@@ -67,35 +103,71 @@ target_dir="${build_root}/cargo/${arti_commit}"
 artifacts_dir="${run_root}/artifacts"
 mkdir -p -- "${run_root}" "${artifacts_dir}" "${target_dir}"
 
-CARGO_TARGET_DIR="${target_dir}" cargo build \
-  --manifest-path "${arti_source}/Cargo.toml" \
-  --release \
-  --locked \
-  --package arti \
-  >"${run_root}/build.log" 2>&1
+if [[ "$(uname -m)" != "x86_64" ]]; then
+  echo "Unsupported Arti artifact architecture: $(uname -m)" >&2
+  exit 2
+fi
+artifact_arch="linux-x86_64"
 
-case "$(uname -m)" in
-  x86_64) artifact_arch="linux-x86_64" ;;
-  aarch64|arm64) artifact_arch="linux-aarch64" ;;
-  *)
-    echo "Unsupported Arti artifact architecture: $(uname -m)" >&2
-    exit 2
-    ;;
-esac
+if [[ -z "${input_binary}" ]]; then
+  CARGO_TARGET_DIR="${target_dir}" cargo build \
+    --manifest-path "${arti_source}/Cargo.toml" \
+    --release \
+    --locked \
+    --package arti \
+    >"${run_root}/build.log" 2>&1
+  input_binary="${target_dir}/release/arti"
+else
+  printf 'Reused pinned source-built artifact: %s\n' "${input_binary}" \
+    >"${run_root}/build.log"
+fi
 
 artifact="${artifacts_dir}/arti-${arti_version}-${artifact_arch}"
-install -m 755 "${target_dir}/release/arti" "${artifact}"
+install -m 755 "${input_binary}" "${artifact}"
+if [[ "$(sha256sum "${artifact}" | awk '{ print $1 }')" != "${binary_sha256}" ]]; then
+  echo "The Arti binary differs from the release pin" >&2
+  exit 1
+fi
 sha256sum "${artifact}" >"${artifact}.sha256"
+
+source_archive="${artifacts_dir}/wildbuzzard-arti-${arti_version}-source.tar.xz"
+create_source_archive() {
+  git -C "${source_repo}" archive \
+    --format=tar \
+    --prefix="arti-${arti_version}/" \
+    "${arti_commit}" |
+    xz --threads=1 --check=crc64 -9e >"${source_archive}"
+}
+create_source_archive
+if [[ "$(sha256sum "${source_archive}" | awk '{ print $1 }')" != "${source_sha256}" ]]; then
+  echo "The Arti corresponding-source archive differs from the release pin" >&2
+  exit 1
+fi
+sha256sum "${source_archive}" >"${source_archive}.sha256"
+
+provenance="${artifacts_dir}/wildbuzzard-arti-${arti_version}-provenance.zip"
+python3 -I -B "${script_dir}/arti-runtime-provenance.py" create \
+  --binary "${artifact}" \
+  --config "${metadata}" \
+  --source "${source_archive}" \
+  --output "${provenance}" \
+  --source-date-epoch "${source_date_epoch}"
+sha256sum "${provenance}" >"${provenance}.sha256"
 
 {
   echo "arti_tag=${arti_tag}"
   echo "arti_commit=${arti_commit}"
-  echo "arti_tree=${actual_tree}"
-  echo "rustc=$(rustc --version)"
-  echo "cargo=$(cargo --version)"
+  echo "arti_tree=${arti_tree}"
+  echo "rustc=${build_rustc}"
+  echo "cargo=${build_cargo}"
   echo "artifact=${artifact}"
-  echo "sha256=$(sha256sum "${artifact}" | awk '{ print $1 }')"
+  echo "binary_sha256=${binary_sha256}"
+  echo "source=${source_archive}"
+  echo "source_sha256=${source_sha256}"
+  echo "provenance=${provenance}"
+  echo "provenance_sha256=$(sha256sum "${provenance}" | awk '{ print $1 }')"
 } >"${run_root}/build-manifest.txt"
 
 echo "Arti: ${artifact}"
+echo "Arti provenance: ${provenance}"
 echo "Manifest: ${run_root}/build-manifest.txt"

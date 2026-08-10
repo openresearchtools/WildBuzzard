@@ -21,6 +21,7 @@ usage() {
   echo "  --searxng-runtime FILE  SearXNG runtime ZIP to include in the browser package"
   echo "  --searxng-source FILE  SearXNG corresponding-source archive to include"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
+  echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
   echo "  --bootstrap        run mach bootstrap before the requested action"
   echo "  --help             show this help"
 }
@@ -39,6 +40,7 @@ jackett_mini_runtime=""
 searxng_runtime=""
 searxng_source=""
 arti_binary=""
+arti_provenance=""
 
 while (($#)); do
   case "$1" in
@@ -84,6 +86,10 @@ while (($#)); do
       ;;
     --arti-binary)
       arti_binary="${2:?--arti-binary requires a file}"
+      shift 2
+      ;;
+    --arti-provenance)
+      arti_provenance="${2:?--arti-provenance requires a file}"
       shift 2
       ;;
     --bootstrap)
@@ -143,12 +149,23 @@ if [[ -n "${searxng_runtime}" || -n "${searxng_source}" ]]; then
     --inventory "${source_repo}/wildbuzzard/packaging/searxng-release.cdx.json"
 fi
 
-if [[ -n "${arti_binary}" ]]; then
-  arti_binary="$(realpath -- "${arti_binary}")"
-  if [[ ! -x "${arti_binary}" ]]; then
-    echo "--arti-binary must name an executable file" >&2
+if [[ -n "${arti_binary}" || -n "${arti_provenance}" ]]; then
+  if [[ -z "${arti_binary}" || -z "${arti_provenance}" ]]; then
+    echo "--arti-binary and --arti-provenance must be supplied together" >&2
     exit 2
   fi
+  arti_binary="$(realpath -- "${arti_binary}")"
+  arti_provenance="$(realpath -- "${arti_provenance}")"
+  if [[ ! -f "${arti_binary}" || ! -x "${arti_binary}" || \
+    ! -f "${arti_provenance}" ]]; then
+    echo "Arti binary and provenance inputs must be regular files" >&2
+    exit 2
+  fi
+  python3 -I -B "${script_dir}/arti-runtime-provenance.py" validate \
+    --binary "${arti_binary}" \
+    --pin-config "${source_repo}/wildbuzzard/third_party/arti.toml" \
+    --installed-config "${source_repo}/wildbuzzard/third_party/arti.toml" \
+    --provenance "${arti_provenance}"
 fi
 
 case "${action}" in
@@ -166,8 +183,9 @@ case "${action}" in
       exit 2
     fi
     if [[ -z "${pi_web_runtime}" || -z "${torrent_runtime}" || \
-      -z "${jackett_mini_runtime}" || -z "${arti_binary}" ]]; then
-      echo "${action} requires --pi-web-runtime, --torrent-runtime, --jackett-mini-runtime, and --arti-binary" >&2
+      -z "${jackett_mini_runtime}" || -z "${arti_binary}" || \
+      -z "${arti_provenance}" ]]; then
+      echo "${action} requires --pi-web-runtime, --torrent-runtime, --jackett-mini-runtime, --arti-binary, and --arti-provenance" >&2
       exit 2
     fi
     ;;
@@ -265,6 +283,7 @@ fi
   echo "searxng_runtime=${searxng_runtime}"
   echo "searxng_source=${searxng_source}"
   echo "arti_binary=${arti_binary}"
+  echo "arti_provenance=${arti_provenance}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
 
@@ -370,6 +389,7 @@ fi
   fi
   if [[ -n "${arti_binary}" ]]; then
     echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"
+    echo "ac_add_options --with-wildbuzzard-arti-provenance=${arti_provenance}"
   fi
   if [[ -x "${state_dir}/sccache/sccache" ]]; then
     echo "ac_add_options --with-ccache=${state_dir}/sccache/sccache"

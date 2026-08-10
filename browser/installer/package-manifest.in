@@ -187,6 +187,7 @@
 #ifdef WILDBUZZARD_ARTI_RUNTIME
 @BINPATH@/runtime/tor/arti@BIN_SUFFIX@
 @BINPATH@/runtime/tor/arti.toml
+@BINPATH@/notices/source/wildbuzzard-arti-2.5.1-provenance.zip
 #endif
 @RESPATH@/application.ini
 #ifdef MOZ_UPDATER

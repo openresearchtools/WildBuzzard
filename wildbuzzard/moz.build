@@ -66,13 +66,28 @@ if CONFIG["WILDBUZZARD_SEARXNG_RUNTIME"]:
 
 if CONFIG["WILDBUZZARD_ARTI"]:
     arti_name = "arti" + CONFIG["BIN_SUFFIX"]
-    GENERATED_FILES += [arti_name]
+    arti_provenance_name = "wildbuzzard-arti-2.5.1-provenance.zip"
+    GENERATED_FILES += [arti_name, arti_provenance_name]
     arti_binary = GENERATED_FILES[arti_name]
     arti_binary.script = "copy_file.py"
     arti_binary.flags = [CONFIG["WILDBUZZARD_ARTI"]]
-    arti_binary.extra_deps = ["%" + CONFIG["WILDBUZZARD_ARTI"]]
+    arti_binary.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_ARTI"],
+        "%" + CONFIG["WILDBUZZARD_ARTI_PROVENANCE"],
+        "scripts/arti-runtime-provenance.py",
+        "third_party/arti.toml",
+    ]
+    arti_provenance = GENERATED_FILES[arti_provenance_name]
+    arti_provenance.script = "copy_file.py"
+    arti_provenance.flags = [CONFIG["WILDBUZZARD_ARTI_PROVENANCE"]]
+    arti_provenance.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_ARTI_PROVENANCE"],
+    ]
 
     FINAL_TARGET_FILES.runtime["tor"] += [
         "!" + arti_name,
         "third_party/arti.toml",
+    ]
+    FINAL_TARGET_FILES.notices["source"] += [
+        "!" + arti_provenance_name,
     ]

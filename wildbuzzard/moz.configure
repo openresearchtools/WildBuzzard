@@ -179,10 +179,57 @@ def wildbuzzard_arti(value):
 
 set_config("WILDBUZZARD_ARTI", wildbuzzard_arti)
 
+option(
+    "--with-wildbuzzard-arti-provenance",
+    nargs=1,
+    help="Path to the pinned Arti source, SBOM, and license provenance ZIP",
+)
 
-@depends(wildbuzzard_arti)
-def wildbuzzard_has_arti(path):
-    return bool(path)
+
+@depends(
+    "--with-wildbuzzard-arti-provenance",
+    wildbuzzard_arti,
+    build_environment.topsrcdir,
+)
+@imports("os")
+@imports("sys")
+def wildbuzzard_arti_provenance(value, binary, topsrcdir):
+    if bool(value) != bool(binary):
+        die("The Arti binary and provenance archive must be configured together")
+    if not value:
+        return
+    path = os.path.abspath(value[0])
+    if not os.path.isfile(path):
+        die(f"Cannot find Arti provenance at {path}")
+    config = os.path.join(topsrcdir, "wildbuzzard", "third_party", "arti.toml")
+    validator = os.path.join(
+        topsrcdir, "wildbuzzard", "scripts", "arti-runtime-provenance.py"
+    )
+    check_cmd_output(
+        sys.executable,
+        "-I",
+        "-B",
+        validator,
+        "validate",
+        "--binary",
+        binary,
+        "--pin-config",
+        config,
+        "--installed-config",
+        config,
+        "--provenance",
+        path,
+        onerror=lambda: die("Arti runtime provenance does not match the release pin"),
+    )
+    return path
+
+
+set_config("WILDBUZZARD_ARTI_PROVENANCE", wildbuzzard_arti_provenance)
+
+
+@depends(wildbuzzard_arti, wildbuzzard_arti_provenance)
+def wildbuzzard_has_arti(binary, provenance):
+    return bool(binary and provenance)
 
 
 set_define("WILDBUZZARD_ARTI_RUNTIME", wildbuzzard_has_arti)

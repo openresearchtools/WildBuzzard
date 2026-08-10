@@ -33,5 +33,8 @@ tree:
 ./wildbuzzard/scripts/build-arti-runtime.sh
 ```
 
-Pass the printed executable to `build-linux-external.sh --arti-binary` when
-creating the browser package or AppImage.
+The builder emits the exact source archive and a provenance ZIP containing the
+source, CycloneDX SBOM, runtime manifest, and MIT and Apache license texts.
+Pass the printed executable and provenance ZIP to `build-linux-external.sh`
+with `--arti-binary` and `--arti-provenance` when creating the browser package
+or its derived AppImage and Debian package.

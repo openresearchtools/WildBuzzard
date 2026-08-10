@@ -112,6 +112,7 @@ required_runtime_files=(
   "runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip"
   "runtime/tor/arti"
   "runtime/tor/arti.toml"
+  "notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
 )
 for relative_path in "${required_runtime_files[@]}"; do
   runtime_file="${app_dir}/usr/lib/wildbuzzard/${relative_path}"
@@ -123,6 +124,11 @@ done
 python3 -I -B "${product_dir}/scripts/validate-pi-web-runtime-archive.py" \
   "${app_dir}/usr/lib/wildbuzzard/runtime/pi-web/wildbuzzard-pi-web-runtime.zip" \
   --lock "${product_dir}/pi-web-runtime-lock.json"
+python3 -I -B "${product_dir}/scripts/arti-runtime-provenance.py" validate \
+  --binary "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti" \
+  --pin-config "${product_dir}/third_party/arti.toml" \
+  --installed-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti.toml" \
+  --provenance "${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
 install -m 755 "${product_dir}/packaging/appimage/AppRun" "${app_dir}/AppRun"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/wildbuzzard.desktop"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/usr/share/applications/wildbuzzard.desktop"

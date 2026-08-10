@@ -104,6 +104,21 @@ python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
   --source "${searxng_source}" \
   --inventory "${searxng_inventory}"
 
+arti_binary="${stage}/opt/wildbuzzard/runtime/tor/arti"
+arti_config="${stage}/opt/wildbuzzard/runtime/tor/arti.toml"
+arti_provenance="${stage}/opt/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
+for arti_file in "${arti_binary}" "${arti_config}" "${arti_provenance}"; do
+  if [[ ! -f "${arti_file}" || -L "${arti_file}" ]]; then
+    echo "Release archive is missing required Arti runtime provenance" >&2
+    exit 1
+  fi
+done
+python3 -I -B "${script_dir}/arti-runtime-provenance.py" validate \
+  --binary "${arti_binary}" \
+  --pin-config "${script_dir}/../third_party/arti.toml" \
+  --installed-config "${arti_config}" \
+  --provenance "${arti_provenance}"
+
 ln -s /opt/wildbuzzard/wildbuzzard "${stage}/usr/bin/wildbuzzard"
 install -m 0644 \
   wildbuzzard/browser/installer/linux/wildbuzzard.desktop \

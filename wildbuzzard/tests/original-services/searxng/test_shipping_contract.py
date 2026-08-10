@@ -82,6 +82,7 @@ def host_native_release_archive(
         "runtime/tor/arti.toml",
         "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
         "notices/source/searxng-release.cdx.json",
+        "notices/source/wildbuzzard-arti-2.5.1-provenance.zip",
     )
     for relative in files:
         if relative in missing:

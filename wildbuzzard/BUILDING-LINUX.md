@@ -49,6 +49,7 @@ Useful variants:
   --searxng-runtime /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.zip \
   --searxng-source /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz \
   --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
+  --arti-provenance /absolute/path/to/wildbuzzard-arti-2.5.1-provenance.zip \
   --action appimage
 
 # Bootstrap a new build host, then build.
@@ -139,9 +140,13 @@ build directory before packaging:
 
 The script verifies that `third_party/arti` exactly matches the commit pinned
 in `wildbuzzard/third_party/arti.toml`, builds with Arti's locked dependencies,
-and prints the executable path to pass through `--arti-binary`. The resulting
-AppImage starts Arti only when a tab first enables Tor routing. See
-`wildbuzzard/TOR.md` for the routing model, update procedure, and anonymity
+and emits the pinned executable plus a provenance ZIP containing exact
+corresponding source, CycloneDX SBOM, runtime manifest, and both upstream
+licenses. Pass both printed paths through `--arti-binary` and
+`--arti-provenance`. The Firefox release archive includes the provenance ZIP,
+and both the derived AppImage and Debian package validate it before packaging.
+The resulting browser starts Arti only when a tab first enables Tor routing.
+See `wildbuzzard/TOR.md` for the routing model, update procedure, and anonymity
 scope.
 
 Run the AppImage normally on a system with FUSE support. On build or test hosts
