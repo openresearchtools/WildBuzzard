@@ -1,0 +1,38 @@
+use_default_settings:
+  engines:
+    keep_only:
+      - "fixture engine"
+general:
+  debug: false
+  instance_name: WildBuzzard Search
+  enable_metrics: false
+search:
+  safe_search: 1
+  autocomplete: ""
+  favicon_resolver: ""
+  formats:
+    - html
+    - json
+server:
+  port: 8080
+  bind_address: 0.0.0.0
+  base_url: http://127.0.0.1:@PUBLIC_PORT@/
+  limiter: false
+  public_instance: false
+  secret_key: "comparison-only-secret"
+  image_proxy: false
+  method: GET
+ui:
+  query_in_title: false
+preferences:
+  lock:
+    - autocomplete
+    - favicon_resolver
+    - safesearch
+    - method
+    - image_proxy
+    - query_in_title
+engines:
+  - name: "fixture engine"
+    engine: "demo_offline"
+    disabled: false

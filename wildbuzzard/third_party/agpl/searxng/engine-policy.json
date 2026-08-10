@@ -1,0 +1,37 @@
+{
+  "schema": 1,
+  "searxngCommit": "b023a28bab8839dba9eac96e9a51cc91bbd0a267",
+  "safeSearch": 1,
+  "engines": [
+    {
+      "name": "brave",
+      "module": "brave",
+      "requiresCredentials": false,
+      "purpose": "general web search through the public HTML endpoint"
+    },
+    {
+      "name": "duckduckgo",
+      "module": "duckduckgo",
+      "requiresCredentials": false,
+      "purpose": "general web search through the public HTML endpoint"
+    },
+    {
+      "name": "mojeek",
+      "module": "mojeek",
+      "requiresCredentials": false,
+      "purpose": "general web search through the public HTML endpoint"
+    },
+    {
+      "name": "startpage",
+      "module": "startpage",
+      "requiresCredentials": false,
+      "purpose": "general web search through the public HTML endpoint"
+    },
+    {
+      "name": "wikipedia",
+      "module": "wikipedia",
+      "requiresCredentials": false,
+      "purpose": "encyclopedic results through the public MediaWiki API"
+    }
+  ]
+}

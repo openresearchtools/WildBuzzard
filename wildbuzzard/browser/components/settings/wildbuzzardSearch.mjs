@@ -5,8 +5,30 @@
 import { Preferences } from "chrome://global/content/preferences/Preferences.mjs";
 import { SettingGroupManager } from "chrome://browser/content/preferences/config/SettingGroupManager.mjs";
 
+const lazy = {};
+ChromeUtils.defineESModuleGetters(lazy, {
+  EngineURL: "moz-src:///toolkit/components/search/SearchEngine.sys.mjs",
+  SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
+  SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
+});
+
 const CLICK_SELECTS_ALL_PREF = "browser.urlbar.clickSelectsAll";
 const DOUBLE_CLICK_SELECTS_ALL_PREF = "browser.urlbar.doubleClickSelectsAll";
+const SEARXNG_ENGINE_ID = "searxng";
+const SEARXNG_MIGRATION_PREF = "wildbuzzard.search.searxngMigrationVersion";
+const SEARXNG_MIGRATION_VERSION = 1;
+let managedSearXNGEndpoint;
+let observingSearchReloads = false;
+
+const managedSearXNGReloadObserver = {
+  observe(_subject, _topic, data) {
+    if (data === "engines-reloaded" && managedSearXNGEndpoint) {
+      synchronizeManagedSearXNGEngine(managedSearXNGEndpoint).catch(
+        console.error
+      );
+    }
+  },
+};
 
 const SUGGEST_GROUP_ID = "firefoxSuggest";
 const SUGGEST_HEADER_ID = "locationBarGroupHeader";
@@ -52,6 +74,76 @@ const ADDRESS_BAR_BEHAVIOR_ITEM = {
     },
   ],
 };
+
+export function managedSearXNGSearchTemplate(address, port) {
+  if (address !== "127.0.0.1") {
+    throw new TypeError("Managed SearXNG must use the IPv4 loopback address");
+  }
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    throw new TypeError("Managed SearXNG port is invalid");
+  }
+  return `http://${address}:${port}/search`;
+}
+
+export async function synchronizeManagedSearXNGEngine({ address, port }) {
+  const template = managedSearXNGSearchTemplate(address, port);
+  managedSearXNGEndpoint = { address, port };
+  await lazy.SearchService.init();
+  if (!observingSearchReloads) {
+    Services.obs.addObserver(
+      managedSearXNGReloadObserver,
+      lazy.SearchUtils.TOPIC_SEARCH_SERVICE
+    );
+    observingSearchReloads = true;
+  }
+  const engine = lazy.SearchService.getEngineById(SEARXNG_ENGINE_ID);
+  if (!engine) {
+    throw new Error("The application-provided SearXNG engine is unavailable");
+  }
+
+  const currentURL = engine.getURLOfType(lazy.SearchUtils.URL_TYPE.SEARCH);
+  if (currentURL?.template !== template) {
+    const searchURL = new lazy.EngineURL({
+      type: lazy.SearchUtils.URL_TYPE.SEARCH,
+      template,
+    });
+    searchURL.addParam("q", "{searchTerms}");
+    engine._urls = engine._urls.filter(
+      url => url.type !== lazy.SearchUtils.URL_TYPE.SEARCH
+    );
+    engine._urls.push(searchURL);
+    lazy.SearchUtils.notifyAction(
+      engine,
+      lazy.SearchUtils.MODIFIED_TYPE.CHANGED
+    );
+  }
+
+  if (
+    Services.prefs.getIntPref(SEARXNG_MIGRATION_PREF, 0) <
+    SEARXNG_MIGRATION_VERSION
+  ) {
+    await lazy.SearchService.setDefault(
+      engine,
+      lazy.SearchService.CHANGE_REASON.CONFIG
+    );
+    if (
+      Services.prefs.getBoolPref(
+        `${lazy.SearchUtils.BROWSER_SEARCH_PREF}separatePrivateDefault`,
+        false
+      )
+    ) {
+      await lazy.SearchService.setDefaultPrivate(
+        engine,
+        lazy.SearchService.CHANGE_REASON.CONFIG
+      );
+    }
+    Services.prefs.setIntPref(
+      SEARXNG_MIGRATION_PREF,
+      SEARXNG_MIGRATION_VERSION
+    );
+  }
+  return engine;
+}
 
 Preferences.addAll([
   { id: CLICK_SELECTS_ALL_PREF, type: "bool" },
