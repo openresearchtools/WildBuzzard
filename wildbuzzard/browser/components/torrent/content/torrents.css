@@ -338,6 +338,10 @@ button.secondary {
   opacity: var(--opacity-deemphasized);
 }
 
+#empty-choose-torrent {
+  margin-block-start: var(--space-medium);
+}
+
 .detail-header {
   border-block-end: var(--card-border);
 }

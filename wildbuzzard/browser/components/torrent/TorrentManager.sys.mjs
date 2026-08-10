@@ -22,6 +22,27 @@ const ZipReader = Components.Constructor(
 const MAX_TORRENT_SIZE = 12 * 1024 * 1024;
 const RUNTIME_MANIFEST = "wildbuzzard-torrent-runtime.json";
 
+function torrentFileError(reason) {
+  return Object.assign(new Error(`Torrent file ${reason}`), {
+    torrentFileError: reason,
+  });
+}
+
+function validateTorrentFileDescriptor(name, size, type = "") {
+  if (!name?.toLowerCase().endsWith(".torrent")) {
+    throw torrentFileError("wrong-type");
+  }
+  if (type && type !== "application/x-bittorrent") {
+    throw torrentFileError("wrong-type");
+  }
+  if (!Number.isFinite(size) || size <= 0) {
+    throw torrentFileError("invalid");
+  }
+  if (size > MAX_TORRENT_SIZE) {
+    throw torrentFileError("too-large");
+  }
+}
+
 function runtimeBundleId(archivePath) {
   const zip = new ZipReader(new LocalFile(archivePath));
   try {
@@ -510,33 +531,72 @@ class TorrentManagerImpl {
     );
   }
 
-  async chooseTorrentFile() {
-    const window = Services.wm.getMostRecentWindow("navigator:browser");
+  async #addTorrentFileBytes(bytes) {
+    try {
+      return await this.addTorrentBytes(bytes);
+    } catch (error) {
+      if (error.serviceUnavailable) {
+        throw error;
+      }
+      throw torrentFileError("invalid");
+    }
+  }
+
+  async addTorrentFile(file) {
+    validateTorrentFileDescriptor(file?.name, file?.size, file?.type);
+    let bytes;
+    try {
+      bytes = new Uint8Array(
+        await file.slice(0, MAX_TORRENT_SIZE).arrayBuffer()
+      );
+    } catch {
+      throw torrentFileError("unreadable");
+    }
+    if (bytes.length !== file.size) {
+      throw torrentFileError("unreadable");
+    }
+    return this.#addTorrentFileBytes(bytes);
+  }
+
+  async chooseTorrentFile(browsingContext, title, filterTitle) {
     const picker = Cc["@mozilla.org/filepicker;1"].createInstance(
       Ci.nsIFilePicker
     );
-    picker.init(window, "", Ci.nsIFilePicker.modeOpen);
-    picker.appendFilter("Torrent files", "*.torrent");
+    picker.init(browsingContext, title, Ci.nsIFilePicker.modeOpen);
+    picker.appendFilter(filterTitle, "*.torrent");
+    picker.appendRawFilter("application/x-bittorrent");
     const result = await new Promise(resolve => picker.open(resolve));
     if (result !== Ci.nsIFilePicker.returnOK) {
       return null;
     }
-    const stat = await IOUtils.stat(picker.file.path);
-    if (stat.size > MAX_TORRENT_SIZE) {
-      throw new Error("Torrent metadata is too large");
+    const file = picker.file;
+    let stat;
+    try {
+      stat = await IOUtils.stat(file.path);
+    } catch {
+      throw torrentFileError("unreadable");
     }
-    const bytes = await IOUtils.read(picker.file.path, {
-      maxBytes: MAX_TORRENT_SIZE,
-    });
-    return this.addTorrentBytes(bytes);
+    validateTorrentFileDescriptor(file.leafName, stat.size);
+    if (stat.type !== "regular") {
+      throw torrentFileError("unreadable");
+    }
+    let bytes;
+    try {
+      bytes = await IOUtils.read(file.path, { maxBytes: MAX_TORRENT_SIZE });
+    } catch {
+      throw torrentFileError("unreadable");
+    }
+    if (bytes.length !== stat.size) {
+      throw torrentFileError("unreadable");
+    }
+    return this.#addTorrentFileBytes(bytes);
   }
 
-  async chooseDownloadDirectory() {
-    const window = Services.wm.getMostRecentWindow("navigator:browser");
+  async chooseDownloadDirectory(browsingContext) {
     const picker = Cc["@mozilla.org/filepicker;1"].createInstance(
       Ci.nsIFilePicker
     );
-    picker.init(window, "", Ci.nsIFilePicker.modeGetFolder);
+    picker.init(browsingContext, "", Ci.nsIFilePicker.modeGetFolder);
     picker.displayDirectory = new LocalFile(this.config.downloadDirectory);
     const result = await new Promise(resolve => picker.open(resolve));
     if (result !== Ci.nsIFilePicker.returnOK) {
