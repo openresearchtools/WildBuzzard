@@ -30,15 +30,15 @@ add_task(function test_profile_namespace_is_canonical_and_non_secret() {
   Assert.equal(
     direct,
     canonicalAlias,
-    "Canonical aliases identify one profile",
+    "Canonical aliases identify one profile"
   );
   Assert.ok(
     /^profile-[a-f0-9]{64}$/.test(direct),
-    "The namespace uses a full domain-separated SHA-256 digest",
+    "The namespace uses a full domain-separated SHA-256 digest"
   );
   Assert.ok(
     !direct.includes(profile.leafName),
-    "The namespace does not disclose the profile path",
+    "The namespace does not disclose the profile path"
   );
 });
 
@@ -70,22 +70,22 @@ add_task(function test_unicode_distinct_profile_namespaces_do_not_collide() {
   Assert.notEqual(
     jackettMiniProfileNamespace(nfcProfile.path),
     jackettMiniProfileNamespace(nfdProfile.path),
-    "Distinct profile paths use distinct namespaces",
+    "Distinct profile paths use distinct namespaces"
   );
   Assert.notEqual(
     nfcRuntime.connectionPath,
     nfdRuntime.connectionPath,
-    "Distinct Unicode profile paths cannot share capabilities",
+    "Distinct Unicode profile paths cannot share capabilities"
   );
   Assert.notEqual(
     nfcRuntime.dataDirectory,
     nfdRuntime.dataDirectory,
-    "Distinct Unicode profile paths cannot share data",
+    "Distinct Unicode profile paths cannot share data"
   );
   Assert.notEqual(
     nfcRuntime.stateDirectory,
     nfdRuntime.stateDirectory,
-    "Distinct Unicode profile paths cannot share process state",
+    "Distinct Unicode profile paths cannot share process state"
   );
 });
 
@@ -116,27 +116,27 @@ add_task(function test_profile_runtime_paths_isolate_capabilities_and_data() {
   Assert.equal(
     firstWindow.connectionPath,
     reopenedBrowser.connectionPath,
-    "One profile reuses its capability-bearing connection record",
+    "One profile reuses its capability-bearing connection record"
   );
   Assert.equal(
     firstWindow.dataDirectory,
     reopenedBrowser.dataDirectory,
-    "One profile keeps persistent data across browser reopen",
+    "One profile keeps persistent data across browser reopen"
   );
   Assert.notEqual(
     firstWindow.connectionPath,
     otherProfile.connectionPath,
-    "Distinct profiles cannot reuse capabilities",
+    "Distinct profiles cannot reuse capabilities"
   );
   Assert.notEqual(
     firstWindow.dataDirectory,
     otherProfile.dataDirectory,
-    "Distinct profiles cannot reuse result or provider data",
+    "Distinct profiles cannot reuse result or provider data"
   );
   Assert.notEqual(
     firstWindow.stateDirectory,
     otherProfile.stateDirectory,
-    "Distinct profiles cannot reuse process state or launch locks",
+    "Distinct profiles cannot reuse process state or launch locks"
   );
   for (const path of [
     firstWindow.rootDirectory,
@@ -145,7 +145,7 @@ add_task(function test_profile_runtime_paths_isolate_capabilities_and_data() {
   ]) {
     Assert.ok(
       !path.includes(profileA.path),
-      "No external state path leaks ProfD",
+      "No external state path leaks ProfD"
     );
   }
 });

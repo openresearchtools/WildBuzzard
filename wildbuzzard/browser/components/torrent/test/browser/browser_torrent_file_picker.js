@@ -119,9 +119,9 @@ async function activate(browser, selector, key = null) {
     content.document.querySelector(target).focus();
   });
   if (key) {
-    BrowserTestUtils.synthesizeKey(key, {}, browser);
+    await BrowserTestUtils.synthesizeKey(key, {}, browser);
   } else {
-    BrowserTestUtils.synthesizeMouseAtCenter(selector, {}, browser);
+    await BrowserTestUtils.synthesizeMouseAtCenter(selector, {}, browser);
   }
   await TestUtils.waitForTick();
   await TestUtils.waitForTick();
