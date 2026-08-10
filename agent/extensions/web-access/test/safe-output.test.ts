@@ -2,7 +2,11 @@
 
 import assert from "node:assert/strict";
 import test from "node:test";
-import { redactSensitiveText, sanitizeAgentOutput } from "../safe-output.ts";
+import {
+  hasSensitiveUrlCredentials,
+  redactSensitiveText,
+  sanitizeAgentOutput,
+} from "../safe-output.ts";
 
 test("agent output removes service secrets, headers, cookies, and local paths", () => {
   const value = sanitizeAgentOutput({
@@ -42,4 +46,23 @@ test("agent output redacts common secret keys and URL credentials", () => {
     serialized,
     /api-secret|client-secret|password-secret|url-secret|\/root\/private/
   );
+});
+
+test("credential URL detection distinguishes secrets from ordinary URL state", () => {
+  for (const value of [
+    "https://name:password@example.test/private",
+    "https://example.test/download?signature=secret&q=ordinary",
+    "https://example.test/#token=secret",
+    "https://example.test/path?API_KEY=secret",
+    "https://objects.test/file?X-Amz-Credential=value&X-Amz-Signature=value",
+  ]) {
+    assert.equal(hasSensitiveUrlCredentials(value), true, value);
+  }
+  for (const value of [
+    "https://example.test/search?q=ordinary&page=2",
+    "https://example.test/docs#installing",
+    "https://example.test/#page=2&section=usage",
+  ]) {
+    assert.equal(hasSensitiveUrlCredentials(value), false, value);
+  }
 });

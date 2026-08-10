@@ -10,6 +10,7 @@ import { searchSearXBatch } from "./searxng.ts";
 import {
   fetchWithGecko,
   normalizeFetchInput,
+  type ExtractedContent,
   type FetchInput,
 } from "./extract.ts";
 import { crawlWithGecko, type CrawlInput } from "./crawl.ts";
@@ -34,7 +35,11 @@ import {
   torrentToolsForPrompt,
 } from "./torrent-contracts.ts";
 import { WEB_TOOL_NAMES, webToolsForPrompt } from "./activation.ts";
-import { redactSensitiveText, sanitizeAgentOutput } from "./safe-output.ts";
+import {
+  hasSensitiveUrlCredentials,
+  redactSensitiveText,
+  sanitizeAgentOutput,
+} from "./safe-output.ts";
 import { SessionGeneration } from "./session-generation.ts";
 
 const SearchParameters = Type.Object(
@@ -82,6 +87,35 @@ function toolResult(value: unknown, details = value) {
       },
     ],
     details: safeDetails,
+  };
+}
+
+function persistDocuments(
+  pi: ExtensionAPI,
+  documents: ExtractedContent[],
+  sessionId: string,
+  type: "fetch" | "crawl" = "fetch"
+) {
+  if (
+    documents.some(
+      document =>
+        hasSensitiveUrlCredentials(document.url) ||
+        hasSensitiveUrlCredentials(document.finalUrl)
+    )
+  ) {
+    return {
+      responseId: null,
+      expiresAt: null,
+      persistence: "suppressed-sensitive-url" as const,
+    };
+  }
+  const stored = createStoredDocuments(documents, sessionId, type);
+  storeSearch(stored);
+  pi.appendEntry("wildbuzzard-web-search", storedSearchReference(stored));
+  return {
+    responseId: stored.id,
+    expiresAt: stored.expiresAt,
+    persistence: "stored" as const,
   };
 }
 
@@ -286,16 +320,12 @@ export default function webAccess(pi: ExtensionAPI) {
           )
         );
         operation.assertCurrent();
-        const fetched = createStoredDocuments(documents, operation.sessionId);
-        storeSearch(fetched);
-        pi.appendEntry(
-          "wildbuzzard-web-search",
-          storedSearchReference(fetched)
-        );
+        const fetched = persistDocuments(pi, documents, operation.sessionId);
         return toolResult({
           assessment: resultCount ? "evidence-found" : "insufficient-evidence",
           searches,
-          fetchedResponseId: fetched.id,
+          fetchedResponseId: fetched.responseId,
+          fetchedPersistence: fetched.persistence,
           fetchedPages: documents.map(document => ({
             url: document.url,
             finalUrl: document.finalUrl,
@@ -313,7 +343,7 @@ export default function webAccess(pi: ExtensionAPI) {
       name: "fetch_content",
       label: "Fetch web content",
       description:
-        "Render isolated HTTP(S) pages with Gecko, extract bounded readable content, and store full results behind a one-hour response handle.",
+        "Render isolated HTTP(S) pages with Gecko and extract bounded readable content. Credential-bearing URLs are never persisted.",
       parameters: Type.Object(
         {
           url: Type.Optional(Type.String({ maxLength: 4096 })),
@@ -427,12 +457,11 @@ export default function webAccess(pi: ExtensionAPI) {
               )
             : extractedDocuments;
         operation.assertCurrent();
-        const stored = createStoredDocuments(documents, operation.sessionId);
-        storeSearch(stored);
-        pi.appendEntry("wildbuzzard-web-search", storedSearchReference(stored));
+        const stored = persistDocuments(pi, documents, operation.sessionId);
         return toolResult({
-          responseId: stored.id,
+          responseId: stored.responseId,
           expiresAt: stored.expiresAt,
+          persistence: stored.persistence,
           documents: documents.map(document => ({
             ...document,
             content: document.content.slice(0, 4_000),
@@ -506,17 +535,17 @@ export default function webAccess(pi: ExtensionAPI) {
           signal
         );
         operation.assertCurrent();
-        const stored = createStoredDocuments(
+        const stored = persistDocuments(
+          pi,
           result.documents,
           operation.sessionId,
           "crawl"
         );
-        storeSearch(stored);
-        pi.appendEntry("wildbuzzard-web-search", storedSearchReference(stored));
         return toolResult({
           ...result,
-          responseId: stored.id,
+          responseId: stored.responseId,
           expiresAt: stored.expiresAt,
+          persistence: stored.persistence,
           documents: result.documents.map(document => ({
             ...document,
             content: document.content.slice(0, 2_000),
