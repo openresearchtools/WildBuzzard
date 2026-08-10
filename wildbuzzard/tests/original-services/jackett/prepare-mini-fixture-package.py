@@ -35,7 +35,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--shipping-catalog", required=True, type=pathlib.Path)
     parser.add_argument("--template", required=True, type=pathlib.Path)
-    parser.add_argument("--origin", default="http://11.0.0.2:18080")
+    parser.add_argument("--origin", default="http://127.0.0.1:18080")
     parser.add_argument("--output", required=True, type=pathlib.Path)
     args = parser.parse_args()
     shipping = json.loads(args.shipping_catalog.read_text(encoding="utf-8"))

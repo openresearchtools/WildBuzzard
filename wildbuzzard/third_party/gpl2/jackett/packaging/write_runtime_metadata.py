@@ -78,7 +78,7 @@ def main():
     parser.add_argument("--catalog", type=Path, required=True)
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--source-sha256", required=True)
-    parser.add_argument("--sdk-image", required=True)
+    parser.add_argument("--sdk-lock", type=Path, required=True)
     parser.add_argument("--license-inventory", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--sbom", type=Path, required=True)
@@ -88,6 +88,16 @@ def main():
     preliminary_files = runtime_files(args.runtime, (args.manifest, args.sbom))
     lock_digest, packages = lock_inventory_from_source(args.source)
     catalog = json.loads(args.catalog.read_text(encoding="utf-8"))
+    sdk_toolchain = json.loads(args.sdk_lock.read_text(encoding="utf-8"))
+    if (
+        not isinstance(sdk_toolchain, dict)
+        or sdk_toolchain.get("schemaVersion") != 1
+        or sdk_toolchain.get("rid") != "linux-x64"
+        or sdk_toolchain.get("architecture") != "x86_64"
+        or sdk_toolchain.get("version") != "9.0.304"
+        or not re.fullmatch(r"[a-f0-9]{128}", sdk_toolchain.get("sha512", ""))
+    ):
+        raise ValueError("invalid .NET SDK toolchain lock")
     license_inventory = {
         (entry["name"], entry["version"]): entry
         for entry in json.loads(args.license_inventory.read_text(encoding="utf-8"))[
@@ -215,7 +225,10 @@ def main():
             "licenses/dotnet/LICENSE.txt",
             "licenses/dotnet/ThirdPartyNotices.txt",
         ],
-        "sdkImage": args.sdk_image,
+        "sdkToolchain": {
+            **sdk_toolchain,
+            "lockSha256": sha256_file(args.sdk_lock),
+        },
         "executableName": "jackett-mini",
         "updaterIncluded": False,
         "dashboardIncluded": False,

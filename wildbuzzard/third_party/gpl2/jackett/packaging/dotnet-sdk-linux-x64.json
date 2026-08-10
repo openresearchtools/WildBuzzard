@@ -1,0 +1,11 @@
+{
+  "archive": "dotnet-sdk-9.0.304-linux-x64.tar.gz",
+  "architecture": "x86_64",
+  "releaseMetadata": "https://dotnetcli.blob.core.windows.net/dotnet/release-metadata/9.0/releases.json",
+  "rid": "linux-x64",
+  "schemaVersion": 1,
+  "sha512": "b087828d595d0c6886bf652c69f3910303f455accb1ac956403f795080c55caf59732f3be0e31fc744aff13591a92e1efeb646ef3ca6165ed17a3cd12a67b229",
+  "size": 217812954,
+  "url": "https://builds.dotnet.microsoft.com/dotnet/Sdk/9.0.304/dotnet-sdk-9.0.304-linux-x64.tar.gz",
+  "version": "9.0.304"
+}

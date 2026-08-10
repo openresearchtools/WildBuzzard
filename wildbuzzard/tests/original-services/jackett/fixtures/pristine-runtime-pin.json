@@ -1,6 +1,7 @@
 {
-  "runtimeInventorySha256": "9d4b8a87844f0cc673796f1c61412633621f7225bd86381379dcce1711164bc4",
+  "releaseArchiveSha256": "f3cd7eafa5a478f8c21208d0ab65980e9c935c2861767d1c448a38126305f116",
+  "releaseExecutableSha256": "b436e2c80c90df9f94c6537edb797790eedabf38094800f2d60e66d4f3879904",
+  "runtimeInventorySha256": "6263f559f2b3a107d504752f3fc48108adf7c9454c4e13c4dc9009049f908d69",
   "schemaVersion": 1,
-  "sdkImageId": "sha256:dbf45fd250dc73f2e8f9c90a3560116a24b7a8d52dda2699ca8ed18608b0814b",
-  "sdkPlatformDigest": "sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164"
+  "source": "official-v0.24.2360-linux-x64-release"
 }

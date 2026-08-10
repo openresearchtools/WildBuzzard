@@ -55,7 +55,7 @@ class PrepareMiniFixturePackageTest(unittest.TestCase):
             fixture = json.loads((output / "catalog.json").read_text())
             binding = json.loads((output / "fixture-binding.json").read_text())
             self.assertTrue(binding["testFixture"])
-            self.assertEqual(binding["fixtureOrigin"], "http://11.0.0.2:18080")
+            self.assertEqual(binding["fixtureOrigin"], "http://127.0.0.1:18080")
             self.assertEqual(binding["shippingPolicySha256"], "1" * 64)
             self.assertEqual(fixture["enabledIndexerIds"], ["linuxtracker", "showrss"])
             self.assertEqual(

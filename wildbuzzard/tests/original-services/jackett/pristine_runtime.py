@@ -11,34 +11,19 @@ SOURCE_SHA256 = "3816fea39546b5fa440d3e33b856e73500ee6129e91b14d839fc0f04c7f9bd3
 SOURCE_MANIFEST_SHA256 = (
     "7ce151e9e59943d4411bc2347cbfb6a7a5fb29c636ca2692b521f1f2dc086187"
 )
-SDK_IMAGE = (
-    "mcr.microsoft.com/dotnet/sdk@"
-    "sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164"
+RELEASE_VERSION = "v0.24.2360"
+RELEASE_URL = (
+    "https://github.com/Jackett/Jackett/releases/download/v0.24.2360/"
+    "Jackett.Binaries.LinuxAMDx64.tar.gz"
 )
-SOURCE_DATE_EPOCH = 1786253932
-BUILD_COMMAND = [
-    "dotnet",
-    "publish",
-    "src/Jackett.Server/Jackett.Server.csproj",
-    "--configuration",
-    "Release",
-    "--framework",
-    "net9.0",
-    "--runtime",
-    "linux-x64",
-    "--self-contained",
-    "true",
-    "--output",
-    "/output",
-    "-p:Version=0.24.2360",
-    "-p:ContinuousIntegrationBuild=true",
-    "-p:DebugSymbols=false",
-    "-p:DebugType=None",
-    "-p:Deterministic=true",
-    "-p:PublishReadyToRun=false",
-    "-p:PublishSingleFile=false",
-    "-p:PublishTrimmed=false",
-]
+RELEASE_SHA256 = "f3cd7eafa5a478f8c21208d0ab65980e9c935c2861767d1c448a38126305f116"
+RELEASE_SIZE = 50_877_536
+RELEASE_EXECUTABLE_SHA256 = (
+    "b436e2c80c90df9f94c6537edb797790eedabf38094800f2d60e66d4f3879904"
+)
+RELEASE_LOCK_SHA256 = (
+    "bb7947e245b44029bc76708458a81ed7ef5def09515ebc42597565b322af0101"
+)
 
 
 def sha256_file(path):
@@ -78,38 +63,38 @@ def inventory_digest(entries):
     return hashlib.sha256(value).hexdigest()
 
 
-def write_build_record(runtime, destination, image_inspect):
-    inspected = json.loads(image_inspect.read_text(encoding="utf-8"))
-    if not isinstance(inspected, list) or len(inspected) != 1:
-        raise RuntimeError("SDK image inspection must contain exactly one image")
-    image = inspected[0]
-    digest = image.get("Digest") or image.get("digest")
-    architecture = image.get("Architecture") or image.get("architecture")
-    operating_system = image.get("Os") or image.get("os")
-    image_id = image.get("Id") or image.get("id")
-    if isinstance(image_id, str) and re.fullmatch(r"[0-9a-f]{64}", image_id):
-        image_id = f"sha256:{image_id}"
-    if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
-        raise RuntimeError("SDK platform digest is unavailable")
-    if (operating_system, architecture) != ("linux", "amd64"):
-        raise RuntimeError("SDK image platform is not linux/amd64")
-    if not isinstance(image_id, str) or not re.fullmatch(
-        r"sha256:[0-9a-f]{64}", image_id
+def write_build_record(runtime, destination, release_archive, release_lock):
+    lock = json.loads(release_lock.read_text(encoding="utf-8"))
+    if (
+        lock.get("schemaVersion") != 1
+        or lock.get("version") != RELEASE_VERSION
+        or lock.get("commit") != COMMIT
+        or lock.get("platform") != "linux/amd64"
+        or lock.get("url") != RELEASE_URL
+        or lock.get("sha256") != RELEASE_SHA256
+        or lock.get("size") != RELEASE_SIZE
+        or release_archive.stat().st_size != RELEASE_SIZE
+        or sha256_file(release_archive) != RELEASE_SHA256
     ):
-        raise RuntimeError("SDK image ID is unavailable")
+        raise RuntimeError("pristine Jackett release identity mismatch")
     files = runtime_inventory(runtime)
+    executable = runtime / "jackett"
+    if sha256_file(executable) != RELEASE_EXECUTABLE_SHA256:
+        raise RuntimeError("pristine Jackett executable identity mismatch")
     record = {
         "schemaVersion": 1,
-        "component": "pristine-jackett-test-runtime",
+        "component": "pristine-jackett-release-runtime",
         "sourceCommit": COMMIT,
         "sourceArchiveSha256": SOURCE_SHA256,
         "sourceManifestSha256": SOURCE_MANIFEST_SHA256,
-        "sdkImage": SDK_IMAGE,
-        "sdkPlatform": "linux/amd64",
-        "sdkPlatformDigest": digest,
-        "sdkImageId": image_id,
-        "sourceDateEpoch": SOURCE_DATE_EPOCH,
-        "buildCommand": BUILD_COMMAND,
+        "releaseVersion": RELEASE_VERSION,
+        "releaseUrl": RELEASE_URL,
+        "releaseArchiveSha256": RELEASE_SHA256,
+        "releaseArchiveSize": RELEASE_SIZE,
+        "releaseExecutableSha256": RELEASE_EXECUTABLE_SHA256,
+        "releaseLockSha256": RELEASE_LOCK_SHA256,
+        "platform": "linux/amd64",
+        "preparationMode": "verified-official-release-extraction",
         "runtimeInventorySha256": inventory_digest(files),
         "files": files,
     }
@@ -123,35 +108,40 @@ def verify_runtime(runtime, record_path, pin_path):
     record = json.loads(record_path.read_text(encoding="utf-8"))
     pin = json.loads(pin_path.read_text(encoding="utf-8"))
     expected_digest = pin.get("runtimeInventorySha256")
-    expected_platform_digest = pin.get("sdkPlatformDigest")
-    expected_image_id = pin.get("sdkImageId")
+    expected_archive_digest = pin.get("releaseArchiveSha256")
+    expected_executable_digest = pin.get("releaseExecutableSha256")
     if (
         pin.get("schemaVersion") != 1
+        or pin.get("source") != "official-v0.24.2360-linux-x64-release"
         or not isinstance(expected_digest, str)
         or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
-        or not isinstance(expected_platform_digest, str)
-        or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_platform_digest)
-        or not isinstance(expected_image_id, str)
-        or not re.fullmatch(r"sha256:[0-9a-f]{64}", expected_image_id)
+        or expected_archive_digest != RELEASE_SHA256
+        or expected_executable_digest != RELEASE_EXECUTABLE_SHA256
     ):
         raise RuntimeError(
-            "the reproducible pristine runtime and SDK platform pins have not been recorded"
+            "the pristine release runtime pins have not been recorded"
         )
     if (
         record.get("schemaVersion") != 1
-        or record.get("component") != "pristine-jackett-test-runtime"
+        or record.get("component") != "pristine-jackett-release-runtime"
         or record.get("sourceCommit") != COMMIT
         or record.get("sourceArchiveSha256") != SOURCE_SHA256
         or record.get("sourceManifestSha256") != SOURCE_MANIFEST_SHA256
-        or record.get("sdkImage") != SDK_IMAGE
-        or record.get("sdkPlatform") != "linux/amd64"
-        or record.get("sourceDateEpoch") != SOURCE_DATE_EPOCH
-        or record.get("buildCommand") != BUILD_COMMAND
-        or record.get("sdkPlatformDigest") != expected_platform_digest
-        or record.get("sdkImageId") != expected_image_id
+        or record.get("releaseVersion") != RELEASE_VERSION
+        or record.get("releaseUrl") != RELEASE_URL
+        or record.get("releaseArchiveSha256") != expected_archive_digest
+        or record.get("releaseArchiveSize") != RELEASE_SIZE
+        or record.get("releaseExecutableSha256") != expected_executable_digest
+        or record.get("releaseLockSha256") != RELEASE_LOCK_SHA256
+        or record.get("platform") != "linux/amd64"
+        or record.get("preparationMode")
+        != "verified-official-release-extraction"
         or record.get("runtimeInventorySha256") != expected_digest
     ):
         raise RuntimeError("the pristine runtime build record is not pinned")
+    executable = runtime / "jackett"
+    if not executable.is_file() or sha256_file(executable) != expected_executable_digest:
+        raise RuntimeError("the pristine Jackett executable differs from its pin")
     files = runtime_inventory(runtime)
     if files != record.get("files") or inventory_digest(files) != expected_digest:
         raise RuntimeError("the pristine runtime inventory differs from its pin")

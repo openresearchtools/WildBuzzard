@@ -9,18 +9,20 @@ package_dir="$wildbuzzard_dir/third_party/gpl2/jackett"
 source_archive="$package_dir/upstream/jackett-v0.24.2360.tar.gz"
 source_sha256=3816fea39546b5fa440d3e33b856e73500ee6129e91b14d839fc0f04c7f9bd3e
 source_directory_name=Jackett-0cd8622b735922a909a128d8d6943bb8565a640f
-sdk_image=mcr.microsoft.com/dotnet/sdk@sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164
+sdk_lock="$package_dir/packaging/dotnet-sdk-linux-x64.json"
 source_date_epoch=1786253932
 output_dir=
 archive_path=
 object_dir=
 log_dir=
+cache_dir=
 keep_object=false
 test_fixture_package=
 production_manifest=
+fixture_origin=
 
 usage() {
-  echo "usage: $0 --output DIR [--archive FILE] [--object-dir DIR] [--log-dir DIR] [--keep-object] [--test-fixture-package DIR --production-manifest FILE]" >&2
+  echo "usage: $0 --output DIR [--archive FILE] [--object-dir DIR] [--log-dir DIR] [--cache DIR] [--keep-object] [--test-fixture-package DIR --production-manifest FILE]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -40,6 +42,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --log-dir)
       log_dir=${2:?}
+      shift 2
+      ;;
+    --cache)
+      cache_dir=${2:?}
       shift 2
       ;;
     --keep-object)
@@ -92,10 +98,16 @@ if [[ -z "$log_dir" ]]; then
 else
   log_dir=$(realpath -m -- "$log_dir")
 fi
+if [[ -z "$cache_dir" ]]; then
+  cache_dir="$object_dir/download-cache"
+else
+  cache_dir=$(realpath -m -- "$cache_dir")
+fi
 mkdir -p -- "$log_dir"
+mkdir -p -- "$cache_dir"
 
 python3 "$wildbuzzard_dir/tests/original-services/jackett/boundary_scan.py" \
-  --root "$wildbuzzard_dir/browser" \
+  --root "$wildbuzzard_dir/../browser" \
   --root "$wildbuzzard_dir/../agent" \
   --root "$wildbuzzard_dir/managed-services" \
   --root "$wildbuzzard_dir/torrent-runtime" \
@@ -157,7 +169,7 @@ manifest = json.load(open(sys.argv[3], encoding="utf-8"))
 if (
     binding.get("schemaVersion") != 1
     or binding.get("testFixture") is not True
-    or binding.get("fixtureOrigin") != "http://11.0.0.2:18080"
+    or binding.get("fixtureOrigin") != "http://127.0.0.1:18080"
     or catalog.get("enabledIndexerIds") != ["linuxtracker", "showrss"]
     or [entry.get("indexerId") for entry in catalog.get("entries", [])]
     != ["linuxtracker", "showrss"]
@@ -166,6 +178,7 @@ if (
 ):
     raise SystemExit("test fixture package is not bound to the production policy")
 PY
+  fixture_origin=http://127.0.0.1:18080
   find "$source_dir/src/Jackett.Mini/Definitions" -mindepth 1 -maxdepth 1 -type f -delete
   cp -- "$test_fixture_package"/Definitions/*.yml "$source_dir/src/Jackett.Mini/Definitions/"
   cp -- "$test_fixture_package/catalog.json" "$source_dir/src/Jackett.Mini/catalog.json"
@@ -174,55 +187,56 @@ runtime_catalog="$source_dir/src/Jackett.Mini/catalog.json"
 python3 "$package_dir/packaging/bind_catalog.py" \
   --source "$source_dir/src/Jackett.Mini/CatalogPolicy.cs" \
   --catalog "$runtime_catalog" > "$log_dir/catalog-binding.sha256"
+python3 "$package_dir/packaging/bind_fixture_origin.py" \
+  --source "$source_dir/src/Jackett.Mini/PublicNetworkPolicy.cs" \
+  --origin "$fixture_origin"
 
-podman_args=()
-if [[ -n "${JACKETT_MINI_OCI_RUNTIME:-}" ]]; then
-  podman_args+=(--runtime "$JACKETT_MINI_OCI_RUNTIME")
-fi
-if [[ "$(podman "${podman_args[@]}" info --format '{{.Host.Security.Rootless}}')" != "true" ]]; then
-  echo "the Jackett build requires rootless Podman" >&2
+toolchain_dir="$object_dir/dotnet-sdk"
+python3 "$package_dir/packaging/prepare_dotnet_sdk.py" \
+  --lock "$sdk_lock" \
+  --cache "$cache_dir" \
+  --output "$toolchain_dir" > "$log_dir/sdk-prepare.log" 2>&1
+dotnet="$toolchain_dir/dotnet"
+if [[ "$($dotnet --version)" != "9.0.304" ]]; then
+  echo "the pinned .NET SDK version is unavailable" >&2
   exit 1
 fi
-podman "${podman_args[@]}" pull "$sdk_image" > "$log_dir/sdk-pull.log" 2>&1
-podman "${podman_args[@]}" image inspect "$sdk_image" > "$log_dir/sdk-image-inspect.json"
+$dotnet --info > "$log_dir/sdk-info.log"
 
 mkdir -p -- "$object_dir/nuget" "$object_dir/dotnet-home" "$object_dir/publish"
-podman "${podman_args[@]}" run --rm --userns=keep-id \
-  -e DOTNET_CLI_HOME=/dotnet-home \
-  -e DOTNET_NOLOGO=1 \
-  -e DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
-  -e NUGET_PACKAGES=/nuget \
-  -e SOURCE_DATE_EPOCH="$source_date_epoch" \
-  -v "$source_dir:/src:Z" \
-  -v "$object_dir/nuget:/nuget:Z" \
-  -v "$object_dir/dotnet-home:/dotnet-home:Z" \
-  -v "$object_dir/publish:/output:Z" \
-  -w /src \
-  "$sdk_image" \
-  dotnet restore src/Jackett.Mini/Jackett.Mini.csproj \
+dotnet_environment=(
+  env -i
+  HOME="$object_dir/dotnet-home"
+  DOTNET_CLI_HOME="$object_dir/dotnet-home"
+  DOTNET_NOLOGO=1
+  DOTNET_ROOT="$toolchain_dir"
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+  LANG=C.UTF-8
+  LC_ALL=C.UTF-8
+  NUGET_PACKAGES="$object_dir/nuget"
+  PATH="$toolchain_dir:/usr/bin:/bin"
+  SOURCE_DATE_EPOCH="$source_date_epoch"
+  TZ=UTC
+)
+(
+  cd -- "$source_dir"
+  "${dotnet_environment[@]}" "$dotnet" restore \
+    src/Jackett.Mini/Jackett.Mini.csproj \
     --runtime linux-x64 \
     --locked-mode \
-    -p:JackettMiniBuild=true > "$log_dir/restore.log" 2>&1
+    -p:JackettMiniBuild=true
+) > "$log_dir/restore.log" 2>&1
 
-podman "${podman_args[@]}" run --rm --userns=keep-id \
-  -e DOTNET_CLI_HOME=/dotnet-home \
-  -e DOTNET_NOLOGO=1 \
-  -e DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1 \
-  -e NUGET_PACKAGES=/nuget \
-  -e SOURCE_DATE_EPOCH="$source_date_epoch" \
-  -v "$source_dir:/src:Z" \
-  -v "$object_dir/nuget:/nuget:Z" \
-  -v "$object_dir/dotnet-home:/dotnet-home:Z" \
-  -v "$object_dir/publish:/output:Z" \
-  -w /src \
-  "$sdk_image" \
-  dotnet publish src/Jackett.Mini/Jackett.Mini.csproj \
+(
+  cd -- "$source_dir"
+  "${dotnet_environment[@]}" "$dotnet" publish \
+    src/Jackett.Mini/Jackett.Mini.csproj \
     --configuration Release \
     --framework net9.0 \
     --runtime linux-x64 \
     --self-contained true \
     --no-restore \
-    --output /output \
+    --output "$object_dir/publish" \
     -p:JackettMiniBuild=true \
     -p:ContinuousIntegrationBuild=true \
     -p:DebugSymbols=false \
@@ -230,22 +244,26 @@ podman "${podman_args[@]}" run --rm --userns=keep-id \
     -p:Deterministic=true \
     -p:PublishReadyToRun=false \
     -p:PublishSingleFile=false \
-    -p:PublishTrimmed=false > "$log_dir/publish.log" 2>&1
+    -p:PublishTrimmed=false
+) > "$log_dir/publish.log" 2>&1
 
-podman "${podman_args[@]}" run --rm --userns=keep-id \
-  -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
-  -v "$object_dir/publish:/runtime:Z" \
-  -w /runtime \
-  "$sdk_image" \
-  ./jackett-mini --SecuritySelfTest > "$log_dir/security-self-test.log" 2>&1
+(
+  cd -- "$object_dir/publish"
+  env -i \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+    HOME="$object_dir/dotnet-home" \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
+    PATH=/usr/bin:/bin \
+    TZ=UTC \
+    ./jackett-mini --SecuritySelfTest
+) > "$log_dir/security-self-test.log" 2>&1
 
 mkdir -p -- "$object_dir/publish/licenses/jackett" "$object_dir/publish/licenses/dotnet"
 cp -- "$package_dir/LICENSE" "$object_dir/publish/licenses/jackett/LICENSE"
 cp -- "$package_dir/THIRD_PARTY_NOTICES.md" "$object_dir/publish/licenses/jackett/THIRD_PARTY_NOTICES.md"
-podman "${podman_args[@]}" run --rm --userns=keep-id \
-  -v "$object_dir/publish/licenses/dotnet:/licenses:Z" \
-  "$sdk_image" \
-  sh -c 'cp /usr/share/dotnet/LICENSE.txt /licenses/LICENSE.txt && cp /usr/share/dotnet/ThirdPartyNotices.txt /licenses/ThirdPartyNotices.txt'
+cp -- "$toolchain_dir/LICENSE.txt" "$object_dir/publish/licenses/dotnet/LICENSE.txt"
+cp -- "$toolchain_dir/ThirdPartyNotices.txt" "$object_dir/publish/licenses/dotnet/ThirdPartyNotices.txt"
 
 for forbidden in Content Jackett.Updater JackettConsole jackett_updater FlareSolverrSharp.dll; do
   if [[ -e "$object_dir/publish/$forbidden" ]]; then
@@ -293,14 +311,14 @@ python3 "$package_dir/packaging/write_runtime_metadata.py" \
   --catalog "$runtime_catalog" \
   --source "$source_dir" \
   --source-sha256 "$source_sha256" \
-  --sdk-image "$sdk_image" \
+  --sdk-lock "$sdk_lock" \
   --license-inventory "$package_dir/packaging/nuget-licenses.json" \
   --manifest "$output_dir/jackett-mini-runtime.json" \
   --sbom "$output_dir/jackett-mini.spdx.json" \
   "${metadata_args[@]}"
 
 python3 "$wildbuzzard_dir/tests/original-services/jackett/boundary_scan.py" \
-  --root "$wildbuzzard_dir/browser" \
+  --root "$wildbuzzard_dir/../browser" \
   --root "$wildbuzzard_dir/../agent" \
   --root "$wildbuzzard_dir/managed-services" \
   --root "$wildbuzzard_dir/torrent-runtime" \

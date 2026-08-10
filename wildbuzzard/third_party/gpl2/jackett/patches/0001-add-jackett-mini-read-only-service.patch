@@ -783,11 +783,12 @@ index 000000000..b25b77dbd
 diff --git a/src/Jackett.Common/Indexers/Definitions/CardigannIndexer.cs b/src/Jackett.Common/Indexers/Definitions/CardigannIndexer.cs
 --- a/src/Jackett.Common/Indexers/Definitions/CardigannIndexer.cs
 +++ b/src/Jackett.Common/Indexers/Definitions/CardigannIndexer.cs
-@@ -1749,3 +1749,4 @@ namespace Jackett.Common.Indexers.Definitions
+@@ -1749,4 +1749,5 @@ namespace Jackett.Common.Indexers.Definitions
                          if (SearchPath.Response is { Type: "xml" })
                          {
 +                            BoundedXmlValidator.Validate(response.ContentBytes);
                              var SearchResultParser = new XmlParser();
+                             var SearchResultDocument = SearchResultParser.ParseDocument(results);
 diff --git a/src/Jackett.Common/Utils/BoundedXmlValidator.cs b/src/Jackett.Common/Utils/BoundedXmlValidator.cs
 new file mode 100644
 --- /dev/null
@@ -1113,7 +1114,7 @@ new file mode 100644
 index 000000000..fe8b23c47
 --- /dev/null
 +++ b/src/Jackett.Mini/PublicNetworkPolicy.cs
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,96 @@
 +using System.Net;
 +using System.Net.Sockets;
 +
@@ -1121,9 +1122,13 @@ index 000000000..fe8b23c47
 +
 +internal static class PublicNetworkPolicy
 +{
++    private const string FixtureOrigin = "__WILDBUZZARD_FIXTURE_ORIGIN__";
++
 +    public static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
 +    {
-+        var addresses = await ResolvePublicAsync(context.DnsEndPoint.Host, cancellationToken);
++        var host = context.DnsEndPoint.Host;
++        var port = context.DnsEndPoint.Port;
++        var addresses = await ResolveAllowedAsync(host, port, cancellationToken);
 +        Exception? lastError = null;
 +        foreach (var address in addresses)
 +        {
@@ -1131,7 +1136,7 @@ index 000000000..fe8b23c47
 +            try
 +            {
 +                await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), cancellationToken);
-+                if (socket.RemoteEndPoint is not IPEndPoint remote || !remote.Address.Equals(address) || !IsPublic(remote.Address))
++                if (socket.RemoteEndPoint is not IPEndPoint remote || !remote.Address.Equals(address) || !IsAllowed(remote.Address, host, port))
 +                    throw new InvalidOperationException("Connected peer did not match the validated public address");
 +                return new NetworkStream(socket, ownsSocket: true);
 +            }
@@ -1144,12 +1149,25 @@ index 000000000..fe8b23c47
 +        throw new HttpRequestException("No validated public address accepted the connection", lastError);
 +    }
 +
-+    public static async Task<IPAddress[]> ResolvePublicAsync(string host, CancellationToken cancellationToken)
++    public static async Task<IPAddress[]> ResolveAllowedAsync(string host, int port, CancellationToken cancellationToken)
 +    {
 +        var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
-+        if (addresses.Length == 0 || addresses.Any(address => !IsPublic(address)))
++        if (addresses.Length == 0 || addresses.Any(address => !IsAllowed(address, host, port)))
 +            throw new InvalidOperationException("Destination DNS did not resolve exclusively to public addresses");
 +        return addresses;
++    }
++
++    private static bool IsAllowed(IPAddress address, string host, int port) =>
++        IsPublic(address) || (IsFixtureEndpoint(host, port) && IPAddress.IsLoopback(address));
++
++    private static bool IsFixtureEndpoint(string host, int port)
++    {
++        if (FixtureOrigin.Length == 0)
++            return false;
++        var fixture = new Uri(FixtureOrigin, UriKind.Absolute);
++        return fixture.Scheme == Uri.UriSchemeHttp &&
++               string.Equals(fixture.DnsSafeHost, host, StringComparison.OrdinalIgnoreCase) &&
++               fixture.Port == port;
 +    }
 +
 +    public static bool IsPublic(IPAddress address)
@@ -1190,7 +1208,7 @@ index 000000000..fe8b23c47
 +    {
 +        if (!uri.IsAbsoluteUri || uri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(uri.UserInfo))
 +            throw new InvalidOperationException("Provider request URL is invalid");
-+        await ResolvePublicAsync(uri.DnsSafeHost, cancellationToken);
++        await ResolveAllowedAsync(uri.DnsSafeHost, uri.Port, cancellationToken);
 +    }
 +}
 diff --git a/src/Jackett.Mini/DirectWebClient.cs b/src/Jackett.Mini/DirectWebClient.cs
