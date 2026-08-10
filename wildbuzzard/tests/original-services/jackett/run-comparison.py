@@ -16,6 +16,7 @@ import pathlib
 import re
 import secrets
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -83,7 +84,10 @@ def request(port, method, path, body=None, headers=None, timeout=20):
 def redact_bytes(payload, redactions):
     result = payload
     for secret, replacement in redactions:
-        result = result.replace(secret.encode("utf-8"), replacement.encode("utf-8"))
+        if secret:
+            result = result.replace(
+                secret.encode("utf-8"), replacement.encode("utf-8")
+            )
     result = re.sub(rb"((?:\?|&|&amp;)path=)[^&<\"\s]+", rb"\1<redacted-result-path>", result)
     return result
 
@@ -91,7 +95,8 @@ def redact_bytes(payload, redactions):
 def redact_text(value, redactions):
     result = value
     for secret, replacement in redactions:
-        result = result.replace(secret, replacement)
+        if secret:
+            result = result.replace(secret, replacement)
     result = re.sub(r"((?:\?|&|&amp;)path=)[^&<\"\s]+", r"\1<redacted-result-path>", result)
     return result
 
@@ -288,11 +293,11 @@ def start_process(command, cwd, environment, log_path):
 
 def stop_process(process):
     if process.poll() is None:
-        process.terminate()
+        os.killpg(process.pid, signal.SIGTERM)
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=5)
     return process.returncode
 
@@ -313,11 +318,12 @@ def rootless_namespace_identity():
 
 
 def process_identity(process):
-    stat_fields = pathlib.Path(f"/proc/{process.pid}/stat").read_text(encoding="ascii").split()
+    stat_value = pathlib.Path(f"/proc/{process.pid}/stat").read_text(encoding="ascii")
+    stat_fields = stat_value[stat_value.rfind(")") + 2 :].split()
     executable = pathlib.Path(os.readlink(f"/proc/{process.pid}/exe"))
     return {
         "pid": process.pid,
-        "linuxProcessStartTime": stat_fields[21],
+        "linuxProcessStartTime": stat_fields[19],
         "executable": str(executable),
         "executableSha256": sha256_file(executable),
     }
@@ -333,6 +339,7 @@ def main():
     parser.add_argument("--direct-rootless", action="store_true")
     parser.add_argument("--fixture-address", default="127.0.0.1")
     args = parser.parse_args()
+    os.umask(0o077)
 
     script_dir = pathlib.Path(__file__).resolve().parent
     template = script_dir / "fixtures" / "fixture-indexer.yml.in"
@@ -408,7 +415,7 @@ def main():
     processes = {}
     process_logs = {}
     mappings = []
-    redactions = []
+    redactions = [(capability, "<redacted-capability>")]
     cleanup = {"containers": {}, "ports": {}, "fixtureStopped": False, "dataRootsRemoved": {}}
     success = False
 
@@ -480,7 +487,7 @@ def main():
         server_config_path = pristine_data / "ServerConfig.json"
         server_config = json.loads(server_config_path.read_text(encoding="utf-8"))
         api_key = server_config["APIKey"]
-        redactions = [(api_key, "<redacted-api-key>"), (capability, "<redacted-capability>")]
+        redactions.append((api_key, "<redacted-api-key>"))
         redacted_config = dict(server_config)
         redacted_config["APIKey"] = "<redacted>"
         redacted_config["InstanceId"] = "<redacted>"
@@ -492,7 +499,8 @@ def main():
         login_test = request(original_port, "GET", "/UI/TestCookie", headers=test_cookie_headers)
         login_finish = request(original_port, "GET", "/UI/Login?cookiesChecked=1", headers=test_cookie_headers)
         jackett_cookie = response_cookie(login_finish, "Jackett")
-        redactions.append((jackett_cookie, "<redacted-dashboard-cookie>"))
+        if len(jackett_cookie) >= 16:
+            redactions.append((jackett_cookie, "<redacted-dashboard-cookie>"))
         dashboard_headers = {"Cookie": f"Jackett={jackett_cookie}"}
         save_transcript(transcripts, "00-original-login-start", "GET", "/UI/Login", {}, None, login_start, redactions)
         save_transcript(transcripts, "00-original-login-cookie-test", "GET", "/UI/TestCookie", test_cookie_headers, None, login_test, redactions)
@@ -727,6 +735,10 @@ def main():
                     "exitCode": inspected.stdout.decode("utf-8", errors="replace").strip(),
                     "removeReturnCode": removed.returncode,
                 }
+        for log_path in (*logs.glob("*"), artifacts / "failure.txt"):
+            if log_path.is_file():
+                log_path.write_bytes(redact_bytes(log_path.read_bytes(), redactions))
+                log_path.chmod(0o600)
         fixture_server.shutdown()
         fixture_server.server_close()
         fixture_thread.join(timeout=5)
@@ -738,8 +750,25 @@ def main():
         for label, directory in (("pristine", pristine_data), ("ported", mini_data)):
             shutil.rmtree(directory, ignore_errors=True)
             cleanup["dataRootsRemoved"][label] = not directory.exists()
+        shutil.rmtree(overlays / "mini-runtime", ignore_errors=True)
+        cleanup["testRuntimeRemoved"] = not (overlays / "mini-runtime").exists()
         cleanup["comparisonSucceeded"] = success
         write_json(artifacts / "cleanup.json", cleanup)
+        leak_markers = [
+            secret.encode() for secret, _replacement in redactions if secret
+        ]
+        leaks = []
+        for path in artifacts.rglob("*"):
+            if path.is_file():
+                payload = path.read_bytes()
+                if any(marker in payload for marker in leak_markers):
+                    leaks.append(str(path.relative_to(artifacts)))
+        write_json(
+            artifacts / "leakage-scan.json",
+            {"markersScanned": len(leak_markers), "leaks": leaks},
+        )
+        if leaks and success:
+            raise AssertionError(f"comparison evidence leaked secrets: {leaks}")
 
     print(artifacts)
 
