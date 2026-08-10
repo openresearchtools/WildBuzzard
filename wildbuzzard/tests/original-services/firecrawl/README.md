@@ -15,6 +15,8 @@ and teardown evidence in a required directory outside the checkout.
 The harness gives Podman a per-run graph root and run root beneath its temporary
 work directory, so literal upstream base tags cannot overwrite the user's image
 store and all pulled layers disappear with the recorded work-directory cleanup.
+Container, network, image, isolated-store, work-directory, and published-port
+cleanup are mandatory gates; a parity-success result cannot mask leftovers.
 
 The Node, Go, and Redis bases are fixed to `linux/amd64` OCI index, platform
 manifest, and image-config digests. Before building, the harness inspects each

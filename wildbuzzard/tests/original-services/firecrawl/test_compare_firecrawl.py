@@ -40,6 +40,20 @@ class FirecrawlComparatorTest(unittest.TestCase):
             else:
                 COMPARATOR.os.environ["CONTAINERS_STORAGE_CONF"] = previous
 
+    def test_published_port_cleanup_probe(self) -> None:
+        listener = COMPARATOR.socket.socket(
+            COMPARATOR.socket.AF_INET, COMPARATOR.socket.SOCK_STREAM
+        )
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        port = listener.getsockname()[1]
+        self.assertFalse(COMPARATOR.wait_ports_closed([port], 0.01)["passed"])
+        listener.close()
+        self.assertEqual(
+            COMPARATOR.wait_ports_closed([port], 0.1),
+            {"passed": True, "openPorts": []},
+        )
+
     def test_base_images_pin_index_platform_and_config_digests(self) -> None:
         digest_pattern = COMPARATOR.re.compile(r"sha256:[0-9a-f]{64}")
         for image in COMPARATOR.BASE_IMAGES:

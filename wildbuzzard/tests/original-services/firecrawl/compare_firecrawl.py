@@ -303,6 +303,23 @@ def random_loopback_ports(count: int) -> list[int]:
             listener.close()
 
 
+def wait_ports_closed(ports: list[int], timeout: float = 5) -> dict[str, object]:
+    deadline = time.monotonic() + timeout
+    open_ports = list(ports)
+    while open_ports:
+        current = []
+        for port in open_ports:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                probe.settimeout(0.1)
+                if probe.connect_ex(("127.0.0.1", port)) == 0:
+                    current.append(port)
+        open_ports = current
+        if not open_ports or time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    return {"passed": not open_ports, "openPorts": open_ports}
+
+
 def bounded_timeout(value: str) -> float:
     result = float(value)
     if not 1 <= result <= 3600:
@@ -1692,6 +1709,7 @@ def main() -> int:
     created_containers: list[str] = []
     created_images: list[str] = []
     network_created = False
+    published_ports: list[int] = []
     summary: dict[str, object] = {
         "schema": 1,
         "startedAt": utc_now(),
@@ -1702,6 +1720,7 @@ def main() -> int:
     cleanup: dict[str, object] = {}
     interrupted = False
     isolated_storage_configured = False
+    podman_available = shutil.which("podman") is not None
     try:
         summary["podmanStorage"] = configure_isolated_podman_storage(work)
         isolated_storage_configured = True
@@ -1771,6 +1790,12 @@ def main() -> int:
         api_port, playwright_port, fixture_port, other_fixture_port = (
             random_loopback_ports(4)
         )
+        published_ports = [
+            api_port,
+            playwright_port,
+            fixture_port,
+            other_fixture_port,
+        ]
         FIXTURE_PORT_ALIASES.update({
             fixture_port: "fixture.test",
             other_fixture_port: "other-fixture.test",
@@ -2050,6 +2075,25 @@ def main() -> int:
                 "network-remove", ["podman", "network", "rm", network], check=False
             )
             cleanup["networkRemoved"] = remove_network.returncode == 0
+        if podman_available:
+            orphan_check = recorder.run(
+                "container-orphan-check",
+                [
+                    "podman",
+                    "ps",
+                    "--all",
+                    "--filter",
+                    f"name={prefix}",
+                    "--format",
+                    "{{.ID}}",
+                ],
+                check=False,
+            )
+            cleanup["noContainers"] = (
+                orphan_check.returncode == 0 and not orphan_check.stdout.strip()
+            )
+        else:
+            cleanup["noContainers"] = not created_containers
         for image in reversed(created_images):
             short = "playwright" if "playwright" in image else "api"
             remove_image = recorder.run(
@@ -2058,7 +2102,7 @@ def main() -> int:
                 check=False,
             )
             cleanup[f"{short}ImageRemoved"] = remove_image.returncode == 0
-        if isolated_storage_configured:
+        if isolated_storage_configured and podman_available:
             reset_storage = recorder.run(
                 "podman-storage-reset",
                 ["podman", "system", "reset", "--force"],
@@ -2071,6 +2115,31 @@ def main() -> int:
             os.environ.pop("CONTAINERS_STORAGE_CONF", None)
         else:
             os.environ["CONTAINERS_STORAGE_CONF"] = previous_storage_config
+        cleanup["publishedPorts"] = wait_ports_closed(published_ports)
+        cleanup["passed"] = (
+            all(
+                item["removed"]
+                for item in cleanup.values()
+                if isinstance(item, dict) and "removed" in item
+            )
+            and (not network_created or cleanup.get("networkRemoved") is True)
+            and cleanup.get("noContainers") is True
+            and all(
+                cleanup.get(f"{name}ImageRemoved") is True
+                for name in ("api", "playwright")
+                if created_images
+            )
+            and (
+                not isolated_storage_configured
+                or not podman_available
+                or cleanup.get("podmanStorageReset") is True
+            )
+            and cleanup["workDirectoryRemoved"]
+            and cleanup["publishedPorts"]["passed"]
+        )
+        if not cleanup["passed"] and not interrupted:
+            summary["outcome"] = "cleanup-failure"
+            summary["error"] = "Firecrawl comparison cleanup gate failed"
         cleanup["serviceLogs"] = service_logs
         summary["commands"] = recorder.commands
         summary["cleanup"] = cleanup
