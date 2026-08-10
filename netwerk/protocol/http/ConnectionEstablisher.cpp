@@ -495,6 +495,9 @@ nsresult TCPConnectionEstablisher::CreateAndConfigureSocketTransport() {
           ("%p using legacy nsISocketTransportService "
            "means explicit route %s:%d will be ignored.\n",
            this, mConnInfo->RoutedHost(), mConnInfo->RoutedPort()));
+      if (mCaps & NS_HTTP_REQUIRE_IP_LITERAL) {
+        return NS_ERROR_NOT_AVAILABLE;
+      }
     }
 
     rv = sts->CreateTransport(socketTypes, mConnInfo->GetOrigin(),

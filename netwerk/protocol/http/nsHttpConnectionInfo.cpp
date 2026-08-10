@@ -250,6 +250,15 @@ void nsHttpConnectionInfo::BuildHashKey() {
       mHashKey.Append('>');
     }
 
+    if (mRoutedIPAddresses.Length() > 1) {
+      mHashKey.AppendLiteral(" <ROUTE-IP-LIST");
+      for (const auto& address : mRoutedIPAddresses) {
+        mHashKey.Append(' ');
+        mHashKey.Append(address);
+      }
+      mHashKey.Append('>');
+    }
+
     if (!mNPNToken.IsEmpty()) {
       mHashKey.AppendLiteral(" {NPN-TOKEN ");
       mHashKey.Append(mNPNToken);
@@ -349,6 +358,11 @@ already_AddRefed<nsHttpConnectionInfo> nsHttpConnectionInfo::Clone() const {
                                      mIsHttp3, mWebTransport);
   }
 
+  if (!mRoutedIPAddresses.IsEmpty()) {
+    clone->mRoutedIPAddresses = mRoutedIPAddresses.Clone();
+    clone->RebuildHashKey();
+  }
+
   // Make sure the anonymous, insecure-scheme, and private flags are transferred
   clone->SetAnonymous(GetAnonymous());
   clone->SetPrivate(GetPrivate());
@@ -375,9 +389,20 @@ already_AddRefed<nsHttpConnectionInfo> nsHttpConnectionInfo::Clone() const {
 already_AddRefed<nsHttpConnectionInfo>
 nsHttpConnectionInfo::CloneAndRouteToIPAddress(const nsACString& aIPAddress,
                                                int32_t aPort) const {
+  nsTArray<nsCString> addresses;
+  addresses.AppendElement(aIPAddress);
+  return CloneAndRouteToIPAddresses(addresses, aPort);
+}
+
+already_AddRefed<nsHttpConnectionInfo>
+nsHttpConnectionInfo::CloneAndRouteToIPAddresses(
+    const nsTArray<nsCString>& aIPAddresses, int32_t aPort) const {
+  MOZ_ASSERT(!aIPAddresses.IsEmpty());
   RefPtr<nsHttpConnectionInfo> clone = new nsHttpConnectionInfo(
       mOrigin, mOriginPort, ""_ns, mUsername, mProxyInfo, mOriginAttributes,
-      mEndToEndSSL, aIPAddress, aPort, false, false);
+      mEndToEndSSL, aIPAddresses[0], aPort, false, false);
+  clone->mRoutedIPAddresses = aIPAddresses.Clone();
+  clone->RebuildHashKey();
   clone->SetAnonymous(GetAnonymous());
   clone->SetPrivate(GetPrivate());
   clone->SetInsecureScheme(GetInsecureScheme());
@@ -498,6 +523,7 @@ void nsHttpConnectionInfo::SerializeHttpConnectionInfo(
   aArgs.endToEndSSL() = aInfo->EndToEndSSL();
   aArgs.routedHost() = aInfo->GetRoutedHost();
   aArgs.routedPort() = aInfo->RoutedPort();
+  aArgs.routedIPAddresses() = aInfo->GetRoutedIPAddresses().Clone();
   aArgs.anonymous() = aInfo->GetAnonymous();
   aArgs.aPrivate() = aInfo->GetPrivate();
   aArgs.insecureScheme() = aInfo->GetInsecureScheme();
@@ -544,6 +570,10 @@ nsHttpConnectionInfo::DeserializeHttpConnectionInfoCloneArgs(
         aInfoArgs.username(), pi, aInfoArgs.originAttributes(),
         aInfoArgs.endToEndSSL(), aInfoArgs.routedHost(), aInfoArgs.routedPort(),
         aInfoArgs.isHttp3(), aInfoArgs.webTransport());
+  }
+  if (!aInfoArgs.routedIPAddresses().IsEmpty()) {
+    cinfo->mRoutedIPAddresses = aInfoArgs.routedIPAddresses().Clone();
+    cinfo->RebuildHashKey();
   }
   // Transfer Webtransport ids
   cinfo->SetWebTransportId(aInfoArgs.webTransportId());

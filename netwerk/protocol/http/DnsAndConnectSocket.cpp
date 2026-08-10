@@ -37,6 +37,127 @@
 namespace mozilla {
 namespace net {
 
+class ExplicitDNSAddrRecord final : public nsIDNSAddrRecord {
+ public:
+  NS_DECL_THREADSAFE_ISUPPORTS
+  NS_DECL_NSIDNSRECORD
+  NS_DECL_NSIDNSADDRRECORD
+
+  explicit ExplicitDNSAddrRecord(const nsTArray<nsCString>& aAddresses) {
+    for (const auto& value : aAddresses) {
+      NetAddr address;
+      MOZ_RELEASE_ASSERT(NS_SUCCEEDED(address.InitFromString(value)));
+      mAddresses.AppendElement(address);
+    }
+  }
+
+ private:
+  ~ExplicitDNSAddrRecord() = default;
+
+  nsTArray<NetAddr> mAddresses;
+  uint32_t mIndex = 0;
+  TimeStamp mLastUpdate = TimeStamp::Now();
+};
+
+NS_IMPL_ISUPPORTS(ExplicitDNSAddrRecord, nsIDNSRecord, nsIDNSAddrRecord)
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetCanonicalName(nsACString& aResult) {
+  aResult.Truncate();
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::IsTRR(bool* aRetval) {
+  *aRetval = false;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::ResolvedInSocketProcess(bool* aRetval) {
+  *aRetval = false;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetTrrFetchDuration(double* aTime) {
+  *aTime = 0;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetTrrFetchDurationNetworkOnly(
+    double* aTime) {
+  *aTime = 0;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetScriptableNextAddr(
+    uint16_t aPort, nsINetAddr** aResult) {
+  return NS_ERROR_NOT_IMPLEMENTED;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetNextAddrAsString(nsACString& aResult) {
+  if (mIndex >= mAddresses.Length() ||
+      !mAddresses[mIndex++].ToString(aResult)) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::HasMore(bool* aResult) {
+  *aResult = mIndex < mAddresses.Length();
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::Rewind() {
+  mIndex = 0;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::ReportUnusable(uint16_t aPort) {
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetEffectiveTRRMode(
+    nsIRequest::TRRMode* aMode) {
+  *aMode = nsIRequest::TRR_DISABLED_MODE;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetTrrSkipReason(
+    nsITRRSkipReason::value* aReason) {
+  *aReason = nsITRRSkipReason::TRR_UNSET;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetTtl(uint32_t* aTtl) {
+  *aTtl = 60;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetLastUpdate(
+    mozilla::TimeStamp* aLastUpdate) {
+  *aLastUpdate = mLastUpdate;
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetNextAddr(uint16_t aPort,
+                                                 NetAddr* aAddr) {
+  if (mIndex >= mAddresses.Length()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+  *aAddr = mAddresses[mIndex++];
+  uint16_t port = htons(aPort);
+  if (aAddr->raw.family == AF_INET) {
+    aAddr->inet.port = port;
+  } else if (aAddr->raw.family == AF_INET6) {
+    aAddr->inet6.port = port;
+  }
+  return NS_OK;
+}
+
+NS_IMETHODIMP ExplicitDNSAddrRecord::GetAddresses(
+    nsTArray<NetAddr>& aAddressArray) {
+  aAddressArray = mAddresses.Clone();
+  return NS_OK;
+}
+
 //////////////////////// DnsAndConnectSocket
 NS_IMPL_ADDREF_INHERITED(DnsAndConnectSocket, ConnectionAttempt)
 NS_IMPL_RELEASE_INHERITED(DnsAndConnectSocket, ConnectionAttempt)
@@ -113,6 +234,14 @@ nsresult DnsAndConnectSocket::Init(ConnectionEntry* ent) {
     NetAddr address;
     if (NS_FAILED(address.InitFromString(connectionHost))) {
       return NS_ERROR_NOT_AVAILABLE;
+    }
+    if (mConnInfo->GetRoutedIPAddresses().IsEmpty()) {
+      return NS_ERROR_NOT_AVAILABLE;
+    }
+    for (const auto& value : mConnInfo->GetRoutedIPAddresses()) {
+      if (NS_FAILED(address.InitFromString(value))) {
+        return NS_ERROR_NOT_AVAILABLE;
+      }
     }
   }
   mPrimaryTransport.mHost = connectionHost;
@@ -309,6 +438,9 @@ nsresult DnsAndConnectSocket::SetupEvent(SetupEvents event) {
 }
 
 void DnsAndConnectSocket::SetupBackupTimer() {
+  if (mCaps & NS_HTTP_REQUIRE_IP_LITERAL) {
+    return;
+  }
   uint16_t timeout = gHttpHandler->GetIdleSynTimeout();
   MOZ_ASSERT(!mSynTimer, "timer already initd");
 
@@ -942,7 +1074,12 @@ nsresult DnsAndConnectSocket::TransportSetup::Init(
     DnsAndConnectSocket* dnsAndSock) {
   nsresult rv;
   mSynStarted = TimeStamp::Now();
-  if (mSkipDnsResolution) {
+  if (dnsAndSock->mCaps & NS_HTTP_REQUIRE_IP_LITERAL) {
+    mDNSRecord = new ExplicitDNSAddrRecord(
+        dnsAndSock->mConnInfo->GetRoutedIPAddresses());
+    mState = TransportSetup::TransportSetupState::CONNECTING;
+    rv = SetupStreams(dnsAndSock);
+  } else if (mSkipDnsResolution) {
     mState = TransportSetup::TransportSetupState::CONNECTING;
     rv = SetupStreams(dnsAndSock);
   } else {
@@ -1054,6 +1191,9 @@ nsresult DnsAndConnectSocket::TransportSetup::CheckConnectedResult(
   MaybeSetConnectingDone();
 
   if (mSkipDnsResolution) {
+    return NS_OK;
+  }
+  if (dnsAndSock->mCaps & NS_HTTP_REQUIRE_IP_LITERAL) {
     return NS_OK;
   }
   bool retryDns = false;
@@ -1224,7 +1364,9 @@ nsresult DnsAndConnectSocket::TransportSetup::SetupStreams(
           ("DnsAndConnectSocket this=%p using legacy nsISocketTransportService "
            "cannot honor explicit route %s:%d.\n",
            this, ci->RoutedHost(), ci->RoutedPort()));
-      return NS_ERROR_NOT_AVAILABLE;
+      if (dnsAndSock->mCaps & NS_HTTP_REQUIRE_IP_LITERAL) {
+        return NS_ERROR_NOT_AVAILABLE;
+      }
     }
 
     rv = sts->CreateTransport(socketTypes, ci->GetOrigin(), ci->OriginPort(),

@@ -8374,6 +8374,19 @@ nsHttpChannel::SetConnectionTargetIPAddress(const nsACString& aAddress) {
   return rv;
 }
 
+NS_IMETHODIMP
+nsHttpChannel::SetConnectionTargetIPAddresses(
+    const nsTArray<nsCString>& aAddresses) {
+  if (mTransaction) {
+    return NS_ERROR_IN_PROGRESS;
+  }
+  nsresult rv = HttpBaseChannel::SetConnectionTargetIPAddresses(aAddresses);
+  if (NS_SUCCEEDED(rv)) {
+    StoreUseHTTPSSVC(false);
+  }
+  return rv;
+}
+
 base::ProcessId nsHttpChannel::ProcessId() {
   nsCOMPtr<nsIParentChannel> parentChannel;
   NS_QueryNotificationCallbacks(this, parentChannel);

@@ -6795,20 +6795,37 @@ void HttpBaseChannel::SetConnectionInfo(nsHttpConnectionInfo* aCI) {
 
 NS_IMETHODIMP HttpBaseChannel::SetConnectionTargetIPAddress(
     const nsACString& aAddress) {
+  nsTArray<nsCString> addresses;
+  addresses.AppendElement(aAddress);
+  return SetConnectionTargetIPAddresses(addresses);
+}
+
+NS_IMETHODIMP HttpBaseChannel::SetConnectionTargetIPAddresses(
+    const nsTArray<nsCString>& aAddresses) {
   MOZ_ASSERT(NS_IsMainThread());
-  NetAddr address;
-  if (NS_FAILED(address.InitFromString(aAddress))) {
+  if (aAddresses.IsEmpty()) {
     return NS_ERROR_INVALID_ARG;
   }
   if (!mConnectionInfo || mConnectionInfo->UsingProxy()) {
     return NS_ERROR_NOT_AVAILABLE;
   }
-  nsAutoCString canonicalAddress;
-  if (!address.ToString(canonicalAddress)) {
-    return NS_ERROR_INVALID_ARG;
+  nsTArray<nsCString> canonicalAddresses;
+  for (const auto& value : aAddresses) {
+    NetAddr address;
+    if (NS_FAILED(address.InitFromString(value))) {
+      return NS_ERROR_INVALID_ARG;
+    }
+    nsAutoCString canonicalAddress;
+    if (!address.ToString(canonicalAddress)) {
+      return NS_ERROR_INVALID_ARG;
+    }
+    if (!canonicalAddresses.Contains(canonicalAddress)) {
+      canonicalAddresses.AppendElement(std::move(canonicalAddress));
+    }
   }
-  mConnectionInfo = mConnectionInfo->CloneAndRouteToIPAddress(
-      canonicalAddress, mConnectionInfo->OriginPort());
+  mConnectionInfo = mConnectionInfo->CloneAndRouteToIPAddresses(
+      canonicalAddresses, mConnectionInfo->OriginPort());
+  (void)mRequestHead.ClearHeader(nsHttp::Alternate_Service_Used);
   StoreAllowSpdy(false);
   StoreAllowHttp3(false);
   StoreAllowAltSvc(false);

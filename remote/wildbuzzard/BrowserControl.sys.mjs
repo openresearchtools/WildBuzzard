@@ -87,6 +87,9 @@ const MAX_RENDER_TOTAL_BYTES = 32 * 1024 * 1024;
 const RENDER_CONTEXT_ID_MIN = 0x40000000;
 const RENDER_CONTEXT_ID_RANGE = 0x3fffffff;
 const RENDER_PROXY_FILTER_POSITION = 0xffffffff;
+const RENDER_BLOCKED_PROXY_HOST = "0.0.0.0";
+const RENDER_BLOCKED_PROXY_PORT = 1;
+const RENDER_TEST_ROUTE_TOPIC = "wildbuzzard-gecko-render-route";
 const RENDER_HOST_URI = "chrome://global/content/win.xhtml";
 const TAB_OWNER_KEY = "wildbuzzard-agent-owner";
 const RENDER_ALLOWED_HEADERS = new Set([
@@ -1179,6 +1182,7 @@ class GeckoRenderController {
     this.testAllowedHosts = new Set();
     this.testAllowedOrigins = new Set();
     this.testDNSAnswers = new Map();
+    this.blockedSpeculativeProxy = null;
     this.lastCleanup = null;
     this.started = false;
   }
@@ -1227,6 +1231,27 @@ class GeckoRenderController {
     const userContextId =
       channel.loadInfo?.originAttributes?.userContextId ?? 0;
     const job = this.jobsByUserContext.get(userContextId);
+    if (
+      job &&
+      channel.loadInfo?.externalContentPolicyType ===
+        Ci.nsIContentPolicy.TYPE_SPECULATIVE
+    ) {
+      try {
+        channel.cancel(Cr.NS_ERROR_PORT_ACCESS_NOT_ALLOWED);
+      } catch {}
+      this.blockedSpeculativeProxy ??= lazy.ProxyService.newProxyInfo(
+        "http",
+        RENDER_BLOCKED_PROXY_HOST,
+        RENDER_BLOCKED_PROXY_PORT,
+        "",
+        "",
+        0,
+        0,
+        null
+      );
+      callback.onProxyFilterResult(this.blockedSpeculativeProxy);
+      return;
+    }
     let useTestProxy = false;
     if (job && Cu.isInAutomation) {
       try {
@@ -1582,7 +1607,7 @@ class GeckoRenderController {
       Ci.nsIRequest.INHIBIT_PERSISTENT_CACHING |
       Ci.nsIRequest.LOAD_ANONYMOUS |
       Ci.nsIChannel.LOAD_BYPASS_SERVICE_WORKER;
-    browser.docShell.allowJavascript = job.options.javascript;
+    browser.browsingContext.allowJavascript = job.options.javascript;
     job.browsingContext = browser.browsingContext;
   }
 
@@ -2019,7 +2044,11 @@ class GeckoRenderController {
         }
       }
     }
-    const metadata = { suspended: false };
+    const metadata = {
+      suspended: false,
+      approvedTargetKeys: null,
+      connectedTargetKey: null,
+    };
     job.channels.set(channel, metadata);
     try {
       channel.suspend();
@@ -2034,11 +2063,21 @@ class GeckoRenderController {
         if (this.#isTestAllowedURI(uri)) {
           return;
         }
-        const target = record.targets[0];
-        if (!target) {
+        if (!record.targets.length) {
           throw new Error(`hostname ${uri.host} has no approved route`);
         }
-        internal.setConnectionTargetIPAddress(target);
+        metadata.approvedTargetKeys = new Set(record.addresses);
+        internal.setConnectionTargetIPAddresses(record.targets);
+        if (Cu.isInAutomation) {
+          Services.obs.notifyObservers(
+            channel,
+            RENDER_TEST_ROUTE_TOPIC,
+            JSON.stringify({
+              host: uri.host.toLowerCase().replace(/\.$/, ""),
+              targets: record.targets,
+            })
+          );
+        }
       })
       .catch(error => {
         this.failJob(job, `ssrf-blocked: ${errorMessage(error)}`);
@@ -2069,8 +2108,8 @@ class GeckoRenderController {
     } catch {}
     const addressSpace = channel.loadInfo.ipAddressSpace;
     const testAllowed = this.#isTestAllowedURI(channel.URI);
+    const metadata = job.channels.get(channel);
     const host = channel.URI.host.toLowerCase().replace(/\.$/, "");
-    const approved = job.addressCache.get(host);
     const testDNSAnswer = Cu.isInAutomation && this.testDNSAnswers.has(host);
     if (
       !testAllowed &&
@@ -2086,13 +2125,19 @@ class GeckoRenderController {
       channel.cancel(Cr.NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED);
       return;
     }
-    if (!testAllowed && remoteAddress) {
-      const key = ipAddressKey(remoteAddress);
-      if (!key || !approved?.addresses.has(key)) {
+    if (!testAllowed) {
+      const key = remoteAddress ? ipAddressKey(remoteAddress) : null;
+      if (!key || !metadata?.approvedTargetKeys?.has(key)) {
         this.failJob(job, "ssrf-blocked: DNS rebinding was detected");
         channel.cancel(Cr.NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED);
         return;
       }
+      if (metadata.connectedTargetKey && metadata.connectedTargetKey !== key) {
+        this.failJob(job, "ssrf-blocked: connection target changed");
+        channel.cancel(Cr.NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED);
+        return;
+      }
+      metadata.connectedTargetKey = key;
     }
     try {
       if (
