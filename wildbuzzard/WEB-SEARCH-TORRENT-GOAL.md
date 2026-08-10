@@ -17,8 +17,25 @@ Use this objective:
 > root orchestrator; use at most three isolated-worktree `gpt-5.6-sol`
 > subagents concurrently at the high/ultra levels assigned by the spec. Do not
 > stop at planning or mocks. Implement every phase, preserve license/process
-> boundaries, run pristine-versus-port parity and all mandatory security,
-> lifecycle, browser, agent, torrent, and AppImage tests, fix failures at the
-> contract layer, build outside the source checkout, review and commit the
-> complete source stack, push normally, open the final build, and report exact
-> commits, artifacts, checksums, tests, and any genuinely blocked gate.
+> boundaries. First reproduce and fix the existing Add Torrent/File
+> native-chooser JavaScript failure, with an automated privileged-picker test
+> and headed built-browser/AppImage E2E. Ship the constrained GPL-2.0-only
+> Jackett Mini with an immutable catalog enabling every credential-free,
+> non-adult-only, non-external-solver public source; include mixed/general
+> sources but permanently filter adult result categories. Expose no dashboard,
+> tracker credentials, raw upstream API, or provider/config mutation, and keep
+> its internal capability token distinct from tracker credentials. Have root
+> or root-owned ultra subagents provision exact pinned pristine SearXNG and
+> Jackett services in rootless Podman or another rootless OCI runtime from
+> authoritative immutable image digests or pinned upstream source builds. Run
+> the same scenarios through each service's actual API, preserving the
+> explicit original-to-ported request mapping, both raw transcripts,
+> normalized diffs, logs, image/source digests, and live no-key source reports.
+> Make torrent results a semantic table with Title, Size, Seeders, Leechers,
+> Source/Category, and Download, defaulting to Seeders descending unless the
+> user chooses another sort. Agent searches omitting sort also use Seeders
+> descending with nulls last and never inherit UI sort state. Run all mandatory
+> security, lifecycle, browser, agent, torrent, and AppImage tests, fix failures
+> at the contract layer, build outside the source checkout, review and commit
+> the complete source stack, push normally, open the final build, and report
+> exact commits, artifacts, checksums, tests, and any genuinely blocked gate.

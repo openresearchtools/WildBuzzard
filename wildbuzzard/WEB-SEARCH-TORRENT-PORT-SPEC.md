@@ -25,8 +25,9 @@ WildBuzzard will provide:
   proprietary search, extraction, model, or hosted-provider integrations;
 - native Gecko page rendering, extraction, and bounded crawling for agents;
 - local GitHub repository reading and YouTube caption extraction;
-- Jackett-powered torrent discovery behind a strict GPL-2.0-only process and
-  source boundary;
+- a constrained GPL-2.0-only "Jackett Mini" discovery service containing an
+  immutable catalog of every public tracker that needs no login, cookie,
+  passkey, API key, or other credential, except adult-only trackers;
 - native torrent search, sorting, metadata inspection, file selection, and
   download handoff;
 - the same capabilities through concise Pi tools and skills; and
@@ -44,8 +45,10 @@ The first implementation does not provide:
 - raw Playwright API compatibility or Chromium fingerprint parity;
 - Firecrawl's complete API, worker, queue, database, billing, telemetry, or
   hosted feature stack;
-- automatic private or semi-private torrent tracker configuration;
-- automatic tracker credentials, passkeys, cookies, OTPs, or private API keys;
+- private, semi-private, login-based, cookie-based, passkey-based, API-keyed,
+  or otherwise credentialed torrent trackers;
+- a user- or agent-editable Jackett provider/configuration API or Jackett
+  administration dashboard;
 - a guarantee that a tracker cannot misclassify adult content; or
 - transparent exposure of local sidecars through LAN or Tailscale interfaces.
 
@@ -86,12 +89,12 @@ or `latest`.
 | `pi-web-access` | `692483ae782e41978fb2eba0eec70fd4056608c8`, package 0.19.0 | MIT, copyright notice retained |
 | `pi-web-access` 0.19.0 release baseline | `73d7205b6ff5c1201de7fde27302e0124915ce50` | Alternative base only if every later selected fix is recorded |
 | SearXNG source | `b023a28bab8839dba9eac96e9a51cc91bbd0a267` | AGPL-3.0-or-later |
-| SearXNG published 2026.8.4 image reference | commit `c63835bd2a5133b30b3752a20eac6b443a918f41`, digest `sha256:f4c8e59de166ed71f6380c0847c312ca51f0d41996e31d0559163b6b09ecde52` | Test oracle only; shipping runtime is source-built |
+| SearXNG published 2026.8.4 image reference | commit `c63835bd2a5133b30b3752a20eac6b443a918f41`, digest `sha256:f4c8e59de166ed71f6380c0847c312ca51f0d41996e31d0559163b6b09ecde52` | Pristine test reference only; shipping runtime is source-built |
 | Firecrawl | tag `v2.11.193`, `448ef4bf815d8df798d1a676f0303285e54cabdb` | Treat server and renderer material as AGPL-3.0-or-later unless a file-level audit proves otherwise |
 | Jackett release | `v0.24.2360`, `0cd8622b735922a909a128d8d6943bb8565a640f` | GPL-2.0-only, separate process and source package |
 | Jackett audited master | `be1f04dc66c0c2e934059f84ecb8e0c1729d7d19` | Research reference, not the shipping pin |
 | yt-dlp | release `2026.07.04`, `fdec00e0bf530dc6c3cc7b1dd780e95d9ae460e9` | Unlicense |
-| Playwright baseline | Firecrawl's pinned `^1.58.1` | Test oracle only, never shipped |
+| Playwright baseline | Firecrawl's pinned `^1.58.1` | Pristine test reference only, never shipped |
 
 The observed Jackett Linux x86-64 release asset was
 `Jackett.Binaries.LinuxAMDx64.tar.gz`, 50,877,536 bytes, SHA-256
@@ -130,7 +133,7 @@ The default self-hosted stack includes the API and workers, Playwright, Redis,
 RabbitMQ, NuQ PostgreSQL, and optional FoundationDB. Its API package also pulls
 in hosted model, billing, telemetry, queue, and database dependencies that are
 irrelevant to the browser product. The default product therefore uses
-Firecrawl as a pinned behavior and fixture oracle. A selected algorithm may be
+Firecrawl as a pinned behavior and fixture reference. A selected algorithm may be
 ported only after a per-file license audit and must retain exact path, revision,
 license, copyright, and modification records.
 
@@ -153,12 +156,12 @@ The required boundary is:
 
 ```text
 WildBuzzard browser process
-  independent AGPL managers, DTOs, XML parser, UI, and agent tools
+  independent AGPL managers, JSON client/DTOs, UI, and agent tools
                          |
               authenticated local protocol
                          |
 GPL-2.0-only package and process boundary
-  optional GPL bootstrap/bridge, pinned Jackett process, Jackett data
+  Jackett Mini fork/bridge, pinned tracker engine, private service state
                          |
                     tracker network
 ```
@@ -172,10 +175,12 @@ Boundary rules:
   dashboard code into browser code;
 - never host the CLR, statically link, dynamically link, or share an address
   space with Jackett;
-- do not iframe or expose the Jackett dashboard as WildBuzzard UI;
+- remove or make unreachable the Jackett dashboard and every provider/config
+  mutation surface in the Jackett Mini runtime;
 - specify independent, versioned browser DTOs instead of adopting Jackett
   configuration objects;
-- keep any bridge that imports or derives from Jackett inside the GPL package;
+- keep the Jackett Mini fork and any bridge that imports or derives from
+  Jackett inside the GPL package;
 - add a CI boundary scan for Jackett namespaces, linked assemblies, copied
   snippets, and forbidden package paths; and
 - distribute exact complete corresponding source, downstream patches, build
@@ -199,13 +204,13 @@ and license that client implementation under AGPL-3.0-or-later.
 WildBuzzard persistent service supervisor
 ├── SearXNG runtime                         eager/default-search service
 ├── yt-dlp caption helper                   on demand
-├── Jackett runtime                         lazy/torrent-search service
+├── Jackett Mini runtime                    lazy/torrent-search service
 └── isolated headless WildBuzzard workers   on-demand Gecko rendering
 
 WildBuzzard browser parent
 ├── WebSearchManager
 ├── Gecko render RPC
-├── clean-room Torznab client
+├── independent Jackett Mini JSON client
 ├── TorrentManager
 └── BrowserControl RPC
           ↕
@@ -218,9 +223,10 @@ own a service process. If service ownership is factored into a dedicated
 WildBuzzard supervisor, the same identity, persistence, and authentication
 contract applies.
 
-SearXNG starts eagerly because it is the default browser engine. Jackett starts
-only when torrent search or provider management is used. Gecko render workers
-start on demand, have bounded concurrency, and exit after an idle timeout.
+SearXNG starts eagerly because it is the default browser engine. Jackett Mini
+starts only when torrent search or read-only source status is used. Gecko
+render workers start on demand, have bounded concurrency, and exit after an
+idle timeout.
 
 ### Runtime extraction and AppImage lifetime
 
@@ -271,7 +277,7 @@ cannot safely report an ephemeral port.
 
 ### Shutdown and restart policy
 
-Persistent SearXNG and Jackett processes survive normal browser-window close
+Persistent SearXNG and Jackett Mini processes survive normal browser-window close
 and reconnect on reopen. The product exposes explicit status, Stop, Restart,
 and repair actions. An upgrade or explicit stop first requests graceful
 shutdown, then sends `SIGTERM` after a bounded deadline, and finally performs a
@@ -281,7 +287,7 @@ Gecko render workers do not persist indefinitely. Abort, timeout, parent crash,
 or idle expiry must destroy their browsing contexts and processes. Pi Web may
 launch a headless WildBuzzard worker through the original AppImage/AppDir when
 the primary browser is closed; a worker-mode flag must prevent recursive
-startup of Pi Web, SearXNG, Jackett, or normal browser UI.
+startup of Pi Web, SearXNG, Jackett Mini, or normal browser UI.
 
 ## SearXNG managed runtime
 
@@ -646,7 +652,30 @@ hashes, creation/expiry times, and storage policy. Apply TTL and LRU cleanup.
 Do not store request headers, credentials, cookies, sidecar tokens, or raw
 authenticated pages. Explicit current-session fetches default to `store=false`.
 
-## Jackett source package and runtime
+## Jackett Mini source package and runtime
+
+Jackett Mini is a constrained downstream GPL-2.0-only fork, not a renamed
+upstream dashboard. Its only product purpose is credential-free, read-only
+torrent discovery. The fork must enforce these properties in its server and
+packaged provider catalog rather than relying on browser UI hiding:
+
+- expose only health, version, immutable source status, search, and opaque
+  result resolution;
+- include and enable every pinned public tracker that operates without a
+  login, registration, cookie, passkey, API key, token, OTP, or other tracker
+  credential, except trackers classified as adult-only;
+- reject private, semi-private, credentialed, adult-only, and external-solver
+  providers even when a caller knows an upstream identifier;
+- provide no provider add, edit, enable, disable, test, update, or credential
+  operation;
+- provide no adult-policy switch, custom Cardigann import path, dashboard,
+  updater, or arbitrary upstream API pass-through; and
+- make the generated eligible-provider catalog immutable until the next
+  reviewed WildBuzzard release.
+
+The local capability token used to authenticate WildBuzzard to Jackett Mini is
+service authentication, not a tracker credential. It never changes which
+trackers are eligible and is never exposed to content or agents.
 
 ### Source layout
 
@@ -656,8 +685,9 @@ as:
 ```text
 wildbuzzard/third_party/gpl2/jackett/
 ├── upstream/          exact preferred source for the pinned release
-├── patches/           downstream GPL-2.0-only patches, if unavoidable
+├── patches/           downstream GPL-2.0-only Jackett Mini patch series
 ├── packaging/         reproducible source-build and runtime manifest input
+├── provider-policy/   generated immutable catalog and classifications
 ├── BOUNDARY.md        prohibited and permitted integration paths
 ├── LICENSE
 └── UPSTREAM.toml
@@ -669,11 +699,16 @@ represented by the full upstream commit, source archive hash, update script,
 and downstream patch series. Do not use a moving submodule or download source
 during the browser build.
 
-Jackett is an ASP.NET Core server. The audited project targets `net9.0` and
-`net471`; the Linux build uses the .NET 9 target and upstream's pipeline uses
-`dotnet publish --self-contained`. The output is a directory containing the
-Jackett executable, updater, `Content`, `Definitions`, and managed/native
-dependencies. It is not a single static executable.
+Upstream Jackett is an ASP.NET Core server. The audited project targets
+`net9.0` and `net471`; the Linux build uses the .NET 9 target and upstream's
+pipeline uses `dotnet publish --self-contained`. Upstream output is a directory
+containing the executable, updater, `Content`, `Definitions`, and
+managed/native dependencies rather than one static executable. Jackett Mini
+uses the same pinned engine source but its runtime manifest must omit the
+updater, dashboard assets, credential/configuration UI, unapproved external
+definition paths, and provider definitions that cannot pass the generated
+eligibility gate. The complete corresponding source still contains all
+upstream source plus every downstream patch and build input.
 
 Build in an external object directory with a pinned .NET SDK or source-build
 environment. Generate and enforce a complete NuGet dependency lock and SBOM,
@@ -691,7 +726,7 @@ payload.
 Launch behavior is equivalent to:
 
 ```text
-<runtime>/jackett
+<runtime>/jackett-mini
   --ListenPrivate
   --Port <owned-loopback-port>
   --PIDFile <owned-runtime-state>/jackett.pid
@@ -700,48 +735,51 @@ Launch behavior is equivalent to:
   --DataFolder <isolated-persistent-data>
 ```
 
-Verify the packaged executable's actual name and option spelling at the pin.
+Verify the packaged executable's actual name and option spelling at the pin;
+if the fork retains the upstream executable name, record that intentional
+difference in the runtime manifest.
 Always pass `--ListenPrivate`; the audited Unix defaults could otherwise permit
 wildcard listening. Socket inspection is a release gate: no `0.0.0.0` or `::`
 listener is permitted.
 
-Jackett's updater checks GitHub after an initial delay and can download a
+Upstream Jackett's updater checks GitHub after an initial delay and can download a
 replacement, invoke its updater, overwrite its runtime, and kill/restart the
-process. `--NoUpdates` is mandatory because it blocks automatic and forced
-manual update paths. `--NoRestart` is defense in depth. Removing the updater
-from a modified package is permitted only inside the GPL source package with
-the modification documented and reproducibly buildable.
+process. Jackett Mini must remove updater routes and omit the updater from its
+runtime. `--NoUpdates` remains mandatory defense in depth, and `--NoRestart`
+prevents autonomous restart. Every modification belongs inside the GPL source
+package and must be documented and reproducibly buildable.
 
 Browser/AppImage releases own all upgrades. Before a new runtime reads an old
 data directory, create an atomic version-labelled backup. A failed health or
 migration check rolls the runtime and data back together; never run an older
 binary blindly against data migrated by a newer version.
 
-### Jackett data and secrets
+### Jackett Mini data and service authentication
 
-Jackett stores global configuration, API key, optional admin-password hash,
-proxy settings, indexer JSON, backup files, cookies, passkeys, OTP fields, and
-ASP.NET Data Protection keys under its data root. Upstream protection is
-field- and schema-dependent. Cookie headers and credential-like strings can be
-plaintext at rest; WildBuzzard must not claim that all Jackett credentials are
-encrypted.
+Upstream Jackett can store global configuration, an API key, admin-password
+hash, proxy settings, mutable indexer JSON, cookies, passkeys, OTP fields, and
+ASP.NET Data Protection keys. Jackett Mini must not expose or persist tracker
+credentials or mutable provider configuration. Its state is restricted to the
+random WildBuzzard-to-service capability, pinned catalog identity, bounded
+cache/status data, process state, and any framework key material that the
+reduced server still requires.
 
 Treat the entire data root and its backups as secret:
 
 - root mode 0700 and files mode 0600 under `umask 077`;
 - never place it inside the browser profile, AppImage, download tree, sync,
   telemetry, crash annotations, or diagnostic bundle;
-- never log URLs containing `apikey`, `passkey`, cookies, proxy credentials,
-  or tracker announce data;
-- never expose Jackett keys, configuration objects, or dashboard data to a
-  content process; and
-- use a random API key and admin secret generated without placing secrets on a
-  command line.
+- never log the internal capability, result-resolution URLs, query URLs, or
+  tracker announce data;
+- never expose service keys, raw configuration objects, or framework state to
+  a content process; and
+- generate one random internal capability without placing it on a command
+  line.
 
-The initial release configures no private or semi-private trackers and offers
-no credential editor. If a later release adds one, secrets are write-only;
-existing values are represented only as `configured: true`. Agents must never
-configure providers, retrieve secret state, or change adult-content policy.
+There is no tracker credential editor, provider editor, admin secret, or
+provider mutation API in this product. Adding any of them is outside this
+specification and requires a new architecture, threat-model, and product
+decision rather than a dormant flag.
 
 ## Provider policy
 
@@ -764,9 +802,10 @@ The audited YAML corpus had 195 definitions with at least one XXX category
 mapping, including mixed/general trackers. Jackett has no trustworthy
 machine-readable `adult-only` provider flag.
 
-### Reviewed provider manifest
+### Immutable eligibility catalog
 
-Create a build-time policy artifact with entries equivalent to:
+Create a build-time policy artifact covering every effective YAML and native
+provider at the exact Jackett pin. Entries are equivalent to:
 
 ```json
 {
@@ -774,62 +813,111 @@ Create a build-time policy artifact with entries equivalent to:
   "indexerId": "example",
   "definitionSha256": "...",
   "access": "public",
-  "contentRating": "reviewed-general",
-  "legalApproval": "review-reference",
-  "torCompatible": true,
-  "requiresFlareSolverr": false
+  "requiresCredentials": false,
+  "requiresExternalSolver": false,
+  "contentClass": "general",
+  "eligibility": "enabled-public",
+  "reasons": ["public, credential-free, and not adult-only"]
 }
 ```
 
-Allowed content ratings are `reviewed-general`, `mixed`, `adult-only`, and
-`unknown`. New, renamed, or hash-changed definitions fail the policy check and
-remain disabled until reviewed. An upgrade never enables a newly added
-provider automatically.
+`contentClass` is exactly `general`, `mixed-general`, `adult-only`, or
+`not-applicable`. Eligibility is computed independently from content class.
+When multiple exclusion rules apply, record every reason in a deterministic
+array while eligibility remains excluded. Neither content class nor
+eligibility may have an unclassified state in a shipping catalog.
 
-The product requirement to select safe public sources is implemented as all
-credential-free public providers that have explicitly passed the pinned
-`reviewed-general` policy. It must not be implemented as every definition whose
-access field says `public`. `mixed`, `adult-only`, `unknown`, private,
-semi-private, credential-requiring, and implicit FlareSolverr providers remain
-disabled.
+The only allowed release classifications are `enabled-public`,
+`excluded-adult-only`, `excluded-credentialed`, `excluded-non-public`, and
+`excluded-external-runtime`. The release build must classify every definition;
+it cannot ship `unknown`, unreviewed, or silently disabled public entries. A
+new, renamed, or hash-changed definition fails CI and blocks the pin update
+until classified. Once classified, every `enabled-public` provider is enabled
+automatically and immutably for that release.
 
-Disable user-supplied Cardigann definition search paths in the managed product
-configuration because they bypass source pinning, network review, and content
-policy. A future advanced import feature requires its own explicit threat and
-license design.
+Eligibility is mechanical and product-specific:
+
+- include every public provider that needs no account, registration, login,
+  cookie, passkey, API key, token, OTP, client certificate, or other tracker
+  credential;
+- include general and mixed/general public providers, while filtering adult
+  result categories as described below;
+- exclude a provider whose primary catalog is adult-only;
+- exclude every private or semi-private provider, even when registration is
+  currently open;
+- exclude every provider that requires FlareSolverr, another anti-bot solver,
+  a user-supplied endpoint, or another separately configured runtime; and
+- reject custom/user-supplied Cardigann definitions and definition search
+  paths.
+
+There is no per-provider legal-approval flag, default-off holding set, or
+runtime enable/disable preference. The immutable catalog is the release
+decision. A read-only status view may report availability, latency, and the
+classification reason. A search may optionally target a subset of eligible
+sources for performance, but neither a user nor an agent can alter catalog
+membership. "All" always means every `enabled-public` source in the pinned
+catalog.
 
 ### Adult-content defense in depth
 
 Torznab/Newznab category 6000 represents XXX, with audited subcategories 6010
-through 6090. Adult-off behavior combines provider and result policy:
+through 6090. The permanent product filter combines source and result policy:
 
-- query only `reviewed-general` providers;
-- do not request category 6000 or its subcategories;
+- never include an adult-only provider in the eligible catalog;
+- never request category 6000 or any subcategory;
 - drop a result containing any category from 6000 through 6999;
-- treat absent, generic, custom, or category-8000-only results according to
-  the reviewed provider classification;
+- apply the same filtering to mixed/general public sources, including when a
+  source returns adult and ordinary material together;
 - keep thumbnails, suggestions, logs, cache entries, and agent output behind
   the same filter; and
-- never allow an agent tool call to override the preference.
+- provide no user, agent, environment, or hidden configuration override.
 
 This is defense in depth, not a guarantee against incorrect or malicious
-tracker classification. Public/live provider tests remain non-gating and use
-an explicitly approved legal endpoint list.
+tracker classification. Deterministic CI uses fixtures; quarantined live
+monitoring verifies eligible sources without making release tests depend on
+tracker uptime.
 
 ### Query disclosure and reliability
 
-Enabling many public providers sends the query and user network address to
-many unrelated sites, increases anti-bot and rate-limit failures, and makes
-latency nondeterministic. The UI must identify enabled providers, show partial
-provider failures, allow user control, and never imply that "All" means every
-definition shipped by Jackett. "All enabled providers" means the reviewed,
-enabled set only.
+Searching all eligible public providers sends the query and user network
+address to many unrelated sites, increases anti-bot and rate-limit failures,
+and makes latency nondeterministic. The UI must disclose that behavior and
+show per-source partial failures. It may let the caller narrow one search to a
+read-only subset, but it must not present provider management or imply that
+excluded definitions can be configured. "All" means the entire immutable
+`enabled-public` catalog for the current WildBuzzard release.
 
-## Clean-room Torznab adapter
+## Independent Jackett Mini client and retained upstream behavior
 
-### Requests
+### Read-only product API
 
-The documented Jackett endpoint shape is:
+The browser-facing Jackett Mini protocol is versioned independently from
+upstream Torznab and exposes only:
+
+```text
+GET  /v1/health
+GET  /v1/version
+GET  /v1/sources
+POST /v1/search
+POST /v1/results/:opaque-result-id/resolve
+```
+
+`/v1/sources` is status-only. There is no configuration, add, edit, remove,
+enable, disable, credential, dashboard, updater, arbitrary proxy, or raw
+Torznab route. Unsupported paths and mutation attempts fail closed and are
+covered by contract tests. The API uses the random internal capability token
+in an `Authorization` header; that service token is not a provider API key and
+cannot unlock a credentialed tracker. Ordinary content, the About page, and Pi
+never receive either the token or direct access to Jackett's internal engine.
+
+Result resolution may return bounded validated torrent metadata or a public
+magnet to privileged browser code, but it never adds or starts a download.
+Only the separate native TorrentManager draft/commit flow performs that user
+side effect.
+
+### Original Jackett test API, not a product route
+
+The pristine original Jackett test service exposes this Torznab shape:
 
 ```text
 GET /api/v2.0/indexers/<indexer-id>/results/torznab/api
@@ -841,18 +929,22 @@ GET /api/v2.0/indexers/<indexer-id>/results/torznab/api
     &offset=<offset>
 ```
 
-The audited request model also accepts `imdbid`, `ep`, `extended`, `cache`,
-`season`, `rid`, `tvdbid`, `tmdbid`, `tvmazeid`, `traktid`, `doubanid`,
-`album`, `artist`, `label`, `track`, `year`, `genre`, `title`, `author`,
-`publisher`, and meta-indexer `configured`. The pinned code appeared to assign
-`publisher` into `Author`; do not rely on publisher behavior without a pinned
-regression test.
+The audited upstream request model also accepts `imdbid`, `ep`, `extended`,
+`cache`, `season`, `rid`, `tvdbid`, `tmdbid`, `tvmazeid`, `traktid`,
+`doubanid`, `album`, `artist`, `label`, `track`, `year`, `genre`, `title`,
+`author`, `publisher`, and meta-indexer `configured`. The pinned code appeared
+to assign `publisher` into `Author`; do not rely on publisher behavior without
+a pinned regression test. These routes and parameters exist only in the
+pristine original-service suite and retained engine-level fixtures. Jackett Mini must
+not expose or internally call an HTTP `/api/v2.0` route and must not expose
+`apikey` or `passkey` compatibility. Its only network API is `/v1/*`; retained
+indexer logic is invoked behind that product boundary.
 
-Fetch and cache `t=caps` for every enabled provider. Issue only modes,
-parameters, and categories declared by that provider. `t=indexers` is used for
-sanitized discovery/status. Query enabled indexers individually rather than
-using `/all`, because `/all` flattens capability and custom-category behavior,
-lets slow providers delay the aggregate, obscures partial failures, cannot use
+Jackett Mini loads and caches capabilities for every eligible provider and
+issues only modes, parameters, and categories supported by that provider. It
+queries eligible indexers individually rather than using upstream `/all`,
+because `/all` flattens capability and custom-category behavior, lets slow
+providers delay the aggregate, obscures partial failures, cannot use
 indexer-specific categories at or above 100000, and caps aggregate results.
 
 Initial scheduling policy:
@@ -865,21 +957,21 @@ Initial scheduling policy:
 - cancellation or discard of stale generations; and
 - partial results with per-provider state.
 
-Jackett's cache default was observed at 2,100 seconds and 1,000 results per
-indexer. `cache=false` requests fresh results. Product code must make cache
-behavior intentional and test it; it must not generate uncontrolled tracker
-load.
+Upstream Jackett's cache default was observed at 2,100 seconds and 1,000
+results per indexer, and `cache=false` requests fresh results. Jackett Mini
+must make cache behavior intentional and test it; it must not expose that raw
+switch or generate uncontrolled tracker load.
 
-### Response and error parsing
+### Upstream response parity and product errors
 
-Success is RSS 2.0 with a Torznab namespace. Items can carry title, GUID,
-indexer ID/name, tracker type, link/enclosure, comments, details, date, size,
-file/grab counts, categories, identifiers, media metadata, seeders, peers,
-cover URL, infohash, magnet URL, ratio/time requirements, and transfer factors.
-Most fields are optional.
+Upstream success is RSS 2.0 with a Torznab namespace. Items can carry title,
+GUID, indexer ID/name, tracker type, link/enclosure, comments, details, date,
+size, file/grab counts, categories, identifiers, media metadata, seeders,
+peers, cover URL, infohash, magnet URL, ratio/time requirements, and transfer
+factors. Most fields are optional.
 
-HTTP status alone is not success. Jackett can return HTTP 200 with an XML
-`<error>` root. Observed semantics include:
+HTTP status alone is not success in the pristine API. Upstream Jackett can
+return HTTP 200 with an XML `<error>` root. Observed semantics include:
 
 - invalid API key: error code 100, often HTTP 200;
 - missing or unsupported indexer: codes 200 or 201;
@@ -889,15 +981,17 @@ HTTP status alone is not success. Jackett can return HTTP 200 with an XML
 - rate limiting: HTTP 429 with `Retry-After` when known; and
 - in-action validation: commonly HTTP 400 XML.
 
-Every response parser must inspect the XML root before interpreting an empty
-result. Disable DTDs and external entities and enforce compressed byte,
+The rootless original-service comparator must inspect the XML root before interpreting an
+empty result, disable DTDs and external entities, and enforce compressed byte,
 decompressed byte, element count, depth, text, attribute, and result limits.
-Handle malformed XML, stalled bodies, redirects, redirect loops, TLS failure,
-429, and inconsistent optional attributes.
+Parity covers malformed XML, stalled bodies, redirects, redirect loops, TLS
+failure, 429, and inconsistent optional attributes. Jackett Mini maps the
+equivalent retained-engine outcomes into bounded `/v1` JSON and never forwards
+raw XML or raw upstream errors to the browser.
 
-The Jackett API key appears in the query string on the internal loopback hop.
-It must be scrubbed before logging, error reporting, telemetry, history, or
-crash capture.
+The internal capability is the only product wire secret. It is never placed in
+a query string and must be redacted from logs, error reporting, telemetry,
+history, and crash capture.
 
 ### Normalized result contract
 
@@ -932,35 +1026,83 @@ Browser and Pi consumers receive independent sanitized data:
 }
 ```
 
-Raw result URLs, download URLs, credentials, passkeys, GUIDs, Jackett paths,
-and API keys remain in a short-lived privileged result cache keyed by profile,
-search ID, and result ID.
+Raw public result/download URLs, GUIDs, and engine-internal identifiers remain
+only in a bounded, short-lived Jackett Mini result cache keyed by profile,
+search ID, and result ID. No tracker credential, cookie, passkey, or provider
+API key may exist in that cache.
 
 Do not label `peers` blindly as leechers. Some Jackett paths use total peers.
 Determine semantics through pinned endpoint fixtures and, when peers is total,
 derive `max(0, peers - seeders)`. Preserve unavailable values as `null`.
 
 Deduplicate public results by normalized BTIH/infohash, then canonical magnet,
-then provider plus GUID while preserving alternate provider sources. Never
-merge private results between providers.
+then provider plus GUID while preserving alternate provider sources.
+
+## Existing `.torrent` file-picker regression
+
+The current `about:torrents` Add Torrent/File action throws a JavaScript
+exception instead of opening the native file chooser. Reproduce and fix it as
+the first implementation and release gate, before Jackett Mini, torrent
+search, or new torrent UI work. No later feature may mask, defer, or route
+around it.
+
+Required behavior:
+
+- reproduce the failure in the externally built WildBuzzard browser and
+  preserve the browser-console stack and exact user steps as a regression
+  artifact;
+- make the Add Torrent button and empty-state action open a trusted native
+  file chooser accepting `.torrent` and `application/x-bittorrent` through the
+  established privileged parent boundary;
+- do not expose a selected local path to ordinary content, Pi, Jackett Mini,
+  or the torrent sidecar; privileged code reads bounded bytes and hands only
+  validated torrent data to the existing manager;
+- pass a valid selection into the same metadata-draft and file-selection
+  dialog used by magnets and search results;
+- treat chooser cancellation as a silent no-op, restore focus to the invoking
+  control, and produce no rejected promise or console exception;
+- show an accessible error for an invalid, unreadable, or over-12-MiB file and
+  permit another selection immediately;
+- support repeated selections in one browser session, selection after closing
+  the dialog, and selection after browser restart; and
+- if drag-and-drop is retained, route it through exactly the same bounded read,
+  validation, draft, and error path.
+
+The operating-system `.torrent` chooser is distinct from the later metadata
+dialog that lists files inside a torrent. Both must work: choosing the torrent
+creates a draft, then the metadata dialog defaults every contained file to
+selected and waits for explicit commit.
 
 ## Torrent discovery UI
 
 Add a Search region or tab to `about:torrents` containing:
 
 - search field;
-- provider selector with "All enabled providers" and individual providers;
-- Manage Providers entry, limited to policy-safe settings in the first release;
+- an "All sources" default covering the complete immutable eligible catalog;
+- an optional per-search source subset selector and read-only source/status
+  list, with no provider-management affordance;
 - progress, cancellation, partial-result, and provider-error status;
-- results table with Name, Size, Seeders, Leechers, Provider/Category, and Add;
-- one-click Download all; and
+- a semantic results table/data grid with Title, Size, Seeders, Leechers,
+  Source, Category, Published/Age, and Download columns;
+- working Add Torrent/File and drag-and-drop entry points for local `.torrent`
+  files;
 - metadata/file-selection flow.
 
 Use semantic Firefox markup, Fluent strings, product design tokens, logical
 CSS, visible focus, forced-colors support, and keyboard/screen-reader behavior.
-Sortable headers use buttons and maintain `aria-sort`. Support name, size,
-seeders, and leechers; default seeders descending. Null numeric values sort
-last. Stable ties use provider ID, normalized name, and result ID.
+Use an actual semantic table rather than a collection of visually aligned
+generic elements. Sortable Title, Size, Seeders, and Leechers headers use
+buttons and maintain `aria-sort`. A new surface and its first query sort by
+Seeders descending; null seed counts sort last. That remains the active order
+until the user selects another sortable header. A header click selects that
+field and subsequent clicks toggle direction, and the chosen order remains for
+later results in that surface. Null numeric values always sort last. Stable
+ties use provider ID, normalized title, and result ID.
+
+Each row's Download button resolves the opaque result and opens the metadata
+file-selection dialog. Every file is checked by default, so the primary action
+is Download all; after the user changes the selection it becomes Download
+selected. Resolution alone never begins payload transfer.
 
 Titles and provider data are untrusted. Strip control characters, cap length,
 and render with `textContent`; never insert result-supplied HTML or executable
@@ -1013,16 +1155,18 @@ paths, parent traversal, NULs, and platform-reserved paths. Preserve the
 existing 12 MiB `.torrent` input cap unless a reviewed change justifies a new
 bound.
 
-For a Jackett result, privileged code resolves the opaque result ID. It may
-return a validated public magnet or fetch Jackett's authenticated download
-endpoint itself. Follow at most five redirects, restrict schemes, reject
-unexpected private/link-local destinations, cap bytes, and validate bencode or
-BTIH. The About page and torrent runtime must never fetch a result-supplied
-arbitrary URL.
+For a Jackett Mini result, privileged code calls
+`/v1/results/:opaque-result-id/resolve`. Mini may return a validated public
+magnet or bounded validated `.torrent` bytes. Its internal public download
+fetch follows at most five redirects, restricts schemes, rejects unexpected
+private/link-local destinations, caps bytes, and validates bencode or BTIH. No
+raw upstream URL or tracker credential crosses the product boundary, and the
+About page and torrent runtime never fetch a result-supplied arbitrary URL.
 
-Private torrents, if a later explicit feature enables them, must preserve the
-private flag and announce URLs. Never synthesize a public magnet from a private
-infohash, and prove DHT and PEX remain disabled.
+Any manually supplied `.torrent` file marked private must preserve its private
+flag and announce URLs. Jackett Mini never discovers credentialed private
+trackers. Never synthesize a public magnet from a private infohash, and prove
+DHT and PEX remain disabled for a manually added private torrent.
 
 ## Torrent agent contract
 
@@ -1039,24 +1183,27 @@ torrent_commit({ draftId, files? })
 torrent_cancel({ draftId })
 ```
 
-Omitted providers means all enabled providers. Omitted files means all files.
-Search returns bounded sanitized results and per-provider status. Prepare,
-commit, draft, and cancel accept opaque IDs scoped to the current profile and
-session. Agents cannot supply arbitrary acquisition URLs, filesystem paths,
-Jackett identifiers, credentials, provider definitions, or adult-policy
-overrides.
+Omitted providers means all eligible providers in the immutable catalog.
+Omitted `sort` means `seeders`, and omitted `direction` means descending;
+unknown seed counts remain last. `torrent_providers()` is read-only status,
+not configuration. Omitted files means all files. Search returns bounded
+sanitized results and per-provider status. Prepare, commit, draft, and cancel
+accept opaque IDs scoped to the current profile and session. Agents cannot
+supply arbitrary acquisition URLs, filesystem paths, Jackett identifiers,
+credentials, provider definitions, or adult-policy overrides, and cannot
+enable, disable, add, edit, or test a provider.
 
 Committing a torrent is a side effect and follows the product confirmation
 policy unless the user explicitly authorized the download. Titles are marked
-as untrusted external data before entering agent context. Never return a
-bridge bearer, Jackett key, passkey, cookie, private announce URL, or dashboard
-object.
+as untrusted external data before entering agent context. Never return the
+internal capability, raw result URL, engine identifier, private announce URL,
+or framework state.
 
 ## Tor routing
 
 Existing torrent TCP, UDP, uTP, and Tor behavior must remain intact. If torrent
-search is configured to use Tor, Jackett's tracker HTTP must use the managed
-SOCKS path and fail closed when Tor is unavailable. It must never silently
+search is configured to use Tor, Jackett Mini's tracker requests must use the
+managed SOCKS path and fail closed when Tor is unavailable. It must never silently
 retry directly. Torrent payload Tor routing remains an explicit manager
 setting and is tested independently from search routing.
 
@@ -1076,8 +1223,7 @@ not silently reuse ordinary Jackett state.
 - never provide service credentials to a content process;
 - redact queries, URLs, headers, page bodies, API keys, passkeys, cookies,
   tracker announces, and credentials from logs and diagnostics;
-- rate-limit search, result resolution, configuration, render, and crawl
-  requests;
+- rate-limit search, result resolution, render, and crawl requests;
 - keep third-party data roots away from the browser profile and download tree;
 - apply Landlock, bubblewrap, seccomp, or another available sandbox where
   supportable and document reduced isolation otherwise; and
@@ -1118,15 +1264,20 @@ provided to an agent.
 
 ### Phase 0: contracts, pins, and feasibility spikes
 
-1. Freeze tool schemas, service protocols, upstream revisions, source hashes,
+1. Reproduce the current Add Torrent/File JavaScript exception in the built
+   browser, capture its stack, fix the trusted native chooser path, and prove a
+   local `.torrent` reaches the metadata dialog without a console error.
+2. Freeze tool schemas, service protocols, upstream revisions, source hashes,
    licenses, dependency locks, SBOM format, and recorded fixtures.
-2. Prove dynamic SearXNG SearchService registration and normal/private default
+3. Provision exact pinned pristine SearXNG and Jackett services in rootless
+   Podman or an equivalent OCI runtime and save the initial raw parity corpus.
+4. Prove dynamic SearXNG SearchService registration and normal/private default
    behavior across a port change.
-3. Prove isolated Gecko rendering and complete cleanup.
-4. Prove metadata-only magnet behavior with zero payload before commit.
-5. Prove Jackett private bind, isolated data, random-port retry, health,
+5. Prove isolated Gecko rendering and complete cleanup.
+6. Prove metadata-only magnet behavior with zero payload before commit.
+7. Prove Jackett Mini private bind, isolated data, random-port retry, health,
    no-update behavior, stale PID safety, and separation from system Jackett.
-6. Resolve any failed spike at the architecture or transport layer before
+8. Resolve any failed spike at the architecture or transport layer before
    broad UI work.
 
 ### Phase 1: source and runtime foundation
@@ -1134,7 +1285,7 @@ provided to an agent.
 1. Add exact source snapshots, licenses, notices, update scripts, manifests,
    boundary documents, and build locks.
 2. Add external reproducible build scripts for SearXNG, yt-dlp support, and
-   Jackett.
+   the GPL-2.0-only Jackett Mini fork.
 3. Extend the persistent supervisor and runtime extraction/identity logic.
 4. Add health, restart, explicit stop, upgrade, rollback, and socket checks.
 
@@ -1153,33 +1304,46 @@ provided to an agent.
 3. Use Gecko as the dynamic-page fallback for `fetch_content`.
 4. Add bounded crawl, robots, sitemap, canonicalization, cancellation, and
    partial results.
-5. Compare normalized behavior against the pinned Firecrawl oracle.
+5. Compare normalized behavior against the pinned Firecrawl reference.
 
 ### Phase 4: Jackett discovery and torrent drafts
 
-1. Build and supervise pinned Jackett behind the process boundary.
-2. Generate and enforce the reviewed provider manifest.
-3. Implement caps-driven per-provider Torznab search and normalized opaque
+1. Build and supervise pinned Jackett Mini behind the process boundary.
+2. Generate the exhaustive immutable eligibility catalog, enable every
+   credential-free non-adult-only public source, and fail the build for every
+   unclassified or hash-changed definition.
+3. Remove or make unreachable dashboard, updater, credential, provider-edit,
+   custom-definition, adult-switch, and raw upstream API surfaces.
+4. Implement caps-driven per-provider Torznab search and normalized opaque
    results.
-4. Add metadata draft, validation, all-file default, subset commit, and
+5. Add metadata draft, validation, all-file default, subset commit, and
    cancellation APIs.
-5. Prove no payload before commit and preserve existing torrent transports.
+6. Prove no payload before commit and preserve existing torrent transports.
 
 ### Phase 5: browser and agent product surfaces
 
-1. Add accessible native torrent search and file-selection UI.
+1. Add accessible native torrent search, keep the Phase 0 local `.torrent`
+   chooser regression tests green, and add file-selection UI.
 2. Add Torrent URLbar mode and `@torrent` alias.
 3. Add concise agent discovery/draft/commit operations.
-4. Add service status, repair, stop, and restart UI where appropriate.
+4. Add read-only source/service status, repair, stop, and restart UI where
+   appropriate; do not add provider management.
 
 ### Phase 6: independent parity, security, and release
 
-1. Run pristine and ported implementations through identical fixtures.
-2. Run security, fuzz, crash, lifecycle, accessibility, and migration tests.
-3. Build the browser and AppImage entirely outside the source checkout.
-4. Run real UI and agent flows in the built WildBuzzard browser.
-5. Review the final diff, commit stack, source inventory, and license package.
-6. Push normally and open the built product only after mandatory gates pass.
+1. Rebuild or pull the exact-digest pristine SearXNG and Jackett rootless
+   reference containers from recorded pins.
+2. Run pristine and ported APIs through identically mapped deterministic user
+   scenarios and retain request mappings, both raw transcripts, normalized
+   diffs, logs, and runtime identities.
+3. Run the quarantined live no-key engine/provider comparison and record every
+   source outcome.
+4. Run security, fuzz, crash, lifecycle, accessibility, and migration tests.
+5. Build the browser and AppImage entirely outside the source checkout.
+6. Run real UI and agent flows in the built WildBuzzard browser.
+7. Review the final diff, commit stack, source inventory, license package, and
+   complete original-service comparison evidence.
+8. Push normally and open the built product only after mandatory gates pass.
 
 ## Multi-agent execution model
 
@@ -1210,9 +1374,67 @@ reports the commit, changed files, commands, unfiltered test-log paths, and
 known failures. Root reviews the complete diff and reruns relevant tests before
 cherry-picking. Reports are evidence, not acceptance.
 
+## Pristine original-service API comparison harness
+
+Original-service comparison is mandatory for SearXNG and Jackett Mini. The
+root orchestrator or delegated test agents must provision pristine services in
+a rootless Podman-compatible OCI runtime and run them side by side with the
+ported services. Merely testing browser mocks or the normalized WildBuzzard API
+does not satisfy parity.
+
+Reference-service provisioning rules:
+
+- never pull `latest` or an unpinned tag;
+- for SearXNG, use the authoritative image at the exact recorded manifest
+  digest only after verifying it corresponds to the selected source pin, or
+  build an unmodified image from that exact upstream source in an external
+  test directory;
+- for Jackett, build the pristine unmodified service from the exact selected
+  upstream commit using its upstream build inputs unless an authoritative
+  commit-matched image with a verified manifest digest exists;
+- record the source commit, OCI manifest and platform digest, base-image
+  digests, build command, redacted configuration hash, random host ports, and
+  container-runtime version;
+- run rootless, bind only random loopback host ports, use fresh per-run data
+  directories, and never attach to or modify a system SearXNG or Jackett;
+- configure the pristine and ported services with equivalent deterministic
+  local fixtures and no tracker or search-provider credentials;
+- start both implementations concurrently and run the same ordered user
+  scenarios and fixture inputs through each service's actual API;
+- for SearXNG, send the same original HTTP method, path, query, form body,
+  headers, timeout, and cancellation point to pristine and ported services;
+- for Jackett, map each raw Torznab request sent to pristine Jackett to the
+  corresponding `/v1` request sent to Jackett Mini, then compare the normalized
+  semantic result or error contract;
+- preserve the explicit original-to-ported request mapping and both raw
+  transcripts;
+- retain raw request/response bodies, status and headers, canonicalized diffs,
+  service logs, exit status, timing, and cleanup evidence under the external
+  test-artifact directory; and
+- treat every unexplained difference as a blocking failure. Only documented
+  product transformations, volatile fields, and deliberately removed Jackett
+  mutation/dashboard surfaces may be normalized or excluded.
+
+The deterministic gating run uses local fixture engines and trackers. A second
+quarantined run exercises live no-key SearXNG engines and the immutable
+credential-free Jackett Mini public catalog; network drift and third-party
+outages may make that second run non-gating, but it must still produce a
+per-source report before release. The root agent reviews the raw evidence and
+canonical diff rather than accepting a child-agent summary alone.
+
+Podman or an equivalent rootless OCI runtime is test infrastructure only. It
+is never installed, invoked, or required by the shipping browser or AppImage.
+
 ## Objective parity and test matrix
 
 ### SearXNG and Pi tools
+
+Against the pristine original SearXNG service, exercise both `GET` and `POST` search
+forms and HTML and JSON responses for query, categories, engine selection,
+language, page, time range, safe-search level, and supported output formats.
+Compare status, content type, typed response fields, error semantics, and
+canonicalized result data. Also compare health and the product-relevant
+configuration surface while redacting secrets and volatile runtime values.
 
 - schema snapshots and tool registration;
 - Pi session start, cancellation, shutdown, and result cleanup;
@@ -1282,16 +1504,46 @@ captions, private/unavailable, and live errors, stable timestamps,
 deduplication, cancellation, process cleanup, and proof that no browser-profile
 cookie path was read. Live YouTube checks are quarantined and non-gating.
 
-### Jackett oracle and adapter
+### Pristine Jackett and Jackett Mini comparison
 
-Build a pristine instance and the packaged instance from the exact same pin,
-with separate clean data roots and a deterministic local fixture tracker.
-Compare canonicalized `t=caps`, `t=indexers`, `t=search`, provider IDs/titles,
-size, seeders, peer/leech normalization, categories, infohash/magnet,
-authenticated `.torrent` bytes, and private flags. Normalize only ports,
-timestamps, ordering, and intentionally opaque IDs.
+Build a pristine upstream instance and Jackett Mini from the exact same pin,
+with separate clean data roots and deterministic local fixture trackers. The
+upstream instance is the reference for retained tracker parsing and Torznab
+behavior, not for the deliberately removed dashboard or mutation APIs. Compare
+canonicalized `t=caps`, `t=indexers`, `t=search`, provider IDs/titles, size,
+seeders, peer/leech normalization, categories, infohash/magnet, authenticated
+`.torrent` bytes, and private flags for eligible providers. Normalize only
+ports, timestamps, ordering, and intentionally opaque IDs, and document every
+intentional Jackett Mini difference.
 
-Contract cases include:
+Catalog and product-API gates include:
+
+- enumerate every effective YAML and native provider at the pin and prove each
+  has exactly one release classification;
+- prove the active set exactly equals all public, credential-free,
+  non-adult-only, non-external-runtime providers, with no missing eligible
+  entry and no extra entry;
+- prove general and mixed/general public sources remain active while
+  adult-only sources are absent;
+- prove private, semi-private, login, registration, cookie, passkey, API-key,
+  token, OTP, client-certificate, FlareSolverr, and custom-definition sources
+  cannot be activated or queried by ID;
+- mutate, add, rename, or hash-change a fixture definition and require catalog
+  generation to fail until it receives a release classification;
+- prove the runtime contains no dashboard/updater assets or credential store
+  and exposes no provider/configuration mutation route;
+- try every removed upstream dashboard, add, edit, remove, enable, disable,
+  test, update, configuration, and raw Torznab route and require a closed
+  failure; and
+- prove the internal capability authenticates health/status/search/resolve but
+  cannot change catalog membership or unlock a credentialed source.
+
+Product-boundary authentication cases include a valid internal capability,
+missing and invalid capabilities, a capability supplied through a forbidden
+query parameter, cross-profile capability reuse, and proof that no `apikey`,
+`passkey`, raw Torznab, or upstream dashboard route exists.
+
+Pristine original-Jackett-only contract cases include:
 
 - valid `apikey` and alias `passkey`;
 - missing/invalid key returning HTTP 200 error code 100;
@@ -1311,7 +1563,30 @@ Contract cases include:
 
 ### Torrent runtime and UI
 
-- provider selector and "All enabled" semantics;
+- reproduce the existing Add Torrent/File JavaScript exception before the fix
+  and retain its stack as the regression fixture;
+- trusted mouse and keyboard activation opening the native `.torrent` chooser
+  in the externally built browser;
+- chooser cancel as a no-op with restored focus, no rejected promise, and no
+  browser-console exception;
+- valid single-file selection reaching the metadata dialog, every contained
+  file initially selected, and no path disclosed outside privileged code;
+- invalid, unreadable, wrong-type, and over-12-MiB input showing an accessible
+  error without breaking the next selection;
+- repeated choose/cancel/choose flows, dialog close/reopen, browser restart,
+  and drag-and-drop through the same validation path;
+- a browser-chrome regression around the privileged picker boundary covering
+  trusted activation, valid selection, cancel, invalid/oversized input,
+  rejected-promise and console-error assertions, repeated reopen, and focus
+  restoration with a deterministic picker fixture;
+- a headed E2E using the real OS chooser in the externally built WildBuzzard
+  browser and clean-host AppImage, retaining browser-console output and
+  screenshots or video as release-gating evidence;
+- "All sources" exactly matching the immutable eligible catalog and optional
+  per-search subsets never mutating that catalog;
+- semantic table/grid roles and column names, a Download action for every row,
+  initial Seeders-descending order with nulls last, user header overrides, and
+  omitted-sort agent parity independent of transient UI state;
 - every sort direction, stability, null-last behavior, and default order;
 - keyboard navigation, focus, `aria-sort`, live-region announcements,
   accessible modal focus, forced colors, and localization;
@@ -1371,25 +1646,30 @@ The initial release target is Linux glibc x86-64. Test:
   untouched; and
 - accessible notices and durable exact corresponding-source delivery.
 
-Podman is permitted for pristine test oracles and clean-host tests only. It is
-not part of the shipping runtime.
+Rootless Podman or an equivalent OCI runtime is required for pristine API
+comparisons and may be used for clean-host tests. It is not part of the shipping
+runtime.
 
 ## Commit and review stack
 
 Use a coherent, independently reviewable stack similar to:
 
-1. vendor and pin web-search sources, licenses, and manifests;
-2. add managed SearXNG build and service lifecycle;
-3. make SearXNG the product default and reduce built-in engines;
-4. port deterministic Pi web-access tools and skills;
-5. add native Gecko render and SSRF enforcement;
-6. add bounded crawl and web-search storage;
-7. vendor and source-build the isolated Jackett package;
-8. add Jackett lifecycle and clean-room Torznab adapter;
-9. add torrent metadata drafts and file-selection runtime;
-10. add torrent search UI, URLbar mode, and agent operations;
-11. add independent parity, security, accessibility, and AppImage tests; and
-12. finalize source delivery, SBOM, packaging, and release documentation.
+1. fix the native `.torrent` chooser regression with automated and headed E2E
+   coverage;
+2. vendor and pin web-search sources, licenses, and manifests;
+3. add the rootless pristine SearXNG/Jackett API comparison harness;
+4. add managed SearXNG build and service lifecycle;
+5. make SearXNG the product default and reduce built-in engines;
+6. port deterministic Pi web-access tools and skills;
+7. add native Gecko render and SSRF enforcement;
+8. add bounded crawl and web-search storage;
+9. vendor and source-build the isolated GPL-2.0-only Jackett Mini fork;
+10. add its immutable eligible-source catalog, read-only lifecycle, and
+    independent browser JSON client;
+11. add torrent metadata drafts and file-selection runtime;
+12. add torrent search UI, URLbar mode, and agent operations;
+13. add independent parity, security, accessibility, and AppImage tests; and
+14. finalize source delivery, SBOM, packaging, and release documentation.
 
 Every commit must build and run its relevant tests. Tests should land with the
 feature they protect where practical; the final hardening commit does not
@@ -1406,6 +1686,22 @@ The work is complete only when:
 - all removed proprietary-provider modules and outbound calls are absent;
 - Pi search, content retrieval, GitHub, captions, Gecko rendering, and crawl
   work through the actual bundled Pi instance;
+- the Add Torrent/File action opens the native chooser, handles cancel and bad
+  input without a JavaScript exception, and sends a valid `.torrent` through
+  the metadata/file-selection dialog in the externally built browser;
+- Jackett Mini exposes only capability-authenticated read-only discovery; its
+  immutable pinned catalog enables exactly every credential-free,
+  non-adult-only, non-external-solver public source, including mixed/general
+  sources; it permanently removes adult-category results and exposes no raw
+  upstream, dashboard, credential, provider, or configuration mutation API;
+- exact pinned pristine SearXNG and Jackett services run under rootless
+  containers, and their original APIs pass the side-by-side corpus with raw
+  evidence and no unexplained normalized difference;
+- torrent results render as the specified semantic table with a per-row
+  Download action and default Seeders-descending order until the user chooses
+  another sort;
+- an agent torrent search that omits sort and direction uses Seeders descending
+  with nulls last and never inherits transient UI sort state;
 - torrent discovery, sorting, metadata, all/subset file selection, and agent
   operations work through the native manager;
 - pristine-versus-port parity evidence and all security/lifecycle gates pass;
