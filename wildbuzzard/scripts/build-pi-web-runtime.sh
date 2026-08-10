@@ -271,6 +271,19 @@ fi
       --pack-destination "${run_root}"
 ) >"${run_root}/pi-web-build.log" 2>&1
 
+node_pty_root="${pi_web_checkout}/node_modules/node-pty"
+if [[ ! -f "${node_pty_root}/build/Release/pty.node" ]]; then
+  echo "Pi Web node-pty native runtime was not built" >&2
+  exit 1
+fi
+rm -f -- \
+  "${node_pty_root}/build/Makefile" \
+  "${node_pty_root}/build/config.gypi" \
+  "${node_pty_root}/build/"*.Makefile \
+  "${node_pty_root}/build/"*.target.mk \
+  "${node_pty_root}/node-addon-api/"*.target.mk
+rmdir -- "${node_pty_root}/node-addon-api"
+
 package_tarball="$(find "${run_root}" -maxdepth 1 -type f -name 'jmfederico-pi-web-*.tgz' -print -quit)"
 if [[ -z "${package_tarball}" ]]; then
   echo "Pi Web package archive was not produced" >&2
