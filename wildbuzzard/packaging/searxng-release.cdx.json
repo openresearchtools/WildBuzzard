@@ -1,0 +1,69 @@
+{
+  "bomFormat": "CycloneDX",
+  "components": [
+    {
+      "bom-ref": "wildbuzzard-searxng-runtime-2026.8.6+b023a28ba",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587"
+        }
+      ],
+      "licenses": [
+        {
+          "license": {
+            "id": "AGPL-3.0-or-later"
+          }
+        }
+      ],
+      "name": "WildBuzzard managed SearXNG runtime",
+      "properties": [
+        {
+          "name": "wildbuzzard:installed-path",
+          "value": "runtime/search/wildbuzzard-searxng-runtime.zip"
+        },
+        {
+          "name": "wildbuzzard:embedded-sbom-path",
+          "value": "share/wildbuzzard/searxng/sbom.cdx.json"
+        },
+        {
+          "name": "wildbuzzard:embedded-sbom-sha256",
+          "value": "aa51594a410c99c1b1118dcc29175eb4104930f31fa60bec7a790156d095900b"
+        }
+      ],
+      "type": "application",
+      "version": "2026.8.6+b023a28ba"
+    },
+    {
+      "bom-ref": "wildbuzzard-searxng-corresponding-source-2026.8.6+b023a28ba",
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751"
+        }
+      ],
+      "name": "WildBuzzard SearXNG complete corresponding source",
+      "properties": [
+        {
+          "name": "wildbuzzard:installed-path",
+          "value": "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
+        },
+        {
+          "name": "wildbuzzard:corresponding-source-for",
+          "value": "wildbuzzard-searxng-runtime-2026.8.6+b023a28ba"
+        }
+      ],
+      "type": "file",
+      "version": "2026.8.6+b023a28ba"
+    }
+  ],
+  "metadata": {
+    "component": {
+      "name": "WildBuzzard managed search release payload",
+      "type": "application",
+      "version": "2026.8.6+b023a28ba"
+    }
+  },
+  "specVersion": "1.6",
+  "version": 1
+}

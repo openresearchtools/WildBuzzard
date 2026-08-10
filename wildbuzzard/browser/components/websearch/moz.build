@@ -1,4 +1,9 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+EXTRA_JS_MODULES += [
+    "ManagedSearXNGEngine.sys.mjs",
+    "SearXNGRuntime.sys.mjs",
+]
+
 BROWSER_CHROME_MANIFESTS += ["test/browser/browser.toml"]
 XPCSHELL_TESTS_MANIFESTS += ["test/xpcshell/xpcshell.toml"]

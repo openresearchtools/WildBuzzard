@@ -89,6 +89,17 @@ if [[ -z "${browser_root}" ]]; then
 fi
 
 cp -a -- "${browser_root}" "${app_dir}/usr/lib/wildbuzzard"
+searxng_runtime="${app_dir}/usr/lib/wildbuzzard/runtime/search/wildbuzzard-searxng-runtime.zip"
+searxng_source="${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
+searxng_inventory="${app_dir}/usr/lib/wildbuzzard/notices/source/searxng-release.cdx.json"
+if [[ -e "${searxng_runtime}" || -L "${searxng_runtime}" || \
+  -e "${searxng_source}" || -L "${searxng_source}" || \
+  -e "${searxng_inventory}" || -L "${searxng_inventory}" ]]; then
+  python3 -I -B "${product_dir}/scripts/validate-searxng-runtime-archive.py" \
+    "${searxng_runtime}" \
+    --source "${searxng_source}" \
+    --inventory "${searxng_inventory}"
+fi
 install -m 755 "${product_dir}/packaging/appimage/AppRun" "${app_dir}/AppRun"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/wildbuzzard.desktop"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/usr/share/applications/wildbuzzard.desktop"

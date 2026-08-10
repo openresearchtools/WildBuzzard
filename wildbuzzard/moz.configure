@@ -93,6 +93,58 @@ def wildbuzzard_has_jackett_mini_runtime(path):
 set_define("WILDBUZZARD_JACKETT_MINI_RUNTIME", wildbuzzard_has_jackett_mini_runtime)
 
 option(
+    "--with-wildbuzzard-searxng-runtime",
+    nargs=1,
+    help="Path to the SearXNG runtime ZIP bundled with WildBuzzard",
+)
+
+
+@depends("--with-wildbuzzard-searxng-runtime")
+@imports("os")
+def wildbuzzard_searxng_runtime(value):
+    if not value:
+        return
+    path = os.path.abspath(value[0])
+    if not os.path.isfile(path):
+        die(f"Cannot find SearXNG runtime at {path}")
+    return path
+
+
+set_config("WILDBUZZARD_SEARXNG_RUNTIME", wildbuzzard_searxng_runtime)
+
+option(
+    "--with-wildbuzzard-searxng-source",
+    nargs=1,
+    help="Path to the SearXNG corresponding-source archive bundled with WildBuzzard",
+)
+
+
+@depends("--with-wildbuzzard-searxng-source")
+@imports("os")
+def wildbuzzard_searxng_source(value):
+    if not value:
+        return
+    path = os.path.abspath(value[0])
+    if not os.path.isfile(path):
+        die(f"Cannot find SearXNG corresponding source at {path}")
+    return path
+
+
+set_config("WILDBUZZARD_SEARXNG_SOURCE", wildbuzzard_searxng_source)
+
+
+@depends(wildbuzzard_searxng_runtime, wildbuzzard_searxng_source)
+def wildbuzzard_has_searxng_runtime(runtime, source):
+    if bool(runtime) != bool(source):
+        die(
+            "The SearXNG runtime and corresponding-source archive must be configured together"
+        )
+    return bool(runtime and source)
+
+
+set_define("WILDBUZZARD_SEARXNG_RUNTIME", wildbuzzard_has_searxng_runtime)
+
+option(
     "--with-wildbuzzard-arti",
     nargs=1,
     help="Path to the Arti binary bundled with WildBuzzard",

@@ -18,6 +18,8 @@ usage() {
   echo "  --pi-web-runtime FILE  Pi Web runtime ZIP to include in the browser package"
   echo "  --torrent-runtime FILE  WebTorrent runtime ZIP to include in the browser package"
   echo "  --jackett-mini-runtime FILE  Jackett Mini runtime ZIP to include in the browser package"
+  echo "  --searxng-runtime FILE  SearXNG runtime ZIP to include in the browser package"
+  echo "  --searxng-source FILE  SearXNG corresponding-source archive to include"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --bootstrap        run mach bootstrap before the requested action"
   echo "  --help             show this help"
@@ -34,6 +36,8 @@ include_working_tree=false
 pi_web_runtime=""
 torrent_runtime=""
 jackett_mini_runtime=""
+searxng_runtime=""
+searxng_source=""
 arti_binary=""
 
 while (($#)); do
@@ -68,6 +72,14 @@ while (($#)); do
       ;;
     --jackett-mini-runtime)
       jackett_mini_runtime="${2:?--jackett-mini-runtime requires a file}"
+      shift 2
+      ;;
+    --searxng-runtime)
+      searxng_runtime="${2:?--searxng-runtime requires a file}"
+      shift 2
+      ;;
+    --searxng-source)
+      searxng_source="${2:?--searxng-source requires a file}"
       shift 2
       ;;
     --arti-binary)
@@ -112,6 +124,23 @@ if [[ -n "${jackett_mini_runtime}" ]]; then
     echo "--jackett-mini-runtime must name a ZIP file" >&2
     exit 2
   fi
+fi
+
+if [[ -n "${searxng_runtime}" || -n "${searxng_source}" ]]; then
+  if [[ -z "${searxng_runtime}" || -z "${searxng_source}" ]]; then
+    echo "--searxng-runtime and --searxng-source must be supplied together" >&2
+    exit 2
+  fi
+  searxng_runtime="$(realpath -- "${searxng_runtime}")"
+  searxng_source="$(realpath -- "${searxng_source}")"
+  if [[ ! -f "${searxng_runtime}" || ! -f "${searxng_source}" ]]; then
+    echo "SearXNG runtime and source inputs must be regular files" >&2
+    exit 2
+  fi
+  python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
+    "${searxng_runtime}" \
+    --source "${searxng_source}" \
+    --inventory "${source_repo}/wildbuzzard/packaging/searxng-release.cdx.json"
 fi
 
 if [[ -n "${arti_binary}" ]]; then
@@ -219,6 +248,8 @@ fi
   echo "pi_web_runtime=${pi_web_runtime}"
   echo "torrent_runtime=${torrent_runtime}"
   echo "jackett_mini_runtime=${jackett_mini_runtime}"
+  echo "searxng_runtime=${searxng_runtime}"
+  echo "searxng_source=${searxng_source}"
   echo "arti_binary=${arti_binary}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
@@ -318,6 +349,10 @@ fi
   fi
   if [[ -n "${jackett_mini_runtime}" ]]; then
     echo "ac_add_options --with-wildbuzzard-jackett-mini-runtime=${jackett_mini_runtime}"
+  fi
+  if [[ -n "${searxng_runtime}" ]]; then
+    echo "ac_add_options --with-wildbuzzard-searxng-runtime=${searxng_runtime}"
+    echo "ac_add_options --with-wildbuzzard-searxng-source=${searxng_source}"
   fi
   if [[ -n "${arti_binary}" ]]; then
     echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"

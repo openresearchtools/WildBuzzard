@@ -26,6 +26,24 @@ The browser starts or reconnects to the detached service with:
   --owner-instance-id <opaque-owner-id>
 ```
 
+`browser/components/websearch/SearXNGRuntime.sys.mjs` verifies and atomically
+extracts the bundled ZIP into versioned per-profile XDG state before invoking
+that lifecycle interface. The AppImage packager also streams and verifies the
+complete manifest inventory and every payload digest before producing an
+image. The owner ID is a domain-separated digest of the canonical browser
+profile path. Normal navigation receives only the live loopback search URL;
+the bundled Pi web-access extension receives the private connection-record
+path through its privileged service environment and reads the capability from
+that mode-0600 file.
+
+Every browser package carries the exact complete corresponding source at
+`notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz` and the
+cross-referencing CycloneDX inventory at
+`notices/source/searxng-release.cdx.json`. In an installed AppImage the paths
+are below `/usr/lib/wildbuzzard`; in the Debian package they are below
+`/opt/wildbuzzard`. Privileged browser code can obtain the installation path
+from `SearXNGRuntime.correspondingSourcePath`.
+
 The same launcher supports `status`, `stop`, `restart`, and the foreground
 `serve` operation. `start` returns only after an authenticated health check.
 The service is placed in a detached session with closed standard streams and

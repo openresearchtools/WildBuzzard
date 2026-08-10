@@ -3,3 +3,6 @@
 [DEFAULT]
 
 ["test_GeckoRenderPolicy.js"]
+
+["test_SearXNGRuntime.js"]
+skip-if = ["os != 'linux'"]
