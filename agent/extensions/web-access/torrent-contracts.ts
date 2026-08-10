@@ -75,6 +75,7 @@ export const TorrentCommitParameters = Type.Object(
     draftId: opaqueId("Opaque draft handle returned by torrent_prepare."),
     files: Type.Optional(
       Type.Array(Type.Integer({ minimum: 0 }), {
+        minItems: 1,
         maxItems: 10_000,
         uniqueItems: true,
       })

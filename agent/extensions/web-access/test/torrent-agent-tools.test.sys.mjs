@@ -176,6 +176,15 @@ test("commit requires explicit confirmation before the manager side effect", asy
     /explicit user confirmation/
   );
   assert.equal(calls.commits.length, 0);
+  await assert.rejects(
+    controller.execute(
+      "torrent_commit",
+      { draftId: prepared.draftId, files: [], confirmed: true },
+      "session-one"
+    ),
+    /unique non-negative indexes/
+  );
+  assert.equal(calls.commits.length, 0);
   const committed = await controller.execute(
     "torrent_commit",
     { draftId: prepared.draftId, files: [0], confirmed: true },
@@ -184,6 +193,26 @@ test("commit requires explicit confirmation before the manager side effect", asy
   assert.deepEqual(committed, { draftId: prepared.draftId, committed: true });
   assert.deepEqual(calls.commits, [{ id: "backend-draft-secret", files: [0] }]);
   assert.doesNotMatch(JSON.stringify(committed), /backend-|secret-url/);
+});
+
+test("draft failures do not expose backend error details", async () => {
+  const { controller, torrentManager } = fixture();
+  torrentManager.createTorrentDraft = async () => ({
+    ...backendDraft(),
+    state: "error",
+    error: "https://tracker.invalid/announce?passkey=secret",
+  });
+  const search = await searched(controller);
+  const prepared = await controller.execute(
+    "torrent_prepare",
+    { searchId: search.searchId, resultId: search.results[0].resultId },
+    "session-one"
+  );
+  assert.equal(prepared.error, "Torrent metadata could not be prepared");
+  assert.doesNotMatch(
+    JSON.stringify(prepared),
+    /tracker\.invalid|passkey|secret/
+  );
 });
 
 test("search abort and explicit draft cancellation reach browser-owned managers", async () => {

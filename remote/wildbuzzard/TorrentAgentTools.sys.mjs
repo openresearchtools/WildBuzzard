@@ -75,6 +75,7 @@ function validateFiles(files) {
   }
   if (
     !Array.isArray(files) ||
+    !files.length ||
     files.length > MAX_FILES ||
     new Set(files).size !== files.length ||
     files.some(index => !Number.isInteger(index) || index < 0)
@@ -293,9 +294,7 @@ function sanitizeDraft(draft, draftId) {
     files,
     private: Boolean(draft.private),
     error:
-      draft.error === null || draft.error === undefined
-        ? null
-        : cleanExternalText(draft.error, 512),
+      draft.state === "error" ? "Torrent metadata could not be prepared" : null,
   };
 }
 

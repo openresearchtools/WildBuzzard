@@ -69,6 +69,14 @@ test("torrent tool payload schemas expose only bounded opaque contracts", () => 
   assert.equal(
     Value.Check(TorrentCommitParameters, {
       draftId: "D".repeat(32),
+      files: [],
+      confirmed: true,
+    }),
+    false
+  );
+  assert.equal(
+    Value.Check(TorrentCommitParameters, {
+      draftId: "D".repeat(32),
       files: [2, 2],
       confirmed: true,
     }),
