@@ -181,10 +181,31 @@ def expected_for(name, pristine, all_pristine):
         return {"outcome": "timeout"}
     if name in {"adult-category-matrix", "mixed-safe-adult-category"}:
         return search({}, items=[])
+    if name == "peer-counts":
+        return search(
+            {},
+            items=[
+                {
+                    "title": "Peers absent",
+                    "indexerId": "main",
+                    "categoryIds": [2000, 112735],
+                    "seeders": None,
+                    "normalizedLeechers": None,
+                    "acquisition": "magnet",
+                },
+                {
+                    "title": "Zero leechers preserved",
+                    "indexerId": "main",
+                    "categoryIds": [2000, 112735],
+                    "seeders": 10,
+                    "normalizedLeechers": 0,
+                    "acquisition": "magnet",
+                },
+            ],
+        )
     if name in {
         "missing-category",
         "redirect-once",
-        "peer-counts",
         "custom-category",
         "malicious-fields",
     }:
@@ -193,12 +214,16 @@ def expected_for(name, pristine, all_pristine):
         main = next(
             item for item in pristine["items"] if item["indexerId"] == "oracle-main"
         )
-        return search({}, ("main", "alternate"), [mapped_item(main)])
+        item = mapped_item(main)
+        item["title"] = "Duplicate from mini-main"
+        return search({}, ("alternate", "main"), [item])
     if name == "partial-success":
         main = next(
             item for item in pristine["items"] if item["indexerId"] == "oracle-main"
         )
-        value = search({}, items=[mapped_item(main)], partial=True)
+        item = mapped_item(main)
+        item["title"] = "Fixture mini-main"
+        value = search({}, items=[item], partial=True)
         value["providers"] = [
             {"id": "alternate", "state": "error"},
             {"id": "main", "state": "ok"},

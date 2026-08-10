@@ -3315,8 +3315,10 @@ def main():
         mini_observed["contradictory-peer-client-guard"] = {
             "seeders": mini_contradictory["seeders"],
             "normalizedLeechers": mini_contradictory["normalizedLeechers"],
-            "sourceContract": mini_peer_contract(mini_runtime),
         }
+        security_evidence["peer-normalization-source-contract"] = (
+            mini_peer_contract(mini_runtime)
+        )
         semantic_diffs["contradictory-peer-client-guard"] = {
             "pristine": observed["contradictory-peer-client-guard"],
             "mini": mini_observed["contradictory-peer-client-guard"],
