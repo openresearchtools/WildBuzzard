@@ -7,6 +7,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
+const sourceRoot =
+  process.env.WILDBUZZARD_SOURCE_ROOT || join(root, "..", "..", "..");
 
 test("web-access has only the audited deterministic dependency surface", () => {
   const packageJson = JSON.parse(
@@ -45,15 +47,7 @@ test("Pi tool schemas reject undeclared properties and discover bundled skills",
 
 test("Pi runtime bundles, validates, and attributes the web-access extension", () => {
   const buildScript = readFileSync(
-    join(
-      root,
-      "..",
-      "..",
-      "..",
-      "wildbuzzard",
-      "scripts",
-      "build-pi-web-runtime.sh"
-    ),
+    join(sourceRoot, "wildbuzzard", "scripts", "build-pi-web-runtime.sh"),
     "utf8"
   );
   assert.match(buildScript, /seed\/web-access/);
