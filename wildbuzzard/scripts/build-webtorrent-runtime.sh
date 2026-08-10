@@ -75,14 +75,53 @@ node_url="https://nodejs.org/dist/v${node_version}/${node_archive}"
 source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${commit}")"
 
 mkdir -p -- "${run_root}" "${runtime_dir}/bin" "${app_dir}" "${downloads_dir}" "${artifacts_dir}"
+mkdir -p -- "${run_root}/home" "${build_root}/npm-cache"
+install -m 600 /dev/null "${run_root}/npmrc"
+npm_environment=(
+  "HOME=${run_root}/home"
+  "npm_config_cache=${build_root}/npm-cache"
+  "npm_config_fund=false"
+  "npm_config_globalconfig=${run_root}/npmrc"
+  "npm_config_registry=https://registry.npmjs.org/"
+  "npm_config_update_notifier=false"
+  "npm_config_userconfig=${run_root}/npmrc"
+)
 git clone --shared --no-checkout -- "${source_repo}" "${checkout_dir}"
 git -C "${checkout_dir}" sparse-checkout init --no-cone
 git -C "${checkout_dir}" sparse-checkout set \
   /COPYING \
   /third_party/webtorrent/ \
+  /wildbuzzard/scripts/build-webtorrent-runtime.sh \
+  /wildbuzzard/scripts/generate-node-runtime-sbom.mjs \
   /wildbuzzard/torrent-runtime/ \
   /wildbuzzard/upstreams.toml
 git -C "${checkout_dir}" checkout --detach "${commit}"
+
+source_dir="${runtime_dir}/share/wildbuzzard/torrent"
+source_name="wildbuzzard-torrent-runtime-1.0.0-${short_commit}-source.tar.xz"
+source_archive="${source_dir}/${source_name}"
+mkdir -p -- "${source_dir}"
+create_source_archive() {
+  git -C "${checkout_dir}" archive \
+    --format=tar \
+    --prefix="wildbuzzard-torrent-runtime-${commit}/" \
+    "${commit}" -- \
+    COPYING \
+    third_party/webtorrent \
+    wildbuzzard/scripts/build-webtorrent-runtime.sh \
+    wildbuzzard/scripts/generate-node-runtime-sbom.mjs \
+    wildbuzzard/torrent-runtime \
+    wildbuzzard/upstreams.toml |
+    xz --threads=1 --check=crc64 -9e >"${source_archive}"
+}
+create_source_archive
+source_sha256="$(sha256sum "${source_archive}" | awk '{ print $1 }')"
+rm -f -- "${source_archive}"
+create_source_archive
+if [[ "$(sha256sum "${source_archive}" | awk '{ print $1 }')" != "${source_sha256}" ]]; then
+  echo "Deterministic torrent corresponding-source check failed" >&2
+  exit 1
+fi
 
 cp -- "${checkout_dir}/wildbuzzard/torrent-runtime/package.json" "${app_dir}/"
 cp -- "${checkout_dir}/wildbuzzard/torrent-runtime/package-lock.json" "${app_dir}/"
@@ -106,13 +145,15 @@ bundled_npm_cli="${runtime_dir}/node/lib/node_modules/npm/bin/npm-cli.js"
 
 (
   cd -- "${app_dir}"
-  PATH="${runtime_dir}/node/bin:${PATH}" \
+  env "${npm_environment[@]}" \
+    PATH="${runtime_dir}/node/bin:${PATH}" \
     "${bundled_node}" "${bundled_npm_cli}" ci --ignore-scripts --omit=optional
 ) >"${run_root}/npm-install.log" 2>&1
 
 (
   cd -- "${checkout_dir}/third_party/webtorrent"
-  PATH="${runtime_dir}/node/bin:${PATH}" \
+  env "${npm_environment[@]}" \
+    PATH="${runtime_dir}/node/bin:${PATH}" \
     "${bundled_node}" "${bundled_npm_cli}" pack --ignore-scripts --pack-destination "${run_root}"
 ) >"${run_root}/webtorrent-pack.log" 2>&1
 webtorrent_archive="$(find "${run_root}" -maxdepth 1 -type f -name 'webtorrent-*.tgz' -print -quit)"
@@ -132,7 +173,8 @@ fi
 rm -rf -- "${utp_dir}/prebuilds" "${utp_dir}/build"
 (
   cd -- "${app_dir}"
-  PATH="${runtime_dir}/node/bin:${PATH}" \
+  env "${npm_environment[@]}" \
+    PATH="${runtime_dir}/node/bin:${PATH}" \
     npm_config_nodedir="${runtime_dir}/node" \
     npm_config_build_from_source=true \
     CFLAGS="-ffile-prefix-map=${run_root}=. -fdebug-prefix-map=${run_root}=." \
@@ -161,12 +203,16 @@ rm -rf -- "${utp_dir}/build/Release/obj.target"
 
 (
   cd -- "${app_dir}"
-  PATH="${runtime_dir}/node/bin:${PATH}" \
+  env "${npm_environment[@]}" \
+    PATH="${runtime_dir}/node/bin:${PATH}" \
     "${bundled_node}" "${bundled_npm_cli}" audit --omit=dev --json
 ) >"${run_root}/npm-audit.json" 2>/dev/null || true
 "${bundled_node}" - "${run_root}/npm-audit.json" <<'NODE'
 const fs = require("node:fs");
 const audit = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+if (audit.error || typeof audit.metadata?.vulnerabilities?.total !== "number") {
+  throw new Error("The production dependency audit did not complete");
+}
 const vulnerabilities = Object.values(audit.vulnerabilities || {});
 if (vulnerabilities.some(item => item.severity === "critical")) {
   throw new Error("Critical production dependency advisory detected");
@@ -182,11 +228,26 @@ NODE
 
 (
   cd -- "${app_dir}"
-  PATH="${runtime_dir}/node/bin:${PATH}" \
+  env "${npm_environment[@]}" \
+    PATH="${runtime_dir}/node/bin:${PATH}" \
     "${bundled_node}" "${bundled_npm_cli}" prune --omit=dev --omit=optional --ignore-scripts
 )
+rm -rf -- \
+  "${app_dir}/node_modules/webtorrent" \
+  "${app_dir}/node_modules/webrtc-polyfill"
+mkdir -p -- \
+  "${app_dir}/node_modules/webtorrent" \
+  "${app_dir}/node_modules/webrtc-polyfill"
+tar -xzf "${webtorrent_archive}" --strip-components=1 -C "${app_dir}/node_modules/webtorrent"
+cp -a -- \
+  "${app_dir}/vendor/webrtc-disabled/." \
+  "${app_dir}/node_modules/webrtc-polyfill/"
 rm -rf -- "${app_dir}/test"
-(cd -- "${app_dir}" && "${bundled_node}" -e 'require("utp-native")')
+(
+  cd -- "${app_dir}"
+  "${bundled_node}" -e 'require("utp-native")'
+  "${bundled_node}" -e 'Promise.all([import("webtorrent"), import("webrtc-polyfill")])'
+)
 while IFS= read -r -d '' prebuild_dir; do
   rm -rf -- "${prebuild_dir}"
 done < <(find "${app_dir}/node_modules" -type d -name prebuilds -print0)
@@ -225,6 +286,10 @@ rm -f -- \
   "${runtime_dir}/node/bin/corepack" \
   "${runtime_dir}/node/bin/npm" \
   "${runtime_dir}/node/bin/npx"
+rm -rf -- \
+  "${runtime_dir}/node/include" \
+  "${runtime_dir}/node/lib/node_modules" \
+  "${runtime_dir}/node/share"
 
 cp -- "${checkout_dir}/third_party/webtorrent/LICENSE" "${runtime_dir}/WEBTORRENT-LICENSE"
 cp -- "${checkout_dir}/COPYING" "${runtime_dir}/WILDBUZZARD-LICENSE"
@@ -238,6 +303,18 @@ if [[ ! "${webtorrent_commit}" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 lock_sha="$(sha256sum "${app_dir}/package-lock.json" | awk '{ print $1 }')"
+sbom_path="${source_dir}/sbom.cdx.json"
+"${bundled_node}" \
+  "${checkout_dir}/wildbuzzard/scripts/generate-node-runtime-sbom.mjs" \
+  --app-root "${app_dir}" \
+  --commit "${commit}" \
+  --node-archive-sha256 "${node_sha256}" \
+  --node-version "${node_version}" \
+  --output "${sbom_path}" \
+  --package-lock-sha256 "${lock_sha}" \
+  --source-date-epoch "${source_date_epoch}" \
+  --source-sha256 "${source_sha256}" \
+  --webtorrent-commit "${webtorrent_commit}"
 if find "${runtime_dir}" -type l -print -quit | grep -q .; then
   echo "Torrent runtime contains a symbolic link" >&2
   exit 1
@@ -248,12 +325,22 @@ fi
   "${commit}" \
   "${webtorrent_commit}" \
   "${lock_sha}" \
-  "${node_version}" <<'NODE'
+  "${node_version}" \
+  "share/wildbuzzard/torrent/${source_name}" \
+  "${source_sha256}" <<'NODE'
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const [root, commit, webTorrentCommit, lockSha, nodeVersion] = process.argv.slice(2);
+const [
+  root,
+  commit,
+  webTorrentCommit,
+  lockSha,
+  nodeVersion,
+  correspondingSource,
+  sourceSha256,
+] = process.argv.slice(2);
 const manifestName = "wildbuzzard-torrent-runtime.json";
 const allowedExecutables = new Set([
   "bin/wildbuzzard-torrent",
@@ -311,15 +398,28 @@ for (const file of files) {
   );
 }
 const manifest = {
-  schema: 2,
+  schema: 3,
+  component: "wildbuzzard-torrent-runtime",
+  version: "1.0.0",
+  protocolVersion: 1,
   wildbuzzardCommit: commit,
   webTorrentVersion: "3.0.21",
   webTorrentImportCommit: webTorrentCommit,
   packageLockSha256: lockSha,
+  dependencyLockSha256: lockSha,
   nodeVersion,
   nodeArchiveSha256: "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307",
   utpBuiltFromSource: true,
   platform: "linux-x64",
+  architecture: "x86_64",
+  correspondingSource,
+  sourceSha256,
+  sbom: "share/wildbuzzard/torrent/sbom.cdx.json",
+  licenseLocations: [
+    "WEBTORRENT-LICENSE",
+    "WILDBUZZARD-LICENSE",
+    "node/LICENSE",
+  ],
   payloadSha256: payloadHash.digest("hex"),
   files,
 };
@@ -358,6 +458,10 @@ sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
   echo "webtorrent_version=3.0.21"
   echo "node_version=${node_version}"
   echo "utp_built_from_source=true"
+  echo "corresponding_source=${source_archive}"
+  echo "source_sha256=${source_sha256}"
+  echo "sbom=${sbom_path}"
+  echo "sbom_sha256=$(sha256sum "${sbom_path}" | awk '{ print $1 }')"
   echo "runtime_zip=${runtime_zip}"
   echo "runtime_sha256=$(sha256sum "${runtime_zip}" | awk '{ print $1 }')"
 } >"${run_root}/build-manifest.txt"

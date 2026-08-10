@@ -33,6 +33,12 @@ const RUNTIME_EXECUTABLES = new Set([
   "bin/wildbuzzard-torrent",
   "node/bin/node",
 ]);
+const RUNTIME_LICENSE_LOCATIONS = [
+  "WEBTORRENT-LICENSE",
+  "WILDBUZZARD-LICENSE",
+  "node/LICENSE",
+];
+const RUNTIME_SBOM = "share/wildbuzzard/torrent/sbom.cdx.json";
 
 function torrentFileError(reason) {
   return Object.assign(new Error(`Torrent file ${reason}`), {
@@ -108,17 +114,31 @@ function readRuntimeManifest(archivePath) {
 }
 
 function invalidRuntimeManifestHeader(manifest) {
+  const source = manifest?.correspondingSource || "";
   return Boolean(
-    manifest?.schema !== 2 ||
+    manifest?.schema !== 3 ||
+    manifest.component !== "wildbuzzard-torrent-runtime" ||
+    manifest.version !== "1.0.0" ||
+    manifest.protocolVersion !== 1 ||
     !/^[0-9a-f]{40}$/.test(manifest.wildbuzzardCommit || "") ||
     !/^[0-9a-f]{40}$/.test(manifest.webTorrentImportCommit || "") ||
     !/^[0-9a-f]{64}$/.test(manifest.packageLockSha256 || "") ||
+    manifest.dependencyLockSha256 !== manifest.packageLockSha256 ||
     manifest.nodeArchiveSha256 !== RUNTIME_NODE_SHA256 ||
     manifest.nodeVersion !== RUNTIME_NODE_VERSION ||
     manifest.webTorrentVersion !== "3.0.21" ||
     manifest.utpBuiltFromSource !== true ||
     !/^[0-9a-f]{64}$/.test(manifest.payloadSha256 || "") ||
     manifest.platform !== "linux-x64" ||
+    manifest.architecture !== "x86_64" ||
+    source !==
+      `share/wildbuzzard/torrent/wildbuzzard-torrent-runtime-1.0.0-${manifest.wildbuzzardCommit?.slice(0, 12)}-source.tar.xz` ||
+    !safeRuntimePath(source) ||
+    !/^[0-9a-f]{64}$/.test(manifest.sourceSha256 || "") ||
+    manifest.sbom !== RUNTIME_SBOM ||
+    !Array.isArray(manifest.licenseLocations) ||
+    JSON.stringify(manifest.licenseLocations) !==
+      JSON.stringify(RUNTIME_LICENSE_LOCATIONS) ||
     !Array.isArray(manifest.files) ||
     !manifest.files.length ||
     manifest.files.length > MAX_RUNTIME_FILES
@@ -162,6 +182,13 @@ function validateRuntimeManifest(manifest) {
       throw new Error("Torrent runtime executable is missing");
     }
   }
+  if (
+    files.get(manifest.correspondingSource)?.sha256 !== manifest.sourceSha256 ||
+    !files.has(manifest.sbom) ||
+    manifest.licenseLocations.some(path => !files.has(path))
+  ) {
+    throw new Error("Torrent runtime provenance files are missing");
+  }
   const payload = [...files.values()]
     .map(
       file =>
@@ -173,6 +200,10 @@ function validateRuntimeManifest(manifest) {
   }
   return files;
 }
+
+export const TorrentRuntimeManifestTestUtils = Object.freeze({
+  validate: validateRuntimeManifest,
+});
 
 async function readZipCentralDirectory(archivePath) {
   const { size } = await IOUtils.stat(archivePath);

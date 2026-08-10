@@ -2,3 +2,5 @@
 firefox-appdir = "browser"
 
 ["test_torrent_discovery_manager.js"]
+
+["test_torrent_runtime_manifest.js"]
