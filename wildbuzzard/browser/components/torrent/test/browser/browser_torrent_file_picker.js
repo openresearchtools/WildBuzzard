@@ -136,6 +136,41 @@ async function waitForDraftDialog(browser) {
   });
 }
 
+add_task(function test_native_file_picker_browsing_context_contract() {
+  const invalidPicker = Cc["@mozilla.org/filepicker;1"].createInstance(
+    Ci.nsIFilePicker
+  );
+  let conversionError;
+  try {
+    invalidPicker.init(
+      window,
+      "Torrent picker contract test",
+      Ci.nsIFilePicker.modeOpen
+    );
+  } catch (error) {
+    conversionError = error;
+  }
+  Assert.equal(
+    conversionError?.name,
+    "NS_ERROR_XPC_BAD_CONVERT_JS",
+    "Passing a browser window reproduces the original native-picker failure"
+  );
+
+  const picker = Cc["@mozilla.org/filepicker;1"].createInstance(
+    Ci.nsIFilePicker
+  );
+  picker.init(
+    gBrowser.selectedBrowser.browsingContext,
+    "Torrent picker contract test",
+    Ci.nsIFilePicker.modeOpen
+  );
+  Assert.equal(
+    picker.mode,
+    Ci.nsIFilePicker.modeOpen,
+    "The native picker accepts the privileged browser's BrowsingContext"
+  );
+});
+
 add_task(async function test_torrent_file_picker_boundary() {
   const directory = await IOUtils.createUniqueDirectory(
     PathUtils.tempDir,
@@ -335,6 +370,13 @@ add_task(async function test_torrent_file_picker_boundary() {
       1,
       "Cancelling removes the byte-limit draft"
     );
+    await SpecialPowers.spawn(browser, [], () => {
+      Assert.equal(
+        content.document.activeElement.id,
+        "choose-torrent",
+        "Closing a selected torrent's draft restores picker-button focus"
+      );
+    });
 
     pickerState.selections.push({
       result: Ci.nsIFilePicker.returnOK,

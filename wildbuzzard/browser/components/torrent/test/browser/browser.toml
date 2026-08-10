@@ -1,6 +1,8 @@
 [DEFAULT]
 tags = "wildbuzzard_torrent"
 
+["browser_torrent_draft_dialog.js"]
+
 ["browser_torrent_file_picker.js"]
 
 ["browser_torrent_search.js"]

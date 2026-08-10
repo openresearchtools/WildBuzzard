@@ -31,6 +31,9 @@ const state = {
   draft: null,
   draftReturnFocus: null,
   draftSelections: new Map(),
+  draftGeneration: 0,
+  draftPollSequence: 0,
+  draftSummaryKey: "",
 };
 
 const elements = {};
@@ -402,36 +405,72 @@ function cancelSearch() {
   }
 }
 
+function updateDraftCommitButton() {
+  const files = state.draft?.files || [];
+  const selected = files.filter(file =>
+    state.draftSelections.get(file.index)
+  ).length;
+  const ready = state.draft?.state === "ready";
+  const id =
+    ready && selected !== files.length
+      ? "wildbuzzard-torrents-draft-download-selected"
+      : "wildbuzzard-torrents-draft-download-all";
+  elements.draftCommit.disabled = !ready || selected === 0;
+  if (elements.draftCommit.getAttribute("data-l10n-id") !== id) {
+    l10n(elements.draftCommit, id);
+  }
+}
+
 function renderDraft() {
   const draft = state.draft;
   if (!draft) {
     return;
   }
-  l10n(elements.draftSummary, "wildbuzzard-torrents-draft-summary", {
+  const summaryArgs = {
     name: draft.name || "Torrent",
     size: formatOptionalBytes(draft.totalSize ?? null),
-  });
+  };
+  const summaryKey = `${summaryArgs.name}\n${summaryArgs.size}`;
+  if (state.draftSummaryKey !== summaryKey) {
+    state.draftSummaryKey = summaryKey;
+    l10n(
+      elements.draftSummary,
+      "wildbuzzard-torrents-draft-summary",
+      summaryArgs
+    );
+  }
   const ready = draft.state === "ready";
   const waitingLong = !ready && Date.now() - state.draftStartedAt >= 20000;
   elements.draftFiles.disabled = !ready;
-  elements.draftCommit.disabled = !ready;
   elements.draftKeepWaiting.hidden = !waitingLong;
   if (!ready) {
+    updateDraftCommitButton();
     if (draft.state === "error") {
       elements.draftKeepWaiting.hidden = true;
-      l10n(elements.draftStatus, "wildbuzzard-torrents-draft-error");
-      elements.draftFileList.replaceChildren();
+      if (
+        elements.draftStatus.getAttribute("data-l10n-id") !==
+        "wildbuzzard-torrents-draft-error"
+      ) {
+        l10n(elements.draftStatus, "wildbuzzard-torrents-draft-error");
+      }
+      if (elements.draftFileList.childElementCount) {
+        elements.draftFileList.replaceChildren();
+      }
       return;
     }
-    l10n(
-      elements.draftStatus,
-      waitingLong
-        ? "wildbuzzard-torrents-draft-still-fetching"
-        : "wildbuzzard-torrents-draft-fetching"
-    );
-    elements.draftFileList.replaceChildren();
+    const id = waitingLong
+      ? "wildbuzzard-torrents-draft-still-fetching"
+      : "wildbuzzard-torrents-draft-fetching";
+    if (elements.draftStatus.getAttribute("data-l10n-id") !== id) {
+      l10n(elements.draftStatus, id);
+    }
+    if (elements.draftFileList.childElementCount) {
+      elements.draftFileList.replaceChildren();
+    }
     return;
   }
+  elements.draftStatus.removeAttribute("data-l10n-id");
+  elements.draftStatus.removeAttribute("data-l10n-args");
   elements.draftStatus.textContent = "";
   const files = draft.files || [];
   const rows = files.map(file => {
@@ -452,56 +491,77 @@ function renderDraft() {
     return label;
   });
   elements.draftFileList.replaceChildren(...rows);
-  const selected = [...state.draftSelections.values()].filter(Boolean).length;
-  elements.draftCommit.disabled = selected === 0;
-  l10n(
-    elements.draftCommit,
-    selected === files.length
-      ? "wildbuzzard-torrents-draft-download-all"
-      : "wildbuzzard-torrents-draft-download-selected"
-  );
+  updateDraftCommitButton();
 }
 
-async function refreshDraft() {
-  const id = state.draft?.draftId;
-  if (!id) {
+async function refreshDraft(
+  id = state.draft?.draftId,
+  generation = state.draftGeneration
+) {
+  if (
+    !id ||
+    state.draft?.draftId !== id ||
+    state.draftGeneration !== generation
+  ) {
     return;
   }
+  const sequence = ++state.draftPollSequence;
   try {
     const draft = await TorrentManager.getTorrentDraft(id);
-    if (state.draft?.draftId !== id) {
+    if (
+      state.draft?.draftId !== id ||
+      state.draftGeneration !== generation ||
+      state.draftPollSequence !== sequence
+    ) {
       return;
     }
     state.draft = draft;
     renderDraft();
     if (draft.state === "metadata") {
-      state.draftTimer = setTimeout(refreshDraft, 500);
+      state.draftTimer = setTimeout(() => refreshDraft(id, generation), 500);
     }
   } catch {
+    if (
+      state.draft?.draftId !== id ||
+      state.draftGeneration !== generation ||
+      state.draftPollSequence !== sequence
+    ) {
+      return;
+    }
+    const closeTask = closeDraft(true, id);
     showToast(await localized("wildbuzzard-torrents-draft-error"), true);
-    await closeDraft(true);
+    await closeTask;
   }
 }
 
 async function openDraft(draft, returnFocus = document.activeElement) {
   clearTimeout(state.draftTimer);
+  const generation = ++state.draftGeneration;
   state.draft = draft;
   state.draftReturnFocus = returnFocus;
   state.draftStartedAt = Date.now();
   state.draftSelections.clear();
+  state.draftSummaryKey = "";
   renderDraft();
   if (!elements.draftDialog.open) {
     elements.draftDialog.showModal();
     elements.draftClose.focus();
   }
   if (draft.state === "metadata") {
-    state.draftTimer = setTimeout(refreshDraft, 500);
+    state.draftTimer = setTimeout(
+      () => refreshDraft(draft.draftId, generation),
+      500
+    );
   }
 }
 
-async function closeDraft(cancel = true) {
+async function closeDraft(cancel = true, expectedId = state.draft?.draftId) {
+  if (!expectedId || state.draft?.draftId !== expectedId) {
+    return;
+  }
   clearTimeout(state.draftTimer);
-  const id = state.draft?.draftId;
+  state.draftGeneration++;
+  const id = expectedId;
   const returnFocus = state.draftReturnFocus;
   state.draft = null;
   state.draftReturnFocus = null;
@@ -1004,14 +1064,14 @@ async function refresh() {
   render();
 }
 
-async function addSource(source) {
+async function addSource(source, returnFocus = document.activeElement) {
   const value = source.trim();
   if (!value) {
     return false;
   }
   const draft = await TorrentManager.createDraftFromURL(value);
   elements.source.value = "";
-  await openDraft(draft);
+  await openDraft(draft, returnFocus);
   return false;
 }
 
@@ -1042,9 +1102,9 @@ async function handleAction(action) {
   await TorrentManager.action(record.id, action);
 }
 
-async function handleTorrentFile(file) {
+async function handleTorrentFile(file, returnFocus = document.activeElement) {
   const draft = await TorrentManager.addTorrentFile(file);
-  await openDraft(draft);
+  await openDraft(draft, returnFocus);
   return false;
 }
 
@@ -1061,7 +1121,7 @@ async function chooseTorrentFile(trigger) {
       await localized("wildbuzzard-torrents-picker-filter")
     );
     if (draft) {
-      await openDraft(draft);
+      await openDraft(draft, trigger);
       opened = true;
     }
   } catch (error) {
@@ -1140,7 +1200,7 @@ async function initialize() {
 
   document.getElementById("add-form").addEventListener("submit", event => {
     event.preventDefault();
-    run(() => addSource(elements.source.value));
+    run(() => addSource(elements.source.value, event.submitter));
   });
   for (const trigger of document.querySelectorAll("[data-choose-torrent]")) {
     trigger.addEventListener("click", event => {
@@ -1227,7 +1287,7 @@ async function initialize() {
       Number(checkbox.dataset.draftFile),
       checkbox.checked
     );
-    renderDraft();
+    updateDraftCommitButton();
   });
   document
     .getElementById("torrent-draft-close")
@@ -1237,9 +1297,14 @@ async function initialize() {
     .addEventListener("click", () => closeDraft(true));
   elements.draftKeepWaiting.addEventListener("click", () => {
     clearTimeout(state.draftTimer);
+    const id = state.draft?.draftId;
+    if (!id) {
+      return;
+    }
+    const generation = ++state.draftGeneration;
     state.draftStartedAt = Date.now();
     renderDraft();
-    refreshDraft();
+    refreshDraft(id, generation);
   });
   elements.draftCommit.addEventListener("click", commitDraft);
   elements.draftDialog.addEventListener("cancel", event => {
@@ -1260,7 +1325,7 @@ async function initialize() {
     });
   }
   dropTarget.addEventListener("drop", event => {
-    run(() => handleTorrentFile(event.dataTransfer.files[0]));
+    run(() => handleTorrentFile(event.dataTransfer.files[0], dropTarget));
   });
 
   initializeTorrentSearch();
