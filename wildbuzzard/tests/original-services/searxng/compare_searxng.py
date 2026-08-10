@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import contextlib
 import datetime
 import difflib
 import hashlib
@@ -13,6 +14,7 @@ import pathlib
 import re
 import secrets
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -185,66 +187,59 @@ class Recorder:
         return result
 
 
-class ContainerClient:
+class HostClient:
     def __init__(
         self,
-        podman: list[str],
-        container: str,
-        python: str,
+        python: pathlib.Path,
+        probe: pathlib.Path,
+        environment: dict[str, str],
+        process: subprocess.Popen[bytes] | None = None,
+        unix_socket: pathlib.Path | None = None,
     ) -> None:
-        self.podman = podman
-        self.container = container
         self.python = python
+        self.probe = probe
+        self.environment = environment
+        self.process = process
+        self.unix_socket = unix_socket
 
     def invoke(
         self, value: dict[str, object], timeout: float = 15
     ) -> dict[str, object]:
+        request = dict(value)
+        if request.get("mode") == "snapshot":
+            if self.process is None:
+                raise RuntimeError("Host process snapshot has no root process")
+            request["rootPid"] = self.process.pid
+        if self.unix_socket is not None and request.get("mode") in {
+            "cancel",
+            "request",
+        }:
+            request["unixSocket"] = str(self.unix_socket)
         result = subprocess.run(
-            [
-                *self.podman,
-                "exec",
-                "--interactive",
-                self.container,
-                self.python,
-                "-I",
-                "-B",
-                "/opt/wildbuzzard-http-probe.py",
-            ],
+            [str(self.python), "-I", "-B", str(self.probe)],
             input=(
-                json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+                json.dumps(request, sort_keys=True, separators=(",", ":")) + "\n"
             ).encode(),
             capture_output=True,
+            env=self.environment,
             timeout=timeout,
             check=False,
         )
         if result.returncode:
             message = result.stderr.decode("utf-8", "replace").strip()
             raise RuntimeError(
-                f"Container probe failed with exit code {result.returncode}: {message}"
+                f"Host probe failed with exit code {result.returncode}: {message}"
             )
         try:
             parsed = json.loads(result.stdout)
         except json.JSONDecodeError as error:
-            raise RuntimeError("Container probe returned invalid JSON") from error
+            raise RuntimeError("Host probe returned invalid JSON") from error
         if not isinstance(parsed, dict):
-            raise RuntimeError("Container probe returned a non-object")
+            raise RuntimeError("Host probe returned a non-object")
         return parsed
 
     def running(self) -> bool:
-        result = subprocess.run(
-            [
-                *self.podman,
-                "inspect",
-                "--format",
-                "{{.State.Running}}",
-                self.container,
-            ],
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            check=False,
-        )
-        return result.returncode == 0 and result.stdout.strip() == "true"
+        return self.process is None or self.process.poll() is None
 
 
 def parse_args() -> argparse.Namespace:
@@ -569,7 +564,7 @@ def prepare_native_runtime(
 
 
 def wait_http(
-    client: ContainerClient,
+    client: HostClient,
     port: int,
     path: str,
     headers: dict[str, str],
@@ -584,7 +579,7 @@ def wait_http(
                 "method": "GET",
                 "path": path,
                 "port": port,
-                "headers": headers,
+                "headers": {**headers, "Host": f"127.0.0.1:{port}"},
             })
             if response.get("status") == 200:
                 return
@@ -595,48 +590,82 @@ def wait_http(
     raise RuntimeError(f"Timed out waiting for {path}: {last_error}")
 
 
-def verify_network_isolation(
+def verify_pristine_network_isolation(
     recorder: Recorder,
     podman: list[str],
-    clients: dict[str, ContainerClient],
+    container: str,
 ) -> dict[str, object]:
-    evidence = {}
-    for name, client in clients.items():
-        inspect = recorder.run(
-            f"{name}-network-mode",
-            [
-                *podman,
-                "inspect",
-                "--format",
-                "{{.HostConfig.NetworkMode}}",
-                client.container,
-            ],
-        )
-        mode = inspect.stdout.strip()
-        observed = client.invoke({"mode": "network"})
-        if (
-            mode != "none"
-            or observed.get("interfaces") != ["lo"]
-            or observed.get("ipv4DefaultRoute") is not False
-            or observed.get("ipv6DefaultRoute") is not False
-            or observed.get("externalConnectBlocked") is not True
-        ):
-            raise RuntimeError(f"{name} container network isolation is ineffective")
-        evidence[name] = {"networkMode": mode, **observed}
-    return evidence
+    inspect = recorder.run(
+        "pristine-network-mode",
+        [
+            *podman,
+            "inspect",
+            "--format",
+            "{{.HostConfig.NetworkMode}}",
+            container,
+        ],
+    )
+    mode = inspect.stdout.strip()
+    pid_result = recorder.run(
+        "pristine-container-pid",
+        [*podman, "inspect", "--format", "{{.State.Pid}}", container],
+    )
+    try:
+        pid = int(pid_result.stdout.strip())
+    except ValueError as error:
+        raise RuntimeError("Pristine container has no host process identity") from error
+    process_net = pathlib.Path(f"/proc/{pid}/net")
+    interfaces = sorted(
+        line.split(":", 1)[0].strip()
+        for line in (process_net / "dev").read_text(encoding="ascii").splitlines()[2:]
+        if ":" in line
+    )
+    ipv4_default = any(
+        len(fields := line.split()) > 1 and fields[1] == "00000000"
+        for line in (process_net / "route").read_text(encoding="ascii").splitlines()[1:]
+    )
+    ipv6_default = any(
+        len(fields := line.split()) > 1
+        and fields[0] == "0" * 32
+        and fields[1] == "00"
+        and fields[-1] != "lo"
+        for line in (process_net / "ipv6_route")
+        .read_text(encoding="ascii")
+        .splitlines()
+    )
+    namespace = os.readlink(f"/proc/{pid}/ns/net")
+    host_namespace = os.readlink("/proc/self/ns/net")
+    if (
+        mode != "none"
+        or interfaces != ["lo"]
+        or ipv4_default
+        or ipv6_default
+        or namespace == host_namespace
+    ):
+        raise RuntimeError("Pristine container network isolation is ineffective")
+    return {
+        "hostNetworkNamespace": host_namespace,
+        "interfaces": interfaces,
+        "ipv4DefaultRoute": ipv4_default,
+        "ipv6DefaultRoute": ipv6_default,
+        "networkMode": mode,
+        "networkNamespace": namespace,
+        "pid": pid,
+    }
 
 
 def read_connection(
     path: pathlib.Path,
-    client: ContainerClient,
+    client: HostClient,
     owner_instance_id: str,
+    executable_path: pathlib.Path,
     executable_sha256: str,
     timeout: float,
 ) -> tuple[dict[str, object], dict[str, object]]:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if not client.running():
-            raise RuntimeError("Native SearXNG container exited during startup")
+            raise RuntimeError("Native SearXNG host process exited during startup")
         try:
             record = json.loads(path.read_text(encoding="utf-8"))
         except (FileNotFoundError, json.JSONDecodeError):
@@ -664,8 +693,7 @@ def read_connection(
             or pid < 1
             or not isinstance(process_start, str)
             or not process_start.isdecimal()
-            or record.get("executablePath")
-            != "/opt/wildbuzzard-searxng/python/bin/python3"
+            or record.get("executablePath") != str(executable_path)
             or record.get("executableSha256") != executable_sha256
             or not isinstance(record.get("dataRootId"), str)
             or not record["dataRootId"]
@@ -691,14 +719,16 @@ def read_connection(
             raise RuntimeError("Native SearXNG connection timestamps are invalid")
         identity = client.invoke({"mode": "process", "pid": pid})
         if (
-            identity.get("processStartTime") != process_start
+            client.process is None
+            or pid != client.process.pid
+            or identity.get("processStartTime") != process_start
             or identity.get("executablePath") != record["executablePath"]
             or not isinstance(identity.get("threadCount"), int)
             or int(identity["threadCount"]) < 1
             or not isinstance(identity.get("fdCount"), int)
             or int(identity["fdCount"]) < 1
         ):
-            raise RuntimeError("Native container process identity mismatch")
+            raise RuntimeError("Native host process identity mismatch")
         return record, identity
     raise RuntimeError("Timed out waiting for native SearXNG connection record")
 
@@ -765,7 +795,7 @@ def scenarios() -> list[dict[str, object]]:
 
 
 def issue_request(
-    client: ContainerClient,
+    client: HostClient,
     port: int,
     case: dict[str, object],
     capability: str,
@@ -774,6 +804,7 @@ def issue_request(
         "Accept": str(case["accept"]),
         "Authorization": f"Bearer {capability}",
         "Connection": "close",
+        "Host": f"127.0.0.1:{port}",
         "Sec-Fetch-Site": "none",
         "User-Agent": "WildBuzzard-SearXNG-Comparison/1",
     }
@@ -792,11 +823,11 @@ def issue_request(
     })
     encoded = result.get("body")
     if not isinstance(encoded, str):
-        raise RuntimeError("Container probe response has no body")
+        raise RuntimeError("Host probe response has no body")
     try:
         result["body"] = base64.b64decode(encoded, validate=True)
     except ValueError as error:
-        raise RuntimeError("Container probe response body is invalid") from error
+        raise RuntimeError("Host probe response body is invalid") from error
     return result
 
 
@@ -976,8 +1007,8 @@ def record_response(
 
 def compare_scenarios(
     artifacts: pathlib.Path,
-    pristine_client: ContainerClient,
-    native_client: ContainerClient,
+    pristine_client: HostClient,
+    native_client: HostClient,
     pristine_port: int,
     native_port: int,
     capability: str,
@@ -1050,7 +1081,7 @@ def compare_scenarios(
 
 
 def cancellation_probe(
-    client: ContainerClient, port: int, capability: str
+    client: HostClient, port: int, capability: str
 ) -> dict[str, object]:
     body = urllib.parse.urlencode({
         "q": "cancel",
@@ -1075,11 +1106,11 @@ def cancellation_probe(
 def process_keys(snapshot: dict[str, object]) -> list[tuple[object, object, object]]:
     processes = snapshot.get("processes")
     if not isinstance(processes, list):
-        raise RuntimeError("Container process snapshot has no process list")
+        raise RuntimeError("Native process snapshot has no process list")
     keys = []
     for process in processes:
         if not isinstance(process, dict):
-            raise RuntimeError("Container process snapshot is invalid")
+            raise RuntimeError("Native process snapshot is invalid")
         keys.append((
             process.get("pid"),
             process.get("processStartTime"),
@@ -1089,7 +1120,7 @@ def process_keys(snapshot: dict[str, object]) -> list[tuple[object, object, obje
 
 
 def wait_for_quiescence(
-    client: ContainerClient,
+    client: HostClient,
     baseline: dict[str, object],
     timeout: float,
 ) -> dict[str, object]:
@@ -1097,7 +1128,7 @@ def wait_for_quiescence(
     baseline_threads = baseline.get("threadCount")
     baseline_fds = baseline.get("fdCount")
     if not isinstance(baseline_threads, int) or not isinstance(baseline_fds, int):
-        raise RuntimeError("Container process baseline is invalid")
+        raise RuntimeError("Native process baseline is invalid")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         snapshot = client.invoke({"mode": "snapshot"})
@@ -1112,7 +1143,7 @@ def wait_for_quiescence(
         ):
             return snapshot
         time.sleep(0.1)
-    raise RuntimeError("Container did not return to its pre-cancellation process state")
+    raise RuntimeError("Native process did not return to its pre-cancellation state")
 
 
 def main() -> int:
@@ -1130,9 +1161,11 @@ def main() -> int:
     work.mkdir(mode=0o700)
     run_id = secrets.token_hex(8)
     pristine_container = f"wildbuzzard-searxng-pristine-{run_id}"
-    native_container = f"wildbuzzard-searxng-native-{run_id}"
     image_tag = f"localhost/wildbuzzard-searxng-pristine:{run_id}"
-    containers_created = {"native": False, "pristine": False}
+    pristine_container_created = False
+    native_process: subprocess.Popen[bytes] | None = None
+    native_log = None
+    native_log_path = artifacts / "native-service.log"
     image_created = False
     podman: list[str] | None = None
     images_before: list[dict[str, object]] | None = None
@@ -1219,8 +1252,11 @@ def main() -> int:
 
         pristine_config = work / "pristine-config"
         pristine_cache = work / "pristine-cache"
+        pristine_socket_root = work / "pristine-socket"
         pristine_config.mkdir(mode=0o700)
         pristine_cache.mkdir(mode=0o700)
+        pristine_socket_root.mkdir(mode=0o700)
+        pristine_socket = pristine_socket_root / "searxng.sock"
         settings_path = pristine_config / "settings.yml"
         template = (HERE / "fixture-settings.yml.in").read_text(encoding="utf-8")
         pristine_port = 8080
@@ -1236,9 +1272,9 @@ def main() -> int:
             directory.mkdir(mode=0o700)
         connection_path = native_state / "connection.json"
         owner_instance_id = f"comparison-{run_id}"
-        probe = HERE / "container_http_probe.py"
+        probe = HERE / "host_http_probe.py"
 
-        containers_created["pristine"] = True
+        pristine_container_created = True
         create = recorder.run(
             "pristine-container-create",
             [
@@ -1261,7 +1297,7 @@ def main() -> int:
                 "--volume",
                 f"{pristine_cache}:/var/cache/searxng:rw",
                 "--volume",
-                f"{probe}:/opt/wildbuzzard-http-probe.py:ro",
+                f"{pristine_socket_root}:/run/wildbuzzard-pristine:rw",
                 "--env",
                 "PYTHONHASHSEED=0",
                 "--env",
@@ -1275,10 +1311,10 @@ def main() -> int:
                 image_tag,
                 "--interface",
                 "wsgi",
-                "--host",
-                "0.0.0.0",
-                "--port",
-                "8080",
+                "--uds",
+                "/run/wildbuzzard-pristine/searxng.sock",
+                "--uds-permissions",
+                "0o600",
                 "--no-ws",
                 "--workers",
                 "1",
@@ -1289,72 +1325,74 @@ def main() -> int:
         )
         if not create.stdout.strip():
             raise RuntimeError("Podman did not return a container identity")
-        containers_created["native"] = True
-        native_create = recorder.run(
-            "native-container-create",
+        recorder.run("pristine-container-start", [*podman, "start", pristine_container])
+        native_python = (native_runtime / "python" / "bin" / "python3").resolve(
+            strict=True
+        )
+        native_environment = {
+            "HOME": str(native_data),
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "LD_LIBRARY_PATH": str(native_runtime / "python" / "lib"),
+            "OPENSSL_MODULES": str(native_runtime / "python" / "lib"),
+            "PATH": f"{native_runtime / 'python' / 'bin'}:/usr/bin:/bin",
+            "PYTHONHASHSEED": "0",
+            "TZ": "UTC",
+        }
+        pristine_client = HostClient(
+            native_python,
+            probe,
+            native_environment,
+            unix_socket=pristine_socket,
+        )
+        native_log = native_log_path.open("wb", buffering=0)
+        native_log_path.chmod(0o600)
+        native_process = subprocess.Popen(
             [
-                *podman,
-                "create",
-                "--name",
-                native_container,
-                "--cap-drop=all",
-                "--network",
-                "none",
-                "--security-opt",
-                "no-new-privileges",
-                "--security-opt",
-                f"seccomp={seccomp}",
-                "--read-only",
-                "--tmpfs",
-                "/tmp:rw,noexec,nosuid,nodev,size=64m",
-                "--volume",
-                f"{native_runtime}:/opt/wildbuzzard-searxng:ro",
-                "--volume",
-                f"{native_data}:/var/lib/wildbuzzard-searxng:rw",
-                "--volume",
-                f"{native_cache}:/var/cache/wildbuzzard-searxng:rw",
-                "--volume",
-                f"{native_state}:/var/run/wildbuzzard-searxng:rw",
-                "--volume",
-                f"{probe}:/opt/wildbuzzard-http-probe.py:ro",
-                "--entrypoint",
-                "/opt/wildbuzzard-searxng/bin/searxng-service",
-                image_tag,
+                str(native_runtime / "bin" / "searxng-service"),
                 "serve",
                 "--data-root",
-                "/var/lib/wildbuzzard-searxng",
+                str(native_data),
                 "--cache-root",
-                "/var/cache/wildbuzzard-searxng",
+                str(native_cache),
                 "--runtime-dir",
-                "/var/run/wildbuzzard-searxng",
+                str(native_state),
                 "--connection-file",
-                "/var/run/wildbuzzard-searxng/connection.json",
+                str(connection_path),
                 "--owner-instance-id",
                 owner_instance_id,
             ],
+            cwd=native_runtime,
+            env=native_environment,
+            stdin=subprocess.DEVNULL,
+            stdout=native_log,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+            start_new_session=True,
         )
-        if not native_create.stdout.strip():
-            raise RuntimeError("Podman did not return a native container identity")
-        recorder.run("pristine-container-start", [*podman, "start", pristine_container])
-        recorder.run("native-container-start", [*podman, "start", native_container])
-        pristine_client = ContainerClient(
-            podman, pristine_container, "/usr/local/searxng/.venv/bin/python"
+        native_client = HostClient(
+            native_python,
+            probe,
+            native_environment,
+            process=native_process,
         )
-        native_client = ContainerClient(
-            podman,
-            native_container,
-            "/opt/wildbuzzard-searxng/python/bin/python3",
-        )
-        summary["networkIsolation"] = verify_network_isolation(
-            recorder,
-            podman,
-            {"native": native_client, "pristine": pristine_client},
-        )
+        summary["networkIsolation"] = {
+            "pristineContainer": verify_pristine_network_isolation(
+                recorder, podman, pristine_container
+            )
+        }
+        summary["nativeExecution"] = {
+            "containerized": False,
+            "environmentKeys": sorted(native_environment),
+            "listenerAddress": "127.0.0.1",
+            "scope": "host-process",
+        }
         connection, native_process_identity = read_connection(
             connection_path,
             native_client,
             owner_instance_id,
-            sha256_file(native_runtime / "python" / "bin" / "python3"),
+            native_python,
+            sha256_file(native_python),
             args.timeout,
         )
         native_port = int(connection["port"])
@@ -1379,15 +1417,12 @@ def main() -> int:
             args.timeout,
         )
         startup_logs = {
-            name: recorder.run(
-                f"{name}-startup-logs",
-                [*podman, "logs", client.container],
+            "native": native_log_path.read_text(encoding="utf-8", errors="replace"),
+            "pristine": recorder.run(
+                "pristine-startup-logs",
+                [*podman, "logs", pristine_container],
                 check=False,
-            ).stdout
-            for name, client in {
-                "native": native_client,
-                "pristine": pristine_client,
-            }.items()
+            ).stdout,
         }
         forbidden_updater_markers = ("clearurls.xyz", "TRACKER_PATTERNS")
         if any(
@@ -1437,11 +1472,13 @@ def main() -> int:
         }
         redacted_connection["token"] = "<redacted>"
         summary["nativeIdentity"] = redacted_connection
-        summary["nativeContainerProcess"] = native_process_identity
+        summary["nativeHostProcess"] = native_process_identity
         summary["ports"] = {
-            "scope": "container-loopback-only",
-            "pristine": pristine_port,
-            "native": native_port,
+            "native": {"port": native_port, "scope": "host-loopback"},
+            "pristine": {
+                "port": pristine_port,
+                "scope": "container-unix-socket",
+            },
         }
         results = compare_scenarios(
             artifacts,
@@ -1468,15 +1505,10 @@ def main() -> int:
         native_process_after = wait_for_quiescence(
             native_client, native_process_baseline, args.timeout
         )
-        cancellation_logs = recorder.run(
-            "native-post-cancellation-logs",
-            [*podman, "logs", native_container],
-            check=False,
+        cancellation_logs = native_log_path.read_text(
+            encoding="utf-8", errors="replace"
         )
-        if (
-            "Traceback" in cancellation_logs.stdout
-            or "BrokenPipe" in cancellation_logs.stdout
-        ):
+        if "Traceback" in cancellation_logs or "BrokenPipe" in cancellation_logs:
             raise RuntimeError("Native cancellation emitted a traceback")
         cancellation["nativeProcessState"] = {
             "before": native_process_baseline,
@@ -1492,57 +1524,73 @@ def main() -> int:
         record_failure(summary, error)
     finally:
         try:
-            if podman is None and any(containers_created.values()):
+            if podman is None and pristine_container_created:
                 raise RuntimeError("Rootless runtime command was not initialized")
             cleanup_failures = []
+            if native_process is not None:
+                forced = False
+                if native_process.poll() is None:
+                    native_process.terminate()
+                    try:
+                        native_process.wait(timeout=15)
+                    except subprocess.TimeoutExpired:
+                        forced = True
+                        with contextlib.suppress(ProcessLookupError):
+                            os.killpg(native_process.pid, signal.SIGKILL)
+                        native_process.wait(timeout=5)
+                cleanup["nativeHostProcess"] = {
+                    "exitCode": native_process.returncode,
+                    "forced": forced,
+                    "stopped": native_process.returncode == 0,
+                }
+                if native_process.returncode != 0:
+                    cleanup_failures.append(
+                        "native host comparison process did not exit cleanly"
+                    )
+            if native_log is not None:
+                native_log.close()
             container_cleanup = {}
-            if podman is not None:
-                for name, container in (
-                    ("native", native_container),
-                    ("pristine", pristine_container),
-                ):
-                    if not containers_created[name]:
-                        continue
-                    logs = recorder.run(
-                        f"{name}-container-logs",
-                        [*podman, "logs", container],
-                        check=False,
+            if podman is not None and pristine_container_created:
+                logs = recorder.run(
+                    "pristine-container-logs",
+                    [*podman, "logs", pristine_container],
+                    check=False,
+                )
+                (artifacts / "pristine-service.log").write_text(
+                    logs.stdout, encoding="utf-8"
+                )
+                stop = recorder.run(
+                    "pristine-container-stop",
+                    [*podman, "stop", "--time", "10", pristine_container],
+                    check=False,
+                )
+                inspect = recorder.run(
+                    "pristine-container-exit",
+                    [
+                        *podman,
+                        "inspect",
+                        "--format",
+                        "{{.State.ExitCode}}",
+                        pristine_container,
+                    ],
+                    check=False,
+                )
+                remove = recorder.run(
+                    "pristine-container-remove",
+                    [*podman, "rm", "--force", "--volumes", pristine_container],
+                    check=False,
+                )
+                container_cleanup["pristine"] = {
+                    "logsExitCode": logs.returncode,
+                    "removeExitCode": remove.returncode,
+                    "removed": remove.returncode == 0,
+                    "serviceExitCode": inspect.stdout.strip(),
+                    "stopExitCode": stop.returncode,
+                }
+                if remove.returncode:
+                    cleanup_failures.append(
+                        "failed to remove pristine comparison container"
                     )
-                    (artifacts / f"{name}-service.log").write_text(
-                        logs.stdout, encoding="utf-8"
-                    )
-                    stop = recorder.run(
-                        f"{name}-container-stop",
-                        [*podman, "stop", "--time", "10", container],
-                        check=False,
-                    )
-                    inspect = recorder.run(
-                        f"{name}-container-exit",
-                        [
-                            *podman,
-                            "inspect",
-                            "--format",
-                            "{{.State.ExitCode}}",
-                            container,
-                        ],
-                        check=False,
-                    )
-                    remove = recorder.run(
-                        f"{name}-container-remove",
-                        [*podman, "rm", "--force", "--volumes", container],
-                        check=False,
-                    )
-                    container_cleanup[name] = {
-                        "logsExitCode": logs.returncode,
-                        "removeExitCode": remove.returncode,
-                        "removed": remove.returncode == 0,
-                        "serviceExitCode": inspect.stdout.strip(),
-                        "stopExitCode": stop.returncode,
-                    }
-                    if remove.returncode:
-                        cleanup_failures.append(
-                            f"failed to remove {name} comparison container"
-                        )
             cleanup["containers"] = container_cleanup
             if image_created:
                 if podman is None:

@@ -50,7 +50,7 @@ NATIVE_LOCK="$SOURCE_ROOT/native-sources.lock"
 TOOLCHAIN_LOCK="$SOURCE_ROOT/toolchain.lock"
 CARGO_VENDOR_LOCK="$SOURCE_ROOT/granian-cargo-vendor.lock"
 CARGO_COMPONENTS_LOCK="$SOURCE_ROOT/granian-cargo-components.lock"
-CARGO_VENDOR_ARCHIVE="$SOURCE_ROOT/granian-2.7.9-cargo-vendor.tar.xz"
+CARGO_VENDOR_FILENAME=granian-2.7.9-cargo-vendor.tar.xz
 POLICY="$SOURCE_ROOT/engine-policy.json"
 SEARXNG_ARCHIVE=searxng-b023a28bab8839dba9eac96e9a51cc91bbd0a267.tar.gz
 SEARXNG_URL=https://codeload.github.com/searxng/searxng/tar.gz/b023a28bab8839dba9eac96e9a51cc91bbd0a267
@@ -111,6 +111,7 @@ case "$OUTPUT_DIR/" in
     ;;
 esac
 CACHE_DIR=$(realpath -m -- "${CACHE_DIR:-$OUTPUT_DIR/cache}")
+CARGO_VENDOR_ARCHIVE="$CACHE_DIR/cargo-vendor/$CARGO_VENDOR_FILENAME"
 JOBS=${JOBS:-$(getconf _NPROCESSORS_ONLN)}
 mkdir -p -- \
   "$OUTPUT_DIR" \
@@ -118,6 +119,7 @@ mkdir -p -- \
   "$CACHE_DIR/build-tools" \
   "$CACHE_DIR/build-tool-sources" \
   "$CACHE_DIR/native-sources" \
+  "$CACHE_DIR/cargo-vendor" \
   "$CACHE_DIR/toolchain" \
   "$CACHE_DIR/toolchain-sources"
 WORK_DIR=$(mktemp -d "$OUTPUT_DIR/.searxng-build.XXXXXX")
@@ -135,7 +137,7 @@ export XDG_DATA_HOME="$WORK_DIR/xdg-data"
 mkdir -p -- "$XDG_CACHE_HOME" "$XDG_CONFIG_HOME" "$XDG_DATA_HOME"
 
 [[ $(awk -F '\t' '$1 !~ /^#/ && NF == 5 { count++ } END { print count + 0 }' "$RUNTIME_LOCK") == 41 ]]
-[[ $(awk -F '\t' '$1 !~ /^#/ && NF == 5 { count++ } END { print count + 0 }' "$CARGO_COMPONENTS_LOCK") == 199 ]]
+[[ $(awk -F '\t' '$1 !~ /^#/ && (NF == 4 || NF == 5) { count++ } END { print count + 0 }' "$CARGO_COMPONENTS_LOCK") == 199 ]]
 
 download_locked() {
   local destination=$1
@@ -186,15 +188,6 @@ while IFS=$'\t' read -r _name _version binary binary_digest binary_size source s
   [[ $(stat -c '%s' "$CACHE_DIR/toolchain-sources/$source") == "$source_size" ]]
 done < "$TOOLCHAIN_LOCK"
 
-echo "1aad25bfcb3f0f8753363d27e73199ea6ba30beee179a84f01a4e8ae213da1a8  $CARGO_VENDOR_ARCHIVE" |
-  sha256sum --check --strict
-[[ $(stat -c '%s' "$CARGO_VENDOR_ARCHIVE") == 30147144 ]]
-
-if [[ "$PREPARE_ONLY" == 1 ]]; then
-  echo "SearXNG build inputs are complete: $CACHE_DIR"
-  exit 0
-fi
-
 LOCKED_BUILD_TOOLS="$WORK_DIR/locked-build-tools"
 mkdir -p -- "$LOCKED_BUILD_TOOLS"
 while IFS=$'\t' read -r _name _version filename _digest _url; do
@@ -224,6 +217,54 @@ export ZIG_GLOBAL_CACHE_DIR="$WORK_DIR/zig-global-cache"
 export ZIG_LOCAL_CACHE_DIR="$WORK_DIR/zig-local-cache"
 export TMPDIR="$WORK_DIR/tmp"
 mkdir -p -- "$ZIG_GLOBAL_CACHE_DIR" "$ZIG_LOCAL_CACHE_DIR" "$TMPDIR"
+
+read -r _vendor_name _vendor_version vendor_filename vendor_digest vendor_size _vendor_generator < <(
+  awk -F '\t' '$1 == "granian-cargo-vendor" { print $1, $2, $3, $4, $5, $6 }' "$CARGO_VENDOR_LOCK"
+)
+[[ "$vendor_filename" == "$CARGO_VENDOR_FILENAME" ]]
+if [[ ! -f "$CARGO_VENDOR_ARCHIVE" ]]; then
+  if [[ "$OFFLINE" == 1 ]]; then
+    echo "missing offline input: $CARGO_VENDOR_ARCHIVE" >&2
+    exit 1
+  fi
+  GRANIAN_VENDOR_SOURCE="$WORK_DIR/granian-vendor-source"
+  mkdir -p -- "$GRANIAN_VENDOR_SOURCE"
+  tar -xzf "$CACHE_DIR/sources/granian-2.7.9.tar.gz" \
+    -C "$GRANIAN_VENDOR_SOURCE" \
+    --strip-components=1
+  (
+    cd -- "$GRANIAN_VENDOR_SOURCE"
+    umask 0002
+    CARGO_HOME="$WORK_DIR/cargo-vendor-home" \
+    CARGO_NET_GIT_FETCH_WITH_CLI=false \
+    "$RUST_PREFIX/bin/cargo" vendor --locked vendor \
+      > cargo-vendor-config.toml
+  )
+  find "$GRANIAN_VENDOR_SOURCE/vendor" -type l -print -quit | (! grep -q .)
+  [[ $(find "$GRANIAN_VENDOR_SOURCE/vendor" -mindepth 1 -maxdepth 1 -type d | wc -l) == 199 ]]
+  find "$GRANIAN_VENDOR_SOURCE/vendor" -exec touch -h --date="@$SOURCE_DATE_EPOCH" {} +
+  touch --date="@$SOURCE_DATE_EPOCH" \
+    "$GRANIAN_VENDOR_SOURCE/cargo-vendor-config.toml" \
+    "$GRANIAN_VENDOR_SOURCE/Cargo.lock"
+  XZ_OPT=-T0 tar \
+    --format=gnu \
+    --sort=name \
+    --mtime="@$SOURCE_DATE_EPOCH" \
+    --owner=0 \
+    --group=0 \
+    --numeric-owner \
+    -C "$GRANIAN_VENDOR_SOURCE" \
+    -cJf "$CARGO_VENDOR_ARCHIVE.part" \
+    vendor cargo-vendor-config.toml Cargo.lock
+  mv -- "$CARGO_VENDOR_ARCHIVE.part" "$CARGO_VENDOR_ARCHIVE"
+fi
+echo "$vendor_digest  $CARGO_VENDOR_ARCHIVE" | sha256sum --check --strict
+[[ $(stat -c '%s' "$CARGO_VENDOR_ARCHIVE") == "$vendor_size" ]]
+
+if [[ "$PREPARE_ONLY" == 1 ]]; then
+  echo "SearXNG build inputs are complete: $CACHE_DIR"
+  exit 0
+fi
 
 NATIVE_WORK="$WORK_DIR/native"
 "$SCRIPT_DIR/build-searxng-native-deps.sh" \
@@ -1127,8 +1168,9 @@ cp -- \
   "$CARGO_VENDOR_LOCK" \
   "$CARGO_COMPONENTS_LOCK" \
   "$POLICY" \
-  "$CARGO_VENDOR_ARCHIVE" \
   "$BUNDLE_SOURCE_ROOT/"
+mkdir -p -- "$BUNDLE_CACHE/cargo-vendor"
+cp -- "$CARGO_VENDOR_ARCHIVE" "$BUNDLE_CACHE/cargo-vendor/"
 cp -- \
   "$CACHE_DIR/sources/$SEARXNG_ARCHIVE" \
   "$CACHE_DIR/sources/$PYTHON_ARCHIVE" \
