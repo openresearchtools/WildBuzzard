@@ -21,6 +21,7 @@ import socket
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 from collections.abc import Callable
@@ -32,6 +33,12 @@ FIRECRAWL_TAG = "v2.11.193"
 FIRECRAWL_COMMIT = "448ef4bf815d8df798d1a676f0303285e54cabdb"
 FIRECRAWL_TAG_OBJECT = "f13353ea529b12b4f17aef76d1a01e6d90784850"
 BASE_PLATFORM = "linux/amd64"
+PLAYWRIGHT_INTERNAL_PORT = 3000
+PLAYWRIGHT_START_COMMAND = ("node", "dist/api.js")
+REFERENCE_BUILD_ARGUMENTS = {
+    "api": (f"GIT_SHA={FIRECRAWL_COMMIT}",),
+    "playwright": (f"PORT={PLAYWRIGHT_INTERNAL_PORT}",),
+}
 CANCELLATION_FIXTURE_MS = 5000
 CANCELLATION_PROMPT_BOUND_MS = 3000
 BASE_IMAGES = (
@@ -270,6 +277,8 @@ def normalize_fixture_url(value: str | None) -> str | None:
     hosts = {
         "fixture:8080": "fixture.test",
         "other-fixture:8080": "other-fixture.test",
+        "fixture.test:8080": "fixture.test",
+        "other-fixture.test:8080": "other-fixture.test",
     }
     authority = hosts.get(parsed.netloc, parsed.netloc)
     if parsed.hostname in {"127.0.0.1", "localhost", "::1"}:
@@ -366,11 +375,36 @@ def validate_artifacts(value: str) -> pathlib.Path:
     return artifacts
 
 
-def configure_isolated_podman_storage(work: pathlib.Path) -> dict[str, object]:
+def create_ephemeral_podman_run_root(
+    base: pathlib.Path | None = None,
+) -> pathlib.Path:
+    uid = os.geteuid()
+    runtime_base = (
+        base
+        if base is not None
+        else pathlib.Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}"))
+    ).resolve(strict=True)
+    metadata = runtime_base.stat()
+    if (
+        not stat.S_ISDIR(metadata.st_mode)
+        or metadata.st_uid != uid
+        or metadata.st_mode & 0o077
+    ):
+        raise RuntimeError("User runtime directory is not private and owner-controlled")
+    run_root = pathlib.Path(
+        tempfile.mkdtemp(prefix="wildbuzzard-firecrawl-podman-", dir=runtime_base)
+    )
+    run_root.chmod(0o700)
+    return run_root
+
+
+def configure_isolated_podman_storage(
+    work: pathlib.Path, run_root: pathlib.Path
+) -> dict[str, object]:
     graph_root = work / "podman-graph"
-    run_root = work / "podman-run"
     graph_root.mkdir(mode=0o700)
-    run_root.mkdir(mode=0o700)
+    if not run_root.is_dir() or run_root.stat().st_mode & 0o077:
+        raise RuntimeError("Podman run root must be a private directory")
     storage_config = work / "storage.conf"
     value = (
         "[storage]\n"
@@ -380,12 +414,64 @@ def configure_isolated_podman_storage(work: pathlib.Path) -> dict[str, object]:
     )
     storage_config.write_text(value, encoding="utf-8")
     storage_config.chmod(0o600)
+    crun_wrapper = work / "crun-wrapper"
+    crun_wrapper.write_text(
+        "#!/bin/bash\n"
+        "set -euo pipefail\n"
+        "arguments=()\n"
+        "inserted=0\n"
+        'for argument in "$@"; do\n'
+        '  arguments+=("$argument")\n'
+        '  if [[ "$inserted" == 0 && '
+        '("$argument" == create || "$argument" == run) ]]; then\n'
+        '    arguments+=("--no-new-keyring")\n'
+        "    inserted=1\n"
+        "  fi\n"
+        "done\n"
+        'exec /usr/bin/crun "${arguments[@]}"\n',
+        encoding="utf-8",
+    )
+    crun_wrapper.chmod(0o700)
+    engine_config = work / "containers.conf"
+    engine_config.write_text(
+        '[engine]\nruntime = "oracle-crun"\n\n'
+        f'[engine.runtimes]\noracle-crun = [{json.dumps(str(crun_wrapper))}]\n',
+        encoding="utf-8",
+    )
+    engine_config.chmod(0o600)
     os.environ["CONTAINERS_STORAGE_CONF"] = str(storage_config)
+    os.environ["CONTAINERS_CONF"] = str(engine_config)
     return {
         "driver": "overlay",
         "configSha256": sha256_file(storage_config),
+        "engineConfigSha256": sha256_file(engine_config),
+        "runtimeWrapperSha256": sha256_file(crun_wrapper),
+        "runtime": "oracle-crun",
+        "runtimeFlags": ["no-new-keyring"],
         "isolated": True,
+        "ephemeralUserRunRoot": True,
     }
+
+
+def current_key_quota() -> dict[str, int]:
+    uid = os.geteuid()
+    for line in pathlib.Path("/proc/key-users").read_text(encoding="utf-8").splitlines():
+        match = re.fullmatch(
+            rf"\s*{uid}:\s+(\d+)\s+(\d+)/(\d+)\s+(\d+)/(\d+)\s+"
+            r"(\d+)/(\d+)\s*",
+            line,
+        )
+        if match:
+            return {
+                "usage": int(match.group(1)),
+                "instantiated": int(match.group(2)),
+                "instantiatedQuota": int(match.group(3)),
+                "keyUsage": int(match.group(4)),
+                "keyQuota": int(match.group(5)),
+                "byteUsage": int(match.group(6)),
+                "byteQuota": int(match.group(7)),
+            }
+    raise RuntimeError("Current user key quota is unavailable")
 
 
 def verify_rootless_podman(recorder: Recorder) -> dict[str, object]:
@@ -429,6 +515,73 @@ def verify_dockerfile_base_references(source: pathlib.Path) -> dict[str, list[st
     if actual != expected:
         raise RuntimeError("Firecrawl Dockerfile base references changed")
     return actual
+
+
+def verify_upstream_runtime_contract(source: pathlib.Path) -> dict[str, object]:
+    compose_path = source / "docker-compose.yaml"
+    dockerfile_path = source / "apps" / "playwright-service-ts" / "Dockerfile"
+    package_path = source / "apps" / "playwright-service-ts" / "package.json"
+    compose = compose_path.read_text(encoding="utf-8")
+    dockerfile = dockerfile_path.read_text(encoding="utf-8")
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    compose_port = re.search(
+        r"(?ms)^  playwright-service:\s*.*?^    environment:\s*.*?"
+        r"^      PORT:\s*([0-9]+)\s*$",
+        compose,
+    )
+    compose_url = re.search(
+        r"(?m)^  PLAYWRIGHT_MICROSERVICE_URL:.*?playwright-service:([0-9]+)/scrape",
+        compose,
+    )
+    dockerfile_contract = re.search(
+        r"(?m)^ARG PORT\s*$\n^ENV PORT=\$\{PORT\}\s*$\n\s*^EXPOSE \$\{PORT\}\s*$",
+        dockerfile,
+    )
+    ports = {
+        int(match.group(1))
+        for match in (compose_port, compose_url)
+        if match is not None
+    }
+    if (
+        compose_port is None
+        or compose_url is None
+        or ports != {PLAYWRIGHT_INTERNAL_PORT}
+        or dockerfile_contract is None
+        or package.get("scripts", {}).get("start")
+        != " ".join(PLAYWRIGHT_START_COMMAND)
+        or package.get("packageManager") != "pnpm@11.4.0"
+    ):
+        raise RuntimeError("Firecrawl Playwright runtime contract changed")
+    return {
+        "composeSha256": sha256_file(compose_path),
+        "playwrightPort": PLAYWRIGHT_INTERNAL_PORT,
+        "playwrightBuildArguments": list(REFERENCE_BUILD_ARGUMENTS["playwright"]),
+        "playwrightStartCommand": list(PLAYWRIGHT_START_COMMAND),
+        "playwrightPackageSha256": sha256_file(package_path),
+    }
+
+
+def reference_image_build_command(
+    service: str,
+    image: str,
+    dockerfile: pathlib.Path,
+    context: pathlib.Path,
+) -> list[str]:
+    if service not in REFERENCE_BUILD_ARGUMENTS:
+        raise RuntimeError(f"Unknown Firecrawl reference service: {service}")
+    command = [
+        "podman",
+        "build",
+        "--pull=never",
+        "--platform",
+        BASE_PLATFORM,
+        "--rm=true",
+        "--force-rm=true",
+    ]
+    for argument in REFERENCE_BUILD_ARGUMENTS[service]:
+        command.extend(["--build-arg", argument])
+    command.extend(["--tag", image, "--file", str(dockerfile), str(context)])
+    return command
 
 
 def prepare_source(
@@ -525,6 +678,7 @@ def prepare_source(
         "commit": FIRECRAWL_COMMIT,
         "tree": tree.stdout.strip(),
         "dockerfileBaseReferences": verify_dockerfile_base_references(source),
+        "runtimeContract": verify_upstream_runtime_contract(source),
         "dockerfiles": {
             "api": sha256_file(source / "apps" / "api" / "Dockerfile"),
             "playwright": sha256_file(
@@ -836,6 +990,14 @@ def scenario_definitions(include_stress: bool) -> list[dict[str, object]]:
             "status": 204,
             "contentType": "",
             "body": "",
+            "referenceError": {
+                "httpStatus": 500,
+                "code": "SCRAPE_ALL_ENGINES_FAILED",
+            },
+            "documentedDifference": (
+                "Firecrawl reports SCRAPE_ALL_ENGINES_FAILED for an HTTP 204 "
+                "target while Gecko preserves the 204 response"
+            ),
         },
         {
             "name": "status-404",
@@ -995,7 +1157,7 @@ def firecrawl_document(
     except json.JSONDecodeError:
         return None, {"parseError": "response is not JSON"}
     if not isinstance(parsed, dict) or parsed.get("success") is not True:
-        return None, {"api": parsed}
+        return None, {"apiStatus": response["status"], "api": parsed}
     data = parsed.get("data")
     if not isinstance(data, dict):
         return None, {"parseError": "response has no data object"}
@@ -1029,6 +1191,17 @@ def evaluate_reference(
 ) -> tuple[bool, list[str]]:
     if scenario.get("stress"):
         return True, []
+    reference_error = scenario.get("referenceError")
+    if isinstance(reference_error, dict):
+        api = semantics.get("api")
+        failures = []
+        if semantics.get("apiStatus") != reference_error.get("httpStatus"):
+            failures.append("reference error HTTP status differs")
+        if not isinstance(api, dict) or api.get("code") != reference_error.get("code"):
+            failures.append("reference error code differs")
+        if not isinstance(api, dict) or api.get("success") is not False:
+            failures.append("reference error success flag differs")
+        return not failures, failures
     failures = []
     for key in ("status", "contentType"):
         if semantics.get(key) != scenario.get(key):
@@ -1036,7 +1209,7 @@ def evaluate_reference(
                 f"{key}: expected {scenario.get(key)!r}, got {semantics.get(key)!r}"
             )
     expected_final = scenario.get("finalUrl") or normalize_fixture_url(
-        f"http://fixture:8080{scenario.get('finalPath', scenario['path'])}"
+        f"http://fixture.test:8080{scenario.get('finalPath', scenario['path'])}"
     )
     if semantics.get("finalUrl") != expected_final:
         failures.append(
@@ -1291,6 +1464,22 @@ def compare_gecko(
     candidate: dict[str, object],
 ) -> tuple[bool, list[str]]:
     failures = []
+    if scenario.get("referenceError"):
+        for key in ("status", "contentType"):
+            if candidate.get(key) != scenario.get(key):
+                failures.append(
+                    f"{key}: expected {scenario.get(key)!r}, got {candidate.get(key)!r}"
+                )
+        expected_final = normalize_fixture_url(
+            f"http://fixture.test:8080{scenario['path']}"
+        )
+        if candidate.get("finalUrl") != expected_final:
+            failures.append("finalUrl differs from the fixture contract")
+        if "body" in scenario:
+            expected_hash = sha256_bytes(str(scenario["body"]).encode())
+            if candidate.get("bodySha256") != expected_hash:
+                failures.append("bodySha256 differs")
+        return not failures, failures
     for key in ("status", "contentType", "finalUrl"):
         if reference.get(key) != candidate.get(key):
             failures.append(
@@ -1355,11 +1544,11 @@ def run_scenarios(
     for index, scenario in enumerate(scenario_definitions(include_stress), 1):
         directory = root / f"{index:02d}-{scenario['name']}"
         directory.mkdir(mode=0o700)
-        reference_url = f"http://fixture:8080{scenario['path']}"
+        reference_url = f"http://fixture.test:8080{scenario['path']}"
         gecko_url = f"http://127.0.0.1:{fixture_port}{scenario['path']}"
         if scenario.get("crossOrigin"):
             reference_target = urllib.parse.quote(
-                "http://other-fixture:8080/headers", safe=""
+                "http://other-fixture.test:8080/headers", safe=""
             )
             gecko_target = urllib.parse.quote(
                 f"http://127.0.0.1:{other_fixture_port}/headers", safe=""
@@ -1477,7 +1666,7 @@ def cancellation_probe(
     timeout: float,
 ) -> dict[str, object]:
     payload = firecrawl_payload(
-        f"http://fixture:8080/slow?ms={CANCELLATION_FIXTURE_MS}",
+        f"http://fixture.test:8080/slow?ms={CANCELLATION_FIXTURE_MS}",
         {"waitFor": 100, "timeout": 10000},
     )
     body = json.dumps(payload, separators=(",", ":")).encode()
@@ -1536,13 +1725,28 @@ def cancellation_probe(
         "cancellation",
         min(timeout, 30),
     )
+    prompt_passed = cancellation_prompt_passed(prompt_duration)
+    non_propagation_observed = (
+        prompt_duration is None
+        and max(peak, eventual_peak) >= 1
+        and eventual_duration >= CANCELLATION_FIXTURE_MS
+        and active == 0
+        and cleanup.get("baselineRestored") is True
+    )
     result = {
         "cancelledAfter": "fixture-request-observed",
         "fixtureDelayMilliseconds": CANCELLATION_FIXTURE_MS,
         "promptBoundMilliseconds": CANCELLATION_PROMPT_BOUND_MS,
         "promptDurationMilliseconds": prompt_duration,
         "eventualDurationMilliseconds": eventual_duration,
-        "passed": cancellation_prompt_passed(prompt_duration),
+        "passed": prompt_passed,
+        "contractPassed": prompt_passed or non_propagation_observed,
+        "disconnectPropagationObserved": prompt_passed,
+        "documentedDifference": (
+            None
+            if prompt_passed
+            else "Firecrawl does not propagate API client disconnect to its active page"
+        ),
         "peakFixtureRequests": max(peak, eventual_peak),
         "activeFixtureRequests": active,
         "promptObservation": prompt_observation,
@@ -1670,9 +1874,9 @@ def concurrent_probe(
         recorder, playwright_container, "concurrency-process-baseline"
     )
     cases = [
-        ("http://fixture:8080/static", {"waitFor": 100}),
-        ("http://fixture:8080/dynamic", {"waitFor": 250}),
-        ("http://fixture:8080/slow?ms=400", {"waitFor": 100}),
+        ("http://fixture.test:8080/static", {"waitFor": 100}),
+        ("http://fixture.test:8080/dynamic", {"waitFor": 250}),
+        ("http://fixture.test:8080/slow?ms=400", {"waitFor": 100}),
     ]
 
     def run(case: tuple[str, dict[str, object]]) -> int:
@@ -1712,6 +1916,7 @@ def main() -> int:
     work.mkdir(mode=0o700)
     redactor.add(str(work), "<work>")
     previous_storage_config = os.environ.get("CONTAINERS_STORAGE_CONF")
+    previous_engine_config = os.environ.get("CONTAINERS_CONF")
     run_id = secrets.token_hex(8)
     prefix = f"wildbuzzard-firecrawl-{run_id}"
     names = {
@@ -1737,9 +1942,16 @@ def main() -> int:
     cleanup: dict[str, object] = {}
     interrupted = False
     isolated_storage_configured = False
+    podman_run_root: pathlib.Path | None = None
     podman_available = shutil.which("podman") is not None
+    key_quota_before = current_key_quota()
+    summary["keyQuotaBefore"] = key_quota_before
     try:
-        summary["podmanStorage"] = configure_isolated_podman_storage(work)
+        podman_run_root = create_ephemeral_podman_run_root()
+        redactor.add(str(podman_run_root), "<podman-run-root>")
+        summary["podmanStorage"] = configure_isolated_podman_storage(
+            work, podman_run_root
+        )
         isolated_storage_configured = True
         summary["podman"] = verify_rootless_podman(recorder)
         source, source_identity = prepare_source(args, work, recorder)
@@ -1748,40 +1960,22 @@ def main() -> int:
         created_images.extend([api_image, playwright_image])
         recorder.run(
             "api-image-build",
-            [
-                "podman",
-                "build",
-                "--pull=never",
-                "--platform",
-                BASE_PLATFORM,
-                "--rm=true",
-                "--force-rm=true",
-                "--build-arg",
-                f"GIT_SHA={FIRECRAWL_COMMIT}",
-                "--tag",
+            reference_image_build_command(
+                "api",
                 api_image,
-                "--file",
-                str(source / "apps" / "api" / "Dockerfile"),
-                str(source / "apps" / "api"),
-            ],
+                source / "apps" / "api" / "Dockerfile",
+                source / "apps" / "api",
+            ),
             timeout=3600,
         )
         recorder.run(
             "playwright-image-build",
-            [
-                "podman",
-                "build",
-                "--pull=never",
-                "--platform",
-                BASE_PLATFORM,
-                "--rm=true",
-                "--force-rm=true",
-                "--tag",
+            reference_image_build_command(
+                "playwright",
                 playwright_image,
-                "--file",
-                str(source / "apps" / "playwright-service-ts" / "Dockerfile"),
-                str(source / "apps" / "playwright-service-ts"),
-            ],
+                source / "apps" / "playwright-service-ts" / "Dockerfile",
+                source / "apps" / "playwright-service-ts",
+            ),
             timeout=3600,
         )
         summary["builtImages"] = {
@@ -1830,6 +2024,8 @@ def main() -> int:
             ),
             ("http://fixture:8080", "http://fixture.test"),
             ("http://other-fixture:8080", "http://other-fixture.test"),
+            ("http://fixture.test:8080", "http://fixture.test"),
+            ("http://other-fixture.test:8080", "http://other-fixture.test"),
         ):
             redactor.add(value, replacement)
         summary["ports"] = {
@@ -1873,6 +2069,10 @@ def main() -> int:
                 "fixture",
                 "--network-alias",
                 "other-fixture",
+                "--network-alias",
+                "fixture.test",
+                "--network-alias",
+                "other-fixture.test",
                 "--cap-drop=all",
                 "--security-opt",
                 "no-new-privileges",
@@ -1913,14 +2113,15 @@ def main() -> int:
                 "--shm-size",
                 "512m",
                 "--publish",
-                f"127.0.0.1:{playwright_port}:3000",
+                f"127.0.0.1:{playwright_port}:{PLAYWRIGHT_INTERNAL_PORT}",
                 "--env",
-                "PORT=3000",
+                f"PORT={PLAYWRIGHT_INTERNAL_PORT}",
                 "--env",
                 "ALLOW_LOCAL_WEBHOOKS=TRUE",
                 "--env",
                 "MAX_CONCURRENT_PAGES=4",
                 playwright_image,
+                *PLAYWRIGHT_START_COMMAND,
             ],
             created_containers,
         )
@@ -1935,7 +2136,9 @@ def main() -> int:
             "REDIS_URL": "redis://redis:6379",
             "REDIS_EVICT_URL": "redis://redis:6379",
             "REDIS_RATE_LIMIT_URL": "redis://redis:6379",
-            "PLAYWRIGHT_MICROSERVICE_URL": "http://playwright:3000/scrape",
+            "PLAYWRIGHT_MICROSERVICE_URL": (
+                f"http://playwright:{PLAYWRIGHT_INTERNAL_PORT}/scrape"
+            ),
             "LOGGING_LEVEL": "ERROR",
         }
         api_args = [
@@ -2030,7 +2233,7 @@ def main() -> int:
         summary["concurrency"] = concurrency
         reference_passed = (
             all(item["referencePassed"] for item in results)
-            and bool(cancellation["passed"])
+            and bool(cancellation["contractPassed"])
             and bool(concurrency["passed"])
         )
         if connection:
@@ -2126,12 +2329,41 @@ def main() -> int:
                 check=False,
             )
             cleanup["podmanStorageReset"] = reset_storage.returncode == 0
+        if podman_run_root is not None:
+            shutil.rmtree(podman_run_root, ignore_errors=True)
+        cleanup["podmanRunRootRemoved"] = (
+            podman_run_root is None or not podman_run_root.exists()
+        )
         shutil.rmtree(work, ignore_errors=True)
         cleanup["workDirectoryRemoved"] = not work.exists()
+        cleanup["engineFilesRemoved"] = all(
+            not (work / name).exists()
+            for name in ("containers.conf", "crun-wrapper")
+        )
         if previous_storage_config is None:
             os.environ.pop("CONTAINERS_STORAGE_CONF", None)
         else:
             os.environ["CONTAINERS_STORAGE_CONF"] = previous_storage_config
+        if previous_engine_config is None:
+            os.environ.pop("CONTAINERS_CONF", None)
+        else:
+            os.environ["CONTAINERS_CONF"] = previous_engine_config
+        cleanup["environmentRestored"] = {
+            "storageConfig": (
+                os.environ.get("CONTAINERS_STORAGE_CONF") == previous_storage_config
+            ),
+            "engineConfig": os.environ.get("CONTAINERS_CONF")
+            == previous_engine_config,
+        }
+        cleanup["environmentRestored"]["passed"] = all(
+            cleanup["environmentRestored"].values()
+        )
+        key_quota_after = current_key_quota()
+        cleanup["keyQuota"] = {
+            "before": key_quota_before,
+            "after": key_quota_after,
+            "noIncrease": key_quota_after["usage"] <= key_quota_before["usage"],
+        }
         cleanup["publishedPorts"] = wait_ports_closed(published_ports)
         cleanup["passed"] = (
             all(
@@ -2151,7 +2383,11 @@ def main() -> int:
                 or not podman_available
                 or cleanup.get("podmanStorageReset") is True
             )
+            and cleanup["podmanRunRootRemoved"]
             and cleanup["workDirectoryRemoved"]
+            and cleanup["engineFilesRemoved"]
+            and cleanup["environmentRestored"]["passed"]
+            and cleanup["keyQuota"]["noIncrease"]
             and cleanup["publishedPorts"]["passed"]
         )
         if not cleanup["passed"] and not interrupted:

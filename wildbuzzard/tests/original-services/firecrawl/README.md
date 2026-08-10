@@ -12,9 +12,20 @@ tag object, source tree, Dockerfile and lockfile hashes, pulled base-image
 digests, built-image identities, commands, redacted HTTP transcripts, service
 logs, process and page cleanup checks, timings, mappings, normalized results,
 and teardown evidence in a required directory outside the checkout.
-The harness gives Podman a per-run graph root and run root beneath its temporary
-work directory, so literal upstream base tags cannot overwrite the user's image
-store and all pulled layers disappear with the recorded work-directory cleanup.
+The private fixture uses the reserved `fixture.test` and
+`other-fixture.test` network aliases so Firecrawl's production URL validator
+accepts deterministic targets without exposing the oracle network.
+The harness gives Podman a per-run graph root beneath its temporary work
+directory and a private per-run run root beneath the user's runtime directory,
+so literal upstream base tags cannot overwrite the user's image store and all
+pulled layers disappear with the recorded cleanup. Rootless networking requires
+the run root to reside on the user runtime filesystem.
+The isolated engine configuration uses a hashed, mode-0700 wrapper beneath the
+ephemeral work directory to pass crun's `--no-new-keyring` flag after its
+`create` or `run` subcommand. This retains the harness session keyring and avoids
+kernel key allocation when unrelated browser processes have exhausted the
+per-user quota. The harness records the key quota before and after and rejects
+any increase.
 Container, network, image, isolated-store, work-directory, and published-port
 cleanup are mandatory gates; a parity-success result cannot mask leftovers.
 
@@ -25,6 +36,14 @@ platform reference, verifies the local config and platform identity, and tags
 that content for the pristine Dockerfiles' literal `FROM` names. Those names
 are checked again after both `--pull=never` builds. The upstream Dockerfiles
 are never rewritten.
+The pinned upstream Compose contract sets the Playwright service to port 3000;
+the pristine Dockerfile requires that value as its `PORT` build argument for
+its `EXPOSE` instruction. The harness verifies both upstream files and supplies
+the same pinned value without modifying either file.
+The harness also verifies that the pinned package's `start` script is exactly
+`node dist/api.js` and invokes that built target directly. This avoids Corepack
+attempting a network-backed cache bootstrap as the non-root runtime user while
+preserving the upstream program and read-only oracle sandbox.
 
 Run the Firecrawl half while a fresh WildBuzzard build is unavailable:
 
@@ -69,6 +88,12 @@ The cross-origin redirect case records Firecrawl's actual custom-header
 behavior while requiring WildBuzzard to strip the caller-supplied header at
 the origin boundary. That intentional security difference is explicit in the
 normalized evidence instead of being treated as raw-output equivalence.
+The corpus also records two exact upstream limitations as intentional
+differences: Firecrawl returns `SCRAPE_ALL_ENGINES_FAILED` for a 204 target, and
+disconnecting its API client does not cancel the active Playwright request.
+The reference gate requires those exact observed contracts and eventual clean
+renderer state; the Gecko side still requires a preserved 204 response and
+prompt caller-abort propagation within the three-second bound.
 
 Chromium, Playwright, Redis, Podman, and Firecrawl remain test infrastructure;
 the harness does not add them to any browser, agent, packaging, or runtime
