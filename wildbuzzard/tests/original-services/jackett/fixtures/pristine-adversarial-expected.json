@@ -1,0 +1,720 @@
+{
+  "acquisition-url-reuse": {
+    "firstStatus": 200,
+    "sameBytes": true,
+    "secondStatus": 200
+  },
+  "adult-category-matrix": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          6000,
+          120697
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "323AB88B63E3B129C322F0D38C0B06DAC18B4EE0",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6000"
+      },
+      {
+        "categoryIds": [
+          6010,
+          113636
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "910E2CCF1E38C3AE0B286CCB3F2BF1373D704361",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6010"
+      },
+      {
+        "categoryIds": [
+          6020,
+          128961
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "0A73FBB145E841BF881FB81654B9CDD23B429F6A",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6020"
+      },
+      {
+        "categoryIds": [
+          6030,
+          127174
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "57D2EDDB256576C50DE7F3694A6823D62C13F94D",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6030"
+      },
+      {
+        "categoryIds": [
+          6040,
+          117899
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "CE5F0E9D90E5D2C48DE2D6979501D583E707C52B",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6040"
+      },
+      {
+        "categoryIds": [
+          6045,
+          108098
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "6419BC3F998794DE04DDFBE151FB27D23FD9CA10",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6045"
+      },
+      {
+        "categoryIds": [
+          6050,
+          156260
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "5AE142746D95EB0FEBF71544895E2FC599B4AE7E",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6050"
+      },
+      {
+        "categoryIds": [
+          6060,
+          117193
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "52AEBEFDE31901A37B37E3110E0E5796C140E3B8",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6060"
+      },
+      {
+        "categoryIds": [
+          6070,
+          152369
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "A79AC8DF557B957289044141AD22A0F4A2E042DD",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6070"
+      },
+      {
+        "categoryIds": [
+          6080,
+          112108
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "669EC3B457F0B9E1DFF1F7B383A8E8FDF1A1D108",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6080"
+      },
+      {
+        "categoryIds": [
+          6090,
+          125576
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "4EC8AE450A4BD088C54D54646AF7B4C831F536A1",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult 6090"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "adult-provider-generic-8000": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          8000,
+          143078
+        ],
+        "indexerId": "oracle-adult",
+        "infoHash": "79C580FEE3BF7E92A84BC52118A5898B8CB7AA47",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Adult provider generic"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "cache-bypass-first": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "07D772C121A53BFD0E6154278E2843A2937D9450",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Cache generation 3"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "cache-bypass-second": {
+    "contentType": "application/rss+xml",
+    "fixtureRequests": 2,
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "B1D21D57F9B3741551D9349E12C2A6291C08F251",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Cache generation 4"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "cache-expired": {
+    "contentType": "application/rss+xml",
+    "fixtureRequests": 2,
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "14BF1139BB57A16A398A0ACB32FCF973FC851878",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Cache generation 2"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "cache-first": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "2FF03C71B75857957B1B54841F9DCAA9E93C21CE",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Cache generation 1"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "cache-hit": {
+    "contentType": "application/rss+xml",
+    "fixtureRequests": 1,
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "2FF03C71B75857957B1B54841F9DCAA9E93C21CE",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Cache generation 1"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "contradictory-peer-client-guard": {
+    "normalizedLeechers": 0,
+    "peers": 3,
+    "seeders": 10
+  },
+  "custom-category": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "D7D05185ECD221060F302C97A1C10632B82CE551",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Custom category"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "duplicate-infohash-alternates": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2040,
+          100004
+        ],
+        "indexerId": "filelist",
+        "infoHash": null,
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "FileList fixture"
+      },
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-alternate",
+        "infoHash": "0123456789ABCDEF0123456789ABCDEF01234567",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Duplicate from alternate"
+      },
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "0123456789ABCDEF0123456789ABCDEF01234567",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Duplicate from main"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "error-code-200-source-contract": {
+    "controllerSha256": "ea7c32de8cda3fb5661e5e7e5cf6017ea3a5b7cd912b2aa2f55a428f9d8d03b4",
+    "routeRequiresIndexerId": true,
+    "unreachableFilterBranch": {
+      "httpSemantic": "not-found",
+      "torznabCode": 200
+    }
+  },
+  "external-entity-network": {
+    "requests": 0
+  },
+  "hanging-provider-timeout": {
+    "outcome": "timeout"
+  },
+  "http-429-retry-after": {
+    "contentType": "application/xml",
+    "errorCode": 900,
+    "outcome": "response",
+    "retryAfter": "7",
+    "root": "error",
+    "status": 429
+  },
+  "invalid-apikey": {
+    "contentType": "application/xml",
+    "errorCode": 100,
+    "outcome": "response",
+    "root": "error",
+    "status": 200
+  },
+  "invalid-imdb-parameter": {
+    "contentType": "application/xml",
+    "errorCode": 201,
+    "outcome": "response",
+    "root": "error",
+    "status": 200
+  },
+  "malicious-fields": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "2B49E7374EC786DA35F5DF99D7E6CC6730E5FA5D",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "<script>alert(1)</script> ‮ untrusted\nvalue"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "missing-apikey": {
+    "contentType": "application/xml",
+    "errorCode": 100,
+    "outcome": "response",
+    "root": "error",
+    "status": 200
+  },
+  "missing-category": {
+    "contentType": "application/rss+xml",
+    "items": [],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "mixed-safe-adult-category": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          6010,
+          112735,
+          113636
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "333E0FCCB3FBF3DF4CB24015E025FCFB3A6CC0E0",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Mixed safe and adult"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "omitted-indexer-route": {
+    "contentType": null,
+    "outcome": "response",
+    "root": "non-xml",
+    "status": 404
+  },
+  "partial-success": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2040,
+          100004
+        ],
+        "indexerId": "filelist",
+        "infoHash": null,
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "FileList fixture"
+      },
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "DF63E63D3E133EC911EC538768C8DA5F7D6C6FB3",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Fixture main"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "peer-counts": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "E930938556090C5F16658F52D18D2AC5B88F2923",
+        "normalizedLeechers": 7,
+        "peers": 17,
+        "seeders": 10,
+        "title": "Negative leechers normalized"
+      },
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "24AE91F57090FF6678435DA0678C707D9594067E",
+        "normalizedLeechers": null,
+        "peers": null,
+        "seeders": null,
+        "title": "Peers absent"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "redirect-loop": {
+    "contentType": "application/xml",
+    "errorCode": 900,
+    "outcome": "response",
+    "root": "error",
+    "status": 400
+  },
+  "redirect-once": {
+    "contentType": "application/rss+xml",
+    "items": [
+      {
+        "categoryIds": [
+          2000,
+          112735
+        ],
+        "indexerId": "oracle-main",
+        "infoHash": "FE8EAA18EB39A776E3615BFA5B64A748BF8ABC20",
+        "normalizedLeechers": 2,
+        "peers": 6,
+        "seeders": 4,
+        "title": "Redirect target"
+      }
+    ],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "stale-generation": {
+    "completionOrder": [
+      "fast",
+      "slow"
+    ],
+    "fast": {
+      "contentType": "application/rss+xml",
+      "items": [
+        {
+          "categoryIds": [
+            2000,
+            112735
+          ],
+          "indexerId": "oracle-main",
+          "infoHash": "ECE2BBEAFC7F43C2A7AC93623D6C7CB156A10496",
+          "normalizedLeechers": 2,
+          "peers": 6,
+          "seeders": 4,
+          "title": "Fast generation"
+        }
+      ],
+      "outcome": "response",
+      "root": "rss",
+      "status": 200
+    },
+    "slow": {
+      "contentType": "application/rss+xml",
+      "items": [
+        {
+          "categoryIds": [
+            2000,
+            112735
+          ],
+          "indexerId": "oracle-main",
+          "infoHash": "9D3CB850D37DEAFF749FDBE65944AF0FD56EEC27",
+          "normalizedLeechers": 2,
+          "peers": 6,
+          "seeders": 4,
+          "title": "Slow generation"
+        }
+      ],
+      "outcome": "response",
+      "root": "rss",
+      "status": 200
+    }
+  },
+  "tracker-deep-xml": {
+    "clientGuard": {
+      "accepted": false,
+      "error": "XML depth limit exceeded"
+    },
+    "contentType": "application/rss+xml",
+    "items": [],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "tracker-entity-xml": {
+    "clientGuard": {
+      "accepted": false,
+      "error": "DTD and entity declarations are forbidden"
+    },
+    "contentType": "application/xml",
+    "errorCode": 900,
+    "outcome": "response",
+    "root": "error",
+    "status": 400
+  },
+  "tracker-malformed-xml": {
+    "clientGuard": {
+      "accepted": false,
+      "error": "Malformed XML"
+    },
+    "contentType": "application/xml",
+    "errorCode": 900,
+    "outcome": "response",
+    "root": "error",
+    "status": 400
+  },
+  "tracker-oversized-xml": {
+    "clientGuard": {
+      "accepted": false,
+      "error": "XML byte limit exceeded"
+    },
+    "contentType": "application/rss+xml",
+    "items": [],
+    "outcome": "response",
+    "root": "rss",
+    "status": 200
+  },
+  "tracker-tls-failure": {
+    "contentType": "application/xml",
+    "errorCode": 900,
+    "outcome": "response",
+    "root": "error",
+    "status": 400
+  },
+  "unavailable-indexers-mode": {
+    "contentType": "application/xml",
+    "errorCode": 201,
+    "outcome": "response",
+    "root": "error",
+    "status": 200
+  },
+  "unavailable-tmdb-function": {
+    "contentType": "application/xml",
+    "errorCode": 203,
+    "outcome": "response",
+    "root": "error",
+    "status": 400
+  },
+  "unsupported-indexer": {
+    "contentType": "application/json",
+    "outcome": "response",
+    "root": "non-xml",
+    "status": 500
+  },
+  "unsupported-mode": {
+    "contentType": "application/xml",
+    "errorCode": 201,
+    "outcome": "response",
+    "root": "error",
+    "status": 200
+  },
+  "valid-apikey": {
+    "categoryIds": [
+      2000,
+      6000,
+      6010,
+      6020,
+      6030,
+      6040,
+      6045,
+      6050,
+      6060,
+      6070,
+      6080,
+      6090,
+      8000,
+      108098,
+      112108,
+      112735,
+      113636,
+      117193,
+      117899,
+      120697,
+      125576,
+      127174,
+      128961,
+      143078,
+      152369,
+      156260
+    ],
+    "contentType": "application/rss+xml",
+    "outcome": "response",
+    "root": "caps",
+    "status": 200
+  },
+  "valid-passkey-alias": {
+    "categoryIds": [
+      2000,
+      6000,
+      6010,
+      6020,
+      6030,
+      6040,
+      6045,
+      6050,
+      6060,
+      6070,
+      6080,
+      6090,
+      8000,
+      108098,
+      112108,
+      112735,
+      113636,
+      117193,
+      117899,
+      120697,
+      125576,
+      127174,
+      128961,
+      143078,
+      152369,
+      156260
+    ],
+    "contentType": "application/rss+xml",
+    "outcome": "response",
+    "root": "caps",
+    "status": 200
+  }
+}
