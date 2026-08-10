@@ -10,6 +10,7 @@ import {
   clearStoredSearches,
   createStoredSearch,
   getStoredSearch,
+  hasStoredSearches,
   pageStoredSearch,
   restoreSearches,
   storeSearch,
@@ -61,11 +62,13 @@ test("search handles expire after one hour and restore only live entries", () =>
   const now = Date.now();
   const stored = createStoredSearch([response()], "search", now);
   storeSearch(stored);
+  assert.equal(hasStoredSearches(now), true);
   assert.equal(getStoredSearch(stored.id, now + RESULT_TTL_MS - 1), stored);
   assert.throws(
     () => getStoredSearch(stored.id, now + RESULT_TTL_MS),
     /missing or expired/
   );
+  assert.equal(hasStoredSearches(now + RESULT_TTL_MS), false);
   restoreSearches(
     [
       {

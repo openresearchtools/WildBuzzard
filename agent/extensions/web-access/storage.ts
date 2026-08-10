@@ -122,6 +122,11 @@ export function purgeExpired(now = Date.now()): void {
   deleteExpiredStoredSearches(now);
 }
 
+export function hasStoredSearches(now = Date.now()): boolean {
+  purgeExpired(now);
+  return results.size > 0;
+}
+
 function normalized(value: string): string {
   return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
 }

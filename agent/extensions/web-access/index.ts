@@ -20,6 +20,7 @@ import {
   createStoredDocuments,
   createStoredSearch,
   getStoredSearch,
+  hasStoredSearches,
   pageStoredSearch,
   restoreSearches,
   storeSearch,
@@ -31,16 +32,7 @@ import {
   TORRENT_WORKFLOW_ENTRY,
   torrentToolsForPrompt,
 } from "./torrent-contracts.ts";
-
-const WEB_TOOL_NAMES = [
-  "web_search",
-  "source_check",
-  "fetch_content",
-  "crawl_content",
-  "get_search_content",
-];
-const ACTIVATION_PATTERN =
-  /\b(search|research|source|citation|website|web|internet|online|current|latest|github|youtube|url)\b/i;
+import { WEB_TOOL_NAMES, webToolsForPrompt } from "./activation.ts";
 
 const SearchParameters = Type.Object({
   query: Type.Optional(Type.String({ maxLength: 2000 })),
@@ -124,9 +116,7 @@ export default function webAccess(pi: ExtensionAPI) {
     const active = pi
       .getActiveTools()
       .filter(name => !managedToolNames.has(name));
-    if (ACTIVATION_PATTERN.test(prompt)) {
-      active.push(...WEB_TOOL_NAMES);
-    }
+    active.push(...webToolsForPrompt(prompt, hasStoredSearches()));
     const torrentTools = torrentToolsForPrompt(prompt, torrentWorkflowActive);
     if (torrentTools.length && !torrentWorkflowActive) {
       torrentWorkflowActive = true;
