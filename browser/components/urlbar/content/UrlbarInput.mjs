@@ -50,6 +50,7 @@ const lazy = XPCOMUtils.declareLazy({
   BrowserSearchTelemetry:
     "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs",
   BrowserUIUtils: "resource:///modules/BrowserUIUtils.sys.mjs",
+  WildBuzzardAgentURL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
   ConfigSearchEngine:
     "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
@@ -100,7 +101,6 @@ const lazy = XPCOMUtils.declareLazy({
 });
 
 const UNLIMITED_MAX_RESULTS = 99;
-const WILDBUZZARD_AGENT_URL = "http://127.0.0.1:8765/";
 
 let getBoundsWithoutFlushing = element =>
   element.documentGlobal.windowUtils.getBoundsWithoutFlushing(element);
@@ -1125,7 +1125,7 @@ ${
       this.untrimmedValue.trim().toLowerCase() === "agent"
     ) {
       this.window.switchToTabHavingURI(
-        Services.io.newURI(WILDBUZZARD_AGENT_URL),
+        Services.io.newURI(lazy.WildBuzzardAgentURL.AGENT_PAGE_URL),
         true,
         {
           ignoreQueryString: true,
@@ -3446,7 +3446,11 @@ ${
     if (originalUrl) {
       val = originalUrl.displaySpec;
     }
+    const isAgentPage = val === lazy.WildBuzzardAgentURL.AGENT_PAGE_URL;
     this._untrimmedValue = untrimmedValue ?? val;
+    if (isAgentPage) {
+      val = "Agent";
+    }
     this._protocolIsTrimmed = false;
     if (allowTrim) {
       let oldVal = val;

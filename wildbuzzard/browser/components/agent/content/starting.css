@@ -1,0 +1,26 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+:root {
+  font: menu;
+  color: CanvasText;
+  background: Canvas;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  display: grid;
+  place-items: center;
+}
+
+main {
+  text-align: center;
+}
+
+h1 {
+  font-size: 1.35rem;
+}
+
+p {
+  color: color-mix(in srgb, CanvasText 65%, transparent);
+}

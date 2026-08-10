@@ -7,7 +7,7 @@ const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
 
-const AGENT_URL = "http://127.0.0.1:8765/";
+const AGENT_URL = "about:agent";
 const TORRENT_URL = "about:torrents";
 
 add_task(function test_agent_button_uses_switch_or_open_route() {

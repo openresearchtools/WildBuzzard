@@ -20,10 +20,10 @@ ChromeUtils.defineESModuleGetters(lazy, {
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
   SharingUtils: "resource:///modules/SharingUtils.sys.mjs",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
+  WildBuzzardAgentURL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
 });
 
 const kPrefCustomizationDebug = "browser.uiCustomization.debug";
-const WILDBUZZARD_AGENT_URL = "http://127.0.0.1:8765/";
 const WILDBUZZARD_TORRENT_URL = "about:torrents";
 
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
@@ -358,7 +358,7 @@ export const CustomizableWidgets = [
       const win = aNode.documentGlobal;
       const update = () => {
         const active = win.gBrowser.currentURI.spec.startsWith(
-          WILDBUZZARD_AGENT_URL
+          lazy.WildBuzzardAgentURL.AGENT_PAGE_URL
         );
         aNode.toggleAttribute("checked", active);
         aNode.setAttribute("aria-pressed", String(active));
@@ -394,7 +394,7 @@ export const CustomizableWidgets = [
     onCommand(aEvent) {
       const win = aEvent.view ?? aEvent.target.documentGlobal;
       win.switchToTabHavingURI(
-        Services.io.newURI(WILDBUZZARD_AGENT_URL),
+        Services.io.newURI(lazy.WildBuzzardAgentURL.AGENT_PAGE_URL),
         true,
         {
           ignoreQueryString: true,
