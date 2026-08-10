@@ -5,9 +5,14 @@ DIRS += ["browser"]
 if CONFIG["WILDBUZZARD_PI_WEB_RUNTIME"]:
     GENERATED_FILES += ["wildbuzzard-pi-web-runtime.zip"]
     pi_web_runtime = GENERATED_FILES["wildbuzzard-pi-web-runtime.zip"]
-    pi_web_runtime.script = "copy_file.py"
+    pi_web_runtime.script = "copy_pi_web_runtime.py"
     pi_web_runtime.flags = [CONFIG["WILDBUZZARD_PI_WEB_RUNTIME"]]
-    pi_web_runtime.extra_deps = ["%" + CONFIG["WILDBUZZARD_PI_WEB_RUNTIME"]]
+    pi_web_runtime.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_PI_WEB_RUNTIME"],
+        "pi-web-runtime-lock.json",
+        "scripts/runtime-archive-manifest.py",
+        "scripts/validate-pi-web-runtime-archive.py",
+    ]
 
     FINAL_TARGET_FILES.runtime["pi-web"] += [
         "!wildbuzzard-pi-web-runtime.zip",

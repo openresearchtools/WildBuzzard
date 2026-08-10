@@ -15,14 +15,29 @@ option(
 )
 
 
-@depends("--with-wildbuzzard-pi-web-runtime")
+@depends("--with-wildbuzzard-pi-web-runtime", build_environment.topsrcdir)
 @imports("os")
-def wildbuzzard_pi_web_runtime(value):
+@imports("sys")
+def wildbuzzard_pi_web_runtime(value, topsrcdir):
     if not value:
         return
     path = os.path.abspath(value[0])
     if not os.path.isfile(path):
         die(f"Cannot find Pi Web runtime at {path}")
+    validator = os.path.join(
+        topsrcdir, "wildbuzzard", "scripts", "validate-pi-web-runtime-archive.py"
+    )
+    lock = os.path.join(topsrcdir, "wildbuzzard", "pi-web-runtime-lock.json")
+    check_cmd_output(
+        sys.executable,
+        "-I",
+        "-B",
+        validator,
+        path,
+        "--lock",
+        lock,
+        onerror=lambda: die("Pi Web runtime does not match the WildBuzzard pin"),
+    )
     return path
 
 

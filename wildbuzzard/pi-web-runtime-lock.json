@@ -2,14 +2,14 @@
   "schema": 1,
   "platform": "linux-x64",
   "piWeb": {
-    "commit": "c529ba61178bb3d1a023b70b27ee45aee9b5c33a",
-    "tree": "5292005987adf49f3fa3707602e1a5594807f0d4",
+    "commit": "1d86c2269cc70e09a2af739f73767d9bbf80d9c0",
+    "tree": "aa57132b6b0be8cefa2f9e757dbac8e80e0df10b",
     "repository": "https://github.com/openresearchtools/pi-web.git",
     "name": "@jmfederico/pi-web",
     "version": "1.202608.0",
     "packageManager": "npm@10.9.8",
     "packageJsonSha256": "934353208bca1e6a07ef43ce53bbb1f485e8a9f3d2c06d80bccfcba3e2c8e4f3",
-    "packageLockSha256": "f06e2806512b005e97cfe4ac80d8ad1554e1bdc67f7d2ec36ef3761bfeb79cb1",
+    "packageLockSha256": "cdd86881ce56233c9e9f7a16f299484b7efee0200ccd763dd5368404fe39dcb2",
     "licenseSha256": "33224f23ad1e3dc3e6c3870c3b136013519e1d327aa795b090f47e02b0f38632"
   },
   "piPackages": {

@@ -506,6 +506,7 @@ git -C "${source_checkout}" archive "${source_commit}" -- \
   wildbuzzard/scripts/compare-pi-web-runtime-builds.py \
   wildbuzzard/scripts/runtime-archive-manifest.py \
   wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
+  wildbuzzard/scripts/validate-pi-web-runtime-archive.py \
   wildbuzzard/scripts/verify-pi-web-runtime-inputs.py |
   tar -xf - -C "${source_stage}/wildbuzzard"
 git -C "${pi_web_checkout}" archive "${pi_web_commit}" |
