@@ -1230,9 +1230,7 @@ class GeckoRenderController {
     let useTestProxy = false;
     if (job && Cu.isInAutomation) {
       try {
-        const host = channel.URI.host.toLowerCase().replace(/\.$/, "");
-        useTestProxy =
-          this.#isTestAllowedURI(channel.URI) || this.testDNSAnswers.has(host);
+        useTestProxy = this.#isTestAllowedURI(channel.URI);
       } catch {}
     }
     callback.onProxyFilterResult(job && !useTestProxy ? null : proxyInfo);
@@ -1340,10 +1338,26 @@ class GeckoRenderController {
       throw new Error("Gecko renderer test DNS is automation-only");
     }
     this.testDNSAnswers = new Map(
-      Object.entries(answers).map(([host, addresses]) => [
-        host.toLowerCase().replace(/\.$/, ""),
-        new Set(addresses.map(ipAddressKey)),
-      ])
+      Object.entries(answers).map(([host, addresses]) => {
+        if (!Array.isArray(addresses) || !addresses.length) {
+          throw new Error("Gecko renderer test DNS answers must be non-empty");
+        }
+        const targets = addresses.map(address => {
+          if (typeof address !== "string" || !ipAddressKey(address)) {
+            throw new Error(
+              "Gecko renderer test DNS answers must be IP literals"
+            );
+          }
+          return address;
+        });
+        return [
+          host.toLowerCase().replace(/\.$/, ""),
+          {
+            addresses: new Set(targets.map(ipAddressKey)),
+            targets,
+          },
+        ];
+      })
     );
   }
 
@@ -2016,6 +2030,16 @@ class GeckoRenderController {
       return;
     }
     const policyCheck = this.#approveURI(job, uri)
+      .then(record => {
+        if (this.#isTestAllowedURI(uri)) {
+          return;
+        }
+        const target = record.targets[0];
+        if (!target) {
+          throw new Error(`hostname ${uri.host} has no approved route`);
+        }
+        internal.setConnectionTargetIPAddress(target);
+      })
       .catch(error => {
         this.failJob(job, `ssrf-blocked: ${errorMessage(error)}`);
         channel.cancel(Cr.NS_ERROR_PORT_ACCESS_NOT_ALLOWED);
@@ -2045,8 +2069,12 @@ class GeckoRenderController {
     } catch {}
     const addressSpace = channel.loadInfo.ipAddressSpace;
     const testAllowed = this.#isTestAllowedURI(channel.URI);
+    const host = channel.URI.host.toLowerCase().replace(/\.$/, "");
+    const approved = job.addressCache.get(host);
+    const testDNSAnswer = Cu.isInAutomation && this.testDNSAnswers.has(host);
     if (
       !testAllowed &&
+      !testDNSAnswer &&
       (addressSpace === Ci.nsILoadInfo.Local ||
         addressSpace === Ci.nsILoadInfo.Private ||
         (remoteAddress && isForbiddenIPAddress(remoteAddress) !== false))
@@ -2059,9 +2087,6 @@ class GeckoRenderController {
       return;
     }
     if (!testAllowed && remoteAddress) {
-      const approved = job.addressCache.get(
-        channel.URI.host.toLowerCase().replace(/\.$/, "")
-      );
       const key = ipAddressKey(remoteAddress);
       if (!key || !approved?.addresses.has(key)) {
         this.failJob(job, "ssrf-blocked: DNS rebinding was detected");
@@ -2192,7 +2217,7 @@ class GeckoRenderController {
     this.#checkBlockedDomain(job, uri.host);
     const host = uri.host.toLowerCase().replace(/\.$/, "");
     if (this.#isTestAllowedURI(uri)) {
-      const record = { addresses: new Set(), expires: Infinity };
+      const record = { addresses: new Set(), targets: [], expires: Infinity };
       job.addressCache.set(host, record);
       return record;
     }
@@ -2206,6 +2231,7 @@ class GeckoRenderController {
     if (literal === false) {
       const record = {
         addresses: new Set([ipAddressKey(host)]),
+        targets: [host],
         expires: Infinity,
       };
       job.addressCache.set(host, record);
@@ -2213,7 +2239,11 @@ class GeckoRenderController {
     }
     const testAnswers = this.testDNSAnswers.get(host);
     if (testAnswers) {
-      const record = { addresses: testAnswers, expires: Infinity };
+      const record = {
+        addresses: new Set(testAnswers.addresses),
+        targets: [...testAnswers.targets],
+        expires: Infinity,
+      };
       job.addressCache.set(host, record);
       return record;
     }
@@ -2272,6 +2302,7 @@ class GeckoRenderController {
           }
           inRecord.QueryInterface(Ci.nsIDNSAddrRecord);
           const addresses = new Set();
+          const targets = [];
           while (inRecord.hasMore()) {
             const address = inRecord.getNextAddrAsString();
             if (isForbiddenIPAddress(address) !== false) {
@@ -2281,6 +2312,7 @@ class GeckoRenderController {
               return;
             }
             addresses.add(ipAddressKey(address));
+            targets.push(address);
           }
           if (!addresses.size) {
             finish(new Error(`DNS lookup returned no addresses for ${host}`));
@@ -2292,6 +2324,7 @@ class GeckoRenderController {
           } catch {}
           finish(null, {
             addresses,
+            targets,
             expires: Date.now() + ttl * 1000,
           });
         },

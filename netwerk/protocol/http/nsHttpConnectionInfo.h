@@ -68,6 +68,14 @@ class nsHttpConnectionInfo final : public ARefBase {
                                             int32_t port);
 
  private:
+  nsHttpConnectionInfo(const nsACString& originHost, int32_t originPort,
+                       const nsACString& npnToken, const nsACString& username,
+                       nsProxyInfo* proxyInfo,
+                       const OriginAttributes& originAttributes,
+                       bool endToEndSSL, const nsACString& routedHost,
+                       int32_t routedPort, bool aIsHttp3,
+                       bool aWebTransport = false);
+
   virtual ~nsHttpConnectionInfo() {
     MOZ_LOG(gHttpLog, LogLevel::Debug,
             ("Destroying nsHttpConnectionInfo @%p\n", this));
@@ -109,6 +117,8 @@ class nsHttpConnectionInfo final : public ARefBase {
 
   // OK to treat these as an infalible allocation
   already_AddRefed<nsHttpConnectionInfo> Clone() const;
+  already_AddRefed<nsHttpConnectionInfo> CloneAndRouteToIPAddress(
+      const nsACString& aIPAddress, int32_t aPort) const;
   // This main prupose of this function is to clone this connection info, but
   // replace mRoutedHost with SvcDomainName in the given SVCB record. Note that
   // if SvcParamKeyPort and SvcParamKeyAlpn are presented in the SVCB record,

@@ -1721,7 +1721,8 @@ void nsHttpChannel::SpeculativeConnect() {
       mConnectionInfo, callbacks,
       mCaps & (NS_HTTP_DISALLOW_SPDY | NS_HTTP_TRR_MODE_MASK |
                NS_HTTP_DISABLE_IPV4 | NS_HTTP_DISABLE_IPV6 |
-               NS_HTTP_DISALLOW_HTTP3 | NS_HTTP_REFRESH_DNS),
+               NS_HTTP_DISALLOW_HTTP3 | NS_HTTP_REFRESH_DNS |
+               NS_HTTP_REQUIRE_IP_LITERAL),
       nsHttpHandler::EchConfigEnabled() && httpsRRAllowed);
 }
 
@@ -8359,6 +8360,18 @@ nsHttpChannel::SetChannelIsForDownload(bool aChannelIsForDownload) {
   }
 
   return HttpBaseChannel::SetChannelIsForDownload(aChannelIsForDownload);
+}
+
+NS_IMETHODIMP
+nsHttpChannel::SetConnectionTargetIPAddress(const nsACString& aAddress) {
+  if (mTransaction) {
+    return NS_ERROR_IN_PROGRESS;
+  }
+  nsresult rv = HttpBaseChannel::SetConnectionTargetIPAddress(aAddress);
+  if (NS_SUCCEEDED(rv)) {
+    StoreUseHTTPSSVC(false);
+  }
+  return rv;
 }
 
 base::ProcessId nsHttpChannel::ProcessId() {

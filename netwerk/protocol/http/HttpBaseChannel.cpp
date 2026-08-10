@@ -6793,6 +6793,33 @@ void HttpBaseChannel::SetConnectionInfo(nsHttpConnectionInfo* aCI) {
   mConnectionInfo = aCI ? aCI->Clone() : nullptr;
 }
 
+NS_IMETHODIMP HttpBaseChannel::SetConnectionTargetIPAddress(
+    const nsACString& aAddress) {
+  MOZ_ASSERT(NS_IsMainThread());
+  NetAddr address;
+  if (NS_FAILED(address.InitFromString(aAddress))) {
+    return NS_ERROR_INVALID_ARG;
+  }
+  if (!mConnectionInfo || mConnectionInfo->UsingProxy()) {
+    return NS_ERROR_NOT_AVAILABLE;
+  }
+  nsAutoCString canonicalAddress;
+  if (!address.ToString(canonicalAddress)) {
+    return NS_ERROR_INVALID_ARG;
+  }
+  mConnectionInfo = mConnectionInfo->CloneAndRouteToIPAddress(
+      canonicalAddress, mConnectionInfo->OriginPort());
+  StoreAllowSpdy(false);
+  StoreAllowHttp3(false);
+  StoreAllowAltSvc(false);
+  StoreBeConservative(true);
+  mCaps &= ~NS_HTTP_USE_HAPPY_EYEBALLS;
+  mCaps |= NS_HTTP_DISALLOW_SPDY | NS_HTTP_DISALLOW_HTTP3 |
+           NS_HTTP_BE_CONSERVATIVE | NS_HTTP_REQUIRE_IP_LITERAL;
+  DisallowHTTPSRR(mCaps);
+  return NS_OK;
+}
+
 NS_IMETHODIMP
 HttpBaseChannel::GetIsProxyUsed(bool* aIsProxyUsed) {
   if (mProxyInfo) {

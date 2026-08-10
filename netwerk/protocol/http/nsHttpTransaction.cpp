@@ -255,6 +255,7 @@ nsresult nsHttpTransaction::Init(
   MOZ_POP_THREAD_SAFETY
   mConsumerTarget = target;
   mCaps = caps;
+  mDontRetryWithDirectRoute = mCaps & NS_HTTP_REQUIRE_IP_LITERAL;
 
   mParentIPAddressSpace = aParentIpAddressSpace;
   mLnaPermissionStatus = aLnaPermissionStatus;
@@ -360,7 +361,8 @@ nsresult nsHttpTransaction::Init(
 
   // HTTPS RR is handled by HappyEyeballsConnectionAttempt.
   bool forceUseHTTPSRR = StaticPrefs::network_dns_force_use_https_rr() &&
-                         !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS);
+                         !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS) &&
+                         !(mCaps & NS_HTTP_REQUIRE_IP_LITERAL);
   if ((StaticPrefs::network_dns_use_https_rr_as_altsvc() &&
        !(mCaps & NS_HTTP_DISALLOW_HTTPS_RR) &&
        !(mCaps & NS_HTTP_USE_HAPPY_EYEBALLS)) ||
