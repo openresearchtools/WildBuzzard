@@ -1378,23 +1378,24 @@ cherry-picking. Reports are evidence, not acceptance.
 
 Original-service comparison is mandatory for SearXNG and Jackett Mini. The
 root orchestrator or delegated test agents must provision pristine services in
-a rootless Podman-compatible OCI runtime and run them side by side with the
-ported services. Merely testing browser mocks or the normalized WildBuzzard API
-does not satisfy parity.
+a rootless Podman-compatible OCI runtime. The ported SearXNG and Jackett Mini
+services and the comparator itself run directly on the host from pinned
+host-built runtimes. Merely testing browser mocks or the normalized
+WildBuzzard API does not satisfy parity.
 
 Reference-service provisioning rules:
 
 - never pull `latest` or an unpinned tag;
 - for SearXNG, use the authoritative image at the exact recorded manifest
-  digest only after verifying it corresponds to the selected source pin, or
-  build an unmodified image from that exact upstream source in an external
-  test directory;
-- for Jackett, build the pristine unmodified service from the exact selected
-  upstream commit using its upstream build inputs unless an authoritative
-  commit-matched image with a verified manifest digest exists;
-- record the source commit, OCI manifest and platform digest, base-image
-  digests, build command, redacted configuration hash, random host ports, and
-  container-runtime version;
+  digest only after verifying it corresponds to the selected source pin;
+- for Jackett, verify and safely extract the exact official commit-matched
+  release archive, then execute only that pristine release in the pinned
+  reference container;
+- never build or execute the ported SearXNG or Jackett Mini service in a
+  container, and never use a container as an AppImage build stage;
+- record the source/release identity, OCI manifest and platform digest,
+  redacted configuration hash, random host ports, and container-runtime
+  version;
 - run rootless, bind only random loopback host ports, use fresh per-run data
   directories, and never attach to or modify a system SearXNG or Jackett;
 - configure the pristine and ported services with equivalent deterministic
@@ -1422,8 +1423,9 @@ outages may make that second run non-gating, but it must still produce a
 per-source report before release. The root agent reviews the raw evidence and
 canonical diff rather than accepting a child-agent summary alone.
 
-Podman or an equivalent rootless OCI runtime is test infrastructure only. It
-is never installed, invoked, or required by the shipping browser or AppImage.
+Podman or an equivalent rootless OCI runtime is disposable pristine-oracle
+test infrastructure only. It is never a shipping build tool and is never
+installed, invoked, or required by the shipping browser or AppImage.
 
 ## Objective parity and test matrix
 
@@ -1506,12 +1508,14 @@ cookie path was read. Live YouTube checks are quarantined and non-gating.
 
 ### Pristine Jackett and Jackett Mini comparison
 
-Build a pristine upstream instance and Jackett Mini from the exact same pin,
-with separate clean data roots and deterministic local fixture trackers. The
-upstream instance is the reference for retained tracker parsing and Torznab
-behavior, not for the deliberately removed dashboard or mutation APIs. Compare
-canonicalized `t=caps`, `t=indexers`, `t=search`, provider IDs/titles, size,
-seeders, peer/leech normalization, categories, infohash/magnet, authenticated
+Build Jackett Mini directly on the host from the exact source pin and pinned
+host toolchain. Verify and extract the matching official pristine release,
+running only that upstream reference in rootless OCI. Use separate clean data
+roots and deterministic local fixture trackers. The upstream instance is the
+reference for retained tracker parsing and Torznab behavior, not for the
+deliberately removed dashboard or mutation APIs. Compare canonicalized
+`t=caps`, `t=indexers`, `t=search`, provider IDs/titles, size, seeders,
+peer/leech normalization, categories, infohash/magnet, authenticated
 `.torrent` bytes, and private flags for eligible providers. Normalize only
 ports, timestamps, ordering, and intentionally opaque IDs, and document every
 intentional Jackett Mini difference.
@@ -1647,8 +1651,8 @@ The initial release target is Linux glibc x86-64. Test:
 - accessible notices and durable exact corresponding-source delivery.
 
 Rootless Podman or an equivalent OCI runtime is required for pristine API
-comparisons and may be used for clean-host tests. It is not part of the shipping
-runtime.
+comparisons only. Clean-host product/AppImage tests must use the actual
+host-native bundle. OCI is not a shipping builder or runtime.
 
 ## Commit and review stack
 
@@ -1694,9 +1698,10 @@ The work is complete only when:
   non-adult-only, non-external-solver public source, including mixed/general
   sources; it permanently removes adult-category results and exposes no raw
   upstream, dashboard, credential, provider, or configuration mutation API;
-- exact pinned pristine SearXNG and Jackett services run under rootless
-  containers, and their original APIs pass the side-by-side corpus with raw
-  evidence and no unexplained normalized difference;
+- exact pinned pristine SearXNG and Jackett services run under disposable
+  rootless containers while both ported services run directly on the host, and
+  their original APIs pass the side-by-side corpus with raw evidence and no
+  unexplained normalized difference;
 - torrent results render as the specified semantic table with a per-row
   Download action and default Seeders-descending order until the user chooses
   another sort;
