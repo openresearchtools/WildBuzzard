@@ -2,7 +2,6 @@
 
 import {
   chmodSync,
-  existsSync,
   lstatSync,
   mkdtempSync,
   readFileSync,
@@ -22,6 +21,7 @@ const MAX_TEMP_BYTES = 20 * 1024 * 1024;
 const MAX_TEMP_FILES = 50;
 const TIMEOUT_MS = 45_000;
 const TEMP_PREFIX = "wildbuzzard-captions-";
+const MAX_TRANSCRIPT_CHARS = 1_900_000;
 
 export interface YouTubeLocation {
   videoId: string;
@@ -30,10 +30,12 @@ export interface YouTubeLocation {
 
 export interface CaptionContent extends ExtractedContent {
   provenance: "youtube-captions";
+  trust: "untrusted";
+  available: boolean;
   channel: string;
   duration: number | null;
   language: string;
-  captionKind: "manual" | "automatic";
+  captionKind: "manual" | "automatic" | null;
 }
 
 interface CaptionCue {
@@ -56,7 +58,9 @@ export function parseYouTubeUrl(raw: string): YouTubeLocation | null {
   let videoId: string | null = null;
   if (host === "youtu.be") {
     videoId = url.pathname.split("/").filter(Boolean)[0] ?? null;
-  } else if (["youtube.com", "www.youtube.com", "m.youtube.com"].includes(host)) {
+  } else if (
+    ["youtube.com", "www.youtube.com", "m.youtube.com"].includes(host)
+  ) {
     if (url.pathname === "/watch") {
       videoId = url.searchParams.get("v");
     } else {
@@ -96,7 +100,10 @@ function deduplicateCues(cues: CaptionCue[]): CaptionCue[] {
       output.push(cue);
     } else if (cue.text === previous.text) {
       previous.endMs = Math.max(previous.endMs, cue.endMs);
-    } else if (cue.startMs <= previous.endMs && cue.text.startsWith(previous.text)) {
+    } else if (
+      cue.startMs <= previous.endMs &&
+      cue.text.startsWith(previous.text)
+    ) {
       previous.text = cue.text;
       previous.endMs = Math.max(previous.endMs, cue.endMs);
     } else if (
@@ -152,7 +159,9 @@ function timestampMs(value: string): number | null {
     return null;
   }
   return (
-    (Number(match[1] ?? 0) * 60 * 60 + Number(match[2]) * 60 + Number(match[3])) *
+    (Number(match[1] ?? 0) * 60 * 60 +
+      Number(match[2]) * 60 +
+      Number(match[3])) *
       1_000 +
     Number(match[4])
   );
@@ -196,9 +205,15 @@ export function captionLanguageOrder(requested: string[] = []): string[] {
     .split(".", 1)[0]
     .replace("_", "-");
   const exact = requested[0] || locale;
-  const fallbacks = (process.env.WILDBUZZARD_CAPTION_FALLBACK_LANGUAGES ?? "en")
-    .split(",");
-  const values = [exact, exact.split("-", 1)[0], ...requested.slice(1), ...fallbacks];
+  const fallbacks = (
+    process.env.WILDBUZZARD_CAPTION_FALLBACK_LANGUAGES ?? "en"
+  ).split(",");
+  const values = [
+    exact,
+    exact.split("-", 1)[0],
+    ...requested.slice(1),
+    ...fallbacks,
+  ];
   return [
     ...new Set(
       values
@@ -243,6 +258,7 @@ function runYtDlp(
     let bytes = 0;
     let settled = false;
     let closed = false;
+    let pendingError: Error | undefined;
     let killTimer: NodeJS.Timeout | undefined;
     const terminate = () => {
       if (!child.pid) {
@@ -266,40 +282,52 @@ function runYtDlp(
       }
       settled = true;
       clearTimeout(timeout);
+      clearInterval(tempMonitor);
       signal?.removeEventListener("abort", abort);
       error ? reject(error) : resolvePromise();
     };
     const abort = () => {
+      pendingError ??= new Error("Caption extraction was cancelled");
       terminate();
-      finish(new Error("Caption extraction was cancelled"));
     };
     const collect = (chunk: Buffer, keep: boolean) => {
       bytes += chunk.length;
       if (bytes > MAX_OUTPUT_BYTES) {
+        pendingError ??= new Error("Caption helper produced too much output");
         terminate();
-        finish(new Error("Caption helper produced too much output"));
       } else if (keep) {
         stderr.push(chunk);
       }
     };
     const timeout = setTimeout(() => {
+      pendingError ??= new Error("Caption extraction timed out");
       terminate();
-      finish(new Error("Caption extraction timed out"));
     }, TIMEOUT_MS);
-    if (signal?.aborted) {
-      abort();
-      return;
-    }
-    signal?.addEventListener("abort", abort, { once: true });
+    const tempMonitor = setInterval(() => {
+      try {
+        temporaryFiles(directory);
+      } catch {
+        pendingError ??= new Error(
+          "Caption helper exceeded temporary-file limits"
+        );
+        terminate();
+      }
+    }, 100);
+    tempMonitor.unref();
     child.stdout.on("data", chunk => collect(chunk, false));
     child.stderr.on("data", chunk => collect(chunk, true));
-    child.on("error", error => finish(error));
+    child.on("error", () => {
+      closed = true;
+      finish(new Error("Caption helper could not be started"));
+    });
     child.on("close", code => {
       closed = true;
       if (killTimer) {
         clearTimeout(killTimer);
       }
-      if (code === 0) {
+      if (pendingError) {
+        finish(pendingError);
+      } else if (code === 0) {
         finish();
       } else {
         const detail = Buffer.concat(stderr)
@@ -308,14 +336,25 @@ function runYtDlp(
           .replace(/\s+/g, " ")
           .trim()
           .slice(0, 500);
-        finish(new Error(detail || `Caption helper exited with status ${code}`));
+        finish(
+          new Error(detail || `Caption helper exited with status ${code}`)
+        );
       }
     });
+    if (signal?.aborted) {
+      abort();
+    } else {
+      signal?.addEventListener("abort", abort, { once: true });
+    }
   });
 }
 
 function safeRemove(directory: string): void {
   const root = `${realpathSync(tmpdir())}${sep}`;
+  const stat = lstatSync(directory);
+  if (!stat.isDirectory() || stat.isSymbolicLink()) {
+    throw new Error("Refusing unsafe caption cleanup");
+  }
   const target = realpathSync(directory);
   if (!target.startsWith(root) || !basename(target).startsWith(TEMP_PREFIX)) {
     throw new Error("Refusing unsafe caption cleanup");
@@ -357,7 +396,39 @@ function availabilityError(message: string): string {
   if (value.includes("unavailable") || value.includes("removed")) {
     return "Video is unavailable or has been removed";
   }
-  return message.slice(0, 500);
+  if (
+    value.includes("too much") ||
+    value.includes("exceed") ||
+    value.includes("size") ||
+    value.includes("limit")
+  ) {
+    return "Caption data exceeds the extraction limit";
+  }
+  if (value.includes("cancel")) return "Caption extraction was cancelled";
+  if (value.includes("timed out")) return "Caption extraction timed out";
+  if (value.includes("no captions")) {
+    return "No captions are available in the requested languages";
+  }
+  if (value.includes("caption track is empty")) {
+    return "The selected caption track is empty";
+  }
+  return "Caption extraction failed";
+}
+
+export function formatCaptionTranscript(cues: CaptionCue[]): string {
+  let transcript = "";
+  for (const cue of cues) {
+    const line = `[${formatTimestamp(cue.startMs)}] ${cue.text}`;
+    const separator = transcript ? "\n" : "";
+    if (
+      transcript.length + separator.length + line.length >
+      MAX_TRANSCRIPT_CHARS
+    ) {
+      throw new Error("Caption transcript exceeds the extraction size limit");
+    }
+    transcript += separator + line;
+  }
+  return transcript;
 }
 
 export async function extractYouTubeCaptions(
@@ -440,17 +511,24 @@ export async function extractYouTubeCaptions(
         available: Object.hasOwn(automatic, language),
       })),
     ];
-    const selected = candidates.find(candidate => candidate.available);
+    const selected = candidates
+      .filter(candidate => candidate.available)
+      .map(candidate => {
+        const prefix = `${location.videoId}.${candidate.language}.`;
+        const matching = files.filter(
+          path =>
+            basename(path).startsWith(prefix) && !path.endsWith(".info.json")
+        );
+        const captionPath =
+          matching.find(path => path.endsWith(".json3")) ??
+          matching.find(path => path.endsWith(".vtt"));
+        return captionPath ? { ...candidate, captionPath } : null;
+      })
+      .find(candidate => candidate !== null);
     if (!selected) {
       throw new Error("No captions are available in the requested languages");
     }
-    const prefix = `${location.videoId}.${selected.language}.`;
-    const captionPath = files.find(
-      path => basename(path).startsWith(prefix) && !path.endsWith(".info.json")
-    );
-    if (!captionPath || !existsSync(captionPath)) {
-      throw new Error("Caption helper did not write the selected captions");
-    }
+    const { captionPath } = selected;
     const rawCaptions = readFileSync(captionPath, "utf8");
     const cues = captionPath.endsWith(".json3")
       ? parseJson3Captions(rawCaptions)
@@ -469,9 +547,7 @@ export async function extractYouTubeCaptions(
       typeof info.duration === "number" && Number.isFinite(info.duration)
         ? Math.max(0, info.duration)
         : null;
-    const transcript = cues
-      .map(cue => `[${formatTimestamp(cue.startMs)}] ${cue.text}`)
-      .join("\n");
+    const transcript = formatCaptionTranscript(cues);
     return {
       url: rawUrl,
       finalUrl: location.canonicalUrl,
@@ -483,12 +559,17 @@ export async function extractYouTubeCaptions(
       mimeType: "text/markdown",
       status: 200,
       provenance: "youtube-captions",
+      trust: "untrusted",
+      available: true,
       channel,
       duration,
       language: selected.language,
       captionKind: selected.kind,
     };
   } catch (error) {
+    if (signal?.aborted) {
+      throw new Error("Caption extraction was cancelled");
+    }
     const message = availabilityError(
       error instanceof Error ? error.message : String(error)
     );
@@ -501,10 +582,12 @@ export async function extractYouTubeCaptions(
       mimeType: "text/markdown",
       status: 0,
       provenance: "youtube-captions",
+      trust: "untrusted",
+      available: false,
       channel: "",
       duration: null,
       language: "",
-      captionKind: "automatic",
+      captionKind: null,
     };
   } finally {
     safeRemove(directory);

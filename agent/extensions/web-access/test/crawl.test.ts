@@ -31,6 +31,7 @@ function page(
     status,
     redirectCount,
     provenance: "gecko",
+    trust: "untrusted",
   };
 }
 

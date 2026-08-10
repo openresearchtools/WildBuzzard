@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+import { isSensitiveKey, redactSensitiveText } from "./safe-output.ts";
+
 export const MAX_BATCH_QUERIES = 4;
 export const MAX_RESULTS = 20;
 export const DEFAULT_RESULTS = 5;
@@ -41,6 +43,8 @@ export interface SearchResult {
   engines: string[];
   score: number | null;
   date: string | null;
+  provenance: "searxng";
+  trust: "untrusted";
   contentPreview?: string;
 }
 
@@ -225,7 +229,7 @@ export function sanitizeStructuredValue(value: unknown, depth = 0): unknown {
     return value === null ? null : "[truncated]";
   }
   if (typeof value === "string") {
-    return value.slice(0, 4_000);
+    return redactSensitiveText(value, 4_000);
   }
   if (typeof value === "number") {
     return Number.isFinite(value) ? value : null;
@@ -241,6 +245,7 @@ export function sanitizeStructuredValue(value: unknown, depth = 0): unknown {
   if (typeof value === "object") {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !isSensitiveKey(key))
         .slice(0, 50)
         .map(([key, item]) => [
           key.slice(0, 128),

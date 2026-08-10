@@ -11,6 +11,7 @@ import {
 import { renderWithGecko, type GeckoRenderOptions } from "./gecko-client.ts";
 import { extractPdfDataUrl } from "./pdf-extract.ts";
 import { extractRSCContent } from "./rsc-extract.ts";
+import { redactSensitiveText } from "./safe-output.ts";
 
 export type FetchMode = "readable" | "raw" | "answer";
 
@@ -38,6 +39,7 @@ export interface ExtractedContent {
   redirectCount?: number;
   [EXTRACTED_NETWORK_BYTES]?: number;
   provenance: "gecko" | "github-clone" | "youtube-captions" | "pdf";
+  trust: "untrusted";
 }
 
 const turndown = new TurndownService({
@@ -219,12 +221,13 @@ export async function fetchWithGecko(
         finalUrl: rendered.finalUrl,
         title: "",
         content: "",
-        error: rendered.pageError.slice(0, 1_000),
+        error: redactSensitiveText(rendered.pageError, 1_000),
         mimeType: rendered.contentType,
         status: rendered.pageStatusCode,
         redirectCount: rendered.redirectCount,
         [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
+        trust: "untrusted",
       };
     }
     const mimeType = rendered.contentType.split(";", 1)[0].trim().toLowerCase();
@@ -240,6 +243,7 @@ export async function fetchWithGecko(
         redirectCount: rendered.redirectCount,
         [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
+        trust: "untrusted",
       };
     }
     if (mimeType === "text/html" || mimeType === "application/xhtml+xml") {
@@ -254,6 +258,7 @@ export async function fetchWithGecko(
         redirectCount: rendered.redirectCount,
         [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
+        trust: "untrusted",
       };
     }
     if (mimeType === "application/pdf") {
@@ -273,6 +278,7 @@ export async function fetchWithGecko(
         redirectCount: rendered.redirectCount,
         [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "pdf",
+        trust: "untrusted",
       };
     }
     if (
@@ -293,6 +299,7 @@ export async function fetchWithGecko(
         redirectCount: rendered.redirectCount,
         [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
+        trust: "untrusted",
       };
     }
     return {
@@ -306,6 +313,7 @@ export async function fetchWithGecko(
       redirectCount: rendered.redirectCount,
       [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
       provenance: "gecko",
+      trust: "untrusted",
     };
   } catch (error) {
     if (signal?.aborted) {
@@ -318,12 +326,15 @@ export async function fetchWithGecko(
       finalUrl: url,
       title: "",
       content: "",
-      error:
-        error instanceof Error ? error.message.slice(0, 1_000) : String(error),
+      error: redactSensitiveText(
+        error instanceof Error ? error.message : String(error),
+        1_000
+      ),
       mimeType: "",
       status: 0,
       redirectCount: 0,
       provenance: "gecko",
+      trust: "untrusted",
     };
   }
 }

@@ -2,12 +2,19 @@
 
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   captionLanguageOrder,
   extractYouTubeCaptions,
+  formatCaptionTranscript,
   parseJson3Captions,
   parseVttCaptions,
   parseYouTubeUrl,
@@ -119,9 +126,142 @@ printf '%s' '{"events":[{"tStartMs":1000,"dDurationMs":500,"segs":[{"utf8":"Fixt
       ["en"]
     );
     assert.equal(result.error, null);
+    assert.equal(result.available, true);
     assert.equal(result.captionKind, "manual");
     assert.match(result.content, /\[00:00:01\] Fixture caption/);
+    await assert.rejects(
+      extractYouTubeCaptions(
+        "https://youtu.be/dQw4w9WgXcQ",
+        AbortSignal.abort(),
+        ["en"]
+      ),
+      /cancelled/
+    );
   } finally {
+    if (previousHelper === undefined) delete process.env.WILDBUZZARD_YTDLP;
+    else process.env.WILDBUZZARD_YTDLP = previousHelper;
+    if (previousNode === undefined) delete process.env.WILDBUZZARD_BUNDLED_NODE;
+    else process.env.WILDBUZZARD_BUNDLED_NODE = previousNode;
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("caption selection falls through missing manual files to automatic captions", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "wildbuzzard-youtube-test-"));
+  const helper = join(directory, "yt-dlp");
+  writeFileSync(
+    helper,
+    `#!/bin/sh
+set -eu
+printf '%s' '{"id":"dQw4w9WgXcQ","title":"Fixture","automatic_captions":{"en":{}},"subtitles":{"fr":{}}}' > "$TMPDIR/dQw4w9WgXcQ.info.json"
+printf '%s' '{"events":[{"tStartMs":0,"dDurationMs":500,"segs":[{"utf8":"Automatic"}]}]}' > "$TMPDIR/dQw4w9WgXcQ.en.json3"
+`,
+    { mode: 0o700 }
+  );
+  chmodSync(helper, 0o700);
+  const previousHelper = process.env.WILDBUZZARD_YTDLP;
+  const previousNode = process.env.WILDBUZZARD_BUNDLED_NODE;
+  process.env.WILDBUZZARD_YTDLP = helper;
+  process.env.WILDBUZZARD_BUNDLED_NODE = process.execPath;
+  try {
+    const result = await extractYouTubeCaptions(
+      "https://youtu.be/dQw4w9WgXcQ",
+      undefined,
+      ["en"]
+    );
+    assert.equal(result.error, null);
+    assert.equal(result.captionKind, "automatic");
+  } finally {
+    if (previousHelper === undefined) delete process.env.WILDBUZZARD_YTDLP;
+    else process.env.WILDBUZZARD_YTDLP = previousHelper;
+    if (previousNode === undefined) delete process.env.WILDBUZZARD_BUNDLED_NODE;
+    else process.env.WILDBUZZARD_BUNDLED_NODE = previousNode;
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("caption transcript and helper errors are bounded and path-safe", async () => {
+  assert.throws(
+    () =>
+      formatCaptionTranscript([
+        { startMs: 0, endMs: 1, text: "x".repeat(1_900_001) },
+      ]),
+    /size limit/
+  );
+  const directory = mkdtempSync(join(tmpdir(), "wildbuzzard-youtube-test-"));
+  const helper = join(directory, "yt-dlp");
+  writeFileSync(
+    helper,
+    "#!/bin/sh\nprintf '%s\\n' 'failure at /home/user/hidden/cookies.sqlite Authorization: Bearer secret' >&2\nexit 7\n",
+    { mode: 0o700 }
+  );
+  chmodSync(helper, 0o700);
+  const previousHelper = process.env.WILDBUZZARD_YTDLP;
+  const previousNode = process.env.WILDBUZZARD_BUNDLED_NODE;
+  process.env.WILDBUZZARD_YTDLP = helper;
+  process.env.WILDBUZZARD_BUNDLED_NODE = process.execPath;
+  try {
+    const result = await extractYouTubeCaptions(
+      "https://youtu.be/dQw4w9WgXcQ",
+      undefined,
+      ["en"]
+    );
+    assert.equal(result.available, false);
+    assert.equal(result.error, "Caption extraction failed");
+    assert.doesNotMatch(
+      JSON.stringify(result),
+      /private|secret|cookies\.sqlite/
+    );
+  } finally {
+    if (previousHelper === undefined) delete process.env.WILDBUZZARD_YTDLP;
+    else process.env.WILDBUZZARD_YTDLP = previousHelper;
+    if (previousNode === undefined) delete process.env.WILDBUZZARD_BUNDLED_NODE;
+    else process.env.WILDBUZZARD_BUNDLED_NODE = previousNode;
+    rmSync(directory, { recursive: true });
+  }
+});
+
+test("caption cancellation waits for the helper process tree to exit", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "wildbuzzard-youtube-test-"));
+  const helper = join(directory, "yt-dlp");
+  const pidPath = join(directory, "pid");
+  writeFileSync(
+    helper,
+    `#!${process.execPath}
+const fs = require("node:fs");
+const path = require("node:path");
+fs.writeFileSync(path.join(path.dirname(process.argv[1]), "pid"), String(process.pid));
+process.on("SIGTERM", () => process.exit(0));
+setInterval(() => {}, 1000);
+`,
+    { mode: 0o700 }
+  );
+  chmodSync(helper, 0o700);
+  const previousHelper = process.env.WILDBUZZARD_YTDLP;
+  const previousNode = process.env.WILDBUZZARD_BUNDLED_NODE;
+  process.env.WILDBUZZARD_YTDLP = helper;
+  process.env.WILDBUZZARD_BUNDLED_NODE = process.execPath;
+  const controller = new AbortController();
+  try {
+    const extraction = extractYouTubeCaptions(
+      "https://youtu.be/dQw4w9WgXcQ",
+      controller.signal,
+      ["en"]
+    );
+    for (let index = 0; index < 100; index++) {
+      try {
+        readFileSync(pidPath, "utf8");
+        break;
+      } catch {
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+    }
+    const pid = Number(readFileSync(pidPath, "utf8"));
+    controller.abort();
+    await assert.rejects(extraction, /cancelled/);
+    assert.throws(() => process.kill(pid, 0));
+  } finally {
+    controller.abort();
     if (previousHelper === undefined) delete process.env.WILDBUZZARD_YTDLP;
     else process.env.WILDBUZZARD_YTDLP = previousHelper;
     if (previousNode === undefined) delete process.env.WILDBUZZARD_BUNDLED_NODE;

@@ -1,22 +1,28 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { createHash } from "node:crypto";
-import {
-  chmodSync,
-  existsSync,
-  lstatSync,
-  mkdirSync,
-} from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { StoredSearch } from "./storage.ts";
 
 const MAX_DATABASE_BYTES = 256 * 1024 * 1024;
+const MAX_RESPONSE_BYTES = 128 * 1024 * 1024;
 const MAX_RESPONSES = 500;
 
 let database: DatabaseSync | undefined;
 let openedPath: string | undefined;
+
+function storageError(error: unknown): Error {
+  if (
+    error instanceof Error &&
+    error.message.startsWith("WildBuzzard web-search")
+  ) {
+    return error;
+  }
+  return new Error("WildBuzzard web-search storage is unavailable");
+}
 
 function configuredPath(): string {
   if (process.env.WILDBUZZARD_WEB_SEARCH_DATABASE) {
@@ -49,12 +55,15 @@ function schema(db: DatabaseSync): void {
     (db.prepare("PRAGMA user_version").get() as { user_version?: number })
       .user_version ?? 0
   );
-  if (version !== 0 && version !== 1) {
-    throw new Error(`Unsupported WildBuzzard web-search database version ${version}`);
+  if (version !== 0 && version !== 1 && version !== 2) {
+    throw new Error(
+      `Unsupported WildBuzzard web-search database version ${version}`
+    );
   }
   db.exec(`
     CREATE TABLE IF NOT EXISTS responses (
       id TEXT PRIMARY KEY,
+      session_scope TEXT NOT NULL,
       type TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL,
@@ -105,30 +114,50 @@ function schema(db: DatabaseSync): void {
       url TEXT NOT NULL,
       PRIMARY KEY(response_id, ordinal)
     ) STRICT;
-    PRAGMA user_version = 1;
+  `);
+  if (version === 1) {
+    db.exec(
+      "ALTER TABLE responses ADD COLUMN session_scope TEXT NOT NULL DEFAULT ''"
+    );
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS responses_session ON responses(session_scope);
+    PRAGMA user_version = 2;
   `);
 }
 
 function db(): DatabaseSync {
   const path = configuredPath();
+  if (!isAbsolute(path) || path.length > 4_096 || path.includes("\0")) {
+    throw new Error("WildBuzzard web-search database path is invalid");
+  }
   if (database && openedPath === path) {
     return database;
   }
-  database?.close();
-  validateExistingDatabase(path);
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  database = new DatabaseSync(path);
-  openedPath = path;
-  chmodSync(path, 0o600);
-  database.exec(`
-    PRAGMA foreign_keys = ON;
-    PRAGMA journal_mode = DELETE;
-    PRAGMA synchronous = NORMAL;
-    PRAGMA temp_store = MEMORY;
-    PRAGMA busy_timeout = 3000;
-  `);
-  schema(database);
-  return database;
+  try {
+    database?.close();
+    database = undefined;
+    openedPath = undefined;
+    validateExistingDatabase(path);
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    database = new DatabaseSync(path);
+    openedPath = path;
+    chmodSync(path, 0o600);
+    database.exec(`
+      PRAGMA foreign_keys = ON;
+      PRAGMA journal_mode = DELETE;
+      PRAGMA synchronous = NORMAL;
+      PRAGMA temp_store = MEMORY;
+      PRAGMA busy_timeout = 3000;
+    `);
+    schema(database);
+    return database;
+  } catch (error) {
+    database?.close();
+    database = undefined;
+    openedPath = undefined;
+    throw storageError(error);
+  }
 }
 
 function passageRows(content: string): Array<{
@@ -157,9 +186,11 @@ function passageRows(content: string): Array<{
 function trimDatabase(connection: DatabaseSync, now: number): void {
   connection.prepare("DELETE FROM responses WHERE expires_at <= ?").run(now);
   const count = Number(
-    (connection.prepare("SELECT COUNT(*) AS count FROM responses").get() as {
-      count: number | bigint;
-    }).count
+    (
+      connection.prepare("SELECT COUNT(*) AS count FROM responses").get() as {
+        count: number | bigint;
+      }
+    ).count
   );
   if (count > MAX_RESPONSES) {
     connection
@@ -168,46 +199,49 @@ function trimDatabase(connection: DatabaseSync, now: number): void {
       )
       .run(count - MAX_RESPONSES);
   }
-  let logicalBytes = Number(
-    (
-      connection
-        .prepare(
-          "SELECT COALESCE(SUM(length(payload_json)), 0) AS bytes FROM responses"
-        )
-        .get() as { bytes: number | bigint }
-    ).bytes
-  );
+  const logicalSize = () =>
+    Number(
+      (
+        connection
+          .prepare(
+            `SELECT
+               (SELECT COALESCE(SUM(length(payload_json)), 0) FROM responses) +
+               (SELECT COALESCE(SUM(length(payload_json)), 0) FROM queries) +
+               (SELECT COALESCE(SUM(length(content) + length(preview)), 0) FROM documents) +
+               (SELECT COALESCE(SUM(length(text)), 0) FROM passages)
+             AS bytes`
+          )
+          .get() as { bytes: number | bigint }
+      ).bytes
+    );
+  let logicalBytes = logicalSize();
   while (logicalBytes > MAX_DATABASE_BYTES) {
     connection
       .prepare(
         "DELETE FROM responses WHERE id = (SELECT id FROM responses ORDER BY last_accessed ASC LIMIT 1)"
       )
       .run();
-    logicalBytes = Number(
-      (
-        connection
-          .prepare(
-            "SELECT COALESCE(SUM(length(payload_json)), 0) AS bytes FROM responses"
-          )
-          .get() as { bytes: number | bigint }
-      ).bytes
-    );
+    logicalBytes = logicalSize();
   }
 }
 
 export function persistStoredSearch(value: StoredSearch): void {
   const connection = db();
   const payload = JSON.stringify(value);
+  if (Buffer.byteLength(payload) > MAX_RESPONSE_BYTES) {
+    throw new Error("Stored web-search response exceeds the byte limit");
+  }
   connection.exec("BEGIN IMMEDIATE");
   try {
     connection
       .prepare(
         `INSERT OR REPLACE INTO responses
-          (id, type, created_at, expires_at, last_accessed, payload_json, storage_policy)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+          (id, session_scope, type, created_at, expires_at, last_accessed, payload_json, storage_policy)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         value.id,
+        value.sessionScope,
         value.type,
         value.createdAt,
         value.expiresAt,
@@ -267,29 +301,40 @@ export function persistStoredSearch(value: StoredSearch): void {
     trimDatabase(connection, Date.now());
     connection.exec("COMMIT");
   } catch (error) {
-    connection.exec("ROLLBACK");
-    throw error;
+    try {
+      connection.exec("ROLLBACK");
+    } catch {}
+    throw storageError(error);
   }
 }
 
 export function loadStoredSearch(
   id: string,
+  sessionScope: string,
   now = Date.now()
 ): StoredSearch | null {
   const connection = db();
   trimDatabase(connection, now);
   const row = connection
     .prepare(
-      "SELECT payload_json AS payload, expires_at AS expiresAt FROM responses WHERE id = ?"
+      "SELECT payload_json AS payload, expires_at AS expiresAt FROM responses WHERE id = ? AND session_scope = ?"
     )
-    .get(id) as { payload: string; expiresAt: number } | undefined;
+    .get(id, sessionScope) as
+    | { payload: string; expiresAt: number }
+    | undefined;
   if (!row || Number(row.expiresAt) <= now) {
     return null;
   }
   connection
-    .prepare("UPDATE responses SET last_accessed = ? WHERE id = ?")
-    .run(now, id);
-  return JSON.parse(row.payload) as StoredSearch;
+    .prepare(
+      "UPDATE responses SET last_accessed = ? WHERE id = ? AND session_scope = ?"
+    )
+    .run(now, id, sessionScope);
+  try {
+    return JSON.parse(row.payload) as StoredSearch;
+  } catch {
+    throw new Error("Stored web-search data is invalid");
+  }
 }
 
 export function deleteExpiredStoredSearches(now = Date.now()): void {

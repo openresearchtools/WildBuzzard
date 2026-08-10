@@ -1,0 +1,45 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+import assert from "node:assert/strict";
+import test from "node:test";
+import { redactSensitiveText, sanitizeAgentOutput } from "../safe-output.ts";
+
+test("agent output removes service secrets, headers, cookies, and local paths", () => {
+  const value = sanitizeAgentOutput({
+    token: "service-capability",
+    headers: { Authorization: "Bearer nested-secret" },
+    content:
+      "Authorization: Bearer exposed\nCookie=session-secret\nX-API-Key: Basic hidden-key\n/home/user/private/file https://name:password@example.test/ https://example.test/?access_token=query-secret",
+    path: "docs/README.md",
+  });
+  const serialized = JSON.stringify(value);
+  assert.doesNotMatch(
+    serialized,
+    /service-capability|nested-secret|exposed|session-secret|hidden-key|query-secret|password|\/home\/user\/private/
+  );
+  assert.match(serialized, /docs\/README\.md/);
+  assert.match(serialized, /\[redacted\]|\[local-path-redacted\]/);
+});
+
+test("redaction bounds arbitrary helper errors without hiding source URLs", () => {
+  const output = redactSensitiveText(
+    "failed at /tmp/wildbuzzard-secret/file for https://example.test/docs " +
+      "Bearer abc.def"
+  );
+  assert.match(output, /https:\/\/example\.test\/docs/);
+  assert.doesNotMatch(output, /wildbuzzard-secret|abc\.def/);
+});
+
+test("agent output redacts common secret keys and URL credentials", () => {
+  const sanitized = sanitizeAgentOutput({
+    apiKey: "api-secret",
+    client_secret: "client-secret",
+    password: "password-secret",
+    nested: "https://example.test/?signature=url-secret /root/private/file",
+  });
+  const serialized = JSON.stringify(sanitized);
+  assert.doesNotMatch(
+    serialized,
+    /api-secret|client-secret|password-secret|url-secret|\/root\/private/
+  );
+});

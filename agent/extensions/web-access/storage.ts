@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* Derived from pi-web-access. Copyright (c) 2025 Nico Bailon. */
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   MAX_PAGE_CHARS,
   RESULT_TTL_MS,
@@ -17,11 +17,19 @@ import {
 
 export interface StoredSearch {
   id: string;
+  sessionScope: string;
   type: "search" | "research" | "fetch" | "crawl";
   createdAt: number;
   expiresAt: number;
   queries?: QueryResponse[];
   documents?: ExtractedContent[];
+}
+
+export interface StoredSearchReference {
+  id: string;
+  sessionScope: string;
+  type: StoredSearch["type"];
+  expiresAt: number;
 }
 
 interface SessionEntry {
@@ -34,6 +42,25 @@ type PassageMode = "exact" | "case-insensitive" | "fuzzy" | "none";
 
 const results = new Map<string, StoredSearch>();
 
+function sessionScope(sessionId: string): string {
+  if (
+    typeof sessionId !== "string" ||
+    !sessionId ||
+    sessionId.length > 512 ||
+    /[\0-\x1f\x7f]/.test(sessionId)
+  ) {
+    throw new Error("Pi session identity is invalid");
+  }
+  return createHash("sha256")
+    .update("wildbuzzard-web-search-session-v1\0")
+    .update(sessionId)
+    .digest("hex");
+}
+
+function resultKey(scope: string, id: string): string {
+  return `${scope}:${id}`;
+}
+
 function isStoredSearch(value: unknown): value is StoredSearch {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -41,22 +68,57 @@ function isStoredSearch(value: unknown): value is StoredSearch {
   const item = value as Partial<StoredSearch>;
   return (
     typeof item.id === "string" &&
+    typeof item.sessionScope === "string" &&
+    /^[a-f0-9]{64}$/.test(item.sessionScope) &&
     ["search", "research", "fetch", "crawl"].includes(item.type ?? "") &&
     Number.isFinite(item.createdAt) &&
     Number.isFinite(item.expiresAt) &&
-    ((item.type === "search" || item.type === "research")
+    (item.type === "search" || item.type === "research"
       ? Array.isArray(item.queries)
       : Array.isArray(item.documents))
   );
 }
 
+function isStoredSearchReference(
+  value: unknown
+): value is StoredSearchReference {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const item = value as Partial<StoredSearchReference>;
+  return (
+    Object.keys(item).length === 4 &&
+    typeof item.id === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      item.id
+    ) &&
+    typeof item.sessionScope === "string" &&
+    /^[a-f0-9]{64}$/.test(item.sessionScope) &&
+    ["search", "research", "fetch", "crawl"].includes(item.type ?? "") &&
+    Number.isFinite(item.expiresAt)
+  );
+}
+
+export function storedSearchReference(
+  value: StoredSearch
+): StoredSearchReference {
+  return {
+    id: value.id,
+    sessionScope: value.sessionScope,
+    type: value.type,
+    expiresAt: value.expiresAt,
+  };
+}
+
 export function createStoredSearch(
   queries: QueryResponse[],
+  sessionId: string,
   type: StoredSearch["type"] = "search",
   now = Date.now()
 ): StoredSearch {
   return {
     id: randomUUID(),
+    sessionScope: sessionScope(sessionId),
     type,
     createdAt: now,
     expiresAt: now + RESULT_TTL_MS,
@@ -66,11 +128,13 @@ export function createStoredSearch(
 
 export function createStoredDocuments(
   documents: ExtractedContent[],
+  sessionId: string,
   type: "fetch" | "crawl" = "fetch",
   now = Date.now()
 ): StoredSearch {
   return {
     id: randomUUID(),
+    sessionScope: sessionScope(sessionId),
     type,
     createdAt: now,
     expiresAt: now + RESULT_TTL_MS,
@@ -80,35 +144,63 @@ export function createStoredDocuments(
 
 export function storeSearch(value: StoredSearch): void {
   purgeExpired();
-  results.set(value.id, value);
+  if (!isStoredSearch(value)) {
+    throw new Error("Stored web-search data is invalid");
+  }
+  results.set(resultKey(value.sessionScope, value.id), value);
   persistStoredSearch(value);
 }
 
-export function getStoredSearch(id: string, now = Date.now()): StoredSearch {
-  const loaded = results.get(id) ?? loadStoredSearch(id, now) ?? undefined;
+export function getStoredSearch(
+  id: string,
+  sessionId: string,
+  now = Date.now()
+): StoredSearch {
+  if (!/^[a-f0-9-]{36}$/i.test(id)) {
+    throw new Error("Search result handle is invalid");
+  }
+  const scope = sessionScope(sessionId);
+  const key = resultKey(scope, id);
+  const loaded =
+    results.get(key) ?? loadStoredSearch(id, scope, now) ?? undefined;
   if (loaded && !isStoredSearch(loaded)) {
     throw new Error("Stored web-search data is invalid");
   }
   const value = loaded;
   if (!value || value.expiresAt <= now) {
-    results.delete(id);
+    results.delete(key);
     throw new Error("Search result handle is missing or expired");
   }
-  results.set(id, value);
+  if (value.sessionScope !== scope) {
+    throw new Error("Search result handle is missing or expired");
+  }
+  results.set(key, value);
   return value;
 }
 
-export function restoreSearches(entries: SessionEntry[], now = Date.now()): void {
-  results.clear();
+export function restoreSearches(
+  entries: SessionEntry[],
+  sessionId: string,
+  now = Date.now()
+): void {
+  const scope = sessionScope(sessionId);
+  for (const [key, value] of results) {
+    if (value.sessionScope === scope) {
+      results.delete(key);
+    }
+  }
   for (const entry of entries) {
     if (
       entry.type === "custom" &&
       entry.customType === "wildbuzzard-web-search" &&
-      isStoredSearch(entry.data) &&
+      isStoredSearchReference(entry.data) &&
+      entry.data.sessionScope === scope &&
       entry.data.expiresAt > now
     ) {
-      results.set(entry.data.id, entry.data);
-      persistStoredSearch(entry.data);
+      const stored = loadStoredSearch(entry.data.id, scope, now);
+      if (stored && isStoredSearch(stored) && stored.type === entry.data.type) {
+        results.set(resultKey(scope, stored.id), stored);
+      }
     }
   }
 }
@@ -122,13 +214,20 @@ export function purgeExpired(now = Date.now()): void {
   deleteExpiredStoredSearches(now);
 }
 
-export function hasStoredSearches(now = Date.now()): boolean {
+export function hasStoredSearches(
+  sessionId: string,
+  now = Date.now()
+): boolean {
   purgeExpired(now);
-  return results.size > 0;
+  const scope = sessionScope(sessionId);
+  return [...results.values()].some(value => value.sessionScope === scope);
 }
 
 function normalized(value: string): string {
-  return value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+  return value
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
 }
 
 function trigrams(value: string): Set<string> {
@@ -159,7 +258,10 @@ function fuzzyIndex(content: string, needle: string): number {
   const step = Math.max(40, Math.floor(width / 3));
   let best = { index: -1, score: 0 };
   for (let index = 0; index < content.length; index += step) {
-    const score = similarity(target, trigrams(content.slice(index, index + width)));
+    const score = similarity(
+      target,
+      trigrams(content.slice(index, index + width))
+    );
     if (score > best.score) {
       best = { index, score };
     }
@@ -221,17 +323,19 @@ export function pageStoredSearch(
         ? value.queries
             .map(item => ({
               ...item,
-              results: item.results.filter(result => result.url === options.url),
+              results: item.results.filter(
+                result => result.url === options.url
+              ),
             }))
             .filter(item => item.results.length)
         : value.queries
     : options.query
       ? []
       : options.url
-        ? value.documents?.filter(
+        ? (value.documents?.filter(
             item => item.url === options.url || item.finalUrl === options.url
-          ) ?? []
-        : value.documents ?? [];
+          ) ?? [])
+        : (value.documents ?? []);
   if (!selected.length) {
     throw new Error("No stored content matched the requested query or URL");
   }
