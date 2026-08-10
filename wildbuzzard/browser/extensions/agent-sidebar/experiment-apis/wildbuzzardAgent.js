@@ -2,7 +2,7 @@
 
 "use strict";
 
-/* global ExtensionAPI, IOUtils, PathUtils, Services */
+/* global ExtensionAPI, IOUtils, PathUtils, Services, TextDecoder */
 
 const { Subprocess } = ChromeUtils.importESModule(
   "resource://gre/modules/Subprocess.sys.mjs"
@@ -33,6 +33,11 @@ const ZipReader = Components.Constructor(
   "nsIZipReader",
   "open"
 );
+const CryptoHash = Components.Constructor(
+  "@mozilla.org/security/hash;1",
+  "nsICryptoHash",
+  "initWithString"
+);
 
 const AGENT_PORT = 8765;
 const PI_WEB_URL = `http://127.0.0.1:${AGENT_PORT}/`;
@@ -40,10 +45,148 @@ const CONFIG_FILE = "config.json";
 const STATE_FILE = "state.json";
 const CONNECTION_FILE = "browser-control.json";
 const RUNTIME_MANIFEST = "wildbuzzard-runtime.json";
+const ACTIVE_RUNTIME_FILE = "active-runtime.json";
+const MAX_RUNTIME_ARCHIVE_SIZE = 1024 * 1024 * 1024;
+const MAX_RUNTIME_FILE_SIZE = 512 * 1024 * 1024;
+const MAX_RUNTIME_EXPANDED_SIZE = 2 * 1024 * 1024 * 1024;
+const MAX_RUNTIME_ENTRIES = 200000;
 
-function runtimeBundleId(archivePath) {
+function hexDigest(bytes) {
+  const hash = new CryptoHash("sha256");
+  hash.update(bytes, bytes.length);
+  return Array.from(hash.finish(false), byte =>
+    byte.charCodeAt(0).toString(16).padStart(2, "0")
+  ).join("");
+}
+
+function safeArchivePath(path) {
+  const parts = path.split("/");
+  return (
+    path &&
+    !path.startsWith("/") &&
+    !path.includes("\\") &&
+    parts.every(part => part && part !== "." && part !== "..")
+  );
+}
+
+function centralDirectoryEntries(bytes) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const minimum = Math.max(0, bytes.length - 65557);
+  let end = -1;
+  for (let offset = bytes.length - 22; offset >= minimum; offset--) {
+    if (view.getUint32(offset, true) === 0x06054b50) {
+      end = offset;
+      break;
+    }
+  }
+  if (end < 0) {
+    throw new Error("Pi Web runtime has no ZIP central directory");
+  }
+  let entries = view.getUint16(end + 10, true);
+  let centralSize = view.getUint32(end + 12, true);
+  let centralOffset = view.getUint32(end + 16, true);
+  if (
+    view.getUint16(end + 4, true) !== 0 ||
+    view.getUint16(end + 6, true) !== 0
+  ) {
+    throw new Error("Unsupported Pi Web runtime ZIP layout");
+  }
+  if (
+    entries === 0xffff ||
+    centralSize === 0xffffffff ||
+    centralOffset === 0xffffffff
+  ) {
+    const locator = end - 20;
+    if (locator < 0 || view.getUint32(locator, true) !== 0x07064b50) {
+      throw new Error("Invalid Pi Web runtime ZIP64 locator");
+    }
+    const zip64Offset = Number(view.getBigUint64(locator + 8, true));
+    if (
+      !Number.isSafeInteger(zip64Offset) ||
+      zip64Offset + 56 > locator ||
+      view.getUint32(zip64Offset, true) !== 0x06064b50 ||
+      view.getUint32(zip64Offset + 16, true) !== 0 ||
+      view.getUint32(zip64Offset + 20, true) !== 0
+    ) {
+      throw new Error("Invalid Pi Web runtime ZIP64 directory");
+    }
+    entries = Number(view.getBigUint64(zip64Offset + 32, true));
+    centralSize = Number(view.getBigUint64(zip64Offset + 40, true));
+    centralOffset = Number(view.getBigUint64(zip64Offset + 48, true));
+  }
+  if (
+    !Number.isSafeInteger(entries) ||
+    !Number.isSafeInteger(centralSize) ||
+    !Number.isSafeInteger(centralOffset) ||
+    entries > MAX_RUNTIME_ENTRIES ||
+    centralOffset + centralSize > end
+  ) {
+    throw new Error("Unsupported Pi Web runtime ZIP layout");
+  }
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const result = new Map();
+  let expandedSize = 0;
+  let offset = centralOffset;
+  for (let index = 0; index < entries; index++) {
+    if (offset + 46 > end || view.getUint32(offset, true) !== 0x02014b50) {
+      throw new Error("Invalid Pi Web runtime central directory");
+    }
+    const flags = view.getUint16(offset + 8, true);
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const recordLength = 46 + nameLength + extraLength + commentLength;
+    if (flags & 1 || offset + recordLength > end) {
+      throw new Error("Unsupported Pi Web runtime entry");
+    }
+    const name = decoder.decode(
+      bytes.subarray(offset + 46, offset + 46 + nameLength)
+    );
+    if (result.has(name)) {
+      throw new Error(`Duplicate path in Pi Web runtime: ${name}`);
+    }
+    const host = bytes[offset + 5];
+    const attributes = view.getUint32(offset + 38, true);
+    const realSize = view.getUint32(offset + 24, true);
+    const mode = host === 3 ? attributes >>> 16 : 0;
+    const kind = mode & 0xf000;
+    const directory = name.endsWith("/");
+    if (kind && kind !== (directory ? 0x4000 : 0x8000)) {
+      throw new Error(`Link or special file in Pi Web runtime: ${name}`);
+    }
+    expandedSize += realSize;
+    if (
+      realSize > MAX_RUNTIME_FILE_SIZE ||
+      expandedSize > MAX_RUNTIME_EXPANDED_SIZE
+    ) {
+      throw new Error("Pi Web runtime exceeds extraction limits");
+    }
+    result.set(name, {
+      directory,
+      executable: Boolean(mode & 0o111),
+      realSize,
+    });
+    offset += recordLength;
+  }
+  if (offset !== centralOffset + centralSize) {
+    throw new Error("Invalid Pi Web runtime central directory size");
+  }
+  return result;
+}
+
+async function runtimeBundleInfo(archivePath) {
+  const archiveInfo = await IOUtils.stat(archivePath);
+  if (archiveInfo.size > MAX_RUNTIME_ARCHIVE_SIZE) {
+    throw new Error("Pi Web runtime archive is too large");
+  }
+  const archiveBytes = await IOUtils.read(archivePath);
+  const archiveSha256 = hexDigest(archiveBytes);
+  const centralEntries = centralDirectoryEntries(archiveBytes);
   const zip = new ZipReader(new LocalFile(archivePath));
   try {
+    if (!zip.hasEntry(RUNTIME_MANIFEST)) {
+      throw new Error("Pi Web runtime manifest is missing");
+    }
     const entry = zip.getEntry(RUNTIME_MANIFEST);
     const stream = zip.getInputStream(RUNTIME_MANIFEST);
     let manifest;
@@ -57,31 +200,75 @@ function runtimeBundleId(archivePath) {
       stream.close();
     }
     if (
-      manifest.schema !== 3 ||
+      manifest.schema !== 4 ||
+      manifest.component !== "pi-web" ||
+      typeof manifest.version !== "string" ||
+      !/^[0-9A-Za-z._+-]+$/.test(manifest.version) ||
       !/^[a-f0-9]{40}$/.test(manifest.piWebCommit) ||
+      !/^[a-f0-9]{64}$/.test(manifest.sourceSha256) ||
+      !/^[a-f0-9]{64}$/.test(manifest.dependencyLockSha256) ||
       !/^[a-f0-9]{64}$/.test(manifest.browserToolsSha256) ||
       !/^[a-f0-9]{64}$/.test(manifest.webAccessSha256) ||
       !/^[a-f0-9]{64}$/.test(manifest.browserRunnerSha256) ||
       !/^[a-f0-9]{64}$/.test(manifest.gitRuntimeSha256) ||
-      !/^[a-f0-9]{64}$/.test(manifest.ytdlpRuntimeSha256)
+      !/^[a-f0-9]{64}$/.test(manifest.ytdlpRuntimeSha256) ||
+      manifest.protocolVersion !== 1 ||
+      !safeArchivePath(manifest.correspondingSource) ||
+      manifest.platform !== "linux-x64" ||
+      !Array.isArray(manifest.licenseLocations) ||
+      !manifest.files ||
+      Array.isArray(manifest.files) ||
+      typeof manifest.files !== "object" ||
+      !Array.isArray(manifest.executableAllowlist)
     ) {
       throw new Error("Invalid Pi Web runtime manifest");
     }
-    const id = [
-      manifest.schema,
-      manifest.piWebCommit,
-      manifest.browserToolsSha256,
-      manifest.webAccessSha256,
-      manifest.browserRunnerSha256,
-      manifest.gitRuntimeSha256,
-      manifest.ytdlpRuntimeSha256,
-      manifest.nodeVersion,
-      manifest.platform,
-    ].join("-");
-    if (!/^[0-9A-Za-z._-]+$/.test(id)) {
+    const files = new Map(Object.entries(manifest.files));
+    const executableAllowlist = new Set(manifest.executableAllowlist);
+    if (
+      files.size !== Object.keys(manifest.files).length ||
+      executableAllowlist.size !== manifest.executableAllowlist.length ||
+      !files.has(manifest.correspondingSource) ||
+      files.get(manifest.correspondingSource) !== manifest.sourceSha256 ||
+      manifest.licenseLocations.some(path => !files.has(path)) ||
+      [...files].some(
+        ([path, digest]) =>
+          !safeArchivePath(path) || !/^[a-f0-9]{64}$/.test(digest)
+      ) ||
+      [...executableAllowlist].some(path => !files.has(path))
+    ) {
       throw new Error("Invalid Pi Web runtime manifest");
     }
-    return id;
+    const actualFiles = new Set(
+      [...centralEntries]
+        .filter(([, metadata]) => !metadata.directory)
+        .map(([path]) => path)
+    );
+    const expectedFiles = new Set([...files.keys(), RUNTIME_MANIFEST]);
+    if (
+      actualFiles.size !== expectedFiles.size ||
+      [...actualFiles].some(path => !expectedFiles.has(path)) ||
+      [...centralEntries].some(([path, metadata]) => {
+        const normalized = metadata.directory ? path.slice(0, -1) : path;
+        return (
+          !safeArchivePath(normalized) ||
+          (!metadata.directory &&
+            path !== RUNTIME_MANIFEST &&
+            metadata.executable !== executableAllowlist.has(path)) ||
+          (path === RUNTIME_MANIFEST && metadata.executable)
+        );
+      })
+    ) {
+      throw new Error("Pi Web runtime file inventory mismatch");
+    }
+    return {
+      archiveSha256,
+      bundleId: `4-${manifest.piWebCommit}-${archiveSha256}`,
+      centralEntries,
+      executableAllowlist,
+      files,
+      manifest,
+    };
   } finally {
     zip.close();
   }
@@ -139,6 +326,10 @@ class PiWebManager {
       PathUtils.join(dataHome, "wildbuzzard", "agent", "run");
     this.rootDirectory = PathUtils.join(dataHome, "wildbuzzard", "agent");
     this.bundleRoot = PathUtils.join(this.rootDirectory, "runtime");
+    this.activeRuntimePath = PathUtils.join(
+      this.bundleRoot,
+      ACTIVE_RUNTIME_FILE
+    );
     this.piDirectory = PathUtils.join(this.rootDirectory, "profile");
     this.configPath = PathUtils.join(
       configHome,
@@ -182,13 +373,27 @@ class PiWebManager {
       ignoreExisting: true,
     });
     await this.#publishBrowserControl();
-    this.runtimeDirectory = await this.#extractRuntime();
-    await this.#installAgentExtensions();
-    await this.#writeConfig();
-    await this.#ensureServices();
-    const status = await this.refreshStatus();
-    await this.#waitUntilReady();
-    return { ...status, ready: true };
+    const previousRuntime = await this.#readActiveRuntime();
+    const runtime = await this.#extractRuntime();
+    this.runtimeDirectory = runtime.directory;
+    try {
+      await this.#installAgentExtensions();
+      await this.#writeConfig();
+      await this.#ensureServices();
+      await this.#waitUntilReady();
+      await this.#activateRuntime(runtime.bundleId, runtime.directory);
+      return { ...(await this.refreshStatus()), ready: true };
+    } catch (error) {
+      if (
+        previousRuntime &&
+        previousRuntime.directory !== this.runtimeDirectory
+      ) {
+        await this.#rollbackRuntime(previousRuntime).catch(rollbackError =>
+          console.error("Pi Web runtime rollback failed", rollbackError)
+        );
+      }
+      throw error;
+    }
   }
 
   #archivePath() {
@@ -214,36 +419,40 @@ class PiWebManager {
         "The bundled Pi Web runtime was not found. Build with --pi-web-runtime."
       );
     }
-    const bundleId = runtimeBundleId(archivePath);
+    const bundle = await runtimeBundleInfo(archivePath);
+    const { bundleId } = bundle;
     const destination = PathUtils.join(this.bundleRoot, bundleId);
     const marker = PathUtils.join(destination, ".extraction-complete");
     if (await IOUtils.exists(marker)) {
-      return destination;
+      const extracted = await IOUtils.readJSON(marker).catch(() => null);
+      if (extracted?.archiveSha256 !== bundle.archiveSha256) {
+        throw new Error("Pi Web runtime activation marker is invalid");
+      }
+      return { bundleId, directory: destination };
     }
 
     if (await IOUtils.exists(destination)) {
-      await IOUtils.remove(destination, { recursive: true });
+      throw new Error("Incomplete immutable Pi Web runtime exists");
     }
-
-    await IOUtils.makeDirectory(destination, {
+    const staging = PathUtils.join(
+      this.bundleRoot,
+      `.staging-${bundleId}-${Services.appinfo.processID}-${Date.now()}`
+    );
+    await IOUtils.makeDirectory(staging, {
       createAncestors: true,
-      ignoreExisting: true,
+      ignoreExisting: false,
     });
     const zip = new ZipReader(new LocalFile(archivePath));
     try {
       for (const entry of zip.findEntries(null)) {
-        const isDirectory = entry.endsWith("/");
+        const metadata = bundle.centralEntries.get(entry);
+        if (!metadata) {
+          throw new Error(`Unindexed path in Pi Web runtime: ${entry}`);
+        }
+        const isDirectory = metadata.directory;
         const path = isDirectory ? entry.slice(0, -1) : entry;
         const parts = path.split("/");
-        if (
-          !path ||
-          path.startsWith("/") ||
-          path.includes("\\") ||
-          parts.some(part => !part || part === "." || part === "..")
-        ) {
-          throw new Error(`Unsafe path in Pi Web runtime: ${entry}`);
-        }
-        const targetPath = PathUtils.join(destination, ...parts);
+        const targetPath = PathUtils.join(staging, ...parts);
         if (isDirectory) {
           await IOUtils.makeDirectory(targetPath, {
             createAncestors: true,
@@ -255,10 +464,31 @@ class PiWebManager {
           createAncestors: true,
           ignoreExisting: true,
         });
-        zip.extract(entry, new LocalFile(targetPath));
+        const zipEntry = zip.getEntry(entry);
+        if (zipEntry.realSize !== metadata.realSize) {
+          throw new Error(`Size mismatch in Pi Web runtime: ${entry}`);
+        }
+        const stream = zip.getInputStream(entry);
+        let bytes;
+        try {
+          bytes = NetUtil.readInputStream(stream, zipEntry.realSize);
+        } finally {
+          stream.close();
+        }
+        if (
+          entry !== RUNTIME_MANIFEST &&
+          hexDigest(bytes) !== bundle.files.get(entry)
+        ) {
+          throw new Error(`Digest mismatch in Pi Web runtime: ${entry}`);
+        }
+        await IOUtils.write(targetPath, bytes);
+        await IOUtils.setPermissions(
+          targetPath,
+          bundle.executableAllowlist.has(entry) ? 0o755 : 0o644
+        );
       }
     } catch (error) {
-      await IOUtils.remove(destination, {
+      await IOUtils.remove(staging, {
         recursive: true,
         ignoreAbsent: true,
       });
@@ -266,43 +496,57 @@ class PiWebManager {
     } finally {
       zip.close();
     }
-
-    for (const path of [
-      PathUtils.join(destination, "node", "bin", "node"),
-      PathUtils.join(destination, "bin", "pi"),
-      PathUtils.join(destination, "bin", "pi-web"),
-      PathUtils.join(destination, "bin", "pi-web-server"),
-      PathUtils.join(destination, "bin", "pi-web-sessiond"),
-      PathUtils.join(destination, "tools", "git", "bin", "git"),
-      PathUtils.join(destination, "tools", "git", "bin", "git.bin"),
-      PathUtils.join(destination, "tools", "yt-dlp", "bin", "yt-dlp"),
-      PathUtils.join(
-        destination,
-        "tools",
-        "git",
-        "libexec",
-        "git-core",
-        "git-remote-http"
-      ),
-      PathUtils.join(
-        destination,
-        "tools",
-        "git",
-        "libexec",
-        "git-core",
-        "git-remote-https"
-      ),
-      PathUtils.join(
-        destination,
-        "seed",
-        "browser-tools",
-        "wildbuzzard-browser-runner"
-      ),
-    ]) {
-      await IOUtils.setPermissions(path, 0o755);
+    const stagingMarker = PathUtils.join(staging, ".extraction-complete");
+    await IOUtils.writeJSON(
+      stagingMarker,
+      { bundleId, archiveSha256: bundle.archiveSha256 },
+      { tmpPath: `${stagingMarker}.tmp` }
+    );
+    try {
+      await IOUtils.move(staging, destination, { noOverwrite: true });
+    } catch (error) {
+      await IOUtils.remove(staging, { recursive: true, ignoreAbsent: true });
+      throw error;
     }
-    await IOUtils.writeUTF8(marker, `${bundleId}\n`);
-    return destination;
+    return { bundleId, directory: destination };
+  }
+
+  async #readActiveRuntime() {
+    const active = await IOUtils.readJSON(this.activeRuntimePath).catch(
+      () => null
+    );
+    if (
+      !active ||
+      !/^[0-9A-Za-z._-]+$/.test(active.bundleId) ||
+      active.directory !== PathUtils.join(this.bundleRoot, active.bundleId) ||
+      !(await IOUtils.exists(
+        PathUtils.join(active.directory, ".extraction-complete")
+      ))
+    ) {
+      return null;
+    }
+    return active;
+  }
+
+  async #activateRuntime(bundleId, directory) {
+    await IOUtils.writeJSON(
+      this.activeRuntimePath,
+      { bundleId, directory, activatedAt: Date.now() },
+      { tmpPath: `${this.activeRuntimePath}.tmp` }
+    );
+    await IOUtils.setPermissions(this.activeRuntimePath, 0o600);
+  }
+
+  async #rollbackRuntime(previousRuntime) {
+    this.runtimeDirectory = previousRuntime.directory;
+    await this.#installAgentExtensions();
+    await this.#writeConfig();
+    await this.#ensureServices();
+    await this.#waitUntilReady();
+    await this.#activateRuntime(
+      previousRuntime.bundleId,
+      previousRuntime.directory
+    );
   }
 
   async #installAgentExtensions() {
@@ -481,6 +725,9 @@ class PiWebManager {
       if (status.exitCode !== 0) {
         throw new Error(install.stderr.trim() || install.stdout.trim());
       }
+    }
+    if (!(await this.#serviceMatchesRuntime())) {
+      throw new Error("Pi Web service activation did not select the runtime");
     }
   }
 

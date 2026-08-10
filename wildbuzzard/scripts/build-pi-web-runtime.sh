@@ -107,6 +107,7 @@ mkdir -p -- \
   "${runtime_dir}/bin" \
   "${runtime_dir}/seed/browser-tools" \
   "${runtime_dir}/seed/web-access" \
+  "${runtime_dir}/source" \
   "${runtime_dir}/tools/git" \
   "${runtime_dir}/tools/yt-dlp" \
   "${downloads_dir}" \
@@ -151,14 +152,7 @@ fi
 tar -xJf "${downloads_dir}/${node_archive}" -C "${runtime_dir}"
 mv -- "${runtime_dir}/node-v${node_version}-linux-x64" "${runtime_dir}/node"
 
-while IFS= read -r entry; do
-  case "${entry}" in
-    ""|/*|*\\*|../*|*/../*|*/..)
-      echo "Unsafe path in Git runtime ZIP: ${entry}" >&2
-      exit 1
-      ;;
-  esac
-done < <(zipinfo -1 "${git_runtime}")
+python3 "${script_dir}/runtime-archive-manifest.py" structure "${git_runtime}"
 unzip -q "${git_runtime}" -d "${runtime_dir}/tools/git"
 if [[ ! -f "${runtime_dir}/tools/git/wildbuzzard-git-runtime.json" ||
       ! -x "${runtime_dir}/tools/git/bin/git" ]]; then
@@ -166,14 +160,7 @@ if [[ ! -f "${runtime_dir}/tools/git/wildbuzzard-git-runtime.json" ||
   exit 1
 fi
 
-while IFS= read -r entry; do
-  case "${entry}" in
-    ""|/*|*\\*|../*|*/../*|*/..)
-      echo "Unsafe path in yt-dlp runtime ZIP: ${entry}" >&2
-      exit 1
-      ;;
-  esac
-done < <(zipinfo -1 "${ytdlp_runtime}")
+python3 "${script_dir}/runtime-archive-manifest.py" structure "${ytdlp_runtime}"
 unzip -q "${ytdlp_runtime}" -d "${runtime_dir}/tools/yt-dlp"
 if [[ ! -f "${runtime_dir}/tools/yt-dlp/wildbuzzard-ytdlp-runtime.json" ||
       ! -x "${runtime_dir}/tools/yt-dlp/bin/yt-dlp" ]]; then
@@ -198,6 +185,7 @@ cp -- "${cargo_target}/release/wildbuzzard-browser-runner" "${runtime_dir}/seed/
 ) | tar -xf - -C "${runtime_dir}/seed/web-access"
 cp -- "${checkout_dir}/LICENSE" "${runtime_dir}/PI-WEB-LICENSE"
 cp -- "${source_repo}/COPYING" "${runtime_dir}/WILDBUZZARD-LICENSE"
+cp -- "${package_tarball}" "${runtime_dir}/source/pi-web-${commit}.tgz"
 
 (
   cd -- "${runtime_dir}/seed/browser-tools"
@@ -245,16 +233,29 @@ web_access_sha="$(
 browser_runner_sha="$(sha256sum "${runtime_dir}/seed/browser-tools/wildbuzzard-browser-runner" | awk '{ print $1 }')"
 git_runtime_sha="$(sha256sum "${git_runtime}" | awk '{ print $1 }')"
 ytdlp_runtime_sha="$(sha256sum "${ytdlp_runtime}" | awk '{ print $1 }')"
+dependency_lock_sha="$(sha256sum "${checkout_dir}/package-lock.json" | awk '{ print $1 }')"
+pi_web_source_sha="$(sha256sum "${package_tarball}" | awk '{ print $1 }')"
+pi_web_version="$("${runtime_dir}/node/bin/node" -p "require('${checkout_dir}/package.json').version")"
 
-printf '{\n  "schema": 3,\n  "piWebCommit": "%s",\n  "piWebRef": "%s",\n  "browserToolsSha256": "%s",\n  "webAccessSha256": "%s",\n  "browserRunnerSha256": "%s",\n  "gitRuntimeSha256": "%s",\n  "ytdlpRuntimeSha256": "%s",\n  "nodeVersion": "%s",\n  "platform": "linux-x64"\n}\n' \
-  "${commit}" "${build_ref}" "${browser_tools_sha}" "${web_access_sha}" "${browser_runner_sha}" "${git_runtime_sha}" "${ytdlp_runtime_sha}" "${node_version}" \
-  >"${runtime_dir}/wildbuzzard-runtime.json"
+metadata_path="${run_root}/runtime-metadata.json"
+printf '{\n  "component": "pi-web",\n  "version": "%s",\n  "piWebCommit": "%s",\n  "piWebRef": "%s",\n  "sourceSha256": "%s",\n  "dependencyLockSha256": "%s",\n  "browserToolsSha256": "%s",\n  "webAccessSha256": "%s",\n  "browserRunnerSha256": "%s",\n  "gitRuntimeSha256": "%s",\n  "ytdlpRuntimeSha256": "%s",\n  "nodeVersion": "%s",\n  "protocolVersion": 1,\n  "licenseLocations": ["PI-WEB-LICENSE", "WILDBUZZARD-LICENSE"],\n  "correspondingSource": "%s",\n  "platform": "linux-x64"\n}\n' \
+  "${pi_web_version}" "${commit}" "${build_ref}" "${pi_web_source_sha}" "${dependency_lock_sha}" \
+  "${browser_tools_sha}" "${web_access_sha}" "${browser_runner_sha}" \
+  "${git_runtime_sha}" "${ytdlp_runtime_sha}" "${node_version}" "source/pi-web-${commit}.tgz" \
+  >"${metadata_path}"
+
+archive_root="${run_root}/archive-root"
+mkdir -p -- "${archive_root}"
+cp -LR --preserve=mode,timestamps -- "${runtime_dir}/." "${archive_root}/"
+python3 "${script_dir}/runtime-archive-manifest.py" build \
+  "${archive_root}" "${metadata_path}"
 
 runtime_zip="${artifacts_dir}/wildbuzzard-pi-web-runtime-linux-x64-${short_commit}.zip"
 (
-  cd -- "${runtime_dir}"
-  zip -q -r "${runtime_zip}" .
+  cd -- "${archive_root}"
+  zip -q -9 -r "${runtime_zip}" .
 )
+python3 "${script_dir}/runtime-archive-manifest.py" verify "${runtime_zip}"
 sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
 runtime_sha="$(sha256sum "${runtime_zip}" | awk '{ print $1 }')"
 
@@ -262,6 +263,7 @@ runtime_sha="$(sha256sum "${runtime_zip}" | awk '{ print $1 }')"
   echo "pi_web_fork=${fork_repo}"
   echo "pi_web_ref=${build_ref}"
   echo "pi_web_commit=${commit}"
+  echo "pi_web_source_sha256=${pi_web_source_sha}"
   echo "browser_tools_sha256=${browser_tools_sha}"
   echo "web_access_sha256=${web_access_sha}"
   echo "browser_runner_sha256=${browser_runner_sha}"
@@ -270,6 +272,7 @@ runtime_sha="$(sha256sum "${runtime_zip}" | awk '{ print $1 }')"
   echo "ytdlp_runtime=${ytdlp_runtime}"
   echo "ytdlp_runtime_sha256=${ytdlp_runtime_sha}"
   echo "node_version=${node_version}"
+  echo "dependency_lock_sha256=${dependency_lock_sha}"
   echo "runtime_zip=${runtime_zip}"
   echo "runtime_sha256=${runtime_sha}"
 } >"${run_root}/build-manifest.txt"
