@@ -340,6 +340,28 @@ def validate_artifacts(value: str) -> pathlib.Path:
     return artifacts
 
 
+def configure_isolated_podman_storage(work: pathlib.Path) -> dict[str, object]:
+    graph_root = work / "podman-graph"
+    run_root = work / "podman-run"
+    graph_root.mkdir(mode=0o700)
+    run_root.mkdir(mode=0o700)
+    storage_config = work / "storage.conf"
+    value = (
+        "[storage]\n"
+        'driver = "overlay"\n'
+        f"graphroot = {json.dumps(str(graph_root))}\n"
+        f"runroot = {json.dumps(str(run_root))}\n"
+    )
+    storage_config.write_text(value, encoding="utf-8")
+    storage_config.chmod(0o600)
+    os.environ["CONTAINERS_STORAGE_CONF"] = str(storage_config)
+    return {
+        "driver": "overlay",
+        "configSha256": sha256_file(storage_config),
+        "isolated": True,
+    }
+
+
 def verify_rootless_podman(recorder: Recorder) -> dict[str, object]:
     if os.geteuid() == 0:
         raise RuntimeError("The Firecrawl comparison must not run as root")
@@ -1654,6 +1676,8 @@ def main() -> int:
     recorder = Recorder(artifacts, redactor)
     work = artifacts / "work"
     work.mkdir(mode=0o700)
+    redactor.add(str(work), "<work>")
+    previous_storage_config = os.environ.get("CONTAINERS_STORAGE_CONF")
     run_id = secrets.token_hex(8)
     prefix = f"wildbuzzard-firecrawl-{run_id}"
     names = {
@@ -1677,7 +1701,10 @@ def main() -> int:
     }
     cleanup: dict[str, object] = {}
     interrupted = False
+    isolated_storage_configured = False
     try:
+        summary["podmanStorage"] = configure_isolated_podman_storage(work)
+        isolated_storage_configured = True
         summary["podman"] = verify_rootless_podman(recorder)
         source, source_identity = prepare_source(args, work, recorder)
         summary["source"] = source_identity
@@ -2031,8 +2058,19 @@ def main() -> int:
                 check=False,
             )
             cleanup[f"{short}ImageRemoved"] = remove_image.returncode == 0
+        if isolated_storage_configured:
+            reset_storage = recorder.run(
+                "podman-storage-reset",
+                ["podman", "system", "reset", "--force"],
+                check=False,
+            )
+            cleanup["podmanStorageReset"] = reset_storage.returncode == 0
         shutil.rmtree(work, ignore_errors=True)
         cleanup["workDirectoryRemoved"] = not work.exists()
+        if previous_storage_config is None:
+            os.environ.pop("CONTAINERS_STORAGE_CONF", None)
+        else:
+            os.environ["CONTAINERS_STORAGE_CONF"] = previous_storage_config
         cleanup["serviceLogs"] = service_logs
         summary["commands"] = recorder.commands
         summary["cleanup"] = cleanup

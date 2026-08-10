@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import pathlib
+import tempfile
 import unittest
 
 MODULE_PATH = pathlib.Path(__file__).with_name("compare_firecrawl.py")
@@ -15,6 +16,30 @@ SPEC.loader.exec_module(COMPARATOR)
 
 
 class FirecrawlComparatorTest(unittest.TestCase):
+    def test_podman_storage_is_ephemeral_and_isolated(self) -> None:
+        previous = COMPARATOR.os.environ.get("CONTAINERS_STORAGE_CONF")
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                work = pathlib.Path(directory)
+                identity = COMPARATOR.configure_isolated_podman_storage(work)
+                config_path = pathlib.Path(
+                    COMPARATOR.os.environ["CONTAINERS_STORAGE_CONF"]
+                )
+                config = config_path.read_text(encoding="utf-8")
+                self.assertEqual(identity["driver"], "overlay")
+                self.assertTrue(identity["isolated"])
+                self.assertEqual(
+                    identity["configSha256"], COMPARATOR.sha256_file(config_path)
+                )
+                self.assertIn(str(work / "podman-graph"), config)
+                self.assertIn(str(work / "podman-run"), config)
+                self.assertEqual(config_path.stat().st_mode & 0o777, 0o600)
+        finally:
+            if previous is None:
+                COMPARATOR.os.environ.pop("CONTAINERS_STORAGE_CONF", None)
+            else:
+                COMPARATOR.os.environ["CONTAINERS_STORAGE_CONF"] = previous
+
     def test_base_images_pin_index_platform_and_config_digests(self) -> None:
         digest_pattern = COMPARATOR.re.compile(r"sha256:[0-9a-f]{64}")
         for image in COMPARATOR.BASE_IMAGES:

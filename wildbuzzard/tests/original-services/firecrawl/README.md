@@ -12,6 +12,9 @@ tag object, source tree, Dockerfile and lockfile hashes, pulled base-image
 digests, built-image identities, commands, redacted HTTP transcripts, service
 logs, process and page cleanup checks, timings, mappings, normalized results,
 and teardown evidence in a required directory outside the checkout.
+The harness gives Podman a per-run graph root and run root beneath its temporary
+work directory, so literal upstream base tags cannot overwrite the user's image
+store and all pulled layers disappear with the recorded work-directory cleanup.
 
 The Node, Go, and Redis bases are fixed to `linux/amd64` OCI index, platform
 manifest, and image-config digests. Before building, the harness inspects each
