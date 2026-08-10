@@ -655,6 +655,54 @@ function validateGeckoRenderArgs(args) {
   };
 }
 
+function validateGeckoRenderTestArgs(args, automation = Cu.isInAutomation) {
+  const hasHosts = Object.hasOwn(args, "_testAllowedHosts");
+  const hasDiagnostics = Object.hasOwn(args, "_testDiagnostics");
+  if (!hasHosts && !hasDiagnostics) {
+    return null;
+  }
+  if (!automation) {
+    throw new Error("gecko_render: test options are automation-only");
+  }
+  if (args._testDiagnostics !== true) {
+    throw new Error("gecko_render: _testDiagnostics must be true");
+  }
+  if (
+    !Array.isArray(args._testAllowedHosts) ||
+    !args._testAllowedHosts.length ||
+    args._testAllowedHosts.length > 4
+  ) {
+    throw new Error(
+      "gecko_render: _testAllowedHosts must contain from 1 to 4 origins"
+    );
+  }
+  const origins = new Set();
+  for (const value of args._testAllowedHosts) {
+    if (typeof value !== "string") {
+      throw new Error(
+        "gecko_render: _testAllowedHosts entries must be strings"
+      );
+    }
+    const uri = geckoRenderURI(value);
+    const canonicalHost = uri.host.toLowerCase();
+    if (
+      uri.scheme !== "http" ||
+      uri.port < 1 ||
+      value !== uri.prePath ||
+      !["127.0.0.1", "::1", "localhost"].includes(canonicalHost)
+    ) {
+      throw new Error(
+        "gecko_render: test origins must be canonical loopback HTTP origins with explicit ports"
+      );
+    }
+    origins.add(uri.prePath);
+  }
+  if (!origins.has(geckoRenderURI(args.url).prePath)) {
+    throw new Error("gecko_render: test URL is outside the fixture origins");
+  }
+  return origins;
+}
+
 function renderErrorName(status) {
   if (Components.isSuccessCode(status)) {
     return null;
@@ -953,6 +1001,100 @@ class RenderSemaphore {
   }
 }
 
+/** Serializes temporary automation-only renderer policy overrides. */
+class RenderOverrideLock {
+  constructor() {
+    this.readers = 0;
+    this.writer = false;
+    this.queue = [];
+  }
+
+  acquireShared(signal) {
+    return this.#acquire("shared", signal);
+  }
+
+  acquireExclusive(signal) {
+    return this.#acquire("exclusive", signal);
+  }
+
+  #acquire(mode, signal) {
+    throwIfAborted(signal);
+    if (
+      (mode === "shared" && !this.writer && !this.queue.length) ||
+      (mode === "exclusive" &&
+        !this.writer &&
+        this.readers === 0 &&
+        !this.queue.length)
+    ) {
+      return Promise.resolve(this.#grant(mode));
+    }
+    return new Promise((resolve, reject) => {
+      const entry = { mode, signal, resolve, reject, abort: null };
+      entry.abort = () => {
+        const index = this.queue.indexOf(entry);
+        if (index !== -1) {
+          this.queue.splice(index, 1);
+        }
+        reject(signal?.reason ?? new Error("Browser tool call was aborted"));
+        this.#drain();
+      };
+      this.queue.push(entry);
+      signal?.addEventListener("abort", entry.abort, { once: true });
+      if (signal?.aborted) {
+        entry.abort();
+      }
+    });
+  }
+
+  #grant(mode) {
+    if (mode === "exclusive") {
+      this.writer = true;
+    } else {
+      this.readers++;
+    }
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      if (mode === "exclusive") {
+        this.writer = false;
+      } else {
+        this.readers--;
+      }
+      this.#drain();
+    };
+  }
+
+  #drain() {
+    if (this.writer || !this.queue.length) {
+      return;
+    }
+    const first = this.queue[0];
+    if (first.mode === "exclusive") {
+      if (this.readers) {
+        return;
+      }
+      this.queue.shift();
+      first.signal?.removeEventListener("abort", first.abort);
+      first.resolve(this.#grant(first.mode));
+      return;
+    }
+    while (this.queue[0]?.mode === "shared" && !this.writer) {
+      const entry = this.queue.shift();
+      entry.signal?.removeEventListener("abort", entry.abort);
+      if (entry.signal?.aborted) {
+        entry.reject(
+          entry.signal.reason ?? new Error("Browser tool call was aborted")
+        );
+      } else {
+        entry.resolve(this.#grant(entry.mode));
+      }
+    }
+  }
+}
+
 /** Cancels renderer channels that exceed response or decompression budgets. */
 class RenderBoundedListener {
   constructor(controller, job, request, original, contentLength, capture) {
@@ -1035,6 +1177,7 @@ class GeckoRenderController {
     this.semaphore = new RenderSemaphore(MAX_RENDER_CONCURRENCY);
     this.tracedChannels = new WeakSet();
     this.testAllowedHosts = new Set();
+    this.testAllowedOrigins = new Set();
     this.testDNSAnswers = new Map();
     this.lastCleanup = null;
     this.started = false;
@@ -1089,7 +1232,7 @@ class GeckoRenderController {
       try {
         const host = channel.URI.host.toLowerCase().replace(/\.$/, "");
         useTestProxy =
-          this.testAllowedHosts.has(host) || this.testDNSAnswers.has(host);
+          this.#isTestAllowedURI(channel.URI) || this.testDNSAnswers.has(host);
       } catch {}
     }
     callback.onProxyFilterResult(job && !useTestProxy ? null : proxyInfo);
@@ -1183,6 +1326,13 @@ class GeckoRenderController {
         geckoRenderURI(`http://${host}/`).host.toLowerCase().replace(/\.$/, "")
       )
     );
+  }
+
+  setTestAllowedOrigins(origins) {
+    if (!Cu.isInAutomation) {
+      throw new Error("Gecko renderer test policy is automation-only");
+    }
+    this.testAllowedOrigins = new Set(origins);
   }
 
   setTestDNSAnswers(answers) {
@@ -1894,7 +2044,7 @@ class GeckoRenderController {
       ).remoteAddress;
     } catch {}
     const addressSpace = channel.loadInfo.ipAddressSpace;
-    const testAllowed = this.#isTestAllowedHost(channel.URI.host);
+    const testAllowed = this.#isTestAllowedURI(channel.URI);
     if (
       !testAllowed &&
       (addressSpace === Ci.nsILoadInfo.Local ||
@@ -2031,9 +2181,21 @@ class GeckoRenderController {
     );
   }
 
+  #isTestAllowedURI(uri) {
+    return (
+      this.#isTestAllowedHost(uri.host) ||
+      (Cu.isInAutomation && this.testAllowedOrigins.has(uri.prePath))
+    );
+  }
+
   async #approveURI(job, uri) {
     this.#checkBlockedDomain(job, uri.host);
     const host = uri.host.toLowerCase().replace(/\.$/, "");
+    if (this.#isTestAllowedURI(uri)) {
+      const record = { addresses: new Set(), expires: Infinity };
+      job.addressCache.set(host, record);
+      return record;
+    }
     if (isMetadataHostname(host)) {
       throw new Error(`hostname ${host} is reserved`);
     }
@@ -2052,11 +2214,6 @@ class GeckoRenderController {
     const testAnswers = this.testDNSAnswers.get(host);
     if (testAnswers) {
       const record = { addresses: testAnswers, expires: Infinity };
-      job.addressCache.set(host, record);
-      return record;
-    }
-    if (this.#isTestAllowedHost(host)) {
-      const record = { addresses: new Set(), expires: Infinity };
       job.addressCache.set(host, record);
       return record;
     }
@@ -2326,6 +2483,7 @@ class BrowserControlService {
     this.sessionGroups = new Map();
     this.pendingDialogActions = new Map();
     this.geckoRenderer = new GeckoRenderController(this);
+    this.geckoRenderTestLock = new RenderOverrideLock();
     this.torrentAgentTools = null;
     this.started = false;
   }
@@ -4256,10 +4414,62 @@ class BrowserControlService {
   }
 
   async geckoRenderTool(args, signal) {
-    const details = await this.geckoRenderer.render(
-      validateGeckoRenderArgs(args),
-      signal
-    );
+    const testOrigins = validateGeckoRenderTestArgs(args);
+    const release = Cu.isInAutomation
+      ? await (testOrigins
+          ? this.geckoRenderTestLock.acquireExclusive(signal)
+          : this.geckoRenderTestLock.acquireShared(signal))
+      : null;
+    const previousTestOrigins = this.geckoRenderer.testAllowedOrigins;
+    let details;
+    let testError = null;
+    try {
+      if (testOrigins) {
+        this.geckoRenderer.setTestAllowedOrigins(testOrigins);
+      }
+      const renderArgs = testOrigins
+        ? {
+            ...args,
+            allowedOrigins: [...testOrigins],
+            allowSubdomains: false,
+          }
+        : args;
+      try {
+        details = await this.geckoRenderer.render(
+          validateGeckoRenderArgs(renderArgs),
+          signal
+        );
+      } catch (error) {
+        if (!testOrigins) {
+          throw error;
+        }
+        testError = errorMessage(error);
+      }
+      if (testOrigins) {
+        const diagnostics = this.geckoRenderer.diagnostics();
+        const cleanup = diagnostics.lastCleanup;
+        const testDiagnostics = {
+          active: diagnostics.active,
+          queued: diagnostics.queued,
+          contexts: diagnostics.contexts.length,
+          userContexts: diagnostics.userContexts.length,
+          cleanupFailedFlags: cleanup?.failedFlags ?? null,
+          leakedContexts: cleanup?.leakedContextIds.length ?? null,
+        };
+        if (testError) {
+          return textResult("Gecko render test call failed", {
+            _testError: testError,
+            _testDiagnostics: testDiagnostics,
+          });
+        }
+        details._testDiagnostics = testDiagnostics;
+      }
+    } finally {
+      if (testOrigins) {
+        this.geckoRenderer.setTestAllowedOrigins(previousTestOrigins);
+      }
+      release?.();
+    }
     return textResult(
       details.pageError
         ? `Gecko render failed: ${details.pageError}`
@@ -7020,6 +7230,7 @@ export const GeckoRenderPolicy = Object.freeze({
   isMetadataHostname,
   normalizeBlockDomain,
   validateGeckoRenderArgs,
+  validateGeckoRenderTestArgs,
   validateRenderHeaders,
 });
 
