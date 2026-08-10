@@ -245,6 +245,19 @@ def jackett_fixture(root):
     upstream = f'''version = "v0.24.2360"
 commit = "{commit}"
 source_sha256 = "{sha256(source)}"
+
+[build]
+target_framework = "net9.0"
+runtime_identifier = "linux-x64"
+self_contained = true
+source_date_epoch = 1786253932
+sdk_lock = "packaging/dotnet-sdk-linux-x64.json"
+sdk_lock_sha256 = "{sha256(sdk_bytes)}"
+sdk_version = "{sdk["version"]}"
+sdk_archive = "{sdk["archive"]}"
+sdk_archive_bytes = {sdk["size"]}
+sdk_archive_sha512 = "{sdk["sha512"]}"
+sdk_archive_url = "{sdk["url"]}"
 '''.encode()
     preliminary = {
         "catalog.json": catalog_bytes,
@@ -454,6 +467,21 @@ class HostNativeRuntimeValidationTests(unittest.TestCase):
             repin_archive(lock, archive)
             with self.assertRaisesRegex(ValueError, "unsafe torrent runtime ZIP"):
                 MODULE.validate_path(archive, lock, "torrent")
+
+    def test_rejects_generated_python_cache(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            archive, lock = jackett_fixture(root)
+            rewrite_archive(
+                archive,
+                extra=(
+                    "source/jackett/packaging/__pycache__/build.cpython-314.pyc",
+                    b"cache",
+                ),
+            )
+            repin_archive(lock, archive)
+            with self.assertRaisesRegex(ValueError, "unsafe jackett runtime ZIP"):
+                MODULE.validate_path(archive, lock, "jackett")
 
     def test_rejects_duplicate_zip_entry(self):
         with tempfile.TemporaryDirectory() as temporary:

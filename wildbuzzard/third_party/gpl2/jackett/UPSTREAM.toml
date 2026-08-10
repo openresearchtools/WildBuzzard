@@ -35,8 +35,13 @@ target_framework = "net9.0"
 runtime_identifier = "linux-x64"
 self_contained = true
 source_date_epoch = 1786253932
-sdk_image = "mcr.microsoft.com/dotnet/sdk@sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164"
-sdk_image_config = "sha256:dbf45fd250dc73f2e8f9c90a3560116a24b7a8d52dda2699ca8ed18608b0814b"
+sdk_lock = "packaging/dotnet-sdk-linux-x64.json"
+sdk_lock_sha256 = "98c29e2f48e1f47d2305ef4a42c5a91f8316cfea1339a2e38892e3c65439c0e3"
+sdk_version = "9.0.304"
+sdk_archive = "dotnet-sdk-9.0.304-linux-x64.tar.gz"
+sdk_archive_bytes = 217812954
+sdk_archive_sha512 = "b087828d595d0c6886bf652c69f3910303f455accb1ac956403f795080c55caf59732f3be0e31fc744aff13591a92e1efeb646ef3ca6165ed17a3cd12a67b229"
+sdk_archive_url = "https://builds.dotnet.microsoft.com/dotnet/Sdk/9.0.304/dotnet-sdk-9.0.304-linux-x64.tar.gz"
 
 [downstream]
 patch_series = "patches/series"

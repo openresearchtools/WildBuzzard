@@ -123,6 +123,11 @@ def safe_path(value):
     )
 
 
+def is_generated_python_cache(value):
+    path = PurePosixPath(value)
+    return "__pycache__" in path.parts or path.suffix in (".pyc", ".pyo")
+
+
 def read_json_bytes(value, description):
     try:
         document = json.loads(value)
@@ -447,10 +452,24 @@ def validate_jackett_source(archive, manifest):
         raise ValidationError("invalid Jackett corresponding source") from error
     expected_sdk = dict(manifest["sdkToolchain"])
     sdk_digest = expected_sdk.pop("lockSha256", None)
+    expected_build = {
+        "target_framework": "net9.0",
+        "runtime_identifier": "linux-x64",
+        "self_contained": True,
+        "source_date_epoch": 1786253932,
+        "sdk_lock": "packaging/dotnet-sdk-linux-x64.json",
+        "sdk_lock_sha256": sdk_digest,
+        "sdk_version": expected_sdk.get("version"),
+        "sdk_archive": expected_sdk.get("archive"),
+        "sdk_archive_bytes": expected_sdk.get("size"),
+        "sdk_archive_sha512": expected_sdk.get("sha512"),
+        "sdk_archive_url": expected_sdk.get("url"),
+    }
     if (
         upstream.get("commit") != manifest["upstreamCommit"]
         or upstream.get("version") != manifest["upstreamVersion"]
         or upstream.get("source_sha256") != manifest["sourceSha256"]
+        or upstream.get("build") != expected_build
         or sha256_bytes(source_bytes) != manifest["sourceSha256"]
         or sha256_bytes(sdk_bytes) != sdk_digest
         or sdk != expected_sdk
@@ -538,6 +557,7 @@ def validate_opened_archive(source, lock_path, kind):
                 or len(infos) != len(infos_list)
                 or any(
                     not safe_path(info.filename)
+                    or is_generated_python_cache(info.filename)
                     or info.flag_bits & 1
                     or info.compress_type not in allowed_compression
                     or info.is_dir()

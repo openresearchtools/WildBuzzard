@@ -283,6 +283,8 @@ cp -a -- "$object_dir/publish/." "$output_dir/"
 mkdir -p -- "$output_dir/source/jackett"
 cp -a -- "$package_dir/." "$output_dir/source/jackett/"
 cp -- "$script_dir/build-jackett-mini.sh" "$output_dir/source/jackett/build-jackett-mini.sh"
+find "$output_dir/source/jackett" -type f \( -name '*.pyc' -o -name '*.pyo' \) -delete
+find "$output_dir/source/jackett" -depth -type d -name __pycache__ -empty -delete
 if [[ -n "$test_fixture_package" ]]; then
   mkdir -p -- "$output_dir/source/jackett/test-fixture-input"
   cp -a -- "$test_fixture_package/." "$output_dir/source/jackett/test-fixture-input/"

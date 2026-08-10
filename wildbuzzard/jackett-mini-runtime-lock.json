@@ -1,12 +1,12 @@
 {
   "archive": {
-    "sha256": "44ca6535a6dd4a6d727a7f3dd6cf3313bc4fd9753065c55cb845813a7018a80b",
-    "size": 117425468
+    "sha256": "b403902b943c6fe847592a54509ba27ef8d4253fac4e6ebec218d674a718ca3c",
+    "size": 117364953
   },
   "component": "jackett-mini",
   "manifest": {
     "path": "jackett-mini-runtime.json",
-    "sha256": "e8afcff64afd6c7fe0ff957d6d45a4b2c94b4f49dac798e7d862ea00a77fee30"
+    "sha256": "990e1344963b36502c8d35923c1c7446ed319ed6fc051c4520794e5cbd11972a"
   },
   "manifestPins": {
     "architecture": "x86_64",
@@ -28,7 +28,7 @@
     "platform": "linux",
     "protocolVersion": 1,
     "providerPolicySha256": "5e25b54670dfb5ed914cfb51c0da615b9df5196ff6c588a67e534efedeb6c6f3",
-    "runtimeSha256": "3d1e5f5cb031cd975c709ff2bf92b37713cb25c8d8735a67abf72ddfc6590bec",
+    "runtimeSha256": "612bb8b412c17660b8ff280fbbbc6520ec6f5afb09588ef024084bf0a6e7bcae",
     "sbom": "jackett-mini.spdx.json",
     "schemaVersion": 1,
     "sdkToolchain": {
@@ -63,8 +63,8 @@
     },
     "jackett-mini.spdx.json": {
       "executable": false,
-      "sha256": "21e1adb9d49c457d432cb38f838a2655521b62ec5d739fb44ab8a196072511b2",
-      "size": 267224
+      "sha256": "1b76d727fbf5046238297028cfab144133d70e1f77a206d40cda6bdb35186f6f",
+      "size": 262242
     },
     "licenses/dotnet/LICENSE.txt": {
       "executable": false,
@@ -88,13 +88,13 @@
     },
     "source/jackett/UPSTREAM.toml": {
       "executable": false,
-      "sha256": "9b602cc7f3e9b837c317071dc8bd58f7e02fd17d4054c6a5757246e7e588f645",
-      "size": 1884
+      "sha256": "c9dcb1464702ddf151f81917ba4330833dd5e355d2f170152370ef84d98ff0b2",
+      "size": 2179
     },
     "source/jackett/build-jackett-mini.sh": {
       "executable": false,
-      "sha256": "7a035e655e70edfde4318b5f5119a4cd93243ef0fd5c1685fe44e158d3171fda",
-      "size": 11452
+      "sha256": "973f7cc3c89f37c32bb1c9b48c7975128eb936e27ce820728915535e8c6aeec8",
+      "size": 11621
     },
     "source/jackett/packaging/dotnet-sdk-linux-x64.json": {
       "executable": false,
