@@ -76,15 +76,16 @@ source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${commit}")"
 
 mkdir -p -- "${run_root}" "${runtime_dir}/bin" "${app_dir}" "${downloads_dir}" "${artifacts_dir}"
 mkdir -p -- "${run_root}/home" "${build_root}/npm-cache"
-install -m 600 /dev/null "${run_root}/npmrc"
+install -m 600 /dev/null "${run_root}/user-npmrc"
+install -m 600 /dev/null "${run_root}/global-npmrc"
 npm_environment=(
   "HOME=${run_root}/home"
   "npm_config_cache=${build_root}/npm-cache"
   "npm_config_fund=false"
-  "npm_config_globalconfig=${run_root}/npmrc"
+  "npm_config_globalconfig=${run_root}/global-npmrc"
   "npm_config_registry=https://registry.npmjs.org/"
   "npm_config_update_notifier=false"
-  "npm_config_userconfig=${run_root}/npmrc"
+  "npm_config_userconfig=${run_root}/user-npmrc"
 )
 git clone --shared --no-checkout -- "${source_repo}" "${checkout_dir}"
 git -C "${checkout_dir}" sparse-checkout init --no-cone
