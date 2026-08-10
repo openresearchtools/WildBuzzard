@@ -21,6 +21,18 @@ const ZipReader = Components.Constructor(
 
 const MAX_TORRENT_SIZE = 12 * 1024 * 1024;
 const RUNTIME_MANIFEST = "wildbuzzard-torrent-runtime.json";
+const MAX_RUNTIME_FILES = 50000;
+const MAX_RUNTIME_MANIFEST_SIZE = 16 * 1024 * 1024;
+const MAX_RUNTIME_FILE_SIZE = 512 * 1024 * 1024;
+const MAX_RUNTIME_SIZE = 4 * 1024 * 1024 * 1024;
+const RUNTIME_LOCK_STALE_MS = 30000;
+const RUNTIME_NODE_VERSION = "22.23.2";
+const RUNTIME_NODE_SHA256 =
+  "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307";
+const RUNTIME_EXECUTABLES = new Set([
+  "bin/wildbuzzard-torrent",
+  "node/bin/node",
+]);
 
 function torrentFileError(reason) {
   return Object.assign(new Error(`Torrent file ${reason}`), {
@@ -43,14 +55,46 @@ function validateTorrentFileDescriptor(name, size, type = "") {
   }
 }
 
-function runtimeBundleId(archivePath) {
+function safeRuntimePath(path) {
+  const parts = path.split("/");
+  return Boolean(
+    path &&
+    path.length <= 4096 &&
+    !path.startsWith("/") &&
+    !path.includes("\\") &&
+    !path.includes("\0") &&
+    parts.every(
+      part => part && part.length <= 255 && part !== "." && part !== ".."
+    )
+  );
+}
+
+function sha256String(value) {
+  const bytes = new TextEncoder().encode(value);
+  const hash = Cc["@mozilla.org/security/hash;1"].createInstance(
+    Ci.nsICryptoHash
+  );
+  hash.initWithString("sha256");
+  hash.update(bytes, bytes.length);
+  return Array.from(hash.finish(false), character =>
+    character.charCodeAt(0).toString(16).padStart(2, "0")
+  ).join("");
+}
+
+function readRuntimeManifest(archivePath) {
   const zip = new ZipReader(new LocalFile(archivePath));
   try {
     const entry = zip.getEntry(RUNTIME_MANIFEST);
+    if (
+      entry.isDirectory ||
+      !entry.realSize ||
+      entry.realSize > MAX_RUNTIME_MANIFEST_SIZE
+    ) {
+      throw new Error("Invalid torrent runtime manifest");
+    }
     const stream = zip.getInputStream(RUNTIME_MANIFEST);
-    let manifest;
     try {
-      manifest = JSON.parse(
+      return JSON.parse(
         NetUtil.readInputStreamToString(stream, entry.realSize, {
           charset: "utf-8",
         })
@@ -58,20 +102,241 @@ function runtimeBundleId(archivePath) {
     } finally {
       stream.close();
     }
-    const id = [
-      manifest.schema,
-      manifest.wildbuzzardCommit,
-      manifest.webTorrentVersion,
-      manifest.packageLockSha256,
-      manifest.nodeVersion,
-      manifest.platform,
-    ].join("-");
-    if (!/^[0-9A-Za-z._-]+$/.test(id)) {
-      throw new Error("Invalid torrent runtime manifest");
-    }
-    return id;
   } finally {
     zip.close();
+  }
+}
+
+function invalidRuntimeManifestHeader(manifest) {
+  return Boolean(
+    manifest?.schema !== 2 ||
+    !/^[0-9a-f]{40}$/.test(manifest.wildbuzzardCommit || "") ||
+    !/^[0-9a-f]{40}$/.test(manifest.webTorrentImportCommit || "") ||
+    !/^[0-9a-f]{64}$/.test(manifest.packageLockSha256 || "") ||
+    manifest.nodeArchiveSha256 !== RUNTIME_NODE_SHA256 ||
+    manifest.nodeVersion !== RUNTIME_NODE_VERSION ||
+    manifest.webTorrentVersion !== "3.0.21" ||
+    manifest.utpBuiltFromSource !== true ||
+    !/^[0-9a-f]{64}$/.test(manifest.payloadSha256 || "") ||
+    manifest.platform !== "linux-x64" ||
+    !Array.isArray(manifest.files) ||
+    !manifest.files.length ||
+    manifest.files.length > MAX_RUNTIME_FILES
+  );
+}
+
+function validRuntimeFileManifest(file, files, previousPath) {
+  return Boolean(
+    safeRuntimePath(file?.path) &&
+    Number.isSafeInteger(file.size) &&
+    file.size >= 0 &&
+    file.size <= MAX_RUNTIME_FILE_SIZE &&
+    /^[0-9a-f]{64}$/.test(file.sha256 || "") &&
+    typeof file.executable === "boolean" &&
+    !files.has(file.path) &&
+    file.path > previousPath &&
+    file.executable === RUNTIME_EXECUTABLES.has(file.path)
+  );
+}
+
+function validateRuntimeManifest(manifest) {
+  if (invalidRuntimeManifestHeader(manifest)) {
+    throw new Error("Invalid torrent runtime manifest");
+  }
+  const files = new Map();
+  let totalSize = 0;
+  let previousPath = "";
+  for (const file of manifest.files) {
+    if (!validRuntimeFileManifest(file, files, previousPath)) {
+      throw new Error("Invalid torrent runtime file manifest");
+    }
+    totalSize += file.size;
+    if (!Number.isSafeInteger(totalSize) || totalSize > MAX_RUNTIME_SIZE) {
+      throw new Error("Torrent runtime is too large");
+    }
+    files.set(file.path, file);
+    previousPath = file.path;
+  }
+  for (const executable of RUNTIME_EXECUTABLES) {
+    if (!files.get(executable)?.executable) {
+      throw new Error("Torrent runtime executable is missing");
+    }
+  }
+  const payload = [...files.values()]
+    .map(
+      file =>
+        `${file.path}\0${file.size}\0${file.sha256}\0${file.executable ? 1 : 0}\n`
+    )
+    .join("");
+  if (sha256String(payload) !== manifest.payloadSha256) {
+    throw new Error("Torrent runtime payload manifest digest does not match");
+  }
+  return files;
+}
+
+async function readZipCentralDirectory(archivePath) {
+  const { size } = await IOUtils.stat(archivePath);
+  const tailSize = Math.min(size, 65557);
+  const tail = await IOUtils.read(archivePath, {
+    offset: size - tailSize,
+    maxBytes: tailSize,
+  });
+  const tailView = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
+  let eocd = -1;
+  for (let offset = tail.length - 22; offset >= 0; offset--) {
+    if (tailView.getUint32(offset, true) === 0x06054b50) {
+      eocd = offset;
+      break;
+    }
+  }
+  if (eocd === -1) {
+    throw new Error("Invalid torrent runtime ZIP directory");
+  }
+  const entryCount = tailView.getUint16(eocd + 10, true);
+  const entriesOnDisk = tailView.getUint16(eocd + 8, true);
+  const centralSize = tailView.getUint32(eocd + 12, true);
+  const centralOffset = tailView.getUint32(eocd + 16, true);
+  const commentLength = tailView.getUint16(eocd + 20, true);
+  if (
+    tailView.getUint16(eocd + 4, true) !== 0 ||
+    tailView.getUint16(eocd + 6, true) !== 0 ||
+    entriesOnDisk !== entryCount ||
+    entryCount === 0xffff ||
+    centralSize === 0xffffffff ||
+    centralOffset === 0xffffffff ||
+    entryCount > MAX_RUNTIME_FILES + 1 ||
+    centralSize > 64 * 1024 * 1024 ||
+    centralOffset + centralSize > size ||
+    eocd + 22 + commentLength !== tail.length
+  ) {
+    throw new Error("Unsupported torrent runtime ZIP directory");
+  }
+  const central = await IOUtils.read(archivePath, {
+    offset: centralOffset,
+    maxBytes: centralSize,
+  });
+  const view = new DataView(
+    central.buffer,
+    central.byteOffset,
+    central.byteLength
+  );
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  const entries = new Map();
+  const localOffsets = new Set();
+  let cursor = 0;
+  while (cursor < central.length) {
+    if (
+      cursor + 46 > central.length ||
+      view.getUint32(cursor, true) !== 0x02014b50
+    ) {
+      throw new Error("Invalid torrent runtime ZIP entry");
+    }
+    const flags = view.getUint16(cursor + 8, true);
+    const compression = view.getUint16(cursor + 10, true);
+    const compressedSize = view.getUint32(cursor + 20, true);
+    const realSize = view.getUint32(cursor + 24, true);
+    const nameLength = view.getUint16(cursor + 28, true);
+    const extraLength = view.getUint16(cursor + 30, true);
+    const entryCommentLength = view.getUint16(cursor + 32, true);
+    const disk = view.getUint16(cursor + 34, true);
+    const externalAttributes = view.getUint32(cursor + 38, true);
+    const localOffset = view.getUint32(cursor + 42, true);
+    const end = cursor + 46 + nameLength + extraLength + entryCommentLength;
+    if (
+      end > central.length ||
+      flags & 1 ||
+      ![0, 8].includes(compression) ||
+      disk !== 0 ||
+      localOffset === 0xffffffff ||
+      localOffset >= centralOffset ||
+      localOffsets.has(localOffset) ||
+      realSize > MAX_RUNTIME_FILE_SIZE
+    ) {
+      throw new Error("Unsafe torrent runtime ZIP entry");
+    }
+    const name = decoder.decode(
+      central.subarray(cursor + 46, cursor + 46 + nameLength)
+    );
+    const unixMode = (externalAttributes >>> 16) & 0xffff;
+    const fileType = unixMode & 0o170000;
+    if (
+      !safeRuntimePath(name) ||
+      name.endsWith("/") ||
+      entries.has(name) ||
+      fileType === 0o120000 ||
+      (fileType && fileType !== 0o100000) ||
+      ((unixMode & 0o111) !== 0) !== RUNTIME_EXECUTABLES.has(name)
+    ) {
+      throw new Error("Unsafe torrent runtime ZIP entry");
+    }
+    entries.set(name, { compressedSize, realSize, unixMode });
+    localOffsets.add(localOffset);
+    cursor = end;
+  }
+  if (cursor !== central.length || entries.size !== entryCount) {
+    throw new Error("Invalid torrent runtime ZIP directory");
+  }
+  return entries;
+}
+
+async function runtimeBundleInfo(archivePath) {
+  const manifest = readRuntimeManifest(archivePath);
+  const files = validateRuntimeManifest(manifest);
+  const archiveEntries = await readZipCentralDirectory(archivePath);
+  const expectedPaths = new Set([...files.keys(), RUNTIME_MANIFEST]);
+  if (
+    archiveEntries.size !== expectedPaths.size ||
+    [...archiveEntries.keys()].some(path => !expectedPaths.has(path))
+  ) {
+    throw new Error("Torrent runtime archive contains unexpected entries");
+  }
+  for (const [path, file] of files) {
+    if (archiveEntries.get(path)?.realSize !== file.size) {
+      throw new Error(
+        "Torrent runtime archive size does not match its manifest"
+      );
+    }
+  }
+  const archiveSha256 = await IOUtils.computeHexDigest(archivePath, "sha256");
+  const checksumPath = `${archivePath}.sha256`;
+  if (await IOUtils.exists(checksumPath)) {
+    const checksum = (await IOUtils.readUTF8(checksumPath))
+      .trim()
+      .split(/\s+/)[0];
+    if (checksum !== archiveSha256) {
+      throw new Error("Torrent runtime archive checksum does not match");
+    }
+  }
+  return {
+    archiveEntries,
+    archiveSha256,
+    bundleId: `runtime-${archiveSha256}`,
+    files,
+    manifest,
+  };
+}
+
+function parsePidStartTime(value) {
+  const commandEnd = value.lastIndexOf(")");
+  if (commandEnd === -1) {
+    return null;
+  }
+  const fields = value
+    .slice(commandEnd + 2)
+    .trim()
+    .split(/\s+/);
+  return /^\d+$/.test(fields[19] || "") ? fields[19] : null;
+}
+
+async function processMatches(pid, startTime) {
+  if (!Number.isInteger(pid) || pid < 1 || !/^\d+$/.test(String(startTime))) {
+    return false;
+  }
+  try {
+    const value = await IOUtils.readUTF8(`/proc/${pid}/stat`);
+    return parsePidStartTime(value) === String(startTime);
+  } catch {
+    return false;
   }
 }
 
@@ -169,8 +434,9 @@ class TorrentManagerImpl {
       createAncestors: true,
       ignoreExisting: true,
     });
-    this.runtimeDirectory = await this.#extractRuntime();
     await this.#writeConfig();
+    this.runtimeDirectory = await this.#extractRuntime();
+    await this.#prepareServiceIdentity();
     await this.#ensureService();
     if (this.config.torEnabled) {
       await this.#request("PATCH", "/v1/settings", {
@@ -204,62 +470,280 @@ class TorrentManagerImpl {
         "The bundled torrent runtime was not found. Build with --torrent-runtime."
       );
     }
-    const bundleId = runtimeBundleId(archivePath);
-    const destination = PathUtils.join(this.bundleRoot, bundleId);
-    const marker = PathUtils.join(destination, ".extraction-complete");
-    if (await IOUtils.exists(marker)) {
+    const bundle = await runtimeBundleInfo(archivePath);
+    let destination = PathUtils.join(this.bundleRoot, bundle.bundleId);
+    if (await IOUtils.exists(destination)) {
+      const destinationFile = new LocalFile(destination);
+      destinationFile.normalize();
+      destination = destinationFile.path;
+    }
+    if (await this.#verifyRuntimeDirectory(destination, bundle)) {
       return destination;
     }
-    await IOUtils.remove(destination, { recursive: true, ignoreAbsent: true });
-    await IOUtils.makeDirectory(destination, {
+    await IOUtils.makeDirectory(this.bundleRoot, {
       createAncestors: true,
       ignoreExisting: true,
     });
-    const zip = new ZipReader(new LocalFile(archivePath));
+    const lock = await this.#acquireExtractionLock(bundle.bundleId);
+    const staging = PathUtils.join(
+      this.bundleRoot,
+      `.${bundle.bundleId}-${Services.appinfo.processID}-${Services.uuid.generateUUID().toString().replace(/[{}]/g, "")}`
+    );
     try {
-      for (const entry of zip.findEntries(null)) {
-        const isDirectory = entry.endsWith("/");
-        const path = isDirectory ? entry.slice(0, -1) : entry;
-        const parts = path.split("/");
-        if (
-          !path ||
-          path.startsWith("/") ||
-          path.includes("\\") ||
-          parts.some(part => !part || part === "." || part === "..")
-        ) {
-          throw new Error(`Unsafe path in torrent runtime: ${entry}`);
-        }
-        const target = PathUtils.join(destination, ...parts);
-        if (isDirectory) {
-          await IOUtils.makeDirectory(target, {
-            createAncestors: true,
-            ignoreExisting: true,
-          });
-        } else {
-          await IOUtils.makeDirectory(PathUtils.parent(target), {
-            createAncestors: true,
-            ignoreExisting: true,
-          });
-          zip.extract(entry, new LocalFile(target));
-        }
+      if (await this.#verifyRuntimeDirectory(destination, bundle)) {
+        return destination;
       }
-    } catch (error) {
+      await this.#stopServiceUsingRuntime(destination);
       await IOUtils.remove(destination, {
         recursive: true,
         ignoreAbsent: true,
       });
-      throw error;
+      await IOUtils.remove(staging, { recursive: true, ignoreAbsent: true });
+      await IOUtils.makeDirectory(staging, {
+        createAncestors: true,
+        ignoreExisting: true,
+      });
+      const zip = new ZipReader(new LocalFile(archivePath));
+      try {
+        zip.test(null);
+        for (const path of bundle.archiveEntries.keys()) {
+          const entry = zip.getEntry(path);
+          if (
+            entry.isDirectory ||
+            entry.realSize !== bundle.archiveEntries.get(path).realSize
+          ) {
+            throw new Error(
+              "Torrent runtime ZIP entry changed during extraction"
+            );
+          }
+          const target = PathUtils.join(staging, ...path.split("/"));
+          await IOUtils.makeDirectory(PathUtils.parent(target), {
+            createAncestors: true,
+            ignoreExisting: true,
+          });
+          zip.extract(path, new LocalFile(target));
+          const targetFile = new LocalFile(target);
+          if (targetFile.isSymlink()) {
+            throw new Error("Torrent runtime archive contains a symbolic link");
+          }
+          await IOUtils.setPermissions(
+            target,
+            bundle.files.get(path)?.executable ? 0o755 : 0o644
+          );
+        }
+      } finally {
+        zip.close();
+      }
+      await IOUtils.writeJSON(
+        PathUtils.join(staging, ".extraction-complete"),
+        {
+          schema: 1,
+          archiveSha256: bundle.archiveSha256,
+          payloadSha256: bundle.manifest.payloadSha256,
+        },
+        { tmpPath: PathUtils.join(staging, ".extraction-complete.tmp") }
+      );
+      if (!(await this.#verifyRuntimeDirectory(staging, bundle))) {
+        throw new Error("Torrent runtime failed post-extraction verification");
+      }
+      await IOUtils.move(staging, destination, { noOverwrite: true });
+      return destination;
     } finally {
-      zip.close();
+      await IOUtils.remove(staging, {
+        recursive: true,
+        ignoreAbsent: true,
+      });
+      await this.#releaseExtractionLock(lock);
     }
-    for (const path of [
-      PathUtils.join(destination, "node", "bin", "node"),
-      PathUtils.join(destination, "bin", "wildbuzzard-torrent"),
-    ]) {
-      await IOUtils.setPermissions(path, 0o755);
+  }
+
+  async #verifyRuntimeDirectory(directory, bundle) {
+    try {
+      const marker = await IOUtils.readJSON(
+        PathUtils.join(directory, ".extraction-complete")
+      );
+      if (
+        marker.schema !== 1 ||
+        marker.archiveSha256 !== bundle.archiveSha256 ||
+        marker.payloadSha256 !== bundle.manifest.payloadSha256
+      ) {
+        return false;
+      }
+      const installedManifest = await IOUtils.readJSON(
+        PathUtils.join(directory, RUNTIME_MANIFEST)
+      );
+      if (
+        JSON.stringify(installedManifest) !== JSON.stringify(bundle.manifest)
+      ) {
+        return false;
+      }
+      const expected = new Set([
+        ...bundle.files.keys(),
+        RUNTIME_MANIFEST,
+        ".extraction-complete",
+      ]);
+      const expectedDirectories = new Set();
+      for (const path of expected) {
+        const parts = path.split("/");
+        for (let index = 1; index < parts.length; index++) {
+          expectedDirectories.add(parts.slice(0, index).join("/"));
+        }
+      }
+      const pending = [directory];
+      const found = new Set();
+      const foundDirectories = new Set();
+      while (pending.length) {
+        for (const child of await IOUtils.getChildren(pending.pop())) {
+          const file = new LocalFile(child);
+          if (file.isSymlink()) {
+            return false;
+          }
+          const info = await IOUtils.stat(child);
+          if (info.type === "directory") {
+            const relative = child
+              .slice(directory.length + 1)
+              .replaceAll("\\", "/");
+            if (
+              !expectedDirectories.has(relative) ||
+              foundDirectories.has(relative)
+            ) {
+              return false;
+            }
+            foundDirectories.add(relative);
+            pending.push(child);
+            continue;
+          }
+          if (info.type !== "regular") {
+            return false;
+          }
+          const relative = child
+            .slice(directory.length + 1)
+            .replaceAll("\\", "/");
+          if (!expected.has(relative) || found.has(relative)) {
+            return false;
+          }
+          found.add(relative);
+        }
+      }
+      if (
+        found.size !== expected.size ||
+        foundDirectories.size !== expectedDirectories.size
+      ) {
+        return false;
+      }
+      for (const [path, expectedFile] of bundle.files) {
+        const target = PathUtils.join(directory, ...path.split("/"));
+        const info = await IOUtils.stat(target);
+        if (
+          info.type !== "regular" ||
+          info.size !== expectedFile.size ||
+          Boolean(info.permissions & 0o111) !== expectedFile.executable ||
+          (await IOUtils.computeHexDigest(target, "sha256")) !==
+            expectedFile.sha256
+        ) {
+          return false;
+        }
+      }
+      return true;
+    } catch {
+      return false;
     }
-    await IOUtils.writeUTF8(marker, `${bundleId}\n`);
-    return destination;
+  }
+
+  async #acquireExtractionLock(bundleId) {
+    const path = PathUtils.join(this.bundleRoot, `.${bundleId}.lock`);
+    for (let attempt = 0; attempt < 400; attempt++) {
+      const owner = {
+        pid: Services.appinfo.processID,
+        pidStartTime: parsePidStartTime(
+          await IOUtils.readUTF8("/proc/self/stat")
+        ),
+        nonce: Services.uuid.generateUUID().toString(),
+        createdAt: Date.now(),
+      };
+      const file = new LocalFile(path);
+      try {
+        file.create(Ci.nsIFile.NORMAL_FILE_TYPE, 0o600);
+        await IOUtils.writeJSON(path, owner);
+        return { owner, path };
+      } catch (error) {
+        if (!(await IOUtils.exists(path))) {
+          throw error;
+        }
+      }
+      const existing = await IOUtils.readJSON(path).catch(() => null);
+      const active = await processMatches(
+        existing?.pid,
+        existing?.pidStartTime
+      );
+      if (
+        !active &&
+        Date.now() - Number(existing?.createdAt || 0) >= RUNTIME_LOCK_STALE_MS
+      ) {
+        const current = await IOUtils.readJSON(path).catch(() => null);
+        if (current?.nonce === existing?.nonce) {
+          await IOUtils.remove(path, { ignoreAbsent: true });
+        }
+        continue;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error("Timed out waiting for torrent runtime extraction");
+  }
+
+  async #releaseExtractionLock(lock) {
+    const current = await IOUtils.readJSON(lock.path).catch(() => null);
+    if (current?.nonce === lock.owner.nonce) {
+      await IOUtils.remove(lock.path, { ignoreAbsent: true });
+    }
+  }
+
+  async #stopServiceUsingRuntime(directory) {
+    const connection = await IOUtils.readJSON(this.connectionPath).catch(
+      () => null
+    );
+    if (!connection || connection.runtimeDirectory !== directory) {
+      return;
+    }
+    if (!(await processMatches(connection.pid, connection.pidStartTime))) {
+      await this.#removeDeadConnection(connection);
+      return;
+    }
+    if (!(await this.#connectionProcessMatches(connection))) {
+      throw new Error(
+        "A live unverified process is using the damaged torrent runtime"
+      );
+    }
+    const dataRoot = new LocalFile(this.config.dataDirectory);
+    dataRoot.normalize();
+    const executable = PathUtils.join(directory, "node", "bin", "node");
+    const trusted =
+      connection.ownerInstance === this.config.ownerInstance &&
+      connection.dataRoot === dataRoot.path &&
+      connection.executable === executable &&
+      (await IOUtils.computeHexDigest(executable, "sha256").catch(
+        () => null
+      )) === connection.executableSha256 &&
+      /^[0-9a-f]{64}$/.test(connection.token || "") &&
+      /^[0-9a-f-]{36}$/.test(connection.instanceId || "");
+    const status = trusted
+      ? await this.#request("GET", "/v1/status", null, connection).catch(
+          () => null
+        )
+      : null;
+    if (!trusted || !this.#statusIdentityMatches(connection, status)) {
+      throw new Error(
+        "A live unverified process is using the damaged torrent runtime"
+      );
+    }
+    await this.#request("POST", "/v1/shutdown", {}, connection);
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if (!(await IOUtils.exists(this.connectionPath))) {
+        return;
+      }
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    throw new Error("The damaged torrent runtime did not shut down");
   }
 
   async #writeConfig() {
@@ -268,6 +752,11 @@ class TorrentManagerImpl {
       existing.downloadDirectory ||
       (await Downloads.getPreferredDownloadsDirectory());
     const torEnabled = Boolean(existing.torEnabled);
+    const ownerInstance = /^[0-9A-Za-z._-]{16,128}$/.test(
+      existing.ownerInstance || ""
+    )
+      ? existing.ownerInstance
+      : Services.uuid.generateUUID().toString().replace(/[{}]/g, "");
     let torProxy = null;
     if (torEnabled) {
       TorRouting.init();
@@ -279,6 +768,7 @@ class TorrentManagerImpl {
     const config = {
       ...existing,
       version: 1,
+      ownerInstance,
       dataDirectory: PathUtils.join(this.rootDirectory, "data"),
       downloadDirectory,
       connectionPath: this.connectionPath,
@@ -296,6 +786,34 @@ class TorrentManagerImpl {
     });
     await IOUtils.setPermissions(this.configPath, 0o600);
     this.config = config;
+  }
+
+  async #prepareServiceIdentity() {
+    await IOUtils.makeDirectory(this.config.dataDirectory, {
+      createAncestors: true,
+      ignoreExisting: true,
+    });
+    const runtime = new LocalFile(this.runtimeDirectory);
+    runtime.normalize();
+    const dataRoot = new LocalFile(this.config.dataDirectory);
+    dataRoot.normalize();
+    const executable = new LocalFile(
+      PathUtils.join(this.runtimeDirectory, "node", "bin", "node")
+    );
+    executable.normalize();
+    if (executable.isSymlink()) {
+      throw new Error("Torrent service executable must not be a symbolic link");
+    }
+    this.expectedServiceIdentity = {
+      ownerInstance: this.config.ownerInstance,
+      runtimeDirectory: runtime.path,
+      executable: executable.path,
+      executableSha256: await IOUtils.computeHexDigest(
+        executable.path,
+        "sha256"
+      ),
+      dataRoot: dataRoot.path,
+    };
   }
 
   async #run(argumentsList) {
@@ -322,30 +840,133 @@ class TorrentManagerImpl {
     }
   }
 
+  #staticIdentityMatches(connection) {
+    const expected = this.expectedServiceIdentity;
+    return Boolean(
+      connection &&
+      connection.ownerInstance === expected.ownerInstance &&
+      connection.runtimeDirectory === expected.runtimeDirectory &&
+      connection.executable === expected.executable &&
+      connection.executableSha256 === expected.executableSha256 &&
+      connection.dataRoot === expected.dataRoot
+    );
+  }
+
+  #statusIdentityMatches(connection, status) {
+    const identity = status?.serviceIdentity;
+    return Boolean(
+      identity &&
+      identity.ownerInstance === connection.ownerInstance &&
+      identity.runtimeDirectory === connection.runtimeDirectory &&
+      identity.executable === connection.executable &&
+      identity.executableSha256 === connection.executableSha256 &&
+      identity.dataRoot === connection.dataRoot &&
+      identity.instanceId === connection.instanceId &&
+      identity.pid === connection.pid &&
+      String(identity.pidStartTime) === String(connection.pidStartTime)
+    );
+  }
+
+  async #connectionProcessMatches(connection) {
+    if (
+      !Number.isInteger(connection?.pid) ||
+      connection.pid < 1 ||
+      !/^\d+$/.test(String(connection.pidStartTime)) ||
+      !(await processMatches(connection.pid, connection.pidStartTime))
+    ) {
+      return false;
+    }
+    try {
+      const executable = new LocalFile(`/proc/${connection.pid}/exe`);
+      return executable.target === connection.executable;
+    } catch {
+      return false;
+    }
+  }
+
+  async #healthyConnection(connection) {
+    if (
+      !Number.isInteger(connection.port) ||
+      connection.port < 1 ||
+      connection.port > 65535 ||
+      !/^[0-9a-f]{64}$/.test(connection.token || "") ||
+      !/^[0-9a-f-]{36}$/.test(connection.instanceId || "") ||
+      connection.ownerInstance !== this.expectedServiceIdentity.ownerInstance ||
+      connection.dataRoot !== this.expectedServiceIdentity.dataRoot ||
+      !(await this.#connectionProcessMatches(connection))
+    ) {
+      return null;
+    }
+    const runtimeRoot = new LocalFile(this.bundleRoot);
+    runtimeRoot.normalize();
+    if (
+      !connection.runtimeDirectory.startsWith(`${runtimeRoot.path}/runtime-`) ||
+      connection.executable !==
+        PathUtils.join(connection.runtimeDirectory, "node", "bin", "node") ||
+      (await IOUtils.computeHexDigest(connection.executable, "sha256").catch(
+        () => null
+      )) !== connection.executableSha256
+    ) {
+      return null;
+    }
+    const status = await this.#request(
+      "GET",
+      "/v1/status",
+      null,
+      connection
+    ).catch(() => null);
+    return this.#statusIdentityMatches(connection, status) ? status : null;
+  }
+
+  async #removeDeadConnection(connection) {
+    const current = await IOUtils.readJSON(this.connectionPath).catch(
+      () => null
+    );
+    if (
+      current &&
+      ((connection.instanceId &&
+        current.instanceId === connection.instanceId) ||
+        (!connection.instanceId &&
+          JSON.stringify(current) === JSON.stringify(connection)))
+    ) {
+      await IOUtils.remove(this.connectionPath, { ignoreAbsent: true });
+    }
+  }
+
   async #ensureService() {
     let connection = await IOUtils.readJSON(this.connectionPath).catch(
       () => null
     );
-    if (connection && connection.runtimeDirectory !== this.runtimeDirectory) {
-      await this.#request("POST", "/v1/shutdown", {}, connection).catch(
-        () => {}
-      );
-      for (let attempt = 0; attempt < 20; attempt++) {
-        if (!(await IOUtils.exists(this.connectionPath))) {
-          break;
+    if (connection) {
+      if (await this.#healthyConnection(connection)) {
+        if (this.#staticIdentityMatches(connection)) {
+          this.connection = connection;
+          return;
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await this.#request("POST", "/v1/shutdown", {}, connection);
+        for (let attempt = 0; attempt < 40; attempt++) {
+          if (!(await IOUtils.exists(this.connectionPath))) {
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        if (await IOUtils.exists(this.connectionPath)) {
+          throw new Error("The previous torrent service did not shut down");
+        }
+        connection = null;
+      }
+      if (
+        connection &&
+        (await processMatches(connection.pid, connection.pidStartTime))
+      ) {
+        throw new Error(
+          "An unverified live process owns the torrent connection path"
+        );
+      }
+      if (connection) {
+        await this.#removeDeadConnection(connection);
       }
       connection = null;
-    }
-    if (connection) {
-      const healthy = await this.#request("GET", "/v1/status", null, connection)
-        .then(() => true)
-        .catch(() => false);
-      if (healthy) {
-        this.connection = connection;
-        return;
-      }
     }
     let startError = null;
     try {
@@ -357,19 +978,9 @@ class TorrentManagerImpl {
       connection = await IOUtils.readJSON(this.connectionPath).catch(
         () => null
       );
-      if (connection) {
-        const healthy = await this.#request(
-          "GET",
-          "/v1/status",
-          null,
-          connection
-        )
-          .then(() => true)
-          .catch(() => false);
-        if (healthy) {
-          this.connection = connection;
-          return;
-        }
+      if (connection && (await this.#healthyConnection(connection))) {
+        this.connection = connection;
+        return;
       }
       await new Promise(resolve => setTimeout(resolve, 250));
     }

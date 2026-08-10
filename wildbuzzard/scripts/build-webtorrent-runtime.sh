@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 set -Eeuo pipefail
+umask 022
 
 usage() {
   echo "Usage: $0 [options]"
@@ -18,6 +19,7 @@ source_repo="$(cd -- "${script_dir}/../.." && pwd -P)"
 build_root="$(dirname -- "${source_repo}")/wildbuzzard-torrent-builds"
 build_ref="HEAD"
 node_version="22.23.2"
+node_sha256="d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307"
 
 while (($#)); do
   case "$1" in
@@ -45,6 +47,11 @@ while (($#)); do
   esac
 done
 
+if [[ "${node_version}" != "22.23.2" ]]; then
+  echo "No pinned checksum is configured for Node.js ${node_version}" >&2
+  exit 2
+fi
+
 mkdir -p -- "${build_root}"
 build_root="$(cd -- "${build_root}" && pwd -P)"
 case "${build_root}/" in
@@ -65,9 +72,16 @@ downloads_dir="${build_root}/downloads"
 artifacts_dir="${run_root}/artifacts"
 node_archive="node-v${node_version}-linux-x64.tar.xz"
 node_url="https://nodejs.org/dist/v${node_version}/${node_archive}"
+source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${commit}")"
 
 mkdir -p -- "${run_root}" "${runtime_dir}/bin" "${app_dir}" "${downloads_dir}" "${artifacts_dir}"
 git clone --shared --no-checkout -- "${source_repo}" "${checkout_dir}"
+git -C "${checkout_dir}" sparse-checkout init --no-cone
+git -C "${checkout_dir}" sparse-checkout set \
+  /COPYING \
+  /third_party/webtorrent/ \
+  /wildbuzzard/torrent-runtime/ \
+  /wildbuzzard/upstreams.toml
 git -C "${checkout_dir}" checkout --detach "${commit}"
 
 cp -- "${checkout_dir}/wildbuzzard/torrent-runtime/package.json" "${app_dir}/"
@@ -80,10 +94,8 @@ cp -- "${checkout_dir}/wildbuzzard/torrent-runtime/SECURITY.md" "${runtime_dir}/
 if [[ ! -f "${downloads_dir}/${node_archive}" ]]; then
   curl --fail --location --output "${downloads_dir}/${node_archive}" "${node_url}"
 fi
-curl --fail --location --output "${run_root}/SHASUMS256.txt" "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt"
-expected_sha="$(awk -v archive="${node_archive}" '$2 == archive { print $1 }' "${run_root}/SHASUMS256.txt")"
 actual_sha="$(sha256sum "${downloads_dir}/${node_archive}" | awk '{ print $1 }')"
-if [[ -z "${expected_sha}" || "${expected_sha}" != "${actual_sha}" ]]; then
+if [[ "${node_sha256}" != "${actual_sha}" ]]; then
   echo "Node.js archive checksum verification failed" >&2
   exit 1
 fi
@@ -123,6 +135,8 @@ rm -rf -- "${utp_dir}/prebuilds" "${utp_dir}/build"
   PATH="${runtime_dir}/node/bin:${PATH}" \
     npm_config_nodedir="${runtime_dir}/node" \
     npm_config_build_from_source=true \
+    CFLAGS="-ffile-prefix-map=${run_root}=. -fdebug-prefix-map=${run_root}=." \
+    CXXFLAGS="-ffile-prefix-map=${run_root}=. -fdebug-prefix-map=${run_root}=." \
     "${bundled_node}" "${bundled_npm_cli}" rebuild utp-native
 ) >"${run_root}/utp-build.log" 2>&1
 utp_module="$(find "${utp_dir}/build" -type f -name '*.node' -print -quit)"
@@ -176,6 +190,9 @@ rm -rf -- "${app_dir}/test"
 while IFS= read -r -d '' prebuild_dir; do
   rm -rf -- "${prebuild_dir}"
 done < <(find "${app_dir}/node_modules" -type d -name prebuilds -print0)
+while IFS= read -r -d '' bin_dir; do
+  rm -rf -- "${bin_dir}"
+done < <(find "${app_dir}/node_modules" -type d -name .bin -print0)
 
 unexpected_native=()
 while IFS= read -r -d '' artifact; do
@@ -204,6 +221,10 @@ printf '%s\n' \
   'exec "${launcher_dir}/../node/bin/node" "${launcher_dir}/../app/service.mjs" "$@"' \
   >"${runtime_dir}/bin/wildbuzzard-torrent"
 chmod 755 "${runtime_dir}/bin/wildbuzzard-torrent" "${runtime_dir}/node/bin/node"
+rm -f -- \
+  "${runtime_dir}/node/bin/corepack" \
+  "${runtime_dir}/node/bin/npm" \
+  "${runtime_dir}/node/bin/npx"
 
 cp -- "${checkout_dir}/third_party/webtorrent/LICENSE" "${runtime_dir}/WEBTORRENT-LICENSE"
 cp -- "${checkout_dir}/COPYING" "${runtime_dir}/WILDBUZZARD-LICENSE"
@@ -217,15 +238,119 @@ if [[ ! "${webtorrent_commit}" =~ ^[0-9a-f]{40}$ ]]; then
   exit 1
 fi
 lock_sha="$(sha256sum "${app_dir}/package-lock.json" | awk '{ print $1 }')"
-printf '{\n  "schema": 1,\n  "wildbuzzardCommit": "%s",\n  "webTorrentVersion": "3.0.21",\n  "webTorrentImportCommit": "%s",\n  "packageLockSha256": "%s",\n  "nodeVersion": "%s",\n  "utpBuiltFromSource": true,\n  "platform": "linux-x64"\n}\n' \
-  "${commit}" "${webtorrent_commit}" "${lock_sha}" "${node_version}" \
-  >"${runtime_dir}/wildbuzzard-torrent-runtime.json"
+if find "${runtime_dir}" -type l -print -quit | grep -q .; then
+  echo "Torrent runtime contains a symbolic link" >&2
+  exit 1
+fi
+
+"${bundled_node}" - \
+  "${runtime_dir}" \
+  "${commit}" \
+  "${webtorrent_commit}" \
+  "${lock_sha}" \
+  "${node_version}" <<'NODE'
+const { createHash } = require("node:crypto");
+const fs = require("node:fs");
+const path = require("node:path");
+
+const [root, commit, webTorrentCommit, lockSha, nodeVersion] = process.argv.slice(2);
+const manifestName = "wildbuzzard-torrent-runtime.json";
+const allowedExecutables = new Set([
+  "bin/wildbuzzard-torrent",
+  "node/bin/node",
+]);
+const paths = [];
+
+function visit(directory) {
+  for (const name of fs.readdirSync(directory).sort()) {
+    const absolute = path.join(directory, name);
+    const relative = path.relative(root, absolute).split(path.sep).join("/");
+    if (relative.includes("\n") || relative.includes("\0")) {
+      throw new Error("Unsafe runtime path");
+    }
+    const entry = fs.lstatSync(absolute);
+    if (entry.isSymbolicLink()) {
+      throw new Error(`Symbolic link in runtime: ${relative}`);
+    }
+    if (entry.isDirectory()) {
+      fs.chmodSync(absolute, 0o755);
+      visit(absolute);
+      continue;
+    }
+    if (!entry.isFile()) {
+      throw new Error(`Unsupported runtime entry: ${relative}`);
+    }
+    if (relative !== manifestName) {
+      paths.push(relative);
+    }
+  }
+}
+
+visit(root);
+const files = paths.sort().map(relative => {
+  const absolute = path.join(root, ...relative.split("/"));
+  const executable = allowedExecutables.has(relative);
+  fs.chmodSync(absolute, executable ? 0o755 : 0o644);
+  const bytes = fs.readFileSync(absolute);
+  return {
+    path: relative,
+    size: bytes.length,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    executable,
+  };
+});
+for (const executable of allowedExecutables) {
+  if (!files.some(file => file.path === executable && file.executable)) {
+    throw new Error(`Missing runtime executable: ${executable}`);
+  }
+}
+const payloadHash = createHash("sha256");
+for (const file of files) {
+  payloadHash.update(
+    `${file.path}\0${file.size}\0${file.sha256}\0${file.executable ? 1 : 0}\n`
+  );
+}
+const manifest = {
+  schema: 2,
+  wildbuzzardCommit: commit,
+  webTorrentVersion: "3.0.21",
+  webTorrentImportCommit: webTorrentCommit,
+  packageLockSha256: lockSha,
+  nodeVersion,
+  nodeArchiveSha256: "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307",
+  utpBuiltFromSource: true,
+  platform: "linux-x64",
+  payloadSha256: payloadHash.digest("hex"),
+  files,
+};
+fs.writeFileSync(
+  path.join(root, manifestName),
+  `${JSON.stringify(manifest, null, 2)}\n`,
+  { mode: 0o644 }
+);
+NODE
+
+while IFS= read -r -d '' path; do
+  touch -h -d "@${source_date_epoch}" -- "${path}"
+done < <(find "${runtime_dir}" -print0)
 
 runtime_zip="${artifacts_dir}/wildbuzzard-torrent-runtime-linux-x64-${short_commit}.zip"
+archive_list="${run_root}/runtime-files.txt"
 (
   cd -- "${runtime_dir}"
-  zip -q -y -r "${runtime_zip}" .
+  LC_ALL=C find . -type f -printf '%P\n' | LC_ALL=C sort >"${archive_list}"
+  TZ=UTC zip -X -q -9 "${runtime_zip}" -@ <"${archive_list}"
 )
+first_runtime_sha256="$(sha256sum "${runtime_zip}" | awk '{ print $1 }')"
+rm -f -- "${runtime_zip}"
+(
+  cd -- "${runtime_dir}"
+  TZ=UTC zip -X -q -9 "${runtime_zip}" -@ <"${archive_list}"
+)
+if [[ "$(sha256sum "${runtime_zip}" | awk '{ print $1 }')" != "${first_runtime_sha256}" ]]; then
+  echo "Deterministic torrent runtime archive check failed" >&2
+  exit 1
+fi
 sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
 
 {

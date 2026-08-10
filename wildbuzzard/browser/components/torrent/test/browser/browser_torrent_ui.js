@@ -166,6 +166,58 @@ add_task(async function test_torrent_mime_response_opens_confirmation() {
   }
 });
 
+add_task(async function test_runtime_tampering_is_repaired_atomically() {
+  requestLongerTimeout(4);
+  const { TorrentManager } = ChromeUtils.importESModule(
+    "resource:///modules/TorrentManager.sys.mjs"
+  );
+  await TorrentManager.initialize();
+  const servicePath = PathUtils.join(
+    TorrentManager.runtimeDirectory,
+    "app",
+    "service.mjs"
+  );
+  const original = await IOUtils.readUTF8(servicePath);
+  const oldInstance = TorrentManager.connection.instanceId;
+  await IOUtils.writeUTF8(servicePath, `${original}\ninvalid-tamper`);
+  TorrentManager.initializeTask = null;
+  await TorrentManager.initialize();
+  Assert.equal(
+    await IOUtils.readUTF8(servicePath),
+    original,
+    "A modified runtime file is restored from the verified archive"
+  );
+  Assert.notEqual(
+    TorrentManager.connection.instanceId,
+    oldInstance,
+    "The verified service is restarted after atomic runtime replacement"
+  );
+});
+
+add_task(async function test_live_connection_forgery_fails_closed() {
+  const { TorrentManager } = ChromeUtils.importESModule(
+    "resource:///modules/TorrentManager.sys.mjs"
+  );
+  await TorrentManager.initialize();
+  const connection = { ...TorrentManager.connection };
+  const forged = { ...connection, token: "0".repeat(64) };
+  await IOUtils.writeJSON(TorrentManager.connectionPath, forged);
+  TorrentManager.initializeTask = null;
+  await Assert.rejects(
+    TorrentManager.initialize(),
+    /unverified live process/,
+    "A bearer response without the expected process identity is rejected"
+  );
+  Assert.deepEqual(
+    await IOUtils.readJSON(TorrentManager.connectionPath),
+    forged,
+    "The manager does not delete a connection owned by a live process"
+  );
+  await IOUtils.writeJSON(TorrentManager.connectionPath, connection);
+  TorrentManager.initializeTask = null;
+  await TorrentManager.initialize();
+});
+
 add_task(async function test_magnet_redirects_to_torrent_client() {
   const magnet =
     "magnet:?xt=urn:btih:0123456789012345678901234567890123456789&dn=Test";
