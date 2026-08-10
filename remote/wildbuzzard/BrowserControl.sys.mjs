@@ -24,6 +24,11 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PrivateTab: "resource:///modules/PrivateTab.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
+  TorrentAgentToolController:
+    "chrome://remote/content/wildbuzzard/TorrentAgentTools.sys.mjs",
+  TorrentDiscoveryManager:
+    "resource:///modules/TorrentDiscoveryManager.sys.mjs",
+  TorrentManager: "resource:///modules/TorrentManager.sys.mjs",
   TorRouting: "resource:///modules/TorRouting.sys.mjs",
   modal: "chrome://remote/content/shared/Prompt.sys.mjs",
   capture: "chrome://remote/content/shared/Capture.sys.mjs",
@@ -490,7 +495,10 @@ function validateRenderHeaders(value) {
     if (!/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(name)) {
       throw new Error(`gecko_render: invalid header name ${rawName}`);
     }
-    if (!RENDER_ALLOWED_HEADERS.has(name)) {
+    if (
+      RENDER_SENSITIVE_HEADERS.has(name) ||
+      !RENDER_ALLOWED_HEADERS.has(name)
+    ) {
       throw new Error(`gecko_render: header ${rawName} is not allowed`);
     }
     if (headers.has(name)) {
@@ -2132,6 +2140,7 @@ class BrowserControlService {
     this.sessionGroups = new Map();
     this.pendingDialogActions = new Map();
     this.geckoRenderer = new GeckoRenderController(this);
+    this.torrentAgentTools = null;
     this.started = false;
   }
 
@@ -2241,6 +2250,8 @@ class BrowserControlService {
       controller.abort();
     }
     this.activeRequests.clear();
+    this.torrentAgentTools?.close().catch(() => {});
+    this.torrentAgentTools = null;
     this.server.close();
     this.server = null;
     this.started = false;
@@ -4034,6 +4045,13 @@ class BrowserControlService {
         return this.downloadTool(args, cwd, signal);
       case "gecko_render":
         return this.geckoRenderTool(args, signal);
+      case "torrent_providers":
+      case "torrent_search":
+      case "torrent_prepare":
+      case "torrent_draft":
+      case "torrent_commit":
+      case "torrent_cancel":
+        return this.torrentAgentTool(tool, args, clientId, signal);
       case "__resolve_ref":
         return this.resolveRefTool(args);
       case "__register_raw_ref":
@@ -4060,6 +4078,23 @@ class BrowserControlService {
       details.pageError
         ? `Gecko render failed: ${details.pageError}`
         : `Gecko rendered ${details.finalUrl}`,
+      details
+    );
+  }
+
+  async torrentAgentTool(tool, args, clientId, signal) {
+    this.torrentAgentTools ??= new lazy.TorrentAgentToolController({
+      discoveryManager: lazy.TorrentDiscoveryManager,
+      torrentManager: lazy.TorrentManager,
+    });
+    const details = await this.torrentAgentTools.execute(
+      tool,
+      args,
+      clientId,
+      signal
+    );
+    return textResult(
+      wrapUntrusted(formatJson(details), "torrent-discovery"),
       details
     );
   }
