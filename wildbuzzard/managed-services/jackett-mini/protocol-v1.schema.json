@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://wildbuzzard.invalid/schemas/jackett-mini-v1.json",
+  "title": "Jackett Mini protocol v1",
+  "type": "object",
+  "$defs": {
+    "healthResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "protocolVersion", "runtimeVersion", "commit", "instanceId", "processId", "processStartTimeUtc", "executablePath", "executableSha256", "dataRootId", "catalogSha256"],
+      "properties": {
+        "status": { "const": "ok" },
+        "protocolVersion": { "const": 1 },
+        "runtimeVersion": { "const": "v0.24.2360" },
+        "commit": { "const": "0cd8622b735922a909a128d8d6943bb8565a640f" },
+        "instanceId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "processId": { "type": "integer", "minimum": 1 },
+        "processStartTimeUtc": { "type": "string", "format": "date-time" },
+        "executablePath": { "type": "string", "minLength": 1 },
+        "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "dataRootId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
+        "catalogSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "versionResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["protocolVersion", "runtimeVersion", "commit", "catalogPolicySha256"],
+      "properties": {
+        "protocolVersion": { "const": 1 },
+        "runtimeVersion": { "const": "v0.24.2360" },
+        "commit": { "const": "0cd8622b735922a909a128d8d6943bb8565a640f" },
+        "catalogPolicySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "state", "access", "contentClass", "reasons"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 160 },
+        "state": { "enum": ["ready", "unavailable"] },
+        "access": { "const": "public" },
+        "contentClass": { "enum": ["general", "mixed-general"] },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "sourcesResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["immutable", "sources"],
+      "properties": {
+        "immutable": { "const": true },
+        "sources": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/source" }
+        }
+      }
+    },
+    "searchRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query"],
+      "properties": {
+        "query": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "sourceIds": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        },
+        "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 100 }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["resultId", "providerId", "providerName", "name", "categoryIds", "access", "acquisition"],
+      "properties": {
+        "resultId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{32}$" },
+        "providerId": { "type": "string" },
+        "providerName": { "type": "string", "maxLength": 160 },
+        "name": { "type": "string", "maxLength": 512 },
+        "sizeBytes": { "type": ["integer", "null"], "minimum": 0 },
+        "seeders": { "type": ["integer", "null"], "minimum": 0 },
+        "leechers": { "type": ["integer", "null"], "minimum": 0 },
+        "publishedAt": { "type": ["string", "null"], "format": "date-time" },
+        "categoryIds": {
+          "type": "array",
+          "items": { "type": "integer", "not": { "minimum": 6000, "maximum": 6999 } }
+        },
+        "access": { "const": "public" },
+        "acquisition": { "enum": ["magnet", "torrent"] }
+      }
+    },
+    "providerStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "state", "elapsedMs"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "state": { "enum": ["ok", "unavailable", "unsupported", "timeout", "error"] },
+        "elapsedMs": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "searchResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["searchId", "partial", "providers", "results"],
+      "properties": {
+        "searchId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{32}$" },
+        "partial": { "type": "boolean" },
+        "providers": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/providerStatus" } },
+        "results": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/result" } }
+      }
+    },
+    "resolutionResponse": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "magnet", "torrentBase64", "torrentBytes"],
+          "properties": {
+            "kind": { "const": "magnet" },
+            "magnet": { "type": "string", "pattern": "^magnet:\\?xt=urn:btih:" },
+            "torrentBase64": { "type": "null" },
+            "torrentBytes": { "type": "null" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "magnet", "torrentBase64", "torrentBytes"],
+          "properties": {
+            "kind": { "const": "torrent" },
+            "magnet": { "type": "null" },
+            "torrentBase64": { "type": "string", "contentEncoding": "base64" },
+            "torrentBytes": { "type": "integer", "minimum": 1, "maximum": 12582912 }
+          }
+        }
+      ]
+    },
+    "errorResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["error"],
+      "properties": {
+        "error": { "enum": ["invalid-request", "not-found", "unknown-or-expired-result", "resolution-timeout", "resolution-failed"] }
+      }
+    }
+  }
+}

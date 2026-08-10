@@ -1,0 +1,45 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+schema = 1
+name = "Jackett"
+version = "v0.24.2360"
+commit = "0cd8622b735922a909a128d8d6943bb8565a640f"
+git_tree = "c86a56a3f193990d4710be83c3822386ef36517a"
+repository = "https://github.com/Jackett/Jackett.git"
+release = "https://github.com/Jackett/Jackett/releases/tag/v0.24.2360"
+license = "GPL-2.0-only"
+license_file = "LICENSE"
+license_sha256 = "c03cea027b4b40e4402fabd08557736727ec3d5bc54ad64ab6472de432198cad"
+source_archive = "upstream/jackett-v0.24.2360.tar.gz"
+source_url = "https://github.com/Jackett/Jackett/archive/0cd8622b735922a909a128d8d6943bb8565a640f.tar.gz"
+source_bytes = 5160474
+source_sha256 = "3816fea39546b5fa440d3e33b856e73500ee6129e91b14d839fc0f04c7f9bd3e"
+source_manifest = "upstream/SOURCE-MANIFEST.sha256"
+source_manifest_sha256 = "7ce151e9e59943d4411bc2347cbfb6a7a5fb29c636ca2692b521f1f2dc086187"
+tag_kind = "lightweight"
+tag_verified_commit = true
+
+[reference_assets.linux_x64]
+name = "Jackett.Binaries.LinuxAMDx64.tar.gz"
+bytes = 50877536
+sha256 = "f3cd7eafa5a478f8c21208d0ab65980e9c935c2861767d1c448a38126305f116"
+purpose = "pristine upstream parity reference only"
+
+[reference_assets.linux_musl_x64]
+name = "Jackett.Binaries.LinuxMuslAMDx64.tar.gz"
+sha256 = "fb70cd4b12acbd416bc1024a7c4335081359d173da612350ec29f023447ae25f"
+purpose = "recorded parity reference; not a supported Jackett Mini target"
+
+[build]
+target_framework = "net9.0"
+runtime_identifier = "linux-x64"
+self_contained = true
+source_date_epoch = 1786253932
+sdk_image = "mcr.microsoft.com/dotnet/sdk@sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164"
+sdk_image_config = "sha256:dbf45fd250dc73f2e8f9c90a3560116a24b7a8d52dda2699ca8ed18608b0814b"
+
+[downstream]
+patch_series = "patches/series"
+provider_review = "provider-policy/reviewed-definitions.json"
+provider_catalog = "provider-policy/catalog.json"
+protocol_version = 1

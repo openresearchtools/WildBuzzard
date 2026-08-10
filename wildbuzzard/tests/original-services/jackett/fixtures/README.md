@@ -1,0 +1,7 @@
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+
+# Deterministic Jackett fixture
+
+`fixture-indexer.yml.in` is rendered twice by the comparison runner. Pristine Jackett receives a custom test definition named `wildbuzzard-fixture`; a test-only Jackett Mini catalog overlay replaces the already eligible `showrss` definition with the same tracker logic. Neither overlay is part of a shipping runtime.
+
+The local tracker returns ordinary magnet and torrent rows plus category-6000 rows. The runner compares pristine Torznab XML with Jackett Mini JSON after applying the documented product transformations.

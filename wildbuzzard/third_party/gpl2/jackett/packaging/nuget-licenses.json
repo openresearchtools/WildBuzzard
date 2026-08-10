@@ -1,0 +1,327 @@
+{
+  "packages": [
+    {
+      "license": "MIT",
+      "name": "AngleSharp",
+      "nugetContentHash": "LVZ7rrr6GHbhERhTgVDarVygl1e6KwE96pronA90LBOMacDhxR4lB+xYLjn/vlnUu+xbOB2RM9fuCPEx5bdyWA==",
+      "projectUrl": "https://anglesharp.github.io/",
+      "version": "1.5.2"
+    },
+    {
+      "license": "MIT",
+      "name": "AngleSharp.Xml",
+      "nugetContentHash": "TS+52am0+/HvCfh0yNiz7RlXUjOfdWl1bFQygBJkGKFHZ6N3RHv/vtK0VKfN4h7b0Kescy3+iWn6qqBlOkiL3w==",
+      "projectUrl": "https://anglesharp.github.io/",
+      "version": "1.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "Autofac",
+      "nugetContentHash": "qxVqJcl3fixxa5aZc9TmIuYTwooI9GCL5RzfUiTZtTlbAF3NcWz7bPeEyJEAyS/0qGhSyGnXeku2eiu/7L+3qw==",
+      "projectUrl": "https://autofac.org/",
+      "version": "8.0.0"
+    },
+    {
+      "license": "Unlicense",
+      "name": "BencodeNET",
+      "nugetContentHash": "dsgswftoaNKuKdOiRz7pTpk0RyuPHOWrAdc5/ohP3YOfAVzosKrHY8qZZBdjX/fHa6SA63wp62K6wQX93uuyFw==",
+      "projectUrl": "https://github.com/Krusen/BencodeNET",
+      "version": "4.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "CommandLineParser",
+      "nugetContentHash": "OE0sl1/sQ37bjVsPKKtwQlWDgqaxWgtme3xZz7JssWUzg5JpMIyHgCTY9MVMxOg48fJ1AgGT3tgdH5m/kQ5xhA==",
+      "projectUrl": "https://github.com/commandlineparser/commandline",
+      "version": "2.9.1"
+    },
+    {
+      "license": "MIT",
+      "name": "DotNet4.SocksProxy",
+      "nugetContentHash": "Aa8R82IWyopfmb14QUq0edO4+rpoPWOlt2mfB40u3ysrCKDjaftRpegt5Z2ZrD7srsmy/KN6UMIsnKryJgCS7Q==",
+      "projectUrl": "https://github.com/lloydsparkes/SocksWebProxy/",
+      "version": "1.4.0.1"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.AspNetCore.Http",
+      "nugetContentHash": "3H7dPd3knHBMQRvVPYsGlAd7cPI4wk0Hf5H5qhoxoQiEkJ0QdJDNIr34GcKA4CtOw0akQ7US67UpRxWMUeCy2w==",
+      "projectUrl": "https://asp.net/",
+      "version": "2.3.11"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.AspNetCore.Http.Abstractions",
+      "nugetContentHash": "FD6mE5v3qB/sEcnLNni1oHsATuLHIFzsKHCulUZS7iaJez8+TkD432L89DQtU9PfjCkaPO0JOQjB4tS4L8oZXQ==",
+      "projectUrl": "https://asp.net/",
+      "version": "2.3.10"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.AspNetCore.Http.Features",
+      "nugetContentHash": "nDWDF0YBgElg6f0omqJ8DupmITQg5p4lklBxFpVR83tQQhOG2tw9Fa5ul8b+KywsYBsyfn9DschUmfzOV6RvGw==",
+      "projectUrl": "https://asp.net/",
+      "version": "2.3.9"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.AspNetCore.WebUtilities",
+      "nugetContentHash": "bHEBMxxyfMjHgXYOUv51fpOn173axzmYw51rW6AyQhnbhZr7wIwHVkidPgKmGweDH1/sp5esnkcxhP+EI/pZkw==",
+      "projectUrl": "https://asp.net/",
+      "version": "2.3.11"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.Bcl.AsyncInterfaces",
+      "nugetContentHash": "T1+OeM47WtD78Hu0oY5oSy5JIU7j9jTKFdvpzbZkNs+5e12Q1bvPV7FBQxqfwa8AVZvW/EKufGzy7fPKtn0PQA==",
+      "projectUrl": "https://dot.net/",
+      "version": "9.0.18"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.Bcl.TimeProvider",
+      "nugetContentHash": "f5Kr5JepAbiGo7uDmhgvMqhntwxqXNn6/IpTBSSI4cuHhgnJGrLxFRhMjVpRkLPp6zJXO0/G0l3j9p9zSJxa+w==",
+      "projectUrl": "https://dot.net/",
+      "version": "8.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.CSharp",
+      "nugetContentHash": "pTj+D3uJWyN3My70i2Hqo+OXixq3Os2D1nJ2x92FFo6sk8fYS1m1WLNTs0Dc1uPaViH0YvEEwvzddQ7y4rhXmA==",
+      "projectUrl": "https://github.com/dotnet/corefx",
+      "version": "4.7.0"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "nugetContentHash": "cjWrLkJXK0rs4zofsK4bSdg+jhDLTaxrkXu4gS6Y7MAlCvRyNNgwY/lJi5RDlQOnSZweHqoyvgvbdvQsRIW+hg==",
+      "projectUrl": "https://dot.net/",
+      "version": "8.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.Extensions.ObjectPool",
+      "nugetContentHash": "6ApKcHNJigXBfZa6XlDQ8feJpq7SG1ogZXg6M4FiNzgd6irs3LUAzo0Pfn4F2ZI9liGnH1XIBR/OtSbZmJAV5w==",
+      "projectUrl": "https://asp.net/",
+      "version": "8.0.11"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.Extensions.Options",
+      "nugetContentHash": "dWGKvhFybsaZpGmzkGCbNNwBD1rVlWzrZKANLW/CcbFJpCEceMCGzT7zZwHOGBCbwM0SzBuceMj5HN1LKV1QqA==",
+      "projectUrl": "https://dot.net/",
+      "version": "8.0.2"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.Extensions.Primitives",
+      "nugetContentHash": "bXJEZrW9ny8vjMF1JV253WeLhpEVzFo1lyaZu1vQ4ZxWUlVvknZ/+ftFgVheLubb4eZPSwwxBeqS1JkCOjxd8g==",
+      "projectUrl": "https://dot.net/",
+      "version": "8.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.Net.Http.Headers",
+      "nugetContentHash": "WjHfw2Esfhd8RcdVNM61gS5z6wGGA5rtPIPJTjSe9Y/k8aarXxHWQhOfMqFa+wE/quTUrgs9h+dddyEDsTN/IA==",
+      "projectUrl": "https://asp.net/",
+      "version": "2.3.10"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.NETCore.Platforms",
+      "nugetContentHash": "kz0PEW2lhqygehI/d6XsPCQzD7ff7gUJaVGPVETX611eadGsA3A877GdSlU0LRVMCTH/+P3o2iDTak+S08V2+A==",
+      "projectUrl": "https://dot.net/",
+      "version": "1.1.0"
+    },
+    {
+      "license": "MIT",
+      "name": "Microsoft.NETCore.Platforms",
+      "nugetContentHash": "VyPlqzH2wavqquTcYpkIIAQ6WdenuKoFN0BdYBbCWsclXacSOHNQn66Gt4z5NBqEYW0FAPm5rlvki9ZiCij5xQ==",
+      "projectUrl": "https://github.com/dotnet/runtime",
+      "version": "5.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "MimeMapping",
+      "nugetContentHash": "oT5gG5ig6J2IB3aH5BeEtX6yjIYKI5YOs29t+4p+7kcOFCjrTEex9rFJ610/jZRFGp76NFQbbx9QFQZpxV+kzA==",
+      "projectUrl": "https://github.com/zone117x/MimeMapping",
+      "version": "1.0.1.50"
+    },
+    {
+      "license": "MIT",
+      "name": "NETStandard.Library",
+      "nugetContentHash": "st47PosZSHrjECdjeIzZQbzivYBJFv6P2nv4cj2ypdI204DO+vZ7l5raGMiX4eXMJ53RfOIg+/s4DHVZ54Nu2A==",
+      "projectUrl": "https://dot.net/",
+      "version": "2.0.3"
+    },
+    {
+      "license": "MIT",
+      "name": "Newtonsoft.Json",
+      "nugetContentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A==",
+      "projectUrl": "https://www.newtonsoft.com/json",
+      "version": "13.0.4"
+    },
+    {
+      "license": "BSD-3-Clause",
+      "name": "NLog",
+      "nugetContentHash": "ZpLbXSi91tZJPjzNefE+3NugAkQtpWZpSLfZWJGcP1y8qMiXDKxW/nAQ+LYWo7GwH2iYsbKOdsLCK9S3BeRQxA==",
+      "projectUrl": "https://nlog-project.org/",
+      "version": "5.5.1"
+    },
+    {
+      "license": "BSD-3-Clause",
+      "name": "Polly",
+      "nugetContentHash": "0qR4f0OR8FeCAfLWcfwzAM7w6EmpUgwa22PgxKjcL25dEAto7sKpQQXbtxp38vVvK+V3RFkh/TeI7g/iUdoYIQ==",
+      "projectUrl": "https://github.com/App-vNext/Polly",
+      "version": "8.7.0"
+    },
+    {
+      "license": "BSD-3-Clause",
+      "name": "Polly.Core",
+      "nugetContentHash": "BS2t+nsBer16PIebCEPNBK5fgMisADQyRCd7K+BgkMWpFmSaiYE+rVVNpFhGRqUkJmNSLmw0uCNzHHWfgml28Q==",
+      "projectUrl": "https://github.com/App-vNext/Polly",
+      "version": "8.7.0"
+    },
+    {
+      "license": "MIT",
+      "name": "SharpZipLib",
+      "nugetContentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A==",
+      "projectUrl": "https://github.com/icsharpcode/SharpZipLib",
+      "version": "1.4.2"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Buffers",
+      "nugetContentHash": "lN6tZi7Q46zFzAbRYXTIvfXcyvQQgxnY7Xm6C6xQ9784dEL1amjM6S6Iw4ZpsvesAKnRVsM4scrDQaDqSClkjA==",
+      "projectUrl": "https://github.com/dotnet/maintenance-packages",
+      "version": "4.6.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.ComponentModel.Annotations",
+      "nugetContentHash": "dMkqfy2el8A8/I76n2Hi1oBFEbG1SfxD2l5nhwXV3XjlnOmwxJlQbYpJH4W51odnU9sARCSAgv7S3CyAFMkpYg==",
+      "projectUrl": "https://github.com/dotnet/runtime",
+      "version": "5.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Diagnostics.DiagnosticSource",
+      "nugetContentHash": "hYr3I9N9811e0Bjf2WNwAGGyTuAFbbTgX1RPLt/3Wbm68x3IGcX5Cl75CMmgT6WlNwLQ2tCCWfqYPpypjaf2xA==",
+      "projectUrl": "https://dot.net/",
+      "version": "7.0.2"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Diagnostics.EventLog",
+      "nugetContentHash": "4f3CBS22A2Y+M+shvdYzeWaEPYycZ3IaouaH+NxGLW6xoFahR1+L+YM8bt8NI3TQRZbqPBp/myt+6+JXc+IhRg==",
+      "projectUrl": "https://dot.net/",
+      "version": "9.0.18"
+    },
+    {
+      "license": "MIT",
+      "name": "System.IO.FileSystem.AccessControl",
+      "nugetContentHash": "SxHB3nuNrpptVk+vZ/F+7OHEpoHUIKKMl02bUmYHQr1r+glbZQxs7pRtsf4ENO29TVm2TH3AEeep2fJcy92oYw==",
+      "projectUrl": "https://github.com/dotnet/runtime",
+      "version": "5.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.IO.Pipelines",
+      "nugetContentHash": "qEePWsaq9LoEEIqhbGe6D5J8c9IqQOUuTzzV6wn1POlfdLkJliZY3OlB0j0f17uMWlqZYjH7txj+2YbyrIA8Yg==",
+      "projectUrl": "https://github.com/dotnet/runtime",
+      "version": "5.0.1"
+    },
+    {
+      "license": "MIT",
+      "name": "System.IO.Pipelines",
+      "nugetContentHash": "9AcBFLF9KZpCiv+xTN8emSsiF1FEq/DdswZrJgqlf37dKThJSXwCQ1QUfH24+k9X89C80CI0IQCZatdg0yj3Jw==",
+      "projectUrl": "https://dot.net/",
+      "version": "9.0.18"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Memory",
+      "nugetContentHash": "XIWiDvKPXaTveaB7HVganDlOCRoj03l+jrwNvcge/t8vhGYKvqV+dMv6G4SAX2NoNmN0wZfVPTAlFwZcZvVOUw==",
+      "projectUrl": "https://dot.net/",
+      "version": "4.5.5"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Numerics.Vectors",
+      "nugetContentHash": "UiLzLW+Lw6HLed1Hcg+8jSRttrbuXv7DANVj0DkL9g6EnnzbL75EB7EWsw5uRbhxd/4YdG8li5XizGWepmG3PQ==",
+      "projectUrl": "https://dot.net/",
+      "version": "4.4.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Runtime.CompilerServices.Unsafe",
+      "nugetContentHash": "/iUeP3tq1S0XdNNoMz5C9twLSrM/TH+qElHkXWaPvuNOt+99G75NrV0OS2EqHx5wMN7popYjpc8oTjC1y16DLg==",
+      "projectUrl": "https://dot.net/",
+      "version": "6.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Security.AccessControl",
+      "nugetContentHash": "dagJ1mHZO3Ani8GH0PHpPEe/oYO+rVdbQjvjJkBRNQkX4t0r1iaeGn8+/ybkSLEan3/slM0t59SVdHzuHf2jmw==",
+      "projectUrl": "https://github.com/dotnet/runtime",
+      "version": "5.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Security.Principal.Windows",
+      "nugetContentHash": "t0MGLukB5WAVU9bO3MGzvlGnyJPgUlcwerXn1kzBRjwLKixT96XV0Uza41W49gVd8zEMFu9vQEFlv0IOrytICA==",
+      "projectUrl": "https://github.com/dotnet/runtime",
+      "version": "5.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.ServiceProcess.ServiceController",
+      "nugetContentHash": "RpiFJKQ1A2Ch9amnz+dZTslMf0+cX7zXVmHUsSXeUvaqeBEeZHDnzDqxtVc+74UBB4WTbqtVlPsZDmaDJt5OPg==",
+      "projectUrl": "https://dot.net/",
+      "version": "9.0.18"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Text.Encoding.CodePages",
+      "nugetContentHash": "FFFZWE2sHSFVJLGBvcBT6zcTIHT7yxvQ5AMtc+BZh0oBWpT5jXTmKxI85tDkBieLoUK5Fg/8bbWGFvTS2oer+A==",
+      "projectUrl": "https://dot.net/",
+      "version": "9.0.18"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Text.Encodings.Web",
+      "nugetContentHash": "yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ==",
+      "projectUrl": "https://dot.net/",
+      "version": "8.0.0"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Text.Encodings.Web",
+      "nugetContentHash": "Uqybp2r2zFvSDKckcr30TbXRrjW16ihRFzdHVC8Jo8DwkRDJfBuPkXS7hqcUwRYE3ItHKeyfcbq/SpExNPuE2Q==",
+      "projectUrl": "https://dot.net/",
+      "version": "9.0.18"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Text.Json",
+      "nugetContentHash": "/xX8vajlGUp1FoGSNUJBJS+E/2TQjmcMoUzHePa+coPdLnFGPcolRHlybSZhKyAKj+sNDSFlLNYYLe8aEOElfA==",
+      "projectUrl": "https://dot.net/",
+      "version": "9.0.18"
+    },
+    {
+      "license": "MIT",
+      "name": "System.Threading.Tasks.Extensions",
+      "nugetContentHash": "zteT+G8xuGu6mS+mzDzYXbzS7rd3K6Fjb9RiZlYlJPam2/hU7JCBZBVEcywNuR+oZ1ncTvc/cq0faRr3P01OVg==",
+      "projectUrl": "https://dot.net/",
+      "version": "4.5.4"
+    },
+    {
+      "license": "MIT",
+      "name": "YamlDotNet",
+      "nugetContentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw==",
+      "projectUrl": "https://github.com/aaubry/YamlDotNet/wiki",
+      "version": "18.1.0"
+    }
+  ],
+  "schemaVersion": 1
+}
