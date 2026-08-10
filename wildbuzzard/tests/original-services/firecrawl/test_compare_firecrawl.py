@@ -18,27 +18,89 @@ SPEC.loader.exec_module(COMPARATOR)
 class FirecrawlComparatorTest(unittest.TestCase):
     def test_podman_storage_is_ephemeral_and_isolated(self) -> None:
         previous = COMPARATOR.os.environ.get("CONTAINERS_STORAGE_CONF")
+        previous_engine = COMPARATOR.os.environ.get("CONTAINERS_CONF")
         try:
-            with tempfile.TemporaryDirectory() as directory:
+            with (
+                tempfile.TemporaryDirectory() as directory,
+                tempfile.TemporaryDirectory() as runtime_directory,
+            ):
                 work = pathlib.Path(directory)
-                identity = COMPARATOR.configure_isolated_podman_storage(work)
+                runtime_base = pathlib.Path(runtime_directory)
+                runtime_base.chmod(0o700)
+                run_root = COMPARATOR.create_ephemeral_podman_run_root(runtime_base)
+                identity = COMPARATOR.configure_isolated_podman_storage(
+                    work, run_root
+                )
                 config_path = pathlib.Path(
                     COMPARATOR.os.environ["CONTAINERS_STORAGE_CONF"]
                 )
+                engine_config_path = pathlib.Path(
+                    COMPARATOR.os.environ["CONTAINERS_CONF"]
+                )
                 config = config_path.read_text(encoding="utf-8")
+                engine_config = engine_config_path.read_text(encoding="utf-8")
+                crun_wrapper = work / "crun-wrapper"
                 self.assertEqual(identity["driver"], "overlay")
                 self.assertTrue(identity["isolated"])
                 self.assertEqual(
                     identity["configSha256"], COMPARATOR.sha256_file(config_path)
                 )
                 self.assertIn(str(work / "podman-graph"), config)
-                self.assertIn(str(work / "podman-run"), config)
+                self.assertIn(str(run_root), config)
+                self.assertNotIn(str(work / "podman-run"), config)
+                self.assertTrue(identity["ephemeralUserRunRoot"])
+                self.assertEqual(identity["runtime"], "oracle-crun")
+                self.assertEqual(identity["runtimeFlags"], ["no-new-keyring"])
+                self.assertEqual(
+                    identity["engineConfigSha256"],
+                    COMPARATOR.sha256_file(engine_config_path),
+                )
+                self.assertIn('[engine]\nruntime = "oracle-crun"', engine_config)
+                self.assertIn(str(crun_wrapper), engine_config)
+                self.assertEqual(
+                    identity["runtimeWrapperSha256"],
+                    COMPARATOR.sha256_file(crun_wrapper),
+                )
+                self.assertIn(
+                    '("$argument" == create || "$argument" == run)',
+                    crun_wrapper.read_text(encoding="utf-8"),
+                )
+                self.assertIn(
+                    'arguments+=("--no-new-keyring")',
+                    crun_wrapper.read_text(encoding="utf-8"),
+                )
+                self.assertEqual(run_root.stat().st_mode & 0o777, 0o700)
                 self.assertEqual(config_path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(engine_config_path.stat().st_mode & 0o777, 0o600)
+                self.assertEqual(crun_wrapper.stat().st_mode & 0o777, 0o700)
+                COMPARATOR.subprocess.run(
+                    [
+                        str(crun_wrapper),
+                        "--root",
+                        str(work / "crun-root"),
+                        "create",
+                        "--help",
+                    ],
+                    check=True,
+                    stdout=COMPARATOR.subprocess.DEVNULL,
+                )
+                COMPARATOR.shutil.rmtree(run_root)
+                self.assertFalse(run_root.exists())
         finally:
             if previous is None:
                 COMPARATOR.os.environ.pop("CONTAINERS_STORAGE_CONF", None)
             else:
                 COMPARATOR.os.environ["CONTAINERS_STORAGE_CONF"] = previous
+            if previous_engine is None:
+                COMPARATOR.os.environ.pop("CONTAINERS_CONF", None)
+            else:
+                COMPARATOR.os.environ["CONTAINERS_CONF"] = previous_engine
+
+    def test_current_key_quota_is_bounded(self) -> None:
+        quota = COMPARATOR.current_key_quota()
+        self.assertLessEqual(quota["usage"], quota["keyQuota"])
+        self.assertLessEqual(quota["instantiated"], quota["instantiatedQuota"])
+        self.assertLessEqual(quota["byteUsage"], quota["byteQuota"])
 
     def test_published_port_cleanup_probe(self) -> None:
         listener = COMPARATOR.socket.socket(
@@ -115,6 +177,84 @@ class FirecrawlComparatorTest(unittest.TestCase):
             ),
             ["node:22-slim", "golang:1.24", "base"],
         )
+
+    def test_reference_build_arguments_are_exact_and_immutable(self) -> None:
+        root = pathlib.Path("/reference")
+        api = COMPARATOR.reference_image_build_command(
+            "api", "localhost/api:reference", root / "api.Dockerfile", root / "api"
+        )
+        playwright = COMPARATOR.reference_image_build_command(
+            "playwright",
+            "localhost/playwright:reference",
+            root / "playwright.Dockerfile",
+            root / "playwright",
+        )
+        self.assertEqual(
+            [api[index + 1] for index, item in enumerate(api) if item == "--build-arg"],
+            [f"GIT_SHA={COMPARATOR.FIRECRAWL_COMMIT}"],
+        )
+        self.assertEqual(
+            [
+                playwright[index + 1]
+                for index, item in enumerate(playwright)
+                if item == "--build-arg"
+            ],
+            ["PORT=3000"],
+        )
+        self.assertIn("--pull=never", api)
+        self.assertIn("--pull=never", playwright)
+        with self.assertRaisesRegex(RuntimeError, "Unknown Firecrawl"):
+            COMPARATOR.reference_image_build_command(
+                "candidate", "candidate", root / "Dockerfile", root
+            )
+
+    def test_playwright_build_port_matches_pinned_upstream_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = pathlib.Path(directory)
+            service = source / "apps" / "playwright-service-ts"
+            service.mkdir(parents=True)
+            (source / "docker-compose.yaml").write_text(
+                "x-common-env: &common-env\n"
+                "  PLAYWRIGHT_MICROSERVICE_URL: "
+                "${PLAYWRIGHT_MICROSERVICE_URL:-http://playwright-service:3000/scrape}\n"
+                "services:\n"
+                "  playwright-service:\n"
+                "    build: apps/playwright-service-ts\n"
+                "    environment:\n"
+                "      PORT: 3000\n",
+                encoding="utf-8",
+            )
+            dockerfile = service / "Dockerfile"
+            dockerfile.write_text(
+                "FROM node:22-slim\nARG PORT\nENV PORT=${PORT}\n\n"
+                "EXPOSE ${PORT}\n",
+                encoding="utf-8",
+            )
+            (service / "package.json").write_text(
+                json.dumps({
+                    "scripts": {"start": "node dist/api.js"},
+                    "packageManager": "pnpm@11.4.0",
+                }),
+                encoding="utf-8",
+            )
+            contract = COMPARATOR.verify_upstream_runtime_contract(source)
+            self.assertEqual(contract["playwrightPort"], 3000)
+            self.assertEqual(contract["playwrightBuildArguments"], ["PORT=3000"])
+            self.assertEqual(
+                contract["playwrightStartCommand"], ["node", "dist/api.js"]
+            )
+            self.assertEqual(
+                contract["composeSha256"],
+                COMPARATOR.sha256_file(source / "docker-compose.yaml"),
+            )
+            (source / "docker-compose.yaml").write_text(
+                (source / "docker-compose.yaml")
+                .read_text(encoding="utf-8")
+                .replace("PORT: 3000", "PORT: 3001"),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(RuntimeError, "runtime contract changed"):
+                COMPARATOR.verify_upstream_runtime_contract(source)
 
     def test_base_pull_orchestration_never_pulls_a_mutable_tag(self) -> None:
         class Recorder:
@@ -243,6 +383,10 @@ class FirecrawlComparatorTest(unittest.TestCase):
             "http://other-fixture.test/a",
         )
         self.assertEqual(
+            COMPARATOR.normalize_fixture_url("http://fixture.test:8080/a"),
+            "http://fixture.test/a",
+        )
+        self.assertEqual(
             COMPARATOR.normalize_fixture_url("https://example.test/a"),
             "https://example.test/a",
         )
@@ -333,6 +477,27 @@ class FirecrawlComparatorTest(unittest.TestCase):
         self.assertEqual(
             COMPARATOR.compare_gecko(scenario, reference, candidate), (True, [])
         )
+
+    def test_status_204_reference_difference_is_exact(self) -> None:
+        scenario = next(
+            case
+            for case in COMPARATOR.scenario_definitions(False)
+            if case["name"] == "status-204"
+        )
+        reference = {
+            "apiStatus": 500,
+            "api": {"success": False, "code": "SCRAPE_ALL_ENGINES_FAILED"},
+        }
+        self.assertEqual(COMPARATOR.evaluate_reference(scenario, reference), (True, []))
+        candidate = {
+            "status": 204,
+            "contentType": "",
+            "finalUrl": "http://fixture.test/status/204",
+            "bodySha256": COMPARATOR.sha256_bytes(b""),
+        }
+        self.assertEqual(COMPARATOR.compare_gecko(scenario, reference, candidate), (True, []))
+        reference["apiStatus"] = 200
+        self.assertFalse(COMPARATOR.evaluate_reference(scenario, reference)[0])
 
     def test_gecko_stress_requires_a_bounded_failure(self) -> None:
         scenario = {"geckoError": ["response", "serialized output"]}
