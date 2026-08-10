@@ -13,11 +13,12 @@ allowed without placing the capability in a URL, but rejects a mismatched Host,
 cross-origin Origin, or cross-site Fetch Metadata request. The gateway emits no
 CORS headers and does not log requests.
 
-The supervisor starts:
+The browser starts or reconnects to the detached service with:
 
 ```text
 <runtime>/python/bin/python3 -I <runtime>/libexec/searxng_service.py \
   --runtime-root <immutable-runtime> \
+  start \
   --data-root <xdg-data>/wildbuzzard/search/searxng \
   --cache-root <xdg-cache>/wildbuzzard/search/searxng \
   --runtime-dir <xdg-runtime>/wildbuzzard-search \
@@ -25,31 +26,68 @@ The supervisor starts:
   --owner-instance-id <opaque-owner-id>
 ```
 
+The same launcher supports `status`, `stop`, `restart`, and the foreground
+`serve` operation. `start` returns only after an authenticated health check.
+The service is placed in a detached session with closed standard streams and
+file descriptors, so browser shutdown does not terminate it. Stop and restart
+validate the private connection record, process start time, executable digest,
+owner identity, and authenticated `/v1/identity` response before signaling the
+recorded PID. On supported Linux kernels the controller opens a pidfd after
+validation, revalidates `/proc` identity, and signals only that pinned process.
+The fallback path revalidates the complete process identity immediately before
+each PID signal.
+
 The runtime directory and data directory are mode 0700. The connection record,
 launch lock, generated settings, installation secret, and capability are mode
-0600. A nonblocking file lock prevents two owners from starting the component.
-Reconnects must authenticate `/v1/identity` and compare every recorded process,
-executable, data-root, owner, protocol, and runtime field before reuse or
-termination.
+0600. The backend socket is mode 0600 inside an atomically allocated mode-0700
+directory under `/tmp`. Its short ASCII name is bound to the user, data-root,
+and owner identities, so long or non-ASCII profile paths cannot exceed the Unix
+socket path limit. The service verifies the directory's device, inode,
+ownership, and mode before use and cleanup; it never follows a replacement or
+recursively removes the directory. A nonblocking file lock prevents two owners
+from starting the component. Reconnects must authenticate `/v1/identity` and
+compare every recorded process, executable, data-root, owner, protocol, and
+runtime field before reuse or termination.
 
-The record schema is:
+Accepted sockets have a five-second read timeout. If all 16 request workers are
+occupied, the accept thread waits at most 250 milliseconds for a slot and then
+closes the new connection. Partial headers or bodies therefore cannot pin the
+gateway indefinitely.
+
+The launcher and backend receive a minimal deterministic environment with
+`TZ=UTC`, `PYTHONHASHSEED=0`, and the `C.UTF-8` locale. Optional SearXNG plugins
+are excluded from the generated settings: searches use only the reviewed
+engine policy, and startup never downloads mutable plugin data. If a client
+disconnects after submitting a request, the gateway closes the Unix backend
+connection, releases the request worker, and does not attempt a second response
+on the closed client socket.
+
+The canonical record is single-line UTF-8 JSON with keys sorted lexically, no
+insignificant whitespace, and one trailing newline. It contains exactly the
+fields below. `createdAt` and `lastHealthAt` are JSON integers containing Unix
+epoch milliseconds; booleans, fractional values, and non-finite values are
+invalid. Both values are positive and no greater than
+`8,640,000,000,000,000`, and `lastHealthAt` is greater than or equal to
+`createdAt`.
+
+Expanded for readability, the schema is:
 
 ```json
 {
-  "version": 1,
+  "address": "127.0.0.1",
+  "createdAt": 1786320000000,
+  "dataRootId": "opaque",
+  "executablePath": "/immutable/runtime/python/bin/python3.14",
+  "executableSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "lastHealthAt": 1786320001000,
+  "ownerInstanceId": "opaque",
+  "pid": 1234,
+  "port": 49152,
+  "processStartTime": "12345678",
   "protocolVersion": 1,
   "runtimeVersion": "2026.8.6+b023a28ba",
-  "address": "127.0.0.1",
-  "port": 49152,
-  "token": "opaque",
-  "pid": 1234,
-  "processStartTime": "12345678",
-  "executablePath": "/immutable/runtime/python/bin/python3.14",
-  "executableSha256": "...",
-  "dataRootId": "opaque",
-  "ownerInstanceId": "opaque",
-  "createdAt": "2026-08-10T00:00:00Z",
-  "lastHealthAt": "2026-08-10T00:00:01Z"
+  "token": "opaque-base64url-capability-at-least-32-bytes",
+  "version": 1
 }
 ```
 

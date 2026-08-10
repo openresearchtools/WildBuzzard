@@ -1,0 +1,3 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# package	version	archive	sha256	size	generator
+granian-cargo-vendor	2.7.9	granian-2.7.9-cargo-vendor.tar.xz	1aad25bfcb3f0f8753363d27e73199ea6ba30beee179a84f01a4e8ae213da1a8	30147144	cargo-vendor-1.96.0-from-granian-Cargo.lock
