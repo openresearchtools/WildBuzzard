@@ -90,14 +90,19 @@ fi
 searxng_runtime="${stage}/opt/wildbuzzard/runtime/search/wildbuzzard-searxng-runtime.zip"
 searxng_source="${stage}/opt/wildbuzzard/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
 searxng_inventory="${stage}/opt/wildbuzzard/notices/source/searxng-release.cdx.json"
-if [[ -e "${searxng_runtime}" || -L "${searxng_runtime}" || \
-  -e "${searxng_source}" || -L "${searxng_source}" || \
-  -e "${searxng_inventory}" || -L "${searxng_inventory}" ]]; then
-  python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
-    "${searxng_runtime}" \
-    --source "${searxng_source}" \
-    --inventory "${searxng_inventory}"
-fi
+for searxng_file in \
+  "${searxng_runtime}" \
+  "${searxng_source}" \
+  "${searxng_inventory}"; do
+  if [[ ! -f "${searxng_file}" || -L "${searxng_file}" ]]; then
+    echo "Release archive is missing a required SearXNG runtime, source, or inventory" >&2
+    exit 1
+  fi
+done
+python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
+  "${searxng_runtime}" \
+  --source "${searxng_source}" \
+  --inventory "${searxng_inventory}"
 
 ln -s /opt/wildbuzzard/wildbuzzard "${stage}/usr/bin/wildbuzzard"
 install -m 0644 \

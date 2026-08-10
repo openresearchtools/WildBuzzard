@@ -159,6 +159,15 @@ case "${action}" in
     ;;
 esac
 
+case "${action}" in
+  package|appimage|all)
+    if [[ -z "${searxng_runtime}" || -z "${searxng_source}" ]]; then
+      echo "${action} requires --searxng-runtime and --searxng-source" >&2
+      exit 2
+    fi
+    ;;
+esac
+
 if [[ ! "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
   echo "--jobs must be a positive integer" >&2
   exit 2

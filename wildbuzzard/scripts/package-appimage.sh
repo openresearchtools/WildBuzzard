@@ -92,14 +92,19 @@ cp -a -- "${browser_root}" "${app_dir}/usr/lib/wildbuzzard"
 searxng_runtime="${app_dir}/usr/lib/wildbuzzard/runtime/search/wildbuzzard-searxng-runtime.zip"
 searxng_source="${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
 searxng_inventory="${app_dir}/usr/lib/wildbuzzard/notices/source/searxng-release.cdx.json"
-if [[ -e "${searxng_runtime}" || -L "${searxng_runtime}" || \
-  -e "${searxng_source}" || -L "${searxng_source}" || \
-  -e "${searxng_inventory}" || -L "${searxng_inventory}" ]]; then
-  python3 -I -B "${product_dir}/scripts/validate-searxng-runtime-archive.py" \
-    "${searxng_runtime}" \
-    --source "${searxng_source}" \
-    --inventory "${searxng_inventory}"
-fi
+for searxng_file in \
+  "${searxng_runtime}" \
+  "${searxng_source}" \
+  "${searxng_inventory}"; do
+  if [[ ! -f "${searxng_file}" || -L "${searxng_file}" ]]; then
+    echo "Release archive is missing a required SearXNG runtime, source, or inventory" >&2
+    exit 1
+  fi
+done
+python3 -I -B "${product_dir}/scripts/validate-searxng-runtime-archive.py" \
+  "${searxng_runtime}" \
+  --source "${searxng_source}" \
+  --inventory "${searxng_inventory}"
 install -m 755 "${product_dir}/packaging/appimage/AppRun" "${app_dir}/AppRun"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/wildbuzzard.desktop"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/usr/share/applications/wildbuzzard.desktop"
@@ -112,14 +117,11 @@ if [[ -z "${version}" ]]; then
   version="development"
 fi
 
-case "$(uname -m)" in
-  x86_64) appimage_arch="x86_64" ;;
-  aarch64|arm64) appimage_arch="aarch64" ;;
-  *)
-    echo "Unsupported AppImage architecture: $(uname -m)" >&2
-    exit 2
-    ;;
-esac
+if [[ "$(uname -m)" != "x86_64" ]]; then
+  echo "Unsupported AppImage architecture: $(uname -m)" >&2
+  exit 2
+fi
+appimage_arch="x86_64"
 
 appimage_path="${output_dir}/WildBuzzard-${version}-${appimage_arch}.AppImage"
 ARCH="${appimage_arch}" APPIMAGE_EXTRACT_AND_RUN=1 "${appimagetool_path}" "${app_dir}" "${appimage_path}"

@@ -35,9 +35,32 @@ def invalid_release_archive(root: pathlib.Path, name: str) -> pathlib.Path:
     )
     with zipfile.ZipFile(runtime / "wildbuzzard-searxng-runtime.zip", "w") as archive:
         archive.writestr("wildbuzzard-runtime.json", "{}\n")
+    notices = release / "notices" / "source"
+    notices.mkdir(parents=True)
+    (notices / "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz").write_bytes(
+        b"invalid"
+    )
+    (notices / "searxng-release.cdx.json").write_text(
+        "{}\n", encoding="utf-8"
+    )
     package = root / name
     with tarfile.open(package, "w:gz") as archive:
         archive.add(root / "release" / "wildbuzzard", arcname="wildbuzzard")
+    return package
+
+
+def release_archive_without_searxng(root: pathlib.Path, name: str) -> pathlib.Path:
+    release = root / "release" / "wildbuzzard"
+    release.mkdir(parents=True)
+    browser = release / "wildbuzzard"
+    browser.write_text("#!/bin/sh\n", encoding="utf-8")
+    browser.chmod(0o755)
+    (release / "application.ini").write_text(
+        "Version=validation-test\n", encoding="utf-8"
+    )
+    package = root / name
+    with tarfile.open(package, "w:gz") as archive:
+        archive.add(release, arcname="wildbuzzard")
     return package
 
 
@@ -167,6 +190,60 @@ class ShippingContractTests(unittest.TestCase):
             self.assertIn("SearXNG runtime validation failed", result.stderr)
             self.assertFalse(marker.exists())
 
+    def test_release_actions_require_searxng_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            for action in ("package", "appimage", "all"):
+                result = subprocess.run(
+                    [
+                        CHECKOUT
+                        / "wildbuzzard"
+                        / "scripts"
+                        / "build-linux-external.sh",
+                        "--action",
+                        action,
+                        "--build-root",
+                        pathlib.Path(temporary) / action,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(
+                    "requires --searxng-runtime and --searxng-source",
+                    result.stderr,
+                )
+
+    def test_appimage_rejects_a_release_without_searxng(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            package = release_archive_without_searxng(root, "wildbuzzard.tar.gz")
+            marker = root / "appimagetool-ran"
+            appimagetool = root / "appimagetool"
+            appimagetool.write_text(
+                f"#!/bin/sh\ntouch -- {marker}\n", encoding="utf-8"
+            )
+            appimagetool.chmod(0o755)
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh",
+                    "--dist-dir",
+                    root,
+                    "--output-dir",
+                    root / "output",
+                    "--appimagetool",
+                    appimagetool,
+                    "--package",
+                    package,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing a required SearXNG", result.stderr)
+            self.assertFalse(marker.exists())
+
     def test_debian_rejects_an_invalid_runtime_before_packaging(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -190,6 +267,30 @@ class ShippingContractTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("SearXNG runtime validation failed", result.stderr)
+
+    def test_debian_rejects_a_release_without_searxng(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            package = release_archive_without_searxng(
+                root, "wildbuzzard-1.0.en-US.linux-x86_64.tar.gz"
+            )
+            dist = root / "dist"
+            dist.mkdir()
+            package.rename(dist / package.name)
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard" / "scripts" / "package-deb.sh",
+                    "--dist-dir",
+                    dist,
+                    "--output-dir",
+                    root / "output",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing a required SearXNG", result.stderr)
 
     def test_browser_keeps_search_capability_out_of_content_urls(self) -> None:
         supervisor = (
