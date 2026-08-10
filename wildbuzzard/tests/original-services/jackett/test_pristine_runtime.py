@@ -11,6 +11,7 @@ from pristine_runtime import (
     inventory_digest,
     runtime_inventory,
     verify_runtime,
+    write_build_record,
 )
 
 
@@ -85,6 +86,34 @@ class PristineRuntimeTest(unittest.TestCase):
             (runtime / "link").symlink_to(target)
             with self.assertRaisesRegex(RuntimeError, "link or special"):
                 runtime_inventory(runtime)
+
+    def test_podman_bare_image_id_is_normalized(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            runtime = root / "runtime"
+            runtime.mkdir()
+            (runtime / "jackett").write_bytes(b"apphost")
+            inspect = root / "inspect.json"
+            inspect.write_text(
+                json.dumps([
+                    {
+                        "Architecture": "amd64",
+                        "Digest": "sha256:" + "a" * 64,
+                        "Id": "b" * 64,
+                        "Os": "linux",
+                    }
+                ]),
+                encoding="utf-8",
+            )
+            output = root / "record.json"
+
+            record = write_build_record(runtime, output, inspect)
+
+            self.assertEqual(record["sdkImageId"], "sha256:" + "b" * 64)
+            self.assertEqual(
+                json.loads(output.read_text(encoding="utf-8"))["sdkImageId"],
+                "sha256:" + "b" * 64,
+            )
 
 
 if __name__ == "__main__":

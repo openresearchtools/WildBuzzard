@@ -87,6 +87,8 @@ def write_build_record(runtime, destination, image_inspect):
     architecture = image.get("Architecture") or image.get("architecture")
     operating_system = image.get("Os") or image.get("os")
     image_id = image.get("Id") or image.get("id")
+    if isinstance(image_id, str) and re.fullmatch(r"[0-9a-f]{64}", image_id):
+        image_id = f"sha256:{image_id}"
     if not isinstance(digest, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
         raise RuntimeError("SDK platform digest is unavailable")
     if (operating_system, architecture) != ("linux", "amd64"):

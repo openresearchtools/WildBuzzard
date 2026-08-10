@@ -1,6 +1,6 @@
 {
-  "runtimeInventorySha256": null,
+  "runtimeInventorySha256": "9d4b8a87844f0cc673796f1c61412633621f7225bd86381379dcce1711164bc4",
   "schemaVersion": 1,
-  "sdkImageId": null,
-  "sdkPlatformDigest": null
+  "sdkImageId": "sha256:dbf45fd250dc73f2e8f9c90a3560116a24b7a8d52dda2699ca8ed18608b0814b",
+  "sdkPlatformDigest": "sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164"
 }
