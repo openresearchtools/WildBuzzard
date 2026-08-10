@@ -58,14 +58,32 @@ option(
 )
 
 
-@depends("--with-wildbuzzard-torrent-runtime")
+@depends("--with-wildbuzzard-torrent-runtime", build_environment.topsrcdir)
 @imports("os")
-def wildbuzzard_torrent_runtime(value):
+@imports("sys")
+def wildbuzzard_torrent_runtime(value, topsrcdir):
     if not value:
         return
     path = os.path.abspath(value[0])
     if not os.path.isfile(path):
         die(f"Cannot find WebTorrent runtime at {path}")
+    check_cmd_output(
+        sys.executable,
+        "-I",
+        "-B",
+        os.path.join(
+            topsrcdir,
+            "wildbuzzard",
+            "scripts",
+            "validate-host-native-runtime-archive.py",
+        ),
+        path,
+        "--kind",
+        "torrent",
+        "--lock",
+        os.path.join(topsrcdir, "wildbuzzard", "torrent-runtime-lock.json"),
+        onerror=lambda: die("WebTorrent runtime does not match the release pin"),
+    )
     return path
 
 
@@ -86,14 +104,32 @@ option(
 )
 
 
-@depends("--with-wildbuzzard-jackett-mini-runtime")
+@depends("--with-wildbuzzard-jackett-mini-runtime", build_environment.topsrcdir)
 @imports("os")
-def wildbuzzard_jackett_mini_runtime(value):
+@imports("sys")
+def wildbuzzard_jackett_mini_runtime(value, topsrcdir):
     if not value:
         return
     path = os.path.abspath(value[0])
     if not os.path.isfile(path):
         die(f"Cannot find Jackett Mini runtime at {path}")
+    check_cmd_output(
+        sys.executable,
+        "-I",
+        "-B",
+        os.path.join(
+            topsrcdir,
+            "wildbuzzard",
+            "scripts",
+            "validate-host-native-runtime-archive.py",
+        ),
+        path,
+        "--kind",
+        "jackett-mini",
+        "--lock",
+        os.path.join(topsrcdir, "wildbuzzard", "jackett-mini-runtime-lock.json"),
+        onerror=lambda: die("Jackett Mini runtime does not match the release pin"),
+    )
     return path
 
 

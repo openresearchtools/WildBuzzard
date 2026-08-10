@@ -104,6 +104,23 @@ python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
   --source "${searxng_source}" \
   --inventory "${searxng_inventory}"
 
+torrent_runtime="${stage}/opt/wildbuzzard/runtime/torrent/wildbuzzard-torrent-runtime.zip"
+jackett_runtime="${stage}/opt/wildbuzzard/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip"
+for runtime_file in "${torrent_runtime}" "${jackett_runtime}"; do
+  if [[ ! -f "${runtime_file}" || -L "${runtime_file}" ]]; then
+    echo "Release archive is missing a required torrent or Jackett Mini runtime" >&2
+    exit 1
+  fi
+done
+python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
+  "${torrent_runtime}" \
+  --kind torrent \
+  --lock "${script_dir}/../torrent-runtime-lock.json"
+python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
+  "${jackett_runtime}" \
+  --kind jackett-mini \
+  --lock "${script_dir}/../jackett-mini-runtime-lock.json"
+
 arti_binary="${stage}/opt/wildbuzzard/runtime/tor/arti"
 arti_config="${stage}/opt/wildbuzzard/runtime/tor/arti.toml"
 arti_provenance="${stage}/opt/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"

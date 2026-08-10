@@ -21,9 +21,13 @@ if CONFIG["WILDBUZZARD_PI_WEB_RUNTIME"]:
 if CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]:
     GENERATED_FILES += ["wildbuzzard-torrent-runtime.zip"]
     torrent_runtime = GENERATED_FILES["wildbuzzard-torrent-runtime.zip"]
-    torrent_runtime.script = "copy_file.py"
-    torrent_runtime.flags = [CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]]
-    torrent_runtime.extra_deps = ["%" + CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]]
+    torrent_runtime.script = "copy_validated_host_native_runtime.py"
+    torrent_runtime.flags = [CONFIG["WILDBUZZARD_TORRENT_RUNTIME"], "torrent"]
+    torrent_runtime.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_TORRENT_RUNTIME"],
+        "torrent-runtime-lock.json",
+        "scripts/validate-host-native-runtime-archive.py",
+    ]
 
     FINAL_TARGET_FILES.runtime["torrent"] += [
         "!wildbuzzard-torrent-runtime.zip",
@@ -32,9 +36,16 @@ if CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]:
 if CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"]:
     GENERATED_FILES += ["wildbuzzard-jackett-mini-runtime.zip"]
     jackett_mini_runtime = GENERATED_FILES["wildbuzzard-jackett-mini-runtime.zip"]
-    jackett_mini_runtime.script = "copy_file.py"
-    jackett_mini_runtime.flags = [CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"]]
-    jackett_mini_runtime.extra_deps = ["%" + CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"]]
+    jackett_mini_runtime.script = "copy_validated_host_native_runtime.py"
+    jackett_mini_runtime.flags = [
+        CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"],
+        "jackett-mini",
+    ]
+    jackett_mini_runtime.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"],
+        "jackett-mini-runtime-lock.json",
+        "scripts/validate-host-native-runtime-archive.py",
+    ]
 
     FINAL_TARGET_FILES.runtime["jackett-mini"] += [
         "!wildbuzzard-jackett-mini-runtime.zip",

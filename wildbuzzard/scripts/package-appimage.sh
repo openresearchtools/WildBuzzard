@@ -124,6 +124,14 @@ done
 python3 -I -B "${product_dir}/scripts/validate-pi-web-runtime-archive.py" \
   "${app_dir}/usr/lib/wildbuzzard/runtime/pi-web/wildbuzzard-pi-web-runtime.zip" \
   --lock "${product_dir}/pi-web-runtime-lock.json"
+python3 -I -B "${product_dir}/scripts/validate-host-native-runtime-archive.py" \
+  "${app_dir}/usr/lib/wildbuzzard/runtime/torrent/wildbuzzard-torrent-runtime.zip" \
+  --kind torrent \
+  --lock "${product_dir}/torrent-runtime-lock.json"
+python3 -I -B "${product_dir}/scripts/validate-host-native-runtime-archive.py" \
+  "${app_dir}/usr/lib/wildbuzzard/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip" \
+  --kind jackett-mini \
+  --lock "${product_dir}/jackett-mini-runtime-lock.json"
 python3 -I -B "${product_dir}/scripts/arti-runtime-provenance.py" validate \
   --binary "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti" \
   --pin-config "${product_dir}/third_party/arti.toml" \

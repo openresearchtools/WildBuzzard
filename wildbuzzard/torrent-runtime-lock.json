@@ -1,0 +1,90 @@
+{
+  "archive": {
+    "sha256": "3432184be1f622822d94eb8599ba627bc508b60cfb24e8c04f815644b1bf86d1",
+    "size": 50716581
+  },
+  "component": "wildbuzzard-torrent-runtime",
+  "manifest": {
+    "path": "wildbuzzard-torrent-runtime.json",
+    "sha256": "21bc856e9918a40179d75eea139d4cfc08204af27e7bb481bc37d11511ebb999"
+  },
+  "manifestPins": {
+    "architecture": "x86_64",
+    "component": "wildbuzzard-torrent-runtime",
+    "correspondingSource": "share/wildbuzzard/torrent/wildbuzzard-torrent-runtime-1.0.0-3047ddb3ab27-source.tar.xz",
+    "dependencyLockSha256": "e6776e747f1c5c5587a4cefee05aa529e3573b3d039c7aa69ee1eb2cf05fccf7",
+    "licenseLocations": [
+      "WEBTORRENT-LICENSE",
+      "WILDBUZZARD-LICENSE",
+      "node/LICENSE"
+    ],
+    "nodeArchiveSha256": "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307",
+    "nodeVersion": "22.23.2",
+    "packageLockSha256": "e6776e747f1c5c5587a4cefee05aa529e3573b3d039c7aa69ee1eb2cf05fccf7",
+    "payloadSha256": "d751669b86886991cc660cae4523bb7019a692a9f224659670286894b92f3b81",
+    "platform": "linux-x64",
+    "protocolVersion": 1,
+    "sbom": "share/wildbuzzard/torrent/sbom.cdx.json",
+    "schema": 3,
+    "sourceSha256": "bd716a31599cab3b2bd0ad985b751fb82712d746106e78e9fda172802a390c41",
+    "utpBuiltFromSource": true,
+    "version": "1.0.0",
+    "webTorrentImportCommit": "e75f75c7ac6b755c2eb36842c51806da8ff560ff",
+    "webTorrentVersion": "3.0.21",
+    "wildbuzzardCommit": "3047ddb3ab27f9eee0e6de6ef4cd6ac3ccc1a559"
+  },
+  "requiredFiles": {
+    "WEBTORRENT-LICENSE": {
+      "executable": false,
+      "sha256": "821ea8b64b4994190b94bd629bbd897ba39cd25f7fb9747b70eec61f73dee44a",
+      "size": 1101
+    },
+    "WILDBUZZARD-LICENSE": {
+      "executable": false,
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "size": 34523
+    },
+    "app/package-lock.json": {
+      "executable": false,
+      "sha256": "e6776e747f1c5c5587a4cefee05aa529e3573b3d039c7aa69ee1eb2cf05fccf7",
+      "size": 69879
+    },
+    "app/package.json": {
+      "executable": false,
+      "sha256": "e53e1ca013e245962b8b163a08091ebb56ba3253bec56ed30d12260015067809",
+      "size": 495
+    },
+    "app/service.mjs": {
+      "executable": false,
+      "sha256": "a087a58fb3a1394856856fa0bfe641975faaab795e61d6710370d668fcb9c408",
+      "size": 64848
+    },
+    "bin/wildbuzzard-torrent": {
+      "executable": true,
+      "sha256": "728707cc859bbe62b6497a41028c838e0d033451e17ee3556639f8401e7ee94b",
+      "size": 153
+    },
+    "node/LICENSE": {
+      "executable": false,
+      "sha256": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4",
+      "size": 145485
+    },
+    "node/bin/node": {
+      "executable": true,
+      "sha256": "3517c2df0b2f8cd7f422b4b8450ef81c6889f08eb03e281d6de9079b15e6a327",
+      "size": 124836408
+    },
+    "share/wildbuzzard/torrent/sbom.cdx.json": {
+      "executable": false,
+      "sha256": "dcd634521d10be0049a71c182a897afd5acd02cc0f9bbcd58895cf9e9b46b270",
+      "size": 83816
+    },
+    "share/wildbuzzard/torrent/wildbuzzard-torrent-runtime-1.0.0-3047ddb3ab27-source.tar.xz": {
+      "executable": false,
+      "sha256": "bd716a31599cab3b2bd0ad985b751fb82712d746106e78e9fda172802a390c41",
+      "size": 963028
+    }
+  },
+  "schemaVersion": 1,
+  "sourceDateEpoch": 1786375860
+}

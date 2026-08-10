@@ -122,6 +122,10 @@ if [[ -n "${torrent_runtime}" ]]; then
     echo "--torrent-runtime must name a ZIP file" >&2
     exit 2
   fi
+  python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
+    "${torrent_runtime}" \
+    --kind torrent \
+    --lock "${source_repo}/wildbuzzard/torrent-runtime-lock.json"
 fi
 
 if [[ -n "${jackett_mini_runtime}" ]]; then
@@ -130,6 +134,10 @@ if [[ -n "${jackett_mini_runtime}" ]]; then
     echo "--jackett-mini-runtime must name a ZIP file" >&2
     exit 2
   fi
+  python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
+    "${jackett_mini_runtime}" \
+    --kind jackett-mini \
+    --lock "${source_repo}/wildbuzzard/jackett-mini-runtime-lock.json"
 fi
 
 if [[ -n "${searxng_runtime}" || -n "${searxng_source}" ]]; then
