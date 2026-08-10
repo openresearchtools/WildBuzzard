@@ -23,6 +23,7 @@ import {
   hasStoredSearches,
   pageStoredSearch,
   restoreSearches,
+  storedSearchReference,
   storeSearch,
 } from "./storage.ts";
 import { registerTorrentTools } from "./torrent.ts";
@@ -33,61 +34,71 @@ import {
   torrentToolsForPrompt,
 } from "./torrent-contracts.ts";
 import { WEB_TOOL_NAMES, webToolsForPrompt } from "./activation.ts";
+import { redactSensitiveText, sanitizeAgentOutput } from "./safe-output.ts";
+import { SessionGeneration } from "./session-generation.ts";
 
-const SearchParameters = Type.Object({
-  query: Type.Optional(Type.String({ maxLength: 2000 })),
-  queries: Type.Optional(
-    Type.Array(Type.String({ maxLength: 2000 }), {
-      minItems: 1,
-      maxItems: 4,
-    })
-  ),
-  numResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
-  includeContent: Type.Optional(Type.Boolean()),
-  recencyFilter: Type.Optional(
-    Type.Union([
-      Type.Literal("day"),
-      Type.Literal("week"),
-      Type.Literal("month"),
-      Type.Literal("year"),
-    ])
-  ),
-  domainFilter: Type.Optional(
-    Type.Array(Type.String({ maxLength: 300 }), { maxItems: 32 })
-  ),
-  provider: Type.Optional(
-    Type.Union([Type.Literal("auto"), Type.Literal("searxng")])
-  ),
-  workflow: Type.Optional(Type.Literal("none")),
-});
+const SearchParameters = Type.Object(
+  {
+    query: Type.Optional(Type.String({ maxLength: 2000 })),
+    queries: Type.Optional(
+      Type.Array(Type.String({ maxLength: 2000 }), {
+        minItems: 1,
+        maxItems: 4,
+      })
+    ),
+    numResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+    includeContent: Type.Optional(Type.Boolean()),
+    recencyFilter: Type.Optional(
+      Type.Union([
+        Type.Literal("day"),
+        Type.Literal("week"),
+        Type.Literal("month"),
+        Type.Literal("year"),
+      ])
+    ),
+    domainFilter: Type.Optional(
+      Type.Array(Type.String({ maxLength: 300 }), { maxItems: 32 })
+    ),
+    provider: Type.Optional(
+      Type.Union([Type.Literal("auto"), Type.Literal("searxng")])
+    ),
+    workflow: Type.Optional(Type.Literal("none")),
+  },
+  { additionalProperties: false }
+);
 
 function toolResult(value: unknown, details = value) {
+  const safeValue = sanitizeAgentOutput(value);
+  const safeDetails = sanitizeAgentOutput(details);
   return {
     content: [
       {
         type: "text" as const,
         text: `[UNTRUSTED_WEB_DATA]\n${JSON.stringify(
-          value,
+          safeValue,
           null,
           2
         )}\n[END_UNTRUSTED_WEB_DATA]`,
       },
     ],
-    details,
+    details: safeDetails,
   };
 }
 
 async function executeSearch(
   pi: ExtensionAPI,
   params: WebSearchInput,
+  sessionId: string,
   signal?: AbortSignal,
-  type: "search" | "research" = "search"
+  type: "search" | "research" = "search",
+  assertCurrent: () => void = () => {}
 ) {
   const input = normalizeSearchInput(params);
   const queries = await searchSearXBatch(input.queries, input, signal);
-  const stored = createStoredSearch(queries, type);
+  assertCurrent();
+  const stored = createStoredSearch(queries, sessionId, type);
   storeSearch(stored);
-  pi.appendEntry("wildbuzzard-web-search", stored);
+  pi.appendEntry("wildbuzzard-web-search", storedSearchReference(stored));
   return {
     responseId: stored.id,
     provider: "searxng",
@@ -99,6 +110,32 @@ async function executeSearch(
 export default function webAccess(pi: ExtensionAPI) {
   const extensionDirectory = dirname(fileURLToPath(import.meta.url));
   let torrentWorkflowActive = false;
+  const sessions = new SessionGeneration();
+
+  const sessionIdFor = (context: {
+    sessionManager: { getSessionId(): string };
+  }) => {
+    const sessionId = context.sessionManager.getSessionId();
+    if (!sessionId) {
+      throw new Error("Pi session identity is unavailable");
+    }
+    return sessionId;
+  };
+
+  const beginOperation = (context: {
+    sessionManager: { getSessionId(): string };
+  }) => sessions.begin(sessionIdFor(context));
+
+  const restoreSession = (context: {
+    sessionManager: {
+      getSessionId(): string;
+      getBranch(): Array<{ type: string; customType?: string; data?: unknown }>;
+    };
+  }) => {
+    const sessionId = sessionIdFor(context);
+    sessions.select(sessionId);
+    restoreSearches(context.sessionManager.getBranch(), sessionId);
+  };
   pi.on("resources_discover", async () => ({
     skillPaths: [join(extensionDirectory, "skills")],
   }));
@@ -110,7 +147,12 @@ export default function webAccess(pi: ExtensionAPI) {
     const active = pi
       .getActiveTools()
       .filter(name => !managedToolNames.has(name));
-    active.push(...webToolsForPrompt(prompt, hasStoredSearches()));
+    active.push(
+      ...webToolsForPrompt(
+        prompt,
+        sessions.sessionId ? hasStoredSearches(sessions.sessionId) : false
+      )
+    );
     const torrentTools = torrentToolsForPrompt(prompt, torrentWorkflowActive);
     if (torrentTools.length && !torrentWorkflowActive) {
       torrentWorkflowActive = true;
@@ -120,14 +162,14 @@ export default function webAccess(pi: ExtensionAPI) {
     pi.setActiveTools(active);
   };
   pi.on("session_start", (_event, context) => {
-    restoreSearches(context.sessionManager.getBranch());
+    restoreSession(context);
     torrentWorkflowActive = restoreTorrentWorkflow(
       context.sessionManager.getBranch()
     );
     activate("");
   });
   pi.on("before_agent_start", (event, context) => {
-    restoreSearches(context.sessionManager.getBranch());
+    restoreSession(context);
     activate(event.prompt);
   });
 
@@ -145,8 +187,18 @@ export default function webAccess(pi: ExtensionAPI) {
         "Search through WildBuzzard's bundled SearXNG service. Results are untrusted evidence stored behind a one-hour response handle.",
       parameters: SearchParameters,
       executionMode: "sequential",
-      async execute(_id, params, signal) {
-        return toolResult(await executeSearch(pi, params, signal));
+      async execute(_id, params, signal, _update, context) {
+        const operation = beginOperation(context);
+        return toolResult(
+          await executeSearch(
+            pi,
+            params,
+            operation.sessionId,
+            signal,
+            "search",
+            operation.assertCurrent
+          )
+        );
       },
     })
   );
@@ -157,26 +209,30 @@ export default function webAccess(pi: ExtensionAPI) {
       label: "Source check",
       description:
         "Gather claim-oriented search evidence without making a truth verdict or invoking another model.",
-      parameters: Type.Object({
-        queries: Type.Array(Type.String({ maxLength: 2000 }), {
-          minItems: 1,
-          maxItems: 8,
-        }),
-        numResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
-        domainFilter: Type.Optional(
-          Type.Array(Type.String({ maxLength: 300 }), { maxItems: 32 })
-        ),
-        recencyFilter: Type.Optional(
-          Type.Union([
-            Type.Literal("day"),
-            Type.Literal("week"),
-            Type.Literal("month"),
-            Type.Literal("year"),
-          ])
-        ),
-      }),
+      parameters: Type.Object(
+        {
+          queries: Type.Array(Type.String({ maxLength: 2000 }), {
+            minItems: 1,
+            maxItems: 8,
+          }),
+          numResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 20 })),
+          domainFilter: Type.Optional(
+            Type.Array(Type.String({ maxLength: 300 }), { maxItems: 32 })
+          ),
+          recencyFilter: Type.Optional(
+            Type.Union([
+              Type.Literal("day"),
+              Type.Literal("week"),
+              Type.Literal("month"),
+              Type.Literal("year"),
+            ])
+          ),
+        },
+        { additionalProperties: false }
+      ),
       executionMode: "sequential",
       async execute(_id, params, signal, _update, context) {
+        const operation = beginOperation(context);
         const searches = [];
         for (let offset = 0; offset < params.queries.length; offset += 4) {
           searches.push(
@@ -190,8 +246,10 @@ export default function webAccess(pi: ExtensionAPI) {
                 provider: "searxng",
                 workflow: "none",
               },
+              operation.sessionId,
               signal,
-              "research"
+              "research",
+              operation.assertCurrent
             )
           );
         }
@@ -213,24 +271,29 @@ export default function webAccess(pi: ExtensionAPI) {
             )
           ),
         ].slice(0, 5);
-        const sessionId = context.sessionManager.getSessionId();
-        if (!sessionId) {
-          throw new Error("Pi session identity is unavailable");
-        }
         const fetchLimit = pLimit(3);
         const documents = await Promise.all(
           urls.map(url =>
             fetchLimit(() =>
-              fetchWithGecko(url, "readable", context.cwd, sessionId, signal)
+              fetchWithGecko(
+                url,
+                "readable",
+                context.cwd,
+                operation.sessionId,
+                signal
+              )
             )
           )
         );
-        const fetched = createStoredDocuments(documents);
+        operation.assertCurrent();
+        const fetched = createStoredDocuments(documents, operation.sessionId);
         storeSearch(fetched);
-        pi.appendEntry("wildbuzzard-web-search", fetched);
+        pi.appendEntry(
+          "wildbuzzard-web-search",
+          storedSearchReference(fetched)
+        );
         return toolResult({
           assessment: resultCount ? "evidence-found" : "insufficient-evidence",
-          truthVerdict: null,
           searches,
           fetchedResponseId: fetched.id,
           fetchedPages: documents.map(document => ({
@@ -251,29 +314,33 @@ export default function webAccess(pi: ExtensionAPI) {
       label: "Fetch web content",
       description:
         "Render isolated HTTP(S) pages with Gecko, extract bounded readable content, and store full results behind a one-hour response handle.",
-      parameters: Type.Object({
-        url: Type.Optional(Type.String({ maxLength: 4096 })),
-        urls: Type.Optional(
-          Type.Array(Type.String({ maxLength: 4096 }), {
-            minItems: 1,
-            maxItems: 20,
-          })
-        ),
-        forceClone: Type.Optional(Type.Boolean()),
-        mode: Type.Optional(
-          Type.Union([
-            Type.Literal("readable"),
-            Type.Literal("raw"),
-            Type.Literal("answer"),
-          ])
-        ),
-        prompt: Type.Optional(Type.String({ maxLength: 4000 })),
-        answerModel: Type.Optional(Type.String({ maxLength: 300 })),
-        timestamp: Type.Optional(Type.String({ maxLength: 100 })),
-        frames: Type.Optional(Type.Integer({ minimum: 1, maximum: 12 })),
-      }),
+      parameters: Type.Object(
+        {
+          url: Type.Optional(Type.String({ maxLength: 4096 })),
+          urls: Type.Optional(
+            Type.Array(Type.String({ maxLength: 4096 }), {
+              minItems: 1,
+              maxItems: 20,
+            })
+          ),
+          forceClone: Type.Optional(Type.Boolean()),
+          mode: Type.Optional(
+            Type.Union([
+              Type.Literal("readable"),
+              Type.Literal("raw"),
+              Type.Literal("answer"),
+            ])
+          ),
+          prompt: Type.Optional(Type.String({ maxLength: 4000 })),
+          answerModel: Type.Optional(Type.String({ maxLength: 300 })),
+          timestamp: Type.Optional(Type.String({ maxLength: 100 })),
+          frames: Type.Optional(Type.Integer({ minimum: 1, maximum: 12 })),
+        },
+        { additionalProperties: false }
+      ),
       executionMode: "sequential",
       async execute(_id, params, signal, _update, context) {
+        const operation = beginOperation(context);
         const input = normalizeFetchInput(params as FetchInput);
         if (input.forceClone && input.urls.some(url => !parseGitHubUrl(url))) {
           throw new Error(
@@ -286,27 +353,27 @@ export default function webAccess(pi: ExtensionAPI) {
           );
         }
         const fetchMode = input.mode === "answer" ? "readable" : input.mode;
-        const sessionId = context.sessionManager.getSessionId();
-        if (!sessionId) {
-          throw new Error("Pi session identity is unavailable");
-        }
         const limit = pLimit(4);
         const extractedDocuments = await Promise.all(
           input.urls.map(url =>
             limit(() =>
-              parseGitHubUrl(url)
+              fetchMode !== "raw" && parseGitHubUrl(url)
                 ? extractGitHub(url, signal).catch(error => ({
                     url,
                     finalUrl: url,
                     title: "",
                     content: "",
-                    error:
+                    error: redactSensitiveText(
                       error instanceof Error ? error.message : String(error),
+                      1_000
+                    ),
                     mimeType: "text/markdown" as const,
                     status: 0,
                     provenance: "github-clone" as const,
+                    trust: "untrusted" as const,
                     ref: "",
                     path: "",
+                    commit: "",
                   }))
                 : fetchMode !== "raw" && parseYouTubeUrl(url)
                   ? extractYouTubeCaptions(url, signal)
@@ -314,7 +381,7 @@ export default function webAccess(pi: ExtensionAPI) {
                       url,
                       fetchMode,
                       context.cwd,
-                      sessionId,
+                      operation.sessionId,
                       signal
                     )
             )
@@ -347,19 +414,22 @@ export default function webAccess(pi: ExtensionAPI) {
                       return {
                         ...document,
                         content: "",
-                        error:
+                        error: redactSensitiveText(
                           error instanceof Error
                             ? error.message
                             : String(error),
+                          1_000
+                        ),
                       };
                     }
                   })
                 )
               )
             : extractedDocuments;
-        const stored = createStoredDocuments(documents);
+        operation.assertCurrent();
+        const stored = createStoredDocuments(documents, operation.sessionId);
         storeSearch(stored);
-        pi.appendEntry("wildbuzzard-web-search", stored);
+        pi.appendEntry("wildbuzzard-web-search", storedSearchReference(stored));
         return toolResult({
           responseId: stored.id,
           expiresAt: stored.expiresAt,
@@ -379,63 +449,70 @@ export default function webAccess(pi: ExtensionAPI) {
       label: "Crawl web content",
       description:
         "Crawl a bounded web scope breadth-first with isolated Gecko rendering, robots handling, cancellation, and partial results.",
-      parameters: Type.Object({
-        url: Type.String({ maxLength: 4096 }),
-        includePaths: Type.Optional(
-          Type.Array(Type.String({ minLength: 1, maxLength: 1000 }), {
-            maxItems: 50,
-          })
-        ),
-        excludePaths: Type.Optional(
-          Type.Array(Type.String({ minLength: 1, maxLength: 1000 }), {
-            maxItems: 50,
-          })
-        ),
-        maxDepth: Type.Optional(Type.Integer({ minimum: 0, maximum: 8 })),
-        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
-        timeoutMs: Type.Optional(
-          Type.Integer({ minimum: 1000, maximum: 300000 })
-        ),
-        maxBytes: Type.Optional(
-          Type.Integer({ minimum: 65536, maximum: 104857600 })
-        ),
-        maxConcurrency: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
-        allowSubdomains: Type.Optional(Type.Boolean()),
-        allowExternalLinks: Type.Optional(Type.Boolean()),
-        robots: Type.Optional(
-          Type.Union([Type.Literal("respect"), Type.Literal("ignore")])
-        ),
-        sitemap: Type.Optional(
-          Type.Union([
-            Type.Literal("include"),
-            Type.Literal("skip"),
-            Type.Literal("only"),
-          ])
-        ),
-        ignoreQueryParameters: Type.Optional(Type.Boolean()),
-        render: Type.Optional(
-          Type.Union([
-            Type.Literal("auto"),
-            Type.Literal("never"),
-            Type.Literal("always"),
-          ])
-        ),
-      }),
+      parameters: Type.Object(
+        {
+          url: Type.String({ maxLength: 4096 }),
+          includePaths: Type.Optional(
+            Type.Array(Type.String({ minLength: 1, maxLength: 1000 }), {
+              maxItems: 50,
+            })
+          ),
+          excludePaths: Type.Optional(
+            Type.Array(Type.String({ minLength: 1, maxLength: 1000 }), {
+              maxItems: 50,
+            })
+          ),
+          maxDepth: Type.Optional(Type.Integer({ minimum: 0, maximum: 8 })),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+          timeoutMs: Type.Optional(
+            Type.Integer({ minimum: 1000, maximum: 300000 })
+          ),
+          maxBytes: Type.Optional(
+            Type.Integer({ minimum: 65536, maximum: 104857600 })
+          ),
+          maxConcurrency: Type.Optional(
+            Type.Integer({ minimum: 1, maximum: 8 })
+          ),
+          allowSubdomains: Type.Optional(Type.Boolean()),
+          allowExternalLinks: Type.Optional(Type.Boolean()),
+          robots: Type.Optional(
+            Type.Union([Type.Literal("respect"), Type.Literal("ignore")])
+          ),
+          sitemap: Type.Optional(
+            Type.Union([
+              Type.Literal("include"),
+              Type.Literal("skip"),
+              Type.Literal("only"),
+            ])
+          ),
+          ignoreQueryParameters: Type.Optional(Type.Boolean()),
+          render: Type.Optional(
+            Type.Union([
+              Type.Literal("auto"),
+              Type.Literal("never"),
+              Type.Literal("always"),
+            ])
+          ),
+        },
+        { additionalProperties: false }
+      ),
       executionMode: "sequential",
       async execute(_id, params, signal, _update, context) {
-        const sessionId = context.sessionManager.getSessionId();
-        if (!sessionId) {
-          throw new Error("Pi session identity is unavailable");
-        }
+        const operation = beginOperation(context);
         const result = await crawlWithGecko(
           params as CrawlInput,
           context.cwd,
-          sessionId,
+          operation.sessionId,
           signal
         );
-        const stored = createStoredDocuments(result.documents, "crawl");
+        operation.assertCurrent();
+        const stored = createStoredDocuments(
+          result.documents,
+          operation.sessionId,
+          "crawl"
+        );
         storeSearch(stored);
-        pi.appendEntry("wildbuzzard-web-search", stored);
+        pi.appendEntry("wildbuzzard-web-search", storedSearchReference(stored));
         return toolResult({
           ...result,
           responseId: stored.id,
@@ -456,22 +533,34 @@ export default function webAccess(pi: ExtensionAPI) {
       label: "Get search content",
       description:
         "Read a bounded range or locate passages from a one-hour web-search response handle.",
-      parameters: Type.Object({
-        responseId: Type.String({ minLength: 1, maxLength: 128 }),
-        query: Type.Optional(Type.String({ maxLength: 2000 })),
-        url: Type.Optional(Type.String({ maxLength: 4096 })),
-        offset: Type.Optional(Type.Integer({ minimum: 0 })),
-        limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 30000 })),
-        findText: Type.Optional(
-          Type.Array(Type.String({ minLength: 1, maxLength: 500 }), {
-            maxItems: 10,
-          })
-        ),
-      }),
+      parameters: Type.Object(
+        {
+          responseId: Type.String({
+            minLength: 36,
+            maxLength: 36,
+            pattern:
+              "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          }),
+          query: Type.Optional(Type.String({ maxLength: 2000 })),
+          url: Type.Optional(Type.String({ maxLength: 4096 })),
+          offset: Type.Optional(Type.Integer({ minimum: 0 })),
+          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 30000 })),
+          findText: Type.Optional(
+            Type.Array(Type.String({ minLength: 1, maxLength: 500 }), {
+              maxItems: 10,
+            })
+          ),
+        },
+        { additionalProperties: false }
+      ),
       executionMode: "sequential",
-      async execute(_id, params) {
+      async execute(_id, params, _signal, _update, context) {
+        const operation = beginOperation(context);
         return toolResult(
-          pageStoredSearch(getStoredSearch(params.responseId), params)
+          pageStoredSearch(
+            getStoredSearch(params.responseId, operation.sessionId),
+            params
+          )
         );
       },
     })

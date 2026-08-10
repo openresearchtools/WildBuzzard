@@ -238,7 +238,7 @@ pi_web_source_sha="$(sha256sum "${package_tarball}" | awk '{ print $1 }')"
 pi_web_version="$("${runtime_dir}/node/bin/node" -p "require('${checkout_dir}/package.json').version")"
 
 metadata_path="${run_root}/runtime-metadata.json"
-printf '{\n  "component": "pi-web",\n  "version": "%s",\n  "piWebCommit": "%s",\n  "piWebRef": "%s",\n  "sourceSha256": "%s",\n  "dependencyLockSha256": "%s",\n  "browserToolsSha256": "%s",\n  "webAccessSha256": "%s",\n  "browserRunnerSha256": "%s",\n  "gitRuntimeSha256": "%s",\n  "ytdlpRuntimeSha256": "%s",\n  "nodeVersion": "%s",\n  "protocolVersion": 1,\n  "licenseLocations": ["PI-WEB-LICENSE", "WILDBUZZARD-LICENSE"],\n  "correspondingSource": "%s",\n  "platform": "linux-x64"\n}\n' \
+printf '{\n  "component": "pi-web",\n  "version": "%s",\n  "piWebCommit": "%s",\n  "piWebRef": "%s",\n  "sourceSha256": "%s",\n  "dependencyLockSha256": "%s",\n  "browserToolsSha256": "%s",\n  "webAccessSha256": "%s",\n  "browserRunnerSha256": "%s",\n  "gitRuntimeSha256": "%s",\n  "ytdlpRuntimeSha256": "%s",\n  "nodeVersion": "%s",\n  "protocolVersion": 1,\n  "licenseLocations": ["PI-WEB-LICENSE", "WILDBUZZARD-LICENSE", "seed/web-access/LICENSE.pi-web-access", "seed/web-access/UPSTREAM.toml"],\n  "correspondingSource": "%s",\n  "platform": "linux-x64"\n}\n' \
   "${pi_web_version}" "${commit}" "${build_ref}" "${pi_web_source_sha}" "${dependency_lock_sha}" \
   "${browser_tools_sha}" "${web_access_sha}" "${browser_runner_sha}" \
   "${git_runtime_sha}" "${ytdlp_runtime_sha}" "${node_version}" "source/pi-web-${commit}.tgz" \

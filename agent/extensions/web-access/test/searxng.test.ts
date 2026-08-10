@@ -153,6 +153,8 @@ test("managed SearXNG client uses private capability-authenticated POST", async 
     engines: ["duckduckgo", "wikipedia"],
     score: 2.5,
     date: "2026-08-10",
+    provenance: "searxng",
+    trust: "untrusted",
     contentPreview: "Evidence",
   });
 

@@ -10,6 +10,7 @@ import {
   type SearchResult,
 } from "./contracts.ts";
 import { requestSearchService } from "./connection.ts";
+import { redactSensitiveText } from "./safe-output.ts";
 
 interface RawResult {
   title?: unknown;
@@ -33,7 +34,7 @@ const MAX_SEARCH_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 function text(value: unknown, fallback: string, max: number): string {
   return typeof value === "string" && value.trim()
-    ? value.trim().slice(0, max)
+    ? redactSensitiveText(value.trim(), max)
     : fallback;
 }
 
@@ -43,7 +44,7 @@ function stringArray(value: unknown, limit: number): string[] {
   }
   return value
     .filter((item): item is string => typeof item === "string")
-    .map(item => item.trim().slice(0, 128))
+    .map(item => redactSensitiveText(item.trim(), 128))
     .filter(Boolean)
     .slice(0, limit);
 }
@@ -82,17 +83,27 @@ function normalizeResult(
   ) {
     return null;
   }
+  for (const name of [...url.searchParams.keys()]) {
+    if (
+      /^(?:access_token|api[-_]?key|apikey|auth|authorization|key|passkey|password|signature|sig|token)$/i.test(
+        name
+      )
+    ) {
+      url.searchParams.delete(name);
+    }
+  }
   const normalizedUrl = url.toString();
   if (normalizedUrl.length > 4_096) {
     return null;
   }
-  const snippet = text(raw.content, "", 4_000);
+  const snippet = text(raw.content, "", 1_000);
   const score =
     typeof raw.score === "number" && Number.isFinite(raw.score)
       ? raw.score
       : null;
   const dateValue = raw.publishedDate ?? raw.published_date;
-  const date = typeof dateValue === "string" ? dateValue.slice(0, 128) : null;
+  const date =
+    typeof dateValue === "string" ? redactSensitiveText(dateValue, 128) : null;
   return {
     title: text(raw.title, normalizedUrl, 500),
     url: normalizedUrl,
@@ -100,6 +111,8 @@ function normalizeResult(
     engines: stringArray(raw.engines, 16),
     score,
     date,
+    provenance: "searxng",
+    trust: "untrusted",
     ...(includeContent && snippet ? { contentPreview: snippet } : {}),
   };
 }

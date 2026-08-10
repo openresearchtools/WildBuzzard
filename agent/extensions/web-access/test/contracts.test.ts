@@ -118,8 +118,12 @@ test("typed answer data stays structured and bounded", () => {
     answer: "x".repeat(5_000),
     nested: { score: Number.POSITIVE_INFINITY, safe: true },
     omitted: undefined,
+    authorization: "Bearer service-secret",
+    headers: { cookie: "private" },
   }) as Record<string, unknown>;
   assert.equal((sanitized.answer as string).length, 4_000);
   assert.deepEqual(sanitized.nested, { score: null, safe: true });
   assert.equal(sanitized.omitted, null);
+  assert.equal(Object.hasOwn(sanitized, "authorization"), false);
+  assert.equal(Object.hasOwn(sanitized, "headers"), false);
 });
