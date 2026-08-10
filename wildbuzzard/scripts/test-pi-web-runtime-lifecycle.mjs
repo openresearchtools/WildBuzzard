@@ -192,6 +192,7 @@ async function main() {
     await readFile(path);
   }
 
+  const port = await allocateHighPort();
   const root = await mkdtemp(join(tmpdir(), "wildbuzzard-pi-web-lifecycle-"));
   const dataRoot = join(root, "data");
   const agentDir = join(root, "agent");
@@ -199,7 +200,6 @@ async function main() {
   const configPath = join(root, "config.json");
   const identityPath = join(root, "identity.json");
   const runtimeIdentity = `lifecycle-${basename(runtime)}`;
-  const port = await allocateHighPort();
   const baseURL = `http://127.0.0.1:${port}/`;
   const children = [];
   try {
