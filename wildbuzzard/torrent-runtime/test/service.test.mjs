@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import {
   createServer as createHttpServer,
   request as httpRequest,
@@ -28,6 +35,10 @@ let seedPath;
 const socksTargets = [];
 let trackerRequests = 0;
 let metadataRequests = 0;
+let torrentSourceRequests = 0;
+let redirectLimitRequests = 0;
+const torrentSourcePeerPorts = [];
+const torSourceSecret = "tor-source-passkey-never-publish";
 const servicePath = fileURLToPath(new URL("../service.mjs", import.meta.url));
 
 function socksServer() {
@@ -85,8 +96,10 @@ function socksServer() {
       const port = buffer.readUInt16BE(offset);
       const remainder = buffer.subarray(offset + 2);
       phase = "relay";
-      socksTargets.push({ host, port });
+      const target = { host, port, localPort: null };
+      socksTargets.push(target);
       const upstream = netConnect({ host, port }, () => {
+        target.localPort = upstream.localPort;
         socket.write(Buffer.from([5, 0, 0, 1, 0, 0, 0, 0, 0, 0]));
         if (remainder.length) {
           upstream.write(remainder);
@@ -266,6 +279,7 @@ before(async () => {
     lsd: false,
     natUpnp: false,
     natPmp: false,
+    utp: false,
   });
   seededTorrent = await new Promise(resolve =>
     seeder.seed(seedPath, { private: true, announce: [] }, resolve)
@@ -307,6 +321,36 @@ before(async () => {
   await new Promise(resolve => socks.listen(0, "127.0.0.1", resolve));
   tracker = createHttpServer((request, response) => {
     trackerRequests++;
+    if (request.url.startsWith("/redirect-limit/")) {
+      redirectLimitRequests++;
+      torrentSourcePeerPorts.push(request.socket.remotePort);
+      const step = Number(request.url.split("/")[2].split("?")[0]);
+      response.writeHead(302, {
+        location: `/redirect-limit/${step + 1}?passkey=${torSourceSecret}`,
+      });
+      response.end();
+      return;
+    }
+    if (request.url.startsWith("/redirect-source.torrent")) {
+      torrentSourceRequests++;
+      torrentSourcePeerPorts.push(request.socket.remotePort);
+      response.writeHead(302, {
+        location: `/source.torrent?passkey=${torSourceSecret}`,
+      });
+      response.end();
+      return;
+    }
+    if (request.url.startsWith("/source.torrent")) {
+      torrentSourceRequests++;
+      torrentSourcePeerPorts.push(request.socket.remotePort);
+      const body = Buffer.from(seededTorrent.torrentFile);
+      response.writeHead(200, {
+        "content-length": body.length,
+        "content-type": "application/x-bittorrent",
+      });
+      response.end(body);
+      return;
+    }
     if (request.url.startsWith("/metadata.torrent")) {
       metadataRequests++;
     }
@@ -329,6 +373,8 @@ after(async () => {
   if (service?.exitCode === null) {
     await new Promise(resolve => service.once("exit", resolve));
   }
+  assert.equal(service?.signalCode, null);
+  assert.equal(service?.exitCode, 0);
   await new Promise(resolve => seeder?.destroy(resolve));
   await new Promise(resolve => socks?.close(resolve));
   await new Promise(resolve => tracker?.close(resolve));
@@ -359,7 +405,25 @@ test("downloads, stops, resumes, and removes a local torrent", async () => {
   assert.equal(status.torrents[0].numPeers, 0);
   await request(`/v1/torrents/${record.id}/action`, {
     method: "POST",
+    body: JSON.stringify({ action: "resume" }),
+  });
+  await request(`/v1/torrents/${record.id}/action`, {
+    method: "POST",
+    body: JSON.stringify({ action: "reannounce" }),
+  });
+  await request(`/v1/torrents/${record.id}/action`, {
+    method: "POST",
+    body: JSON.stringify({ action: "stop" }),
+  });
+  status = await request("/v1/status");
+  assert.equal(status.torrents[0].state, "stopped");
+  await request(`/v1/torrents/${record.id}/action`, {
+    method: "POST",
     body: JSON.stringify({ action: "force-start" }),
+  });
+  let privatePeerWire;
+  seededTorrent.once("wire", wire => {
+    privatePeerWire = wire;
   });
   await waitFor(async () => {
     try {
@@ -384,11 +448,23 @@ test("downloads, stops, resumes, and removes a local torrent", async () => {
   assert.equal(status.torrents[0].connections[0].source, "manual");
   assert.equal(status.torrents[0].connections[0].route, "Direct");
   assert.equal(status.torrents[0].private, true);
+  assert.equal(status.capabilities.dht, true);
+  assert.equal(status.capabilities.pex, true);
   assert.deepEqual(status.torrents[0].discovery, {
     private: true,
     dht: false,
     pex: false,
   });
+  const privateHandshake = await waitFor(() =>
+    Object.keys(privatePeerWire?.peerExtendedMapping || {}).length
+      ? privatePeerWire
+      : null
+  );
+  assert.equal(privateHandshake.peerExtensions.dht, false);
+  assert.equal(
+    Object.hasOwn(privateHandshake.peerExtendedMapping, "ut_pex"),
+    false
+  );
   await request(`/v1/torrents/${record.id}?deleteData=true`, {
     method: "DELETE",
   });
@@ -451,6 +527,37 @@ test("commits exactly the selected files", async () => {
   });
 });
 
+test("rejects empty explicit file selections", async () => {
+  const draft = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ torrent: globalThis.testTorrent }),
+  });
+  const commitFailure = await requestFailure(
+    `/v1/torrent-drafts/${draft.draftId}/commit`,
+    {
+      method: "POST",
+      body: JSON.stringify({ files: [] }),
+    }
+  );
+  assert.equal(commitFailure.status, 400);
+  assert.equal(commitFailure.body.error, "Invalid torrent file selection");
+  assert.equal(
+    (await request(`/v1/torrent-drafts/${draft.draftId}`)).state,
+    "ready"
+  );
+  await request(`/v1/torrent-drafts/${draft.draftId}`, { method: "DELETE" });
+
+  const addFailure = await requestFailure("/v1/torrents", {
+    method: "POST",
+    body: JSON.stringify({
+      torrent: globalThis.testTorrent,
+      files: [],
+    }),
+  });
+  assert.equal(addFailure.status, 400);
+  assert.equal(addFailure.body.error, "Invalid torrent file selection");
+});
+
 test("rejects colliding and platform-reserved paths", async () => {
   const collisionDirectory = join(root, "collision-source");
   await mkdir(collisionDirectory);
@@ -504,6 +611,70 @@ test("rejects colliding and platform-reserved paths", async () => {
   assert.match(reservedFailure.body.error, /unsafe file path/);
 });
 
+test("accepts zero-byte files without materializing draft payloads", async () => {
+  const name = "zero-byte-draft-fixture";
+  const torrent = bencode({
+    info: {
+      files: [
+        { length: 0, path: ["empty.txt"] },
+        { length: 1, path: ["payload.bin"] },
+      ],
+      name,
+      "piece length": 16384,
+      pieces: createHash("sha1")
+        .update(Buffer.from([0]))
+        .digest(),
+    },
+  });
+  const draft = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ torrent: torrent.toString("base64") }),
+  });
+  assert.deepEqual(
+    draft.files.map(file => file.length),
+    [0, 1]
+  );
+  assert.equal(draft.precommitPayloadBytes, 0);
+  await assert.rejects(readFile(join(root, "downloads", name, "empty.txt")), {
+    code: "ENOENT",
+  });
+  await request(`/v1/torrent-drafts/${draft.draftId}`, { method: "DELETE" });
+});
+
+test("rejects pre-existing symlink traversal below a download root", async () => {
+  const downloadRoot = join(root, "symlink-downloads");
+  const externalRoot = join(root, "symlink-external");
+  await mkdir(join(downloadRoot, "payload"), { recursive: true });
+  await mkdir(externalRoot);
+  await symlink(externalRoot, join(downloadRoot, "payload", "link"));
+  const torrent = bencode({
+    info: {
+      files: [{ length: 1, path: ["link", "escape.txt"] }],
+      name: "payload",
+      "piece length": 16384,
+      pieces: createHash("sha1")
+        .update(Buffer.from([0]))
+        .digest(),
+    },
+  });
+  const draft = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ torrent: torrent.toString("base64") }),
+  });
+  const failure = await requestFailure(
+    `/v1/torrent-drafts/${draft.draftId}/commit`,
+    {
+      method: "POST",
+      body: JSON.stringify({ downloadPath: downloadRoot, files: [0] }),
+    }
+  );
+  assert.equal(failure.status, 400);
+  assert.equal(failure.body.error, "Torrent download path is unsafe");
+  await assert.rejects(readFile(join(externalRoot, "escape.txt")), {
+    code: "ENOENT",
+  });
+});
+
 test("consumes drafts atomically across commit and cancel races", async () => {
   const first = await request("/v1/torrent-drafts", {
     method: "POST",
@@ -555,6 +726,512 @@ test("consumes drafts atomically across commit and cancel races", async () => {
     await request(`/v1/torrents/${raceCommit.id}`, { method: "DELETE" });
   }
   assert.equal((await request("/v1/status")).draftCount, 0);
+});
+
+test("strips direct-fetch magnet parameters in direct mode and on restart", async () => {
+  const trackerPort = tracker.address().port;
+  const secret = "magnet-passkey-never-publish";
+  const endpoint = `http://127.0.0.1:${trackerPort}/metadata.torrent?passkey=${secret}`;
+  const magnet = new URL(
+    "magnet:?xt=urn:btih:0123456789012345678901234567890123456789"
+  );
+  for (const name of ["as", "ws", "xs"]) {
+    magnet.searchParams.append(name, endpoint);
+  }
+  magnet.searchParams.set("dn", secret);
+  magnet.searchParams.append(
+    "tr",
+    `http://127.0.0.1:1/announce?passkey=${secret}`
+  );
+  magnet.searchParams.append("kt", secret);
+  const uppercaseMagnet = `MAGNET:${magnet.href.slice("magnet:".length)}`;
+  const baselineRequests = metadataRequests;
+  const injectedPeer = encodeURIComponent(`127.0.0.1:1&xs=${endpoint}`);
+  const injectedRecord = await request("/v1/torrents", {
+    method: "POST",
+    body: JSON.stringify({
+      source: `magnet:?xt=urn:btih:0123456789012345678901234567890123456789&x.pe=${injectedPeer}`,
+    }),
+  });
+  const record = await request("/v1/torrents", {
+    method: "POST",
+    body: JSON.stringify({ source: uppercaseMagnet }),
+  });
+  assert.equal(Object.hasOwn(record, "source"), false);
+  const draft = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ magnet: magnet.href }),
+  });
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.equal(metadataRequests, baselineRequests);
+  const publicStatus = JSON.stringify(await request("/v1/status"));
+  for (const forbidden of [secret, endpoint, "passkey=", "magnet:"]) {
+    assert.equal(publicStatus.includes(forbidden), false);
+  }
+  const persistedState = await readFile(
+    join(root, "data", "state.json"),
+    "utf8"
+  );
+  for (const forbidden of [
+    secret,
+    endpoint,
+    "passkey=",
+    "magnet:",
+    "&as=",
+    "&kt=",
+    "&tr=",
+    "&ws=",
+    "&xs=",
+    "&x.pe=",
+  ]) {
+    assert.equal(persistedState.includes(forbidden), false);
+  }
+  await request(`/v1/torrent-drafts/${draft.draftId}`, { method: "DELETE" });
+  await request(`/v1/torrents/${injectedRecord.id}`, { method: "DELETE" });
+  await request(`/v1/torrents/${record.id}`, { method: "DELETE" });
+
+  const restartRoot = await mkdtemp(join(tmpdir(), "torrent-restart-test-"));
+  const dataDirectory = join(restartRoot, "data");
+  const downloadDirectory = join(restartRoot, "downloads");
+  const configPath = join(restartRoot, "config.json");
+  const connectionPath = join(restartRoot, "connection.json");
+  await mkdir(dataDirectory);
+  await mkdir(downloadDirectory);
+  await writeFile(
+    join(dataDirectory, "state.json"),
+    JSON.stringify({
+      version: 1,
+      settings: {},
+      records: [
+        {
+          id: "restart-magnet-record",
+          source: uppercaseMagnet,
+          name: "Restart magnet",
+          downloadPath: downloadDirectory,
+          state: "queued",
+          forceStart: false,
+          priority: 0,
+          addedAt: Date.now(),
+          completedAt: null,
+          infoHash: null,
+          length: 0,
+          downloaded: 0,
+          uploaded: 0,
+          progress: 0,
+          ratio: 0,
+          downloadSpeed: 0,
+          uploadSpeed: 0,
+          numPeers: 0,
+          timeRemaining: null,
+          trackers: [],
+          files: [],
+          fileSelection: [],
+          private: null,
+          validatedMetadata: false,
+          error: `Failed to fetch ${endpoint}`,
+          warning: `Tracker exposed ${secret}`,
+        },
+      ],
+    })
+  );
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      dataDirectory,
+      downloadDirectory,
+      connectionPath,
+      ownerInstance: "restart-test-owner-000000001",
+      dht: false,
+      lsd: false,
+      natPmp: false,
+      natUpnp: false,
+      utp: false,
+    })
+  );
+  const child = spawn(
+    process.execPath,
+    [servicePath, "serve", "--config", configPath],
+    { stdio: ["ignore", "ignore", "pipe"] }
+  );
+  const stderr = [];
+  child.stderr.on("data", chunk => stderr.push(chunk));
+  let target;
+  try {
+    target = await waitFor(async () => {
+      try {
+        return JSON.parse(await readFile(connectionPath, "utf8"));
+      } catch {
+        return null;
+      }
+    });
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const status = (await apiRequest({ target })).body;
+    assert.equal(metadataRequests, baselineRequests);
+    const publicStatus = JSON.stringify(status);
+    for (const forbidden of [secret, endpoint, "passkey=", "magnet:"]) {
+      assert.equal(publicStatus.includes(forbidden), false);
+    }
+    const resumedState = await readFile(
+      join(dataDirectory, "state.json"),
+      "utf8"
+    );
+    for (const forbidden of [
+      secret,
+      endpoint,
+      "passkey=",
+      "magnet:",
+      "&as=",
+      "&kt=",
+      "&tr=",
+      "&ws=",
+      "&xs=",
+      "&x.pe=",
+    ]) {
+      assert.equal(resumedState.includes(forbidden), false);
+    }
+  } finally {
+    if (target) {
+      await apiRequest({
+        path: "/v1/shutdown",
+        method: "POST",
+        body: "{}",
+        target,
+      }).catch(() => child.kill("SIGTERM"));
+    } else {
+      child.kill("SIGTERM");
+    }
+    if (child.exitCode === null) {
+      await new Promise(resolve => child.once("exit", resolve));
+    }
+    assert.equal(child.signalCode, null);
+    assert.equal(child.exitCode, 0);
+    const output = Buffer.concat(stderr).toString("utf8");
+    for (const forbidden of [
+      secret,
+      endpoint,
+      "passkey=",
+      "metadata.torrent",
+    ]) {
+      assert.equal(output.includes(forbidden), false);
+    }
+    await rm(restartRoot, { recursive: true, force: true });
+  }
+});
+
+test("redacts tracker credentials and parser failures from public APIs", async () => {
+  const trackerPort = tracker.address().port;
+  const secret = "tracker-passkey-never-publish";
+  const announce = `http://127.0.0.1:${trackerPort}/announce?passkey=${secret}`;
+  const torrent = await createTorrentBytes(seedPath, {
+    private: true,
+    announceList: [[announce]],
+  });
+  const record = await request("/v1/torrents", {
+    method: "POST",
+    body: JSON.stringify({
+      torrent: Buffer.from(torrent).toString("base64"),
+    }),
+  });
+  assert.equal(!!record.trackers.length, true);
+  assert.equal(
+    record.trackers.every(value => value === "HTTP tracker"),
+    true
+  );
+  assert.equal(JSON.stringify(record).includes(secret), false);
+  assert.equal(Object.hasOwn(record, "source"), false);
+  const status = await request("/v1/status");
+  assert.equal(JSON.stringify(status).includes(secret), false);
+  const state = await readFile(join(root, "data", "state.json"), "utf8");
+  assert.equal(state.includes(secret), false);
+  assert.equal(state.includes(announce), false);
+
+  const malformed = await apiRequest({
+    path: "/v1/torrents",
+    method: "POST",
+    body: `{"source":${secret}}`,
+  });
+  assert.equal(malformed.status, 400);
+  assert.equal(malformed.body.error, "Torrent operation failed");
+  assert.equal(JSON.stringify(malformed.body).includes(secret), false);
+  const commandFailure = await spawnResult([servicePath, secret]);
+  assert.equal(commandFailure.exitCode, 1);
+  assert.equal(commandFailure.stderr.includes(secret), false);
+  assert.match(commandFailure.stderr, /Torrent service failure/);
+  const sourceRequests = torrentSourceRequests;
+  const credentialedSource = await requestFailure("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({
+      source: `http://user:${secret}@127.0.0.1:${trackerPort}/source.torrent`,
+      route: "direct",
+    }),
+  });
+  assert.equal(credentialedSource.body.error, "Invalid torrent source URL");
+  assert.equal(JSON.stringify(credentialedSource.body).includes(secret), false);
+  assert.equal(torrentSourceRequests, sourceRequests);
+  await request(`/v1/torrents/${record.id}`, { method: "DELETE" });
+});
+
+test("materializes Tor HTTP sources before route changes and restarts", async () => {
+  const childRoot = await mkdtemp(join(tmpdir(), "torrent-tor-source-test-"));
+  const dataDirectory = join(childRoot, "data");
+  const downloadDirectory = join(childRoot, "downloads");
+  const configPath = join(childRoot, "config.json");
+  const connectionPath = join(childRoot, "connection.json");
+  const trackerPort = tracker.address().port;
+  const source = `http://127.0.0.1:${trackerPort}/redirect-source.torrent?passkey=${torSourceSecret}`;
+  const redirectLimitSource = `http://127.0.0.1:${trackerPort}/redirect-limit/0?passkey=${torSourceSecret}`;
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      dataDirectory,
+      downloadDirectory,
+      connectionPath,
+      ownerInstance: "tor-source-test-owner-00000001",
+      torEnabled: true,
+      torProxy: { host: "127.0.0.1", port: socks.address().port },
+      dht: false,
+      lsd: false,
+      natPmp: false,
+      natUpnp: false,
+      utp: false,
+    })
+  );
+  const stderr = [];
+  let child;
+  let target;
+  const start = async previousInstance => {
+    child = spawn(
+      process.execPath,
+      [servicePath, "serve", "--config", configPath],
+      { stdio: ["ignore", "ignore", "pipe"] }
+    );
+    child.stderr.on("data", chunk => stderr.push(chunk));
+    target = await waitFor(async () => {
+      try {
+        const value = JSON.parse(await readFile(connectionPath, "utf8"));
+        return value.instanceId !== previousInstance ? value : null;
+      } catch {
+        return null;
+      }
+    });
+  };
+  const stop = async () => {
+    const stoppingChild = child;
+    const stoppingTarget = target;
+    child = null;
+    target = null;
+    await apiRequest({
+      path: "/v1/shutdown",
+      method: "POST",
+      body: "{}",
+      target: stoppingTarget,
+    }).catch(() => stoppingChild.kill("SIGTERM"));
+    if (stoppingChild.exitCode === null) {
+      await new Promise(resolve => stoppingChild.once("exit", resolve));
+    }
+    assert.equal(stoppingChild.signalCode, null);
+    assert.equal(stoppingChild.exitCode, 0);
+  };
+  const requestBaseline = torrentSourceRequests;
+  const redirectBaseline = redirectLimitRequests;
+  try {
+    await start(null);
+    const boundedRedirect = await apiRequest({
+      path: "/v1/torrent-drafts",
+      method: "POST",
+      body: JSON.stringify({ source: redirectLimitSource, route: "tor" }),
+      target,
+    });
+    assert.equal(boundedRedirect.status, 400);
+    assert.equal(
+      boundedRedirect.body.error,
+      "Torrent request exceeded redirect limit"
+    );
+    assert.equal(redirectLimitRequests, redirectBaseline + 6);
+
+    const sourcePeerBaseline = torrentSourcePeerPorts.length;
+    const draft = await apiRequest({
+      path: "/v1/torrent-drafts",
+      method: "POST",
+      body: JSON.stringify({ source, route: "tor" }),
+      target,
+    });
+    assert.equal(draft.status, 201, draft.body?.error);
+    assert.equal(draft.body.state, "ready");
+    assert.equal(Object.hasOwn(draft.body, "source"), false);
+    const added = await apiRequest({
+      path: `/v1/torrent-drafts/${draft.body.draftId}/commit`,
+      method: "POST",
+      body: "{}",
+      target,
+    });
+    assert.equal(added.status, 201, added.body?.error);
+    assert.equal(Object.hasOwn(added.body, "source"), false);
+    assert.equal(torrentSourceRequests, requestBaseline + 2);
+    const sourcePeerPorts = torrentSourcePeerPorts.slice(sourcePeerBaseline);
+    assert.equal(sourcePeerPorts.length, 2);
+    assert.equal(
+      sourcePeerPorts.every(peerPort =>
+        socksTargets.some(
+          item => item.port === trackerPort && item.localPort === peerPort
+        )
+      ),
+      true
+    );
+    const requestsAfterMaterialization = torrentSourceRequests;
+    const disabled = await apiRequest({
+      path: "/v1/settings",
+      method: "PATCH",
+      body: JSON.stringify({ torEnabled: false }),
+      target,
+    });
+    assert.equal(disabled.status, 200, disabled.body?.error);
+    const routeMismatch = await apiRequest({
+      path: "/v1/torrent-drafts",
+      method: "POST",
+      body: JSON.stringify({ source, route: "tor" }),
+      target,
+    });
+    assert.equal(routeMismatch.status, 400);
+    assert.equal(routeMismatch.body.error, "Torrent source route changed");
+    assert.equal(
+      JSON.stringify(routeMismatch.body).includes(torSourceSecret),
+      false
+    );
+    await new Promise(resolve => setTimeout(resolve, 500));
+    assert.equal(torrentSourceRequests, requestsAfterMaterialization);
+    let state = await readFile(join(dataDirectory, "state.json"), "utf8");
+    assert.equal(state.includes(torSourceSecret), false);
+    assert.equal(state.includes("redirect-source.torrent"), false);
+    const config = await readFile(configPath, "utf8");
+    assert.equal(config.includes(torSourceSecret), false);
+    assert.equal(config.includes("redirect-source.torrent"), false);
+    let status = (await apiRequest({ target })).body;
+    assert.equal(JSON.stringify(status).includes(torSourceSecret), false);
+    assert.equal(Object.hasOwn(status.torrents[0], "source"), false);
+
+    const firstInstance = target.instanceId;
+    await stop();
+    await start(firstInstance);
+    status = await waitFor(async () => {
+      const value = (await apiRequest({ target })).body;
+      const item = value.torrents[0];
+      if (item?.state === "error") {
+        throw new Error(item.error);
+      }
+      return item?.infoHash === seededTorrent.infoHash ? value : null;
+    });
+    assert.equal(torrentSourceRequests, requestsAfterMaterialization);
+    state = await readFile(join(dataDirectory, "state.json"), "utf8");
+    assert.equal(state.includes(torSourceSecret), false);
+    assert.equal(JSON.stringify(status).includes(torSourceSecret), false);
+    assert.equal(Object.hasOwn(status.torrents[0], "metainfoPath"), false);
+    const removed = await apiRequest({
+      path: `/v1/torrents/${added.body.id}`,
+      method: "DELETE",
+      target,
+    });
+    assert.equal(removed.status, 200, removed.body?.error);
+    assert.equal((await apiRequest({ target })).body.torrents.length, 0);
+  } finally {
+    if (child && target) {
+      await stop();
+    } else if (child) {
+      child.kill("SIGTERM");
+      if (child.exitCode === null) {
+        await new Promise(resolve => child.once("exit", resolve));
+      }
+    }
+    assert.equal(
+      Buffer.concat(stderr).toString("utf8").includes(torSourceSecret),
+      false
+    );
+    assert.equal(
+      Buffer.concat(stderr)
+        .toString("utf8")
+        .includes("redirect-source.torrent"),
+      false
+    );
+    await rm(childRoot, { recursive: true, force: true });
+  }
+});
+
+test("fails closed when the configured Tor route is unavailable", async () => {
+  const childRoot = await mkdtemp(join(tmpdir(), "torrent-tor-failure-test-"));
+  const configPath = join(childRoot, "config.json");
+  const connectionPath = join(childRoot, "connection.json");
+  const unavailableProxy = createNetServer();
+  await new Promise(resolve =>
+    unavailableProxy.listen(0, "127.0.0.1", resolve)
+  );
+  const proxyPort = unavailableProxy.address().port;
+  await new Promise(resolve => unavailableProxy.close(resolve));
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      dataDirectory: join(childRoot, "data"),
+      downloadDirectory: join(childRoot, "downloads"),
+      connectionPath,
+      ownerInstance: "tor-failure-test-owner-0000001",
+      torEnabled: true,
+      torProxy: { host: "127.0.0.1", port: proxyPort },
+      dht: false,
+      lsd: false,
+      natPmp: false,
+      natUpnp: false,
+      utp: false,
+    })
+  );
+  const stderr = [];
+  const child = spawn(
+    process.execPath,
+    [servicePath, "serve", "--config", configPath],
+    { stdio: ["ignore", "ignore", "pipe"] }
+  );
+  child.stderr.on("data", chunk => stderr.push(chunk));
+  let target;
+  const source = `http://127.0.0.1:${tracker.address().port}/source.torrent?passkey=${torSourceSecret}`;
+  const requestBaseline = torrentSourceRequests;
+  try {
+    target = await waitFor(async () => {
+      try {
+        return JSON.parse(await readFile(connectionPath, "utf8"));
+      } catch {
+        return null;
+      }
+    });
+    const failure = await apiRequest({
+      path: "/v1/torrent-drafts",
+      method: "POST",
+      body: JSON.stringify({ source, route: "tor" }),
+      target,
+    });
+    assert.equal(failure.status, 400);
+    assert.equal(failure.body.error, "Torrent operation failed");
+    assert.equal(JSON.stringify(failure.body).includes(torSourceSecret), false);
+    assert.equal(torrentSourceRequests, requestBaseline);
+    assert.equal((await apiRequest({ target })).body.draftCount, 0);
+  } finally {
+    if (target) {
+      await apiRequest({
+        path: "/v1/shutdown",
+        method: "POST",
+        body: "{}",
+        target,
+      }).catch(() => child.kill("SIGTERM"));
+    } else {
+      child.kill("SIGTERM");
+    }
+    if (child.exitCode === null) {
+      await new Promise(resolve => child.once("exit", resolve));
+    }
+    assert.equal(child.signalCode, null);
+    assert.equal(child.exitCode, 0);
+    const output = Buffer.concat(stderr).toString("utf8");
+    assert.equal(output.includes(torSourceSecret), false);
+    assert.equal(output.includes("source.torrent"), false);
+    await rm(childRoot, { recursive: true, force: true });
+  }
 });
 
 test("routes TCP peers through SOCKS and disables direct-only transports", async () => {
@@ -636,12 +1313,13 @@ test("routes TCP peers through SOCKS and disables direct-only transports", async
       `http://127.0.0.1:${trackerPort}/metadata.torrent`
     );
   }
+  const metadataBaseline = metadataRequests;
   const magnetRecord = await request("/v1/torrents", {
     method: "POST",
     body: JSON.stringify({ source: magnet.href }),
   });
   await new Promise(resolve => setTimeout(resolve, 500));
-  assert.equal(metadataRequests, 0);
+  assert.equal(metadataRequests, metadataBaseline);
   const draftMagnet = new URL(magnet.href);
   draftMagnet.searchParams.append("x.pe", `127.0.0.1:${seeder.torrentPort}`);
   const torDraft = await request("/v1/torrent-drafts", {
@@ -651,7 +1329,7 @@ test("routes TCP peers through SOCKS and disables direct-only transports", async
   await new Promise(resolve => setTimeout(resolve, 500));
   assert.equal(
     metadataRequests,
-    0,
+    metadataBaseline,
     "Tor magnet drafts never fetch as/ws/xs URLs directly"
   );
   await request(`/v1/torrent-drafts/${torDraft.draftId}`, {
@@ -737,6 +1415,8 @@ test("expires a draft atomically while commit and cancel race", async () => {
     if (child.exitCode === null) {
       await new Promise(resolve => child.once("exit", resolve));
     }
+    assert.equal(child.signalCode, null);
+    assert.equal(child.exitCode, 0);
     await rm(expiryRoot, { recursive: true, force: true });
   }
 });

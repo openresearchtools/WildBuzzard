@@ -17,8 +17,24 @@ trackers and every outgoing TCP peer. It disables µTP, UDP trackers, DHT, LSD,
 web seeds, NAT traversal, and incoming listeners so a failed Tor proxy stalls
 the torrent instead of falling back to the direct network. Magnet drafts and
 downloads remove `as`, `ws`, and `xs` alternate-source parameters before they
-reach WebTorrent in Tor mode, and all accepted metadata is size and structure
-bounded before it can become a download.
+reach WebTorrent in every mode. HTTP(S) torrent sources are fetched through the
+active route, size-bounded, validated, and materialized as local metainfo. The
+caller binds each request to its expected route, and the service fails closed if
+that route changed, so changing routes or restarting cannot replay a source URL
+directly.
+
+State, configuration, API responses, and diagnostics omit acquisition URLs and
+magnet parameters. A magnet record persists only its info hash until validated
+metadata is available, then resumes from mode-0600 metainfo. Required tracker
+announces remain confined to that metainfo and are represented by
+credential-free transport labels everywhere else.
+
+All accepted metadata is size and structure bounded before it can become a
+download. Empty explicit selections, colliding paths, platform-reserved paths,
+and existing symbolic links anywhere below the download root fail closed
+before WebTorrent opens its file store. Public records and service errors omit
+source URLs, tracker credentials, internal metainfo paths, and unbounded
+dependency error strings.
 
 The loopback API requires a random bearer, rejects browser origins and
 misdirected Host headers, compares credentials in constant time, and bounds

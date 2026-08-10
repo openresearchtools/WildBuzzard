@@ -16,6 +16,18 @@ const testRoot = PathUtils.join(
   `wildbuzzard-torrent-${Services.appinfo.processID}-${Date.now()}`
 );
 
+function createSymlink(source, destination) {
+  const executable = Cc["@mozilla.org/file/local;1"].createInstance(Ci.nsIFile);
+  executable.initWithPath("/bin/ln");
+  const process = Cc["@mozilla.org/process/util;1"].createInstance(
+    Ci.nsIProcess
+  );
+  process.init(executable);
+  const argumentsList = ["-s", source, destination];
+  process.run(true, argumentsList, argumentsList.length);
+  Assert.equal(process.exitValue, 0, "The runtime symlink was created");
+}
+
 add_setup(async function isolate_torrent_runtime() {
   UrlbarTestUtils.init(this);
   for (const name of environmentNames) {
@@ -97,6 +109,148 @@ add_task(async function test_runtime_tampering_is_repaired_atomically() {
     oldInstance,
     "The verified service is restarted after atomic runtime replacement"
   );
+});
+
+add_task(
+  async function test_runtime_root_symlink_is_replaced_without_traversal() {
+    requestLongerTimeout(4);
+    const { TorrentManager } = ChromeUtils.importESModule(
+      "resource:///modules/TorrentManager.sys.mjs"
+    );
+    await TorrentManager.initialize();
+    await TorrentManager.request("POST", "/v1/shutdown", {});
+    await TestUtils.waitForCondition(
+      async () => !(await IOUtils.exists(TorrentManager.connectionPath)),
+      "The torrent service shut down before runtime replacement"
+    );
+    const runtime = TorrentManager.runtimeDirectory;
+    const backup = `${runtime}.symlink-test-backup`;
+    const sentinelRoot = await IOUtils.createUniqueDirectory(
+      PathUtils.tempDir,
+      "torrent-runtime-sentinel-"
+    );
+    const sentinel = PathUtils.join(sentinelRoot, "sentinel.txt");
+    await IOUtils.writeUTF8(sentinel, "preserve");
+    registerCleanupFunction(async () => {
+      await IOUtils.remove(backup, { recursive: true, ignoreAbsent: true });
+      await IOUtils.remove(sentinelRoot, {
+        recursive: true,
+        ignoreAbsent: true,
+      });
+    });
+    await IOUtils.move(runtime, backup, { noOverwrite: true });
+    createSymlink(sentinelRoot, runtime);
+    TorrentManager.initializeTask = null;
+    await TorrentManager.initialize();
+    Assert.equal(
+      await IOUtils.readUTF8(sentinel),
+      "preserve",
+      "Runtime cleanup does not traverse a substituted root symlink"
+    );
+    const runtimeFile = Cc["@mozilla.org/file/local;1"].createInstance(
+      Ci.nsIFile
+    );
+    runtimeFile.initWithPath(TorrentManager.runtimeDirectory);
+    Assert.ok(
+      !runtimeFile.isSymlink(),
+      "The verified runtime is a real directory"
+    );
+    await IOUtils.remove(backup, { recursive: true, ignoreAbsent: true });
+    await IOUtils.remove(sentinelRoot, {
+      recursive: true,
+      ignoreAbsent: true,
+    });
+  }
+);
+
+add_task(async function test_extraction_lock_is_published_atomically() {
+  const { TorrentRuntimeLockTestUtils } = ChromeUtils.importESModule(
+    "resource:///modules/TorrentManager.sys.mjs"
+  );
+  const root = await IOUtils.createUniqueDirectory(
+    PathUtils.tempDir,
+    "torrent-lock-race-"
+  );
+  registerCleanupFunction(() =>
+    IOUtils.remove(root, { recursive: true, ignoreAbsent: true })
+  );
+  const lockPath = PathUtils.join(root, ".race-fixture.lock");
+  let publishFirst;
+  const firstPaused = new Promise(resolve => {
+    publishFirst = resolve;
+  });
+  let continueFirst;
+  const firstGate = new Promise(resolve => {
+    continueFirst = resolve;
+  });
+  let retryFirst;
+  const firstRetried = new Promise(resolve => {
+    retryFirst = resolve;
+  });
+  let continueRetry;
+  const retryGate = new Promise(resolve => {
+    continueRetry = resolve;
+  });
+  let publicationCount = 0;
+  const firstTask = TorrentRuntimeLockTestUtils.acquire(
+    root,
+    "race-fixture",
+    async (_owner, temporary) => {
+      publicationCount++;
+      if (publicationCount === 2) {
+        retryFirst();
+        await retryGate;
+        return;
+      }
+      if (publicationCount !== 1) {
+        return;
+      }
+      Assert.ok(
+        await IOUtils.readJSON(temporary),
+        "The owner record is complete in a private temporary file"
+      );
+      Assert.ok(
+        !(await IOUtils.exists(lockPath)),
+        "No empty public lock exists before atomic publication"
+      );
+      publishFirst();
+      await firstGate;
+    }
+  );
+  await firstPaused;
+  const second = await TorrentRuntimeLockTestUtils.acquire(
+    root,
+    "race-fixture"
+  );
+  const published = await IOUtils.readJSON(lockPath);
+  Assert.equal(
+    published.nonce,
+    second.owner.nonce,
+    "The second extractor atomically owns the complete lock"
+  );
+  let firstSettled = false;
+  firstTask.then(() => {
+    firstSettled = true;
+  });
+  continueFirst();
+  await firstRetried;
+  Assert.ok(!firstSettled, "A complete active lock is never stolen");
+  Assert.equal(
+    (await IOUtils.readJSON(lockPath)).nonce,
+    second.owner.nonce,
+    "The active lock remains owned while another extractor retries"
+  );
+  await TorrentRuntimeLockTestUtils.release(second);
+  continueRetry();
+  const first = await firstTask;
+  Assert.equal(
+    (await IOUtils.readJSON(lockPath)).nonce,
+    first.owner.nonce,
+    "The waiting extractor acquires the lock after release"
+  );
+  await TorrentRuntimeLockTestUtils.release(first);
+  Assert.ok(!(await IOUtils.exists(lockPath)), "The owning lock is released");
+  await IOUtils.remove(root, { recursive: true, ignoreAbsent: true });
 });
 
 add_task(async function test_live_connection_forgery_fails_closed() {

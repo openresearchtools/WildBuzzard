@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { Server as DHT } from "bittorrent-dht";
 import { Server as TrackerServer } from "bittorrent-tracker";
 import WebTorrent from "webtorrent";
 
@@ -28,6 +29,7 @@ async function startService(root, update = {}) {
       dataDirectory: join(root, "data"),
       downloadDirectory: join(root, "downloads"),
       connectionPath,
+      ownerInstance: "transport-test-owner-0000001",
       maxActive: 2,
       dht: false,
       natUpnp: false,
@@ -69,17 +71,24 @@ async function startService(root, update = {}) {
   return { process, request };
 }
 
-async function seed(root, options, announce = []) {
+async function seed(root, options, announce = [], privateTorrent = true) {
   const path = join(root, "seed.bin");
   await writeFile(path, Buffer.alloc(2 * 1024 * 1024, 0x57));
   const client = new WebTorrent(options);
+  let resolveDhtAnnounce;
+  const dhtAnnounce = new Promise(resolve => {
+    resolveDhtAnnounce = resolve;
+  });
+  client.once("torrent", activeTorrent => {
+    activeTorrent.once("dhtAnnounce", resolveDhtAnnounce);
+  });
   const torrent = await new Promise(resolve =>
-    client.seed(path, { announce, private: true }, resolve)
+    client.seed(path, { announce, private: privateTorrent }, resolve)
   );
-  return { client, torrent };
+  return { client, dhtAnnounce, torrent };
 }
 
-async function stop({ service, seeder, tracker, root }) {
+async function stop({ service, seeder, tracker, dht, root }) {
   await service
     .request("/v1/shutdown", {
       method: "POST",
@@ -98,6 +107,9 @@ async function stop({ service, seeder, tracker, root }) {
   }
   if (tracker) {
     await new Promise(resolve => tracker.close(resolve));
+  }
+  if (dht) {
+    await new Promise(resolve => dht.destroy(resolve));
   }
   await rm(root, { recursive: true, force: true });
 }
@@ -197,5 +209,57 @@ test("discovers TCP peers through a UDP tracker", async () => {
     });
   } finally {
     await stop({ service, seeder: seeded.client, tracker, root });
+  }
+});
+
+test("discovers a public magnet through DHT", async () => {
+  const root = await mkdtemp(join(tmpdir(), "wildbuzzard-dht-test-"));
+  const dht = new DHT({ bootstrap: false });
+  await new Promise(resolve => dht.listen(resolve));
+  const bootstrap = `127.0.0.1:${dht.address().port}`;
+  const seeded = await seed(
+    root,
+    {
+      dht: { bootstrap, host: "127.0.0.1" },
+      tracker: false,
+      lsd: false,
+      natUpnp: false,
+      natPmp: false,
+      utp: false,
+    },
+    [],
+    false
+  );
+  const service = await startService(root, {
+    dht: { bootstrap, host: "127.0.0.1" },
+    utp: false,
+  });
+  try {
+    await seeded.dhtAnnounce;
+    await service.request("/v1/torrents", {
+      method: "POST",
+      body: JSON.stringify({ source: seeded.torrent.magnetURI }),
+    });
+    const status = await waitFor(async () => {
+      const value = await service.request("/v1/status");
+      return value.torrents[0]?.connections.some(
+        connection =>
+          connection.source === "dht" && connection.transport === "TCP"
+      )
+        ? value
+        : null;
+    });
+    assert.equal(status.capabilities.dht, true);
+    assert.deepEqual(status.torrents[0].discovery, {
+      private: false,
+      dht: true,
+      pex: true,
+    });
+    await waitFor(async () => {
+      const value = await service.request("/v1/status");
+      return value.torrents[0]?.progress === 1;
+    });
+  } finally {
+    await stop({ service, seeder: seeded.client, dht, root });
   }
 });
