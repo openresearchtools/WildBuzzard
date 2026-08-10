@@ -13,6 +13,7 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   BrowserWindowTracker: "resource:///modules/BrowserWindowTracker.sys.mjs",
   Downloads: "resource://gre/modules/Downloads.sys.mjs",
+  ExtensionUtils: "resource://gre/modules/ExtensionUtils.sys.mjs",
   NavigableManager: "chrome://remote/content/shared/NavigableManager.sys.mjs",
   NavigationManager: "chrome://remote/content/shared/NavigationManager.sys.mjs",
   NetworkDecodedBodySizeMap:
@@ -81,6 +82,7 @@ const MAX_RENDER_TOTAL_BYTES = 32 * 1024 * 1024;
 const RENDER_CONTEXT_ID_MIN = 0x40000000;
 const RENDER_CONTEXT_ID_RANGE = 0x3fffffff;
 const RENDER_PROXY_FILTER_POSITION = 0xffffffff;
+const RENDER_HOST_URI = "chrome://global/content/win.xhtml";
 const TAB_OWNER_KEY = "wildbuzzard-agent-owner";
 const RENDER_ALLOWED_HEADERS = new Set([
   "accept",
@@ -989,9 +991,16 @@ class GeckoRenderController {
   applyFilter(channel, proxyInfo, callback) {
     const userContextId =
       channel.loadInfo?.originAttributes?.userContextId ?? 0;
-    callback.onProxyFilterResult(
-      this.jobsByUserContext.has(userContextId) ? null : proxyInfo
-    );
+    const job = this.jobsByUserContext.get(userContextId);
+    let useTestProxy = false;
+    if (job && Cu.isInAutomation) {
+      try {
+        const host = channel.URI.host.toLowerCase().replace(/\.$/, "");
+        useTestProxy =
+          this.testAllowedHosts.has(host) || this.testDNSAnswers.has(host);
+      } catch {}
+    }
+    callback.onProxyFilterResult(job && !useTestProxy ? null : proxyInfo);
   }
 
   QueryInterface = ChromeUtils.generateQI([
@@ -1138,7 +1147,7 @@ class GeckoRenderController {
         throw controller.signal.reason;
       }
       await this.#approveURI(job, options.uri);
-      this.#createWindowless(job);
+      await this.#createWindowless(job);
       this.jobsByBrowsingContext.set(job.browsingContext.id, job);
       await this.#navigate(job);
       if (job.fatalError) {
@@ -1203,6 +1212,7 @@ class GeckoRenderController {
       decodedBytes: 0,
       fatalError: null,
       windowless: null,
+      browser: null,
       browsingContext: null,
       networkWaiter: Promise.withResolvers(),
     };
@@ -1226,34 +1236,93 @@ class GeckoRenderController {
     throw new Error("Gecko renderer could not allocate an isolated context");
   }
 
-  #createWindowless(job) {
-    let flags = Ci.nsIWebBrowserChrome.CHROME_REMOTE_WINDOW;
+  async #createWindowless(job) {
+    let flags =
+      Ci.nsIWebBrowserChrome.CHROME_REMOTE_WINDOW |
+      Ci.nsIWebBrowserChrome.CHROME_PRIVATE_WINDOW;
     if (Services.appinfo.fissionAutostart) {
       flags |= Ci.nsIWebBrowserChrome.CHROME_FISSION_WINDOW;
     }
-    const windowless = Services.appShell.createWindowlessBrowser(false, flags);
-    const docShell = windowless.docShell;
-    docShell.setOriginAttributes({
-      ...docShell.getOriginAttributes(),
-      privateBrowsingId: 1,
-      userContextId: job.userContextId,
-    });
-    docShell.allowAuth = false;
-    docShell.allowContentRetargeting = false;
-    docShell.allowContentRetargetingOnChildren = false;
-    docShell.allowDNSPrefetch = false;
-    docShell.allowMedia = false;
-    docShell.allowWindowControl = false;
-    windowless.browsingContext.useGlobalHistory = false;
-    windowless.browsingContext.suspendMediaWhenInactive = true;
+    const windowless = Services.appShell.createWindowlessBrowser(true, flags);
     job.windowless = windowless;
-    job.browsingContext = windowless.browsingContext;
+    windowless.browsingContext.useGlobalHistory = false;
+
+    const hostGlobal = lazy.ExtensionUtils.promiseObserved(
+      "chrome-document-global-created",
+      window => window.document === windowless.document
+    );
+    const aborted = Promise.withResolvers();
+    const abortHost = () =>
+      aborted.reject(
+        job.controller.signal.reason ?? new Error("render aborted")
+      );
+    job.controller.signal.addEventListener("abort", abortHost, { once: true });
+    try {
+      windowless.loadURI(Services.io.newURI(RENDER_HOST_URI), {
+        triggeringPrincipal:
+          Services.scriptSecurityManager.getSystemPrincipal(),
+      });
+      await Promise.race([
+        hostGlobal.then(() =>
+          lazy.ExtensionUtils.promiseDocumentLoaded(windowless.document)
+        ),
+        aborted.promise,
+      ]);
+    } finally {
+      job.controller.signal.removeEventListener("abort", abortHost);
+    }
+
+    const browser = windowless.document.createXULElement("browser");
+    browser.setAttribute("type", "content");
+    browser.setAttribute("remote", "true");
+    browser.setAttribute(
+      "remoteType",
+      ChromeUtils.predictRemoteTypeForURI(job.options.uri, {
+        window: windowless.document.documentGlobal,
+        userContextId: job.userContextId,
+        privateBrowsingId: 1,
+      })
+    );
+    browser.setAttribute("maychangeremoteness", "true");
+    browser.setAttribute("nodefaultsrc", "true");
+    browser.setAttribute("disableglobalhistory", "true");
+    browser.setAttribute("manualactiveness", "true");
+    browser.setAttribute("usercontextid", job.userContextId);
+    browser.setAttribute("messagemanagergroup", "wildbuzzard-gecko-render");
+    browser.style.width = "1024px";
+    browser.style.height = "768px";
+    job.browser = browser;
+
+    const frameReady = Promise.withResolvers();
+    const abortFrame = () =>
+      frameReady.reject(
+        job.controller.signal.reason ?? new Error("render aborted")
+      );
+    browser.addEventListener("XULFrameLoaderCreated", frameReady.resolve, {
+      once: true,
+    });
+    job.controller.signal.addEventListener("abort", abortFrame, { once: true });
+    windowless.document.documentElement.appendChild(browser);
+    browser.getBoundingClientRect();
+    try {
+      await frameReady.promise;
+    } finally {
+      job.controller.signal.removeEventListener("abort", abortFrame);
+    }
+    browser.docShellIsActive = true;
+    browser.browsingContext.useGlobalHistory = false;
+    browser.browsingContext.suspendMediaWhenInactive = true;
+    browser.browsingContext.defaultLoadFlags =
+      Ci.nsIRequest.LOAD_BYPASS_CACHE |
+      Ci.nsIRequest.INHIBIT_CACHING |
+      Ci.nsIRequest.INHIBIT_PERSISTENT_CACHING |
+      Ci.nsIRequest.LOAD_ANONYMOUS |
+      Ci.nsIChannel.LOAD_BYPASS_SERVICE_WORKER;
+    job.browsingContext = browser.browsingContext;
   }
 
   async #navigate(job) {
-    const webProgress = job.windowless
-      .QueryInterface(Ci.nsIInterfaceRequestor)
-      .getInterface(Ci.nsIWebProgress);
+    const webProgress = job.browser.webProgress;
     const done = Promise.withResolvers();
     let settled = false;
     const finish = status => {
@@ -1287,7 +1356,7 @@ class GeckoRenderController {
     };
     const abort = () => {
       try {
-        job.windowless.stop(Ci.nsIWebNavigation.STOP_ALL);
+        job.browser.stop(Ci.nsIWebNavigation.STOP_ALL);
       } catch {}
       finish(Cr.NS_BINDING_ABORTED);
     };
@@ -1296,12 +1365,8 @@ class GeckoRenderController {
       Ci.nsIWebProgress.NOTIFY_STATE_NETWORK | Ci.nsIWebProgress.NOTIFY_LOCATION
     );
     job.controller.signal.addEventListener("abort", abort, { once: true });
-    job.windowless.loadURI(job.options.uri, {
-      loadFlags:
-        Ci.nsIRequest.LOAD_BYPASS_CACHE |
-        Ci.nsIRequest.INHIBIT_CACHING |
-        Ci.nsIRequest.LOAD_ANONYMOUS |
-        Ci.nsIChannel.LOAD_BYPASS_SERVICE_WORKER,
+    job.browser.loadURI(job.options.uri, {
+      loadFlags: Ci.nsIWebNavigation.LOAD_FLAGS_NONE,
       triggeringPrincipal: Services.scriptSecurityManager.createNullPrincipal({
         privateBrowsingId: 1,
         userContextId: job.userContextId,
@@ -1313,7 +1378,12 @@ class GeckoRenderController {
     }
     const navigationError = renderErrorName(status);
     if (navigationError) {
-      throw new Error(`navigation-error: ${navigationError}`);
+      const response = [...job.mainResponses.values()].findLast(
+        record => record.status === 204
+      );
+      if (status !== Cr.NS_BINDING_ABORTED || !response) {
+        throw new Error(`navigation-error: ${navigationError}`);
+      }
     }
   }
 
@@ -1385,9 +1455,16 @@ class GeckoRenderController {
     if (snapshot.error) {
       throw new Error(snapshot.error);
     }
-    const contentType = response?.contentType || snapshot.contentType || "";
+    const contentType =
+      response?.status === 204
+        ? response.contentType
+        : response?.contentType || snapshot.contentType || "";
     let content = "";
-    if (/^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType)) {
+    if (response?.status === 204) {
+      content = "";
+    } else if (
+      /^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType)
+    ) {
       content = snapshot.html;
     } else if (
       /^(?:text\/plain|application\/(?:[a-z0-9.+-]*\+)?json)(?:;|$)/i.test(
@@ -1398,7 +1475,7 @@ class GeckoRenderController {
         (await this.#capturedBodyText(job, finalUrl, contentType)) ??
         this.#responseBodyText(response?.body) ??
         snapshot.text;
-    } else if (response?.status !== 204) {
+    } else {
       throw new Error(`unsupported-content-type: ${contentType || "unknown"}`);
     }
     if (
@@ -1567,11 +1644,6 @@ class GeckoRenderController {
     internal.corsIncludeCredentials = false;
     internal.fetchCacheMode =
       Ci.nsIHttpChannelInternal.FETCH_CACHE_MODE_NO_STORE;
-    for (const name of RENDER_SENSITIVE_HEADERS) {
-      try {
-        channel.setRequestHeader(name, "", false);
-      } catch {}
-    }
     for (const name of job.options.headers.keys()) {
       try {
         channel.setRequestHeader(name, "", false);
@@ -1724,7 +1796,10 @@ class GeckoRenderController {
   #onStopRequest(job, channel) {
     const record = job.channelResponses.get(channel);
     if (record) {
-      const error = renderErrorName(channel.status);
+      const error =
+        record.status === 204 && channel.status === Cr.NS_BINDING_ABORTED
+          ? null
+          : renderErrorName(channel.status);
       record.state = error ? "failed" : "completed";
       record.error = error;
       job.notifyNetwork();
@@ -1912,8 +1987,12 @@ class GeckoRenderController {
 
   #closeWindowless(job) {
     try {
-      job.windowless?.stop(Ci.nsIWebNavigation.STOP_ALL);
+      job.browser?.stop(Ci.nsIWebNavigation.STOP_ALL);
     } catch {}
+    try {
+      job.browser?.remove();
+    } catch {}
+    job.browser = null;
     try {
       job.windowless?.close();
     } catch {}

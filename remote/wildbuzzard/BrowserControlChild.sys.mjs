@@ -1099,6 +1099,12 @@ export class WildBuzzardGeckoRenderRestrictionsChild extends JSWindowActorChild 
     ) {
       return;
     }
+    this.docShell.allowAuth = false;
+    this.docShell.allowContentRetargeting = false;
+    this.docShell.allowContentRetargetingOnChildren = false;
+    this.docShell.allowDNSPrefetch = false;
+    this.docShell.allowMedia = false;
+    this.docShell.allowWindowControl = false;
     const pageWindow = Cu.waiveXrays(this.contentWindow);
     for (const name of [
       "mozRTCPeerConnection",

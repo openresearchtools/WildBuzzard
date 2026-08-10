@@ -103,6 +103,7 @@ add_task(async function test_status_and_original_text_bodies() {
   result = await render(`${FIXTURE}?mode=empty`);
   is(result.pageStatusCode, 204, "204 status is retained");
   is(result.content, "", "204 has an empty body");
+  is(result.contentType, "", "204 has no content type");
   assertClean("status and content-type renders");
 });
 
@@ -176,9 +177,28 @@ add_task(async function test_redirect_subresource_and_domain_policy() {
 });
 
 add_task(async function test_dns_rebinding_is_checked_at_the_channel() {
-  const result = await render(
-    `https://rebind.example.com${FIXTURE_PATH}?mode=html`
-  );
+  BrowserControl.setGeckoRenderTestAllowedHosts([
+    "example.org",
+    "www.example.com",
+    "expired.example.com",
+  ]);
+  BrowserControl.setGeckoRenderTestDNSAnswers({
+    "example.com": ["93.184.216.34"],
+  });
+  let result;
+  try {
+    result = await render(`${FIXTURE}?mode=html`);
+  } finally {
+    BrowserControl.setGeckoRenderTestAllowedHosts([
+      "example.com",
+      "example.org",
+      "www.example.com",
+      "expired.example.com",
+    ]);
+    BrowserControl.setGeckoRenderTestDNSAnswers({
+      "rebind.example.com": ["93.184.216.34"],
+    });
+  }
   ok(result.pageError.includes("ssrf-blocked"), "rebound channel is blocked");
   assertClean("DNS rebinding");
 });
