@@ -8,6 +8,7 @@ import http.client
 import json
 import os
 import pathlib
+import secrets
 import signal
 import socket
 import stat
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+from types import SimpleNamespace
 from unittest import mock
 
 import searxng_service
@@ -41,6 +43,8 @@ class FakeService:
         self.port = 0
         self.token = "test-capability"
         self.backend_socket = pathlib.Path("/not-used")
+        self.private_socket = None
+        self.nonces: set[str] = set()
 
     def public_identity(self) -> dict[str, object]:
         return {"component": "searxng", "protocolVersion": 1}
@@ -50,6 +54,15 @@ class FakeService:
 
     def mark_healthy(self) -> None:
         return
+
+    def consume_auth_nonce(self, nonce: str) -> bool:
+        if nonce in self.nonces:
+            return False
+        self.nonces.add(nonce)
+        return True
+
+    def allow_search(self) -> bool:
+        return True
 
 
 class EnginePolicyTest(unittest.TestCase):
@@ -286,6 +299,10 @@ class ConnectionRecordTest(unittest.TestCase):
         service.owner_instance_id = "owner"
         service.created_at = searxng_service.epoch_milliseconds()
         service.last_health_at = service.created_at + 1
+        service.private_socket = pathlib.Path("/tmp/private.sock")
+        service.private_socket_status = mock.Mock(
+            return_value=SimpleNamespace(st_dev=7, st_ino=11)
+        )
         record = service.connection_record()
         self.assertIs(type(record["createdAt"]), int)
         self.assertIs(type(record["lastHealthAt"]), int)
@@ -303,6 +320,10 @@ class ConnectionRecordTest(unittest.TestCase):
         service.owner_instance_id = "owner"
         service.created_at = 1786320000000
         service.last_health_at = 1786320001000
+        service.private_socket = pathlib.Path("/tmp/private.sock")
+        service.private_socket_status = mock.Mock(
+            return_value=SimpleNamespace(st_dev=7, st_ino=11)
+        )
         with mock.patch.object(searxng_service.os, "getpid", return_value=1234):
             record = service.connection_record()
         with tempfile.TemporaryDirectory() as temporary:
@@ -315,7 +336,10 @@ class ConnectionRecordTest(unittest.TestCase):
                 '"executablePath":"/runtime/python/bin/python3",'
                 f'"executableSha256":"{"0" * 64}",'
                 '"lastHealthAt":1786320001000,"ownerInstanceId":"owner",'
-                '"pid":1234,"port":49152,"processStartTime":"12345",'
+                '"pid":1234,"port":49152,'
+                '"privateSocket":"/tmp/private.sock",'
+                '"privateSocketDevice":7,"privateSocketInode":11,'
+                '"processStartTime":"12345",'
                 '"protocolVersion":1,'
                 '"runtimeVersion":"2026.8.6+b023a28ba",'
                 f'"token":"{"a" * 43}","version":1}}\n',
@@ -350,12 +374,22 @@ class LifecycleControllerTest(unittest.TestCase):
             "test-data-root\n", encoding="ascii"
         )
         (self.controller.data_root / "data-root-id").chmod(0o600)
+        self.socket_allocation = searxng_service.create_private_socket_path(
+            "gateway", "test-data-root", self.controller.owner_instance_id
+        )
+        self.private_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.private_listener.bind(str(self.socket_allocation[1]))
+        self.socket_allocation[1].chmod(0o600)
+        self.private_listener.listen(1)
 
     def tearDown(self) -> None:
+        self.private_listener.close()
+        searxng_service.remove_backend_socket_path(*self.socket_allocation)
         self.temporary.cleanup()
 
     def record(self) -> dict[str, object]:
         now = searxng_service.epoch_milliseconds()
+        socket_status = os.stat(self.socket_allocation[1], follow_symlinks=False)
         return {
             "version": 1,
             "protocolVersion": searxng_service.PROTOCOL_VERSION,
@@ -371,6 +405,9 @@ class LifecycleControllerTest(unittest.TestCase):
             "ownerInstanceId": self.controller.owner_instance_id,
             "createdAt": now,
             "lastHealthAt": now,
+            "privateSocket": str(self.socket_allocation[1]),
+            "privateSocketDevice": socket_status.st_dev,
+            "privateSocketInode": socket_status.st_ino,
         }
 
     def test_record_validation_binds_process_and_owner_identity(self) -> None:
@@ -501,30 +538,251 @@ class LifecycleControllerTest(unittest.TestCase):
         close.assert_called_once_with(72)
         self.controller.remove_stale_record.assert_called_once_with(record)
 
-    def test_pidfd_fallback_revalidates_before_signal(self) -> None:
+    def test_live_wrong_pid_record_is_never_signalled(self) -> None:
+        child = subprocess.Popen(
+            ["/bin/sleep", "30"],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            record = {
+                **self.record(),
+                "pid": child.pid,
+                "processStartTime": searxng_service.process_start_time(child.pid),
+            }
+            self.controller.read_record = mock.Mock(return_value=record)
+            with mock.patch.object(searxng_service.os, "kill") as kill:
+                with self.assertRaisesRegex(RuntimeError, "executable mismatch"):
+                    self.controller._stop()
+            kill.assert_not_called()
+        finally:
+            child.terminate()
+            child.wait(timeout=5)
+
+    def test_private_socket_peer_swap_sends_no_capability_bytes(self) -> None:
+        allocation = searxng_service.create_private_socket_path(
+            "gateway", "test-data-root", self.controller.owner_instance_id
+        )
+        script = """
+import os, socket, sys
+path = sys.argv[1]
+listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+listener.bind(path)
+os.chmod(path, 0o600)
+listener.listen(1)
+print("ready", flush=True)
+connection, _ = listener.accept()
+connection.settimeout(2)
+try:
+    payload = connection.recv(65536)
+except TimeoutError:
+    payload = b"timeout"
+print(payload.hex(), flush=True)
+connection.close()
+listener.close()
+"""
+        peer = subprocess.Popen(
+            [sys.executable, "-I", "-B", "-c", script, str(allocation[1])],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            self.assertEqual(peer.stdout.readline().strip(), "ready")
+            status = os.stat(allocation[1], follow_symlinks=False)
+            record = {
+                **self.record(),
+                "token": "peer-swap-capability-" + "a" * 32,
+                "privateSocket": str(allocation[1]),
+                "privateSocketDevice": status.st_dev,
+                "privateSocketInode": status.st_ino,
+            }
+            with self.assertRaisesRegex(RuntimeError, "health check failed"):
+                self.controller.request_identity(record, "/v1/identity")
+            captured = peer.stdout.readline().strip()
+            self.assertEqual(captured, "")
+            self.assertNotIn(record["token"].encode().hex(), captured)
+            peer.wait(timeout=5)
+        finally:
+            if peer.poll() is None:
+                peer.terminate()
+                peer.wait(timeout=5)
+            peer.stdout.close()
+            peer.stderr.close()
+            searxng_service.remove_backend_socket_path(*allocation)
+
+    def test_sigkill_handoff_never_contacts_rebound_public_port(self) -> None:
+        capture = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        capture.bind(("127.0.0.1", 0))
+        capture.listen(1)
+        capture.settimeout(0.2)
+        allocation = searxng_service.create_private_socket_path(
+            "gateway", "test-data-root", self.controller.owner_instance_id
+        )
+        service = FakeService()
+        service.token = "sigkill-capability-" + "b" * 32
+        service.private_socket = allocation[1]
+        gateway = searxng_service.PrivateGateway(service)
+        thread = threading.Thread(target=gateway.serve_forever, daemon=True)
+        thread.start()
+        try:
+            socket_status = os.stat(allocation[1], follow_symlinks=False)
+            record = {
+                **self.record(),
+                "port": capture.getsockname()[1],
+                "token": service.token,
+                "privateSocket": str(allocation[1]),
+                "privateSocketDevice": socket_status.st_dev,
+                "privateSocketInode": socket_status.st_ino,
+            }
+            service.public_identity = lambda: {
+                "component": searxng_service.COMPONENT,
+                "protocolVersion": record["protocolVersion"],
+                "runtimeVersion": record["runtimeVersion"],
+                "pid": record["pid"],
+                "processStartTime": record["processStartTime"],
+                "executableSha256": record["executableSha256"],
+                "dataRootId": record["dataRootId"],
+                "ownerInstanceId": record["ownerInstanceId"],
+            }
+            self.controller.read_record = mock.Mock(return_value=record)
+            self.controller.remove_stale_record = mock.Mock()
+            self.controller.open_pidfd = mock.Mock(return_value=91)
+            with contextlib.ExitStack() as stack:
+                pidfd_signal = stack.enter_context(
+                    mock.patch.object(searxng_service.signal, "pidfd_send_signal")
+                )
+                stack.enter_context(mock.patch.object(searxng_service.os, "close"))
+                stack.enter_context(
+                    mock.patch.object(
+                        searxng_service,
+                        "wait_for_process_exit",
+                        side_effect=[False, True],
+                    )
+                )
+                self.assertIs(self.controller._stop(), record)
+            self.assertEqual(
+                [call.args[1] for call in pidfd_signal.call_args_list],
+                [signal.SIGTERM, signal.SIGKILL],
+            )
+            with self.assertRaises(TimeoutError):
+                capture.accept()
+        finally:
+            gateway.shutdown()
+            gateway.server_close()
+            thread.join(timeout=5)
+            capture.close()
+            searxng_service.remove_backend_socket_path(*allocation)
+
+    def test_pidfd_unavailable_never_signals(self) -> None:
         record = self.record()
         self.controller.read_record = mock.Mock(return_value=record)
         self.controller.validate_record = mock.Mock(return_value=record)
         self.controller.request_identity = mock.Mock(return_value={})
-        self.controller.remove_stale_record = mock.Mock()
         self.controller.open_pidfd = mock.Mock(return_value=None)
-        with contextlib.ExitStack() as stack:
-            kill = stack.enter_context(mock.patch.object(searxng_service.os, "kill"))
-            stack.enter_context(
-                mock.patch.object(
-                    searxng_service, "wait_for_process_exit", return_value=True
-                )
-            )
-            self.assertIs(self.controller._stop(), record)
-        self.assertEqual(self.controller.validate_record.call_count, 2)
-        kill.assert_called_once_with(record["pid"], signal.SIGTERM)
+        with mock.patch.object(searxng_service.os, "kill") as kill:
+            with self.assertRaisesRegex(RuntimeError, "signaling is unavailable"):
+                self.controller._stop()
+        kill.assert_not_called()
 
     def test_daemon_command_selects_serve_once(self) -> None:
         command = self.controller.daemon_command()
         self.assertEqual(command.count("serve"), 1)
 
 
-class GatewayBoundaryTest(unittest.TestCase):
+class PrivateGatewayBoundaryTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.service = FakeService()
+        self.allocation = searxng_service.create_private_socket_path(
+            "gateway", "private-data", "private-owner"
+        )
+        self.service.private_socket = self.allocation[1]
+        self.gateway = searxng_service.PrivateGateway(self.service)
+        self.thread = threading.Thread(target=self.gateway.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self) -> None:
+        self.gateway.shutdown()
+        self.gateway.server_close()
+        self.thread.join(timeout=5)
+        searxng_service.remove_backend_socket_path(*self.allocation)
+
+    def request(
+        self,
+        path: str,
+        *,
+        authenticated: bool = True,
+        host: str = "localhost",
+        nonce: str | None = None,
+    ) -> tuple[int, dict[str, object], http.client.HTTPMessage]:
+        nonce = nonce or secrets.token_urlsafe(24)
+        headers = {"Host": host, "Connection": "close"}
+        if authenticated:
+            signature = searxng_service.request_authentication(
+                self.service.token, "GET", path, b"", nonce
+            )
+            headers.update({
+                "Authorization": (
+                    f"{searxng_service.AUTHORIZATION_SCHEME} {signature}"
+                ),
+                "Sec-Fetch-Site": "none",
+                "X-WildBuzzard-Nonce": nonce,
+            })
+            self.assertNotIn(self.service.token, headers["Authorization"])
+        connection = searxng_service.UnixHTTPConnection(
+            self.service.private_socket, timeout=1
+        )
+        connection.request("GET", path, headers=headers)
+        response = connection.getresponse()
+        payload = response.read()
+        response_headers = response.headers
+        connection.close()
+        if authenticated and response.status != 401 and host == "localhost":
+            expected = searxng_service.response_authentication(
+                self.service.token,
+                nonce,
+                response.status,
+                response.getheader("Content-Type", ""),
+                payload,
+            )
+            self.assertEqual(
+                response.getheader("X-WildBuzzard-Response-Authentication"),
+                expected,
+            )
+        return response.status, json.loads(payload), response_headers
+
+    def test_identity_requires_private_authenticated_transport(self) -> None:
+        status, body, _ = self.request("/v1/identity", authenticated=False)
+        self.assertEqual(status, 401)
+        self.assertEqual(body, {"error": "capability-required"})
+        status, body, _ = self.request("/v1/identity")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["component"], "searxng")
+
+    def test_nonce_replay_and_wrong_host_fail_closed(self) -> None:
+        nonce = secrets.token_urlsafe(24)
+        status, _, _ = self.request("/v1/health", nonce=nonce)
+        self.assertEqual(status, 200)
+        status, body, _ = self.request("/v1/health", nonce=nonce)
+        self.assertEqual(status, 401)
+        self.assertEqual(body, {"error": "capability-required"})
+        status, body, _ = self.request("/v1/health", host="attacker.invalid")
+        self.assertEqual(status, 403)
+        self.assertEqual(body, {"error": "forbidden"})
+
+    def test_original_api_is_available_only_on_authenticated_socket(self) -> None:
+        for path in ("/config", "/search?q=test&format=json"):
+            status, body, _ = self.request(path)
+            self.assertEqual(status, 502)
+            self.assertEqual(body, {"error": "upstream-unavailable"})
+        status, body, _ = self.request("/metrics")
+        self.assertEqual(status, 404)
+        self.assertEqual(body, {"error": "not-found"})
+
+
+class PublicGatewayBoundaryTest(unittest.TestCase):
     def setUp(self) -> None:
         self.service = FakeService()
         self.gateway = searxng_service.Gateway(self.service)
@@ -552,18 +810,26 @@ class GatewayBoundaryTest(unittest.TestCase):
         connection.close()
         return response.status, body
 
-    def test_identity_requires_capability(self) -> None:
+    def test_private_routes_are_absent_from_the_public_port(self) -> None:
         status, body = self.request("/v1/identity")
-        self.assertEqual(status, 401)
-        self.assertEqual(body, {"error": "capability-required"})
-        status, body = self.request("/v1/identity", authorization=True)
-        self.assertEqual(status, 200)
-        self.assertEqual(body["component"], "searxng")
-
-    def test_metrics_is_not_exposed(self) -> None:
-        status, body = self.request("/metrics", authorization=True)
         self.assertEqual(status, 404)
         self.assertEqual(body, {"error": "not-found"})
+        status, body = self.request("/v1/identity", authorization=True)
+        self.assertEqual(status, 403)
+        self.assertEqual(body, {"error": "forbidden"})
+
+    def test_metrics_is_not_exposed(self) -> None:
+        status, body = self.request("/metrics")
+        self.assertEqual(status, 404)
+        self.assertEqual(body, {"error": "not-found"})
+
+    def test_only_token_free_html_search_is_public(self) -> None:
+        status, body = self.request("/search?q=test&format=json")
+        self.assertEqual(status, 404)
+        self.assertEqual(body, {"error": "not-found"})
+        status, body = self.request("/search?q=test&format=html")
+        self.assertEqual(status, 502)
+        self.assertEqual(body, {"error": "upstream-unavailable"})
 
     def test_host_boundary_rejects_dns_rebinding(self) -> None:
         status, body = self.request(
@@ -587,7 +853,7 @@ class GatewayBoundaryTest(unittest.TestCase):
             )
             try:
                 partial_requests = (
-                    b"GET /v1/health HTTP/1.1\r\nHost:",
+                    b"GET / HTTP/1.1\r\nHost:",
                     (
                         f"POST /search HTTP/1.1\r\n"
                         f"Host: 127.0.0.1:{self.service.port}\r\n"
@@ -615,9 +881,9 @@ class GatewayBoundaryTest(unittest.TestCase):
                 )
                 overflow.settimeout(0.3)
                 overflow.sendall(
-                    f"GET /v1/health HTTP/1.1\r\n"
+                    f"GET / HTTP/1.1\r\n"
                     f"Host: 127.0.0.1:{self.service.port}\r\n"
-                    f"Authorization: Bearer {self.service.token}\r\n\r\n".encode()
+                    "\r\n".encode()
                 )
                 try:
                     self.assertEqual(overflow.recv(1), b"")
@@ -629,11 +895,11 @@ class GatewayBoundaryTest(unittest.TestCase):
                 deadline = time.monotonic() + 2
                 while time.monotonic() < deadline:
                     try:
-                        status, body = self.request("/v1/health", authorization=True)
+                        status, body = self.request("/")
                     except (OSError, http.client.HTTPException):
                         time.sleep(0.02)
                         continue
-                    if status == 200 and body.get("ok") is True:
+                    if status == 502 and body.get("error") == "upstream-unavailable":
                         break
                 else:
                     self.fail("request slots did not recover after stalled clients")

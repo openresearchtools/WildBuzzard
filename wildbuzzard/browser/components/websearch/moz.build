@@ -2,6 +2,7 @@
 
 EXTRA_JS_MODULES += [
     "ManagedSearXNGEngine.sys.mjs",
+    "SearXNGPrivateTransport.sys.mjs",
     "SearXNGRuntime.sys.mjs",
 ]
 

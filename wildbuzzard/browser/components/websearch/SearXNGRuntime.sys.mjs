@@ -2,10 +2,10 @@
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { NetUtil } from "resource://gre/modules/NetUtil.sys.mjs";
-import { ServiceRequest } from "resource://gre/modules/ServiceRequest.sys.mjs";
 import { Subprocess } from "resource://gre/modules/Subprocess.sys.mjs";
 import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 import { synchronizeManagedSearXNGEngine } from "resource:///modules/ManagedSearXNGEngine.sys.mjs";
+import { requestSearXNGPrivateJSON } from "resource:///modules/SearXNGPrivateTransport.sys.mjs";
 
 const LocalFile = Components.Constructor(
   "@mozilla.org/file/local;1",
@@ -25,26 +25,70 @@ const CryptoHash = Components.Constructor(
 
 const ADDRESS = "127.0.0.1";
 const MANIFEST = "wildbuzzard-runtime.json";
-const RUNTIME_VERSION = "2026.8.6+b023a28ba";
-const SOURCE_ARCHIVE = "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz";
-const RUNTIME_ARCHIVE_SHA256 =
-  "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587";
 const SERVICE_PATH = "libexec/searxng_service.py";
-const SERVICE_SHA256 =
-  "b80378457f8d8e465a1efb4fcc3c22c75323fae09af2494ac23ecc47d40d7ffa";
 const LAUNCHER_PATH = "bin/searxng-service";
-const LAUNCHER_SHA256 =
-  "366af1e28c0fc029760f360896ce12d99ae22df58049fdc29584e3fc5f3a0fc7";
 const POLICY_PATH = "share/wildbuzzard/searxng/engine-policy.json";
-const POLICY_SHA256 =
-  "098eb8820fa6744b174cbb5d4afb643bafc30d5859c79aa766ef787797894f82";
+// Retain prior entries so rollback trusts only release-pinned archives.
+const TRUSTED_RUNTIME_RELEASES = Object.freeze([
+  Object.freeze({
+    archiveSha256:
+      "db683529031080cc1d35f5cfbe119b0d92f5985c4ecb996fc44e7c50838646f7",
+    expectedFileCount: 7042,
+    launcherSha256:
+      "366af1e28c0fc029760f360896ce12d99ae22df58049fdc29584e3fc5f3a0fc7",
+    manifest: Object.freeze({
+      architecture: "x86_64",
+      buildToolSourcesLockSha256:
+        "16c8eec18c59089a46f6b6d23940906057d66892d8e1c9dcc5f29c0d2db9a348",
+      buildToolsLockSha256:
+        "d4a00f1257791193f703d09ead618ecc10dc11dffcf60c2d928594622a709ee2",
+      compiler: "Zig 0.15.2",
+      compilerTarget: "x86_64-linux-gnu.2.28",
+      component: "searxng",
+      correspondingSource:
+        "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
+      correspondingSourceSha256:
+        "c4d07e484d9e88a6deef78e02701bc6bdc100dbccb432d8492bbaa689e499f57",
+      dependencyLockSha256:
+        "3532d6386c8fae458945006efae16a07ed10d327f66ceccae7a34140f753cf8e",
+      granianCargoComponentsLockSha256:
+        "8ad3c33d6967c2fcf0d2b71889b230df0df46a4a1b63a4f3af04b2d94b6e0c30",
+      granianCargoVendorLockSha256:
+        "6fbd1c743108c9484ec7995d4ff90f2effa1796dc2c3568c7210a0c14c2f8550",
+      license: "AGPL-3.0-or-later",
+      nativeSourcesLockSha256:
+        "3eb661da5692f7934d1b39a61b8e64e9c36112883ea2aa3051dfde13fbdfb34c",
+      platform: "linux",
+      protocolVersion: 1,
+      providerPolicySha256:
+        "098eb8820fa6744b174cbb5d4afb643bafc30d5859c79aa766ef787797894f82",
+      pythonSourceSha256:
+        "143b1dddefaec3bd2e21e3b839b34a2b7fb9842272883c576420d605e9f30c63",
+      pythonVersion: "3.14.6",
+      runtimeVersion: "2026.8.6+b023a28ba",
+      rustToolchain: "Rust 1.96.0 (ac68faa20)",
+      schema: 1,
+      toolchainLockSha256:
+        "bf9152e611653dd8ce4c5808a15fcc61ab19bc0fbdea80d461bba044f4e37d98",
+      upstreamCommit: "b023a28bab8839dba9eac96e9a51cc91bbd0a267",
+      upstreamSourceArchiveSha256:
+        "f5ab68baa420f26ac0d6b3fed1a8e5754bbe1fd31357c41271449980d3df779e",
+      upstreamTree: "d2dc5354fe2281abd59f6734851bd586e6806631",
+    }),
+    serviceSha256:
+      "4606ccd2c8d2123f42155f2567f1a71a2bf8a11fe225a153bad34cbb94d88cbe",
+  }),
+]);
+const CURRENT_RELEASE = TRUSTED_RUNTIME_RELEASES.at(-1);
+const SOURCE_ARCHIVE = CURRENT_RELEASE.manifest.correspondingSource;
+const RUNTIME_ARCHIVE_SHA256 = CURRENT_RELEASE.archiveSha256;
 const MAX_ARCHIVE_SIZE = 512 * 1024 * 1024;
+const MAX_SOURCE_ARCHIVE_SIZE = 2 * 1024 * 1024 * 1024;
 const MAX_MANIFEST_SIZE = 2 * 1024 * 1024;
 const MAX_FILE_SIZE = 64 * 1024 * 1024;
 const MAX_EXPANDED_SIZE = 512 * 1024 * 1024;
 const MAX_ENTRIES = 20000;
 const MAX_OUTPUT_SIZE = 64 * 1024;
-const EXPECTED_FILE_COUNT = 7042;
 const PROFILE_NAMESPACE_DOMAIN = "wildbuzzard-searxng-profile-v1\0";
 const OWNER_ID_DOMAIN = "wildbuzzard-searxng-owner-v1\0";
 const CONNECTION_FIELDS = new Set([
@@ -59,9 +103,57 @@ const CONNECTION_FIELDS = new Set([
   "port",
   "processStartTime",
   "protocolVersion",
+  "privateSocket",
+  "privateSocketDevice",
+  "privateSocketInode",
   "runtimeVersion",
   "token",
   "version",
+]);
+const ACTIVE_RUNTIME_FIELDS = new Set([
+  "activatedAt",
+  "archivePath",
+  "archiveSha256",
+  "bundleId",
+  "dataRootId",
+  "directory",
+  "manifestSha256",
+  "runtimeVersion",
+  "schema",
+  "sourcePath",
+  "sourceSha256",
+]);
+const LEGACY_ACTIVE_RUNTIME_FIELDS = new Set([
+  "activatedAt",
+  "archivePath",
+  "archiveSha256",
+  "bundleId",
+  "directory",
+]);
+const RUNTIME_DESCRIPTOR_FIELDS = new Set([
+  "archivePath",
+  "archiveSha256",
+  "bundleId",
+  "directory",
+  "manifestSha256",
+  "runtimeVersion",
+  "sourcePath",
+  "sourceSha256",
+]);
+const STAGED_ACTIVATION_FIELDS = new Set([
+  "candidate",
+  "dataRootId",
+  "ownerInstanceId",
+  "preparedAt",
+  "previous",
+  "schema",
+]);
+const EXTRACTION_LOCK_OWNER_FIELDS = new Set([
+  "createdAt",
+  "pid",
+  "processStartTime",
+  "schema",
+  "token",
 ]);
 const FILE_FIELDS = new Set(["path", "sha256", "size"]);
 const MANIFEST_FIELDS = new Set([
@@ -318,48 +410,21 @@ async function centralDirectoryEntries(archivePath, archiveSize) {
   return parseCentralDirectory(central, entries);
 }
 
+function trustedReleaseForArchive(archiveSha256) {
+  return TRUSTED_RUNTIME_RELEASES.find(
+    release => release.archiveSha256 === archiveSha256
+  );
+}
+
 // eslint-disable-next-line complexity
-function validateManifest(manifest, centralEntries) {
+function validateManifest(manifest, centralEntries, release) {
   if (
     !exactFields(manifest, MANIFEST_FIELDS) ||
-    manifest.schema !== 1 ||
-    manifest.component !== "searxng" ||
-    manifest.runtimeVersion !== RUNTIME_VERSION ||
-    manifest.upstreamCommit !== "b023a28bab8839dba9eac96e9a51cc91bbd0a267" ||
-    manifest.upstreamTree !== "d2dc5354fe2281abd59f6734851bd586e6806631" ||
-    manifest.upstreamSourceArchiveSha256 !==
-      "f5ab68baa420f26ac0d6b3fed1a8e5754bbe1fd31357c41271449980d3df779e" ||
-    manifest.pythonVersion !== "3.14.6" ||
-    manifest.pythonSourceSha256 !==
-      "143b1dddefaec3bd2e21e3b839b34a2b7fb9842272883c576420d605e9f30c63" ||
-    manifest.dependencyLockSha256 !==
-      "3532d6386c8fae458945006efae16a07ed10d327f66ceccae7a34140f753cf8e" ||
-    manifest.buildToolsLockSha256 !==
-      "d4a00f1257791193f703d09ead618ecc10dc11dffcf60c2d928594622a709ee2" ||
-    manifest.buildToolSourcesLockSha256 !==
-      "16c8eec18c59089a46f6b6d23940906057d66892d8e1c9dcc5f29c0d2db9a348" ||
-    manifest.nativeSourcesLockSha256 !==
-      "3eb661da5692f7934d1b39a61b8e64e9c36112883ea2aa3051dfde13fbdfb34c" ||
-    manifest.toolchainLockSha256 !==
-      "bf9152e611653dd8ce4c5808a15fcc61ab19bc0fbdea80d461bba044f4e37d98" ||
-    manifest.granianCargoVendorLockSha256 !==
-      "6fbd1c743108c9484ec7995d4ff90f2effa1796dc2c3568c7210a0c14c2f8550" ||
-    manifest.granianCargoComponentsLockSha256 !==
-      "8ad3c33d6967c2fcf0d2b71889b230df0df46a4a1b63a4f3af04b2d94b6e0c30" ||
-    manifest.providerPolicySha256 !== POLICY_SHA256 ||
-    manifest.compiler !== "Zig 0.15.2" ||
-    manifest.compilerTarget !== "x86_64-linux-gnu.2.28" ||
-    manifest.rustToolchain !== "Rust 1.96.0 (ac68faa20)" ||
-    manifest.protocolVersion !== 1 ||
-    manifest.platform !== "linux" ||
-    manifest.architecture !== "x86_64" ||
-    manifest.license !== "AGPL-3.0-or-later" ||
-    manifest.correspondingSource !==
-      "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz" ||
-    manifest.correspondingSourceSha256 !==
-      "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751" ||
+    Object.entries(release.manifest).some(
+      ([field, expected]) => manifest[field] !== expected
+    ) ||
     !Array.isArray(manifest.files) ||
-    manifest.files.length !== EXPECTED_FILE_COUNT
+    manifest.files.length !== release.expectedFileCount
   ) {
     throw new Error("Invalid SearXNG runtime manifest");
   }
@@ -388,9 +453,9 @@ function validateManifest(manifest, centralEntries) {
     [...centralEntries.keys()].some(
       path => path !== MANIFEST && !files.has(path)
     ) ||
-    files.get(SERVICE_PATH)?.sha256 !== SERVICE_SHA256 ||
-    files.get(LAUNCHER_PATH)?.sha256 !== LAUNCHER_SHA256 ||
-    files.get(POLICY_PATH)?.sha256 !== POLICY_SHA256 ||
+    files.get(SERVICE_PATH)?.sha256 !== release.serviceSha256 ||
+    files.get(LAUNCHER_PATH)?.sha256 !== release.launcherSha256 ||
+    files.get(POLICY_PATH)?.sha256 !== release.manifest.providerPolicySha256 ||
     !centralEntries.get(LAUNCHER_PATH)?.executable ||
     !centralEntries.get("python/bin/python3")?.executable ||
     !centralEntries.get("python/bin/python3.14")?.executable
@@ -413,7 +478,8 @@ async function runtimeBundleInfo(archivePath) {
     fileDigest(archivePath),
     centralDirectoryEntries(archivePath, archiveInfo.size),
   ]);
-  if (archiveSha256 !== RUNTIME_ARCHIVE_SHA256) {
+  const release = trustedReleaseForArchive(archiveSha256);
+  if (!release) {
     throw new Error("SearXNG runtime archive digest mismatch");
   }
   const zip = new ZipReader(archiveFile);
@@ -447,16 +513,17 @@ async function runtimeBundleInfo(archivePath) {
     }
     const manifestBytes = new TextEncoder().encode(manifestText);
     const manifest = JSON.parse(manifestText);
-    const files = validateManifest(manifest, centralEntries);
+    const files = validateManifest(manifest, centralEntries, release);
     return {
       archivePath,
       archiveSha256,
-      bundleId: `1-${RUNTIME_VERSION.replaceAll("+", "_")}-${archiveSha256}`,
+      bundleId: `1-${manifest.runtimeVersion.replaceAll("+", "_")}-${archiveSha256}`,
       centralEntries,
       files,
       manifest,
       manifestSha256: hexDigest(manifestBytes),
       manifestSize: manifestBytes.length,
+      release,
     };
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -542,34 +609,82 @@ async function processStartTime(pid) {
   return fields[19];
 }
 
+function validExtractionLockOwner(owner) {
+  return (
+    exactFields(owner, EXTRACTION_LOCK_OWNER_FIELDS) &&
+    owner.schema === 1 &&
+    Number.isSafeInteger(owner.pid) &&
+    owner.pid > 0 &&
+    typeof owner.processStartTime === "string" &&
+    /^\d+$/.test(owner.processStartTime) &&
+    typeof owner.token === "string" &&
+    /^[A-Za-z0-9_-]{24,128}$/.test(owner.token) &&
+    Number.isSafeInteger(owner.createdAt) &&
+    owner.createdAt > 0
+  );
+}
+
+async function extractionLockOwnerIsStale(owner) {
+  if (!validExtractionLockOwner(owner)) {
+    return true;
+  }
+  try {
+    return (await processStartTime(owner.pid)) !== owner.processStartTime;
+  } catch {
+    return true;
+  }
+}
+
+async function restoreClaimedLock(claim, lockDirectory) {
+  try {
+    await IOUtils.move(claim, lockDirectory, { noOverwrite: true });
+  } catch {
+    throw new Error("SearXNG extraction lock ownership changed");
+  }
+}
+
 async function acquireExtractionLock(stateDirectory) {
   const lockDirectory = PathUtils.join(
     stateDirectory,
     "browser-extraction.lock"
   );
-  const ownerPath = PathUtils.join(lockDirectory, "owner.json");
   const token = randomToken(18);
+  const pid = Services.appinfo.processID;
+  const processIdentity = await processStartTime(pid);
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline) {
+    const candidate = `${lockDirectory}.candidate-${pid}-${token}`;
     try {
-      await IOUtils.makeDirectory(lockDirectory, {
+      await IOUtils.makeDirectory(candidate, {
         ignoreExisting: false,
         permissions: 0o700,
       });
-      await writePrivateJSON(ownerPath, {
-        pid: Services.appinfo.processID,
-        processStartTime: await processStartTime(Services.appinfo.processID),
+      await writePrivateJSON(PathUtils.join(candidate, "owner.json"), {
+        createdAt: Date.now(),
+        pid,
+        processStartTime: processIdentity,
+        schema: 1,
         token,
       });
+      await IOUtils.move(candidate, lockDirectory, { noOverwrite: true });
       return async () => {
-        if ((await readPrivateJSON(ownerPath))?.token === token) {
-          await IOUtils.remove(lockDirectory, {
-            recursive: true,
-            ignoreAbsent: true,
-          });
+        const claim = `${lockDirectory}.release-${pid}-${token}`;
+        await IOUtils.move(lockDirectory, claim, { noOverwrite: true });
+        const owner = await readPrivateJSON(
+          PathUtils.join(claim, "owner.json")
+        );
+        if (!validExtractionLockOwner(owner) || owner.token !== token) {
+          await restoreClaimedLock(claim, lockDirectory);
+          throw new Error("SearXNG extraction lock ownership changed");
         }
+        await IOUtils.remove(claim, { recursive: true });
       };
-    } catch {}
+    } catch {
+      await IOUtils.remove(candidate, {
+        recursive: true,
+        ignoreAbsent: true,
+      }).catch(() => {});
+    }
     const lockFile = new LocalFile(lockDirectory);
     if (!lockFile.exists()) {
       continue;
@@ -577,21 +692,24 @@ async function acquireExtractionLock(stateDirectory) {
     if (!lockFile.isDirectory() || lockFile.isSymlink()) {
       throw new Error("Unsafe SearXNG extraction lock");
     }
-    const owner = await readPrivateJSON(ownerPath);
-    let stale = !owner;
-    if (owner) {
+    const owner = await readPrivateJSON(
+      PathUtils.join(lockDirectory, "owner.json")
+    );
+    if (await extractionLockOwnerIsStale(owner)) {
+      const claim = `${lockDirectory}.stale-${pid}-${randomToken(12)}`;
       try {
-        stale = (await processStartTime(owner.pid)) !== owner.processStartTime;
+        await IOUtils.move(lockDirectory, claim, { noOverwrite: true });
       } catch {
-        stale = true;
+        continue;
       }
-    }
-    if (stale) {
-      await IOUtils.remove(lockDirectory, {
-        recursive: true,
-        ignoreAbsent: true,
-      });
-      continue;
+      const claimedOwner = await readPrivateJSON(
+        PathUtils.join(claim, "owner.json")
+      );
+      if (await extractionLockOwnerIsStale(claimedOwner)) {
+        await IOUtils.remove(claim, { recursive: true });
+        continue;
+      }
+      await restoreClaimedLock(claim, lockDirectory);
     }
     await new Promise(resolve => setTimeout(resolve, 50));
   }
@@ -693,6 +811,7 @@ async function verifyExtractedRuntime(directory, bundle) {
   }
 }
 
+// eslint-disable-next-line complexity
 function validateConnectionRecord(
   record,
   runtime,
@@ -704,14 +823,22 @@ function validateConnectionRecord(
   if (
     !exactFields(record, CONNECTION_FIELDS) ||
     record.version !== 1 ||
-    record.protocolVersion !== 1 ||
-    record.runtimeVersion !== RUNTIME_VERSION ||
+    record.protocolVersion !== runtime.manifest.protocolVersion ||
+    record.runtimeVersion !== runtime.manifest.runtimeVersion ||
     record.address !== ADDRESS ||
     !Number.isSafeInteger(record.port) ||
     record.port < 1024 ||
     record.port > 65535 ||
     typeof record.token !== "string" ||
     !/^[A-Za-z0-9_-]{32,512}$/.test(record.token) ||
+    typeof record.privateSocket !== "string" ||
+    !/^\/tmp\/wb-sx-g-\d+-[a-f0-9]{24}-[a-f0-9]{32}\/s$/.test(
+      record.privateSocket
+    ) ||
+    !Number.isSafeInteger(record.privateSocketDevice) ||
+    record.privateSocketDevice < 0 ||
+    !Number.isSafeInteger(record.privateSocketInode) ||
+    record.privateSocketInode < 1 ||
     !Number.isSafeInteger(record.pid) ||
     record.pid < 1 ||
     typeof record.processStartTime !== "string" ||
@@ -752,28 +879,7 @@ function validateConnectionRecord(
 }
 
 function requestHealth(record, timeout = 3000) {
-  return new Promise((resolve, reject) => {
-    const request = new ServiceRequest({ mozAnon: true });
-    request.mozBackgroundRequest = true;
-    request.open("GET", `http://${ADDRESS}:${record.port}/v1/health`, {
-      bypassProxy: true,
-    });
-    request.responseType = "json";
-    request.timeout = timeout;
-    request.setRequestHeader("Authorization", `Bearer ${record.token}`);
-    request.setRequestHeader("Cache-Control", "no-store");
-    request.setRequestHeader("Sec-Fetch-Site", "none");
-    request.addEventListener("load", () =>
-      resolve({ body: request.response, status: request.status })
-    );
-    request.addEventListener("error", () =>
-      reject(new Error("SearXNG health request failed"))
-    );
-    request.addEventListener("timeout", () =>
-      reject(new Error("SearXNG health request timed out"))
-    );
-    request.send();
-  });
+  return requestSearXNGPrivateJSON(record, "/v1/health", timeout);
 }
 
 async function readPipe(pipe) {
@@ -819,6 +925,7 @@ export class SearXNGRuntimeSupervisor {
     this.stateDirectory = paths.stateDirectory;
     this.bundleRoot = PathUtils.join(this.rootDirectory, "runtime");
     this.archivesDirectory = PathUtils.join(this.bundleRoot, "archives");
+    this.sourcesDirectory = PathUtils.join(this.bundleRoot, "sources");
     this.dataDirectory = PathUtils.join(this.rootDirectory, "data");
     this.connectionPath = PathUtils.join(
       this.stateDirectory,
@@ -827,6 +934,10 @@ export class SearXNGRuntimeSupervisor {
     this.activeRuntimePath = PathUtils.join(
       this.bundleRoot,
       "active-runtime.json"
+    );
+    this.stagedActivationPath = PathUtils.join(
+      this.bundleRoot,
+      "active-runtime.staged.json"
     );
     this.configuredArchivePath = archivePath;
     this.configuredSourcePath = sourcePath;
@@ -912,61 +1023,542 @@ export class SearXNGRuntimeSupervisor {
     }
   }
 
-  async ensure() {
+  retry() {
+    return this.initialize();
+  }
+
+  async status() {
+    const unavailable = {
+      available: this.isAvailable(),
+      component: "searxng",
+      running: false,
+    };
     if (AppConstants.platform !== "linux") {
-      throw new Error("The bundled SearXNG runtime currently supports Linux");
+      return { ...unavailable, state: "unsupported" };
     }
+    if (!(await IOUtils.exists(this.activeRuntimePath))) {
+      return { ...unavailable, state: "not-installed" };
+    }
+    let active;
+    try {
+      active = await this.readActiveRuntime();
+    } catch {
+      return {
+        ...unavailable,
+        errorCode: "active-runtime-invalid",
+        state: "repair-required",
+      };
+    }
+    const identity = {
+      dataRootId: active.dataRootId,
+      runtimeVersion: active.manifest.runtimeVersion,
+    };
+    if (!(await IOUtils.exists(this.connectionPath))) {
+      return { ...unavailable, ...identity, state: "stopped" };
+    }
+    try {
+      const record = await this.readConnection(active);
+      await this.authenticateConnection(record);
+      return {
+        ...identity,
+        address: record.address,
+        available: true,
+        component: "searxng",
+        pid: record.pid,
+        port: record.port,
+        running: true,
+        state: "running",
+      };
+    } catch {
+      return {
+        ...unavailable,
+        ...identity,
+        errorCode: "service-identity-invalid",
+        state: "repair-required",
+      };
+    }
+  }
+
+  repair() {
+    if (this.initializationTask) {
+      return this.initializationTask;
+    }
+    const task = this.performRepair();
+    this.initializationTask = task;
+    return task.finally(() => {
+      if (this.initializationTask === task) {
+        this.initializationTask = null;
+      }
+    });
+  }
+
+  async ensureDirectories() {
     for (const path of [
       this.rootDirectory,
       this.bundleRoot,
       this.archivesDirectory,
+      this.sourcesDirectory,
       this.dataDirectory,
       this.cacheDirectory,
       this.stateDirectory,
     ]) {
       await privateDirectory(path);
     }
+  }
+
+  async performRepair() {
+    if (AppConstants.platform !== "linux") {
+      throw new Error("The bundled SearXNG runtime currently supports Linux");
+    }
+    await this.ensureDirectories();
     const release = await acquireExtractionLock(this.stateDirectory);
     let runtime;
     try {
+      let active = null;
+      let activeInvalid = false;
+      if (await IOUtils.exists(this.activeRuntimePath)) {
+        try {
+          active = await this.readActiveRuntime();
+        } catch {
+          activeInvalid = true;
+        }
+      }
+      if (await IOUtils.exists(this.connectionPath)) {
+        if (activeInvalid || !active) {
+          throw new Error(
+            "Cannot repair SearXNG while an unverified service record exists"
+          );
+        }
+        const record = await this.readConnection(active);
+        await this.authenticateConnection(record);
+        await this.stopRuntime(active);
+      }
+      if (active?.directory && (await IOUtils.exists(active.directory))) {
+        await this.quarantine(active.directory, "repair-runtime");
+      }
+      if (await IOUtils.exists(this.activeRuntimePath)) {
+        await this.quarantine(this.activeRuntimePath, "repair-active");
+      }
+      if (await IOUtils.exists(this.stagedActivationPath)) {
+        await this.quarantine(this.stagedActivationPath, "repair-staged");
+      }
       runtime = await this.extractRuntime();
     } finally {
       await release();
     }
-    const lifecycle = await this.runLifecycle(runtime, "start");
-    if (
-      lifecycle?.component !== "searxng" ||
-      lifecycle.running !== true ||
-      lifecycle.protocolVersion !== 1 ||
-      lifecycle.runtimeVersion !== RUNTIME_VERSION ||
-      !Number.isSafeInteger(lifecycle.pid) ||
-      typeof lifecycle.processStartTime !== "string"
-    ) {
-      throw new Error("SearXNG lifecycle returned an invalid status");
+    const record = await this.activateRuntime(runtime, null);
+    return this.runtimeResult(runtime, record);
+  }
+
+  async readDataRootId({ required = false } = {}) {
+    const path = PathUtils.join(this.dataDirectory, "data-root-id");
+    if (!(await IOUtils.exists(path))) {
+      if (!required) {
+        return null;
+      }
+      throw new Error("SearXNG data identity is missing");
     }
-    const record = await this.readConnection(runtime);
-    if (
-      record.pid !== lifecycle.pid ||
-      record.processStartTime !== lifecycle.processStartTime
-    ) {
-      throw new Error("SearXNG lifecycle and connection identities differ");
-    }
-    await this.authenticateConnection(record);
-    await this.synchronizeEngine({
-      address: record.address,
-      port: record.port,
-    });
-    await writePrivateJSON(this.activeRuntimePath, {
+    return readPrivateText(path, 256);
+  }
+
+  runtimeDescriptor(runtime) {
+    return {
       archivePath: runtime.archivePath,
       archiveSha256: runtime.archiveSha256,
       bundleId: runtime.bundleId,
       directory: runtime.directory,
-      activatedAt: Date.now(),
+      manifestSha256: runtime.manifestSha256,
+      runtimeVersion: runtime.manifest.runtimeVersion,
+      sourcePath: runtime.sourcePath,
+      sourceSha256: runtime.sourceSha256,
+    };
+  }
+
+  activeRuntimeRecord(runtime, dataRootId, activatedAt = Date.now()) {
+    return {
+      ...this.runtimeDescriptor(runtime),
+      activatedAt,
+      dataRootId,
+      schema: 2,
+    };
+  }
+
+  async validateRuntimeDescriptor(value, { repairExtraction = false } = {}) {
+    const release = trustedReleaseForArchive(value?.archiveSha256);
+    if (
+      !exactFields(value, RUNTIME_DESCRIPTOR_FIELDS) ||
+      !release ||
+      value.runtimeVersion !== release.manifest.runtimeVersion ||
+      !isDigest(value.archiveSha256) ||
+      !isDigest(value.manifestSha256) ||
+      value.sourceSha256 !== release.manifest.correspondingSourceSha256 ||
+      value.archivePath !==
+        PathUtils.join(this.archivesDirectory, `${value.archiveSha256}.zip`) ||
+      value.sourcePath !==
+        PathUtils.join(this.sourcesDirectory, `${value.sourceSha256}.tar.xz`)
+    ) {
+      throw new Error("Invalid active SearXNG runtime descriptor");
+    }
+    const bundle = await runtimeBundleInfo(value.archivePath);
+    const expectedDirectory = PathUtils.join(this.bundleRoot, bundle.bundleId);
+    if (
+      bundle.archiveSha256 !== value.archiveSha256 ||
+      bundle.manifestSha256 !== value.manifestSha256 ||
+      bundle.bundleId !== value.bundleId ||
+      bundle.manifest.runtimeVersion !== value.runtimeVersion ||
+      value.directory !== expectedDirectory
+    ) {
+      throw new Error("Active SearXNG runtime identity mismatch");
+    }
+    const source = new LocalFile(value.sourcePath);
+    if (
+      !source.isFile() ||
+      source.isSymlink() ||
+      (source.permissions & 0o777) !== 0o600 ||
+      (await fileDigest(value.sourcePath)) !== value.sourceSha256
+    ) {
+      throw new Error("Active SearXNG corresponding source is invalid");
+    }
+    try {
+      await verifyExtractedRuntime(value.directory, bundle);
+    } catch (error) {
+      if (!repairExtraction) {
+        throw error;
+      }
+      if (await IOUtils.exists(value.directory)) {
+        await this.quarantine(value.directory, "corrupt-retained-runtime");
+      }
+      await this.materializeRuntime(bundle, value.archivePath, value.directory);
+    }
+    return {
+      ...bundle,
+      archivePath: value.archivePath,
+      directory: value.directory,
+      sourcePath: value.sourcePath,
+      sourceSha256: value.sourceSha256,
+    };
+  }
+
+  async readActiveRuntime({ repairExtraction = false } = {}) {
+    if (!(await IOUtils.exists(this.activeRuntimePath))) {
+      return null;
+    }
+    const value = await readPrivateJSON(this.activeRuntimePath);
+    if (!value) {
+      throw new Error("Invalid active SearXNG runtime metadata");
+    }
+    const dataRootId = await this.readDataRootId({ required: true });
+    let descriptor;
+    let activatedAt;
+    if (exactFields(value, ACTIVE_RUNTIME_FIELDS) && value.schema === 2) {
+      if (
+        value.dataRootId !== dataRootId ||
+        !Number.isSafeInteger(value.activatedAt) ||
+        value.activatedAt < 1
+      ) {
+        throw new Error("Active SearXNG data identity mismatch");
+      }
+      descriptor = Object.fromEntries(
+        [...RUNTIME_DESCRIPTOR_FIELDS].map(field => [field, value[field]])
+      );
+      activatedAt = value.activatedAt;
+    } else if (exactFields(value, LEGACY_ACTIVE_RUNTIME_FIELDS)) {
+      if (!Number.isSafeInteger(value.activatedAt) || value.activatedAt < 1) {
+        throw new Error("Invalid active SearXNG runtime metadata");
+      }
+      const bundle = await runtimeBundleInfo(value.archivePath);
+      descriptor = {
+        archivePath: value.archivePath,
+        archiveSha256: value.archiveSha256,
+        bundleId: value.bundleId,
+        directory: value.directory,
+        manifestSha256: bundle.manifestSha256,
+        runtimeVersion: bundle.manifest.runtimeVersion,
+        sourcePath: PathUtils.join(
+          this.sourcesDirectory,
+          `${bundle.manifest.correspondingSourceSha256}.tar.xz`
+        ),
+        sourceSha256: bundle.manifest.correspondingSourceSha256,
+      };
+      activatedAt = value.activatedAt;
+    } else {
+      throw new Error("Invalid active SearXNG runtime metadata");
+    }
+    const runtime = await this.validateRuntimeDescriptor(descriptor, {
+      repairExtraction,
     });
+    return { ...runtime, activatedAt, dataRootId };
+  }
+
+  async readStagedActivation({ repairExtraction = false } = {}) {
+    if (!(await IOUtils.exists(this.stagedActivationPath))) {
+      return null;
+    }
+    const value = await readPrivateJSON(this.stagedActivationPath);
+    if (
+      !exactFields(value, STAGED_ACTIVATION_FIELDS) ||
+      value.schema !== 1 ||
+      value.ownerInstanceId !== this.ownerInstanceId ||
+      !Number.isSafeInteger(value.preparedAt) ||
+      value.preparedAt < 1 ||
+      (value.dataRootId !== null &&
+        (typeof value.dataRootId !== "string" || !value.dataRootId))
+    ) {
+      throw new Error("Invalid staged SearXNG activation metadata");
+    }
+    const currentDataRootId = await this.readDataRootId();
+    const firstActivationCreatedDataRoot =
+      value.previous === null &&
+      value.dataRootId === null &&
+      typeof currentDataRootId === "string" &&
+      Boolean(currentDataRootId);
+    if (
+      value.dataRootId !== currentDataRootId &&
+      !firstActivationCreatedDataRoot
+    ) {
+      throw new Error("Staged SearXNG data identity mismatch");
+    }
+    const candidate = await this.validateRuntimeDescriptor(value.candidate, {
+      repairExtraction,
+    });
+    const previous = value.previous
+      ? await this.validateRuntimeDescriptor(value.previous, {
+          repairExtraction,
+        })
+      : null;
+    return {
+      ...value,
+      candidate,
+      dataRootId: firstActivationCreatedDataRoot
+        ? currentDataRootId
+        : value.dataRootId,
+      previous,
+    };
+  }
+
+  async stageActivation(candidate, previous, dataRootId) {
+    await writePrivateJSON(this.stagedActivationPath, {
+      candidate: this.runtimeDescriptor(candidate),
+      dataRootId,
+      ownerInstanceId: this.ownerInstanceId,
+      preparedAt: Date.now(),
+      previous: previous ? this.runtimeDescriptor(previous) : null,
+      schema: 1,
+    });
+  }
+
+  sameRuntime(left, right) {
+    return (
+      Boolean(left && right) &&
+      left.bundleId === right.bundleId &&
+      left.archiveSha256 === right.archiveSha256 &&
+      left.directory === right.directory
+    );
+  }
+
+  validateLifecycle(runtime, lifecycle, running) {
+    if (
+      lifecycle?.component !== "searxng" ||
+      lifecycle.running !== running ||
+      (running &&
+        (lifecycle.protocolVersion !== runtime.manifest.protocolVersion ||
+          lifecycle.runtimeVersion !== runtime.manifest.runtimeVersion ||
+          !Number.isSafeInteger(lifecycle.pid) ||
+          typeof lifecycle.processStartTime !== "string"))
+    ) {
+      throw new Error("SearXNG lifecycle returned an invalid status");
+    }
+    return lifecycle;
+  }
+
+  async startRuntime(runtime, expectedDataRootId = null) {
+    const lifecycle = this.validateLifecycle(
+      runtime,
+      await this.runLifecycle(runtime, "start"),
+      true
+    );
+    const record = await this.readConnection(runtime);
+    if (
+      record.pid !== lifecycle.pid ||
+      record.processStartTime !== lifecycle.processStartTime ||
+      (expectedDataRootId && record.dataRootId !== expectedDataRootId)
+    ) {
+      throw new Error("SearXNG lifecycle and connection identities differ");
+    }
+    await this.authenticateConnection(record);
+    return record;
+  }
+
+  async stopRuntime(runtime) {
+    const status = await this.runLifecycle(runtime, "status");
+    this.validateLifecycle(runtime, status, status.running === true);
+    if (!status.running) {
+      return;
+    }
+    const record = await this.readConnection(runtime);
+    await this.authenticateConnection(record);
+    this.validateLifecycle(
+      runtime,
+      await this.runLifecycle(runtime, "stop"),
+      false
+    );
+  }
+
+  async recoverStagedActivation(staged, active) {
+    const activeIsCandidate = this.sameRuntime(active, staged.candidate);
+    const activeIsPrevious = this.sameRuntime(active, staged.previous);
+    if (!activeIsCandidate && !activeIsPrevious && active) {
+      throw new Error(
+        "Staged SearXNG activation does not match active metadata"
+      );
+    }
+    if (activeIsCandidate) {
+      const record = await this.startRuntime(
+        staged.candidate,
+        staged.dataRootId
+      );
+      await IOUtils.remove(this.stagedActivationPath);
+      return { active, record };
+    }
+    if (!staged.previous) {
+      if (await IOUtils.exists(this.connectionPath)) {
+        const record = await this.readConnection(staged.candidate);
+        await this.authenticateConnection(record);
+        await this.synchronizeEngine({
+          address: record.address,
+          port: record.port,
+        });
+        await writePrivateJSON(
+          this.activeRuntimePath,
+          this.activeRuntimeRecord(
+            staged.candidate,
+            record.dataRootId,
+            Date.now()
+          )
+        );
+        await IOUtils.remove(this.stagedActivationPath);
+        return {
+          active: { ...staged.candidate, dataRootId: record.dataRootId },
+          record,
+        };
+      }
+      await IOUtils.remove(this.stagedActivationPath);
+      return null;
+    }
+    if (await IOUtils.exists(this.connectionPath)) {
+      try {
+        const candidateRecord = await this.readConnection(staged.candidate);
+        await this.authenticateConnection(candidateRecord);
+        await this.stopRuntime(staged.candidate);
+      } catch (candidateError) {
+        try {
+          const previousRecord = await this.readConnection(staged.previous);
+          await this.authenticateConnection(previousRecord);
+        } catch {
+          throw candidateError;
+        }
+      }
+    }
+    const record = await this.startRuntime(staged.previous, staged.dataRootId);
+    const activatedAt = active?.activatedAt ?? Date.now();
+    const restored = {
+      ...staged.previous,
+      activatedAt,
+      dataRootId: record.dataRootId,
+    };
+    await writePrivateJSON(
+      this.activeRuntimePath,
+      this.activeRuntimeRecord(staged.previous, record.dataRootId, activatedAt)
+    );
+    await IOUtils.remove(this.stagedActivationPath);
+    return { active: restored, record };
+  }
+
+  async activateRuntime(runtime, previous) {
+    const expectedDataRootId =
+      previous?.dataRootId ?? (await this.readDataRootId());
+    await this.stageActivation(runtime, previous, expectedDataRootId);
+    const handoff = previous && !this.sameRuntime(runtime, previous);
+    if (handoff) {
+      await this.stopRuntime(previous);
+    }
+    try {
+      const record = await this.startRuntime(runtime, expectedDataRootId);
+      await this.synchronizeEngine({
+        address: record.address,
+        port: record.port,
+      });
+      await writePrivateJSON(
+        this.activeRuntimePath,
+        this.activeRuntimeRecord(runtime, record.dataRootId)
+      );
+      await IOUtils.remove(this.stagedActivationPath);
+      return record;
+    } catch (error) {
+      if (!handoff) {
+        throw error;
+      }
+      try {
+        if (await IOUtils.exists(this.connectionPath)) {
+          const candidateRecord = await this.readConnection(runtime);
+          await this.authenticateConnection(candidateRecord);
+          await this.stopRuntime(runtime);
+        }
+        const record = await this.startRuntime(previous, previous.dataRootId);
+        await this.synchronizeEngine({
+          address: record.address,
+          port: record.port,
+        });
+        await writePrivateJSON(
+          this.activeRuntimePath,
+          this.activeRuntimeRecord(
+            previous,
+            record.dataRootId,
+            previous.activatedAt
+          )
+        );
+        await IOUtils.remove(this.stagedActivationPath);
+      } catch (rollbackError) {
+        throw new AggregateError(
+          [error, rollbackError],
+          "SearXNG upgrade and verified rollback both failed"
+        );
+      }
+      throw error;
+    }
+  }
+
+  async ensure() {
+    if (AppConstants.platform !== "linux") {
+      throw new Error("The bundled SearXNG runtime currently supports Linux");
+    }
+    await this.ensureDirectories();
+    const release = await acquireExtractionLock(this.stateDirectory);
+    let runtime;
+    let previous;
+    let staged;
+    try {
+      runtime = await this.extractRuntime();
+      previous = await this.readActiveRuntime({ repairExtraction: true });
+      staged = await this.readStagedActivation({ repairExtraction: true });
+    } finally {
+      await release();
+    }
+    if (staged) {
+      const recovered = await this.recoverStagedActivation(staged, previous);
+      if (recovered) {
+        previous = recovered.active;
+      }
+    }
+    const record = await this.activateRuntime(runtime, previous);
+    return this.runtimeResult(runtime, record);
+  }
+
+  runtimeResult(runtime, record) {
     return {
       address: record.address,
       connectionPath: this.connectionPath,
-      correspondingSourcePath: this.sourceArchivePath(),
+      correspondingSourcePath: runtime.sourcePath,
       ownerInstanceId: record.ownerInstanceId,
       pid: record.pid,
       port: record.port,
@@ -984,14 +1576,14 @@ export class SearXNGRuntimeSupervisor {
     if (await IOUtils.exists(destination)) {
       const retained = new LocalFile(destination);
       if (
-        !retained.isFile() ||
-        retained.isSymlink() ||
-        (retained.permissions & 0o777) !== 0o600 ||
-        (await fileDigest(destination)) !== sourceBundle.archiveSha256
+        retained.isFile() &&
+        !retained.isSymlink() &&
+        (retained.permissions & 0o777) === 0o600 &&
+        (await fileDigest(destination)) === sourceBundle.archiveSha256
       ) {
-        throw new Error("Invalid retained SearXNG runtime archive");
+        return destination;
       }
-      return destination;
+      await this.quarantine(destination, "retained-archive");
     }
     const temporary = `${destination}.new-${randomToken(18)}`;
     try {
@@ -1007,28 +1599,67 @@ export class SearXNGRuntimeSupervisor {
     }
   }
 
-  async extractRuntime() {
-    const source = this.archivePath();
-    if (!(await IOUtils.exists(source))) {
-      throw new Error(
-        "The bundled SearXNG runtime was not found. Build with --searxng-runtime."
-      );
+  async quarantine(path, kind) {
+    if (!(await IOUtils.exists(path))) {
+      return null;
     }
-    const sourceBundle = await runtimeBundleInfo(source);
-    const retainedPath = await this.retainArchive(source, sourceBundle);
-    const bundle = await runtimeBundleInfo(retainedPath);
-    if (bundle.archiveSha256 !== sourceBundle.archiveSha256) {
-      throw new Error("Retained SearXNG runtime identity mismatch");
+    const destination = PathUtils.join(
+      PathUtils.parent(path),
+      `.quarantine-${kind}-${Date.now()}-${randomToken(12)}`
+    );
+    await IOUtils.move(path, destination, { noOverwrite: true });
+    return destination;
+  }
+
+  async retainSourceArchive(source, bundle) {
+    const file = new LocalFile(source);
+    if (!file.isFile() || file.isSymlink()) {
+      throw new Error("Unsafe SearXNG corresponding source archive");
     }
-    const destination = PathUtils.join(this.bundleRoot, bundle.bundleId);
-    const marker = PathUtils.join(destination, ".extraction-complete");
-    if (await IOUtils.exists(marker)) {
-      await verifyExtractedRuntime(destination, bundle);
-      return { ...bundle, archivePath: retainedPath, directory: destination };
+    const info = await IOUtils.stat(source);
+    if (info.size < 1 || info.size > MAX_SOURCE_ARCHIVE_SIZE) {
+      throw new Error("SearXNG corresponding source size is invalid");
     }
+    const expected = bundle.manifest.correspondingSourceSha256;
+    if (
+      bundle.manifest.correspondingSource !==
+        bundle.release.manifest.correspondingSource ||
+      expected !== bundle.release.manifest.correspondingSourceSha256 ||
+      (await fileDigest(source)) !== expected
+    ) {
+      throw new Error("SearXNG corresponding source digest mismatch");
+    }
+    const destination = PathUtils.join(
+      this.sourcesDirectory,
+      `${expected}.tar.xz`
+    );
     if (await IOUtils.exists(destination)) {
-      throw new Error("Incomplete immutable SearXNG runtime exists");
+      const retained = new LocalFile(destination);
+      if (
+        retained.isFile() &&
+        !retained.isSymlink() &&
+        (retained.permissions & 0o777) === 0o600 &&
+        (await fileDigest(destination)) === expected
+      ) {
+        return destination;
+      }
+      await this.quarantine(destination, "retained-source");
     }
+    const temporary = `${destination}.new-${randomToken(18)}`;
+    try {
+      await IOUtils.copy(source, temporary, { noOverwrite: true });
+      await IOUtils.setPermissions(temporary, 0o600);
+      if ((await fileDigest(temporary)) !== expected) {
+        throw new Error("SearXNG corresponding source changed while retained");
+      }
+      await IOUtils.move(temporary, destination, { noOverwrite: true });
+      return destination;
+    } finally {
+      await IOUtils.remove(temporary, { ignoreAbsent: true }).catch(() => {});
+    }
+  }
+
+  async materializeRuntime(bundle, archivePath, destination) {
     const staging = PathUtils.join(
       this.bundleRoot,
       `.staging-${bundle.bundleId}-${Services.appinfo.processID}-${randomToken(
@@ -1039,7 +1670,7 @@ export class SearXNGRuntimeSupervisor {
       ignoreExisting: false,
       permissions: 0o700,
     });
-    const zip = new ZipReader(new LocalFile(retainedPath));
+    const zip = new ZipReader(new LocalFile(archivePath));
     try {
       for (const [entry, central] of bundle.centralEntries) {
         const target = PathUtils.join(staging, ...entry.split("/"));
@@ -1097,7 +1728,6 @@ export class SearXNGRuntimeSupervisor {
       await verifyExtractedRuntime(staging, bundle);
       await IOUtils.move(staging, destination, { noOverwrite: true });
       await verifyExtractedRuntime(destination, bundle);
-      return { ...bundle, archivePath: retainedPath, directory: destination };
     } catch (error) {
       await IOUtils.remove(staging, {
         recursive: true,
@@ -1107,6 +1737,55 @@ export class SearXNGRuntimeSupervisor {
     } finally {
       zip.close();
     }
+  }
+
+  async extractRuntime() {
+    const source = this.archivePath();
+    if (!(await IOUtils.exists(source))) {
+      throw new Error(
+        "The bundled SearXNG runtime was not found. Build with --searxng-runtime."
+      );
+    }
+    const sourceBundle = await runtimeBundleInfo(source);
+    if (sourceBundle.archiveSha256 !== RUNTIME_ARCHIVE_SHA256) {
+      throw new Error("Packaged SearXNG runtime is not the current release");
+    }
+    const retainedPath = await this.retainArchive(source, sourceBundle);
+    const bundle = await runtimeBundleInfo(retainedPath);
+    if (bundle.archiveSha256 !== sourceBundle.archiveSha256) {
+      throw new Error("Retained SearXNG runtime identity mismatch");
+    }
+    const sourcePath = await this.retainSourceArchive(
+      this.sourceArchivePath(),
+      bundle
+    );
+    const destination = PathUtils.join(this.bundleRoot, bundle.bundleId);
+    const marker = PathUtils.join(destination, ".extraction-complete");
+    if (await IOUtils.exists(marker)) {
+      try {
+        await verifyExtractedRuntime(destination, bundle);
+        return {
+          ...bundle,
+          archivePath: retainedPath,
+          directory: destination,
+          sourcePath,
+          sourceSha256: bundle.manifest.correspondingSourceSha256,
+        };
+      } catch {
+        await this.quarantine(destination, "corrupt-runtime");
+      }
+    }
+    if (await IOUtils.exists(destination)) {
+      await this.quarantine(destination, "incomplete-runtime");
+    }
+    await this.materializeRuntime(bundle, retainedPath, destination);
+    return {
+      ...bundle,
+      archivePath: retainedPath,
+      directory: destination,
+      sourcePath,
+      sourceSha256: bundle.manifest.correspondingSourceSha256,
+    };
   }
 
   async runLifecycle(runtime, command) {
@@ -1150,16 +1829,28 @@ export class SearXNGRuntimeSupervisor {
       readPipe(process.stderr),
       process.wait(),
     ]);
+    let parsed;
+    try {
+      parsed = JSON.parse(stdout);
+    } catch {
+      if (result.exitCode === 0) {
+        throw new Error(`SearXNG ${command} returned invalid JSON`);
+      }
+    }
+    if (
+      command === "status" &&
+      result.exitCode === 3 &&
+      parsed?.component === "searxng" &&
+      parsed.running === false
+    ) {
+      return parsed;
+    }
     if (result.exitCode !== 0) {
       throw new Error(
         stderr.trim() || stdout.trim() || `SearXNG ${command} failed`
       );
     }
-    try {
-      return JSON.parse(stdout);
-    } catch {
-      throw new Error(`SearXNG ${command} returned invalid JSON`);
-    }
+    return parsed;
   }
 
   async readConnection(runtime) {
@@ -1210,6 +1901,8 @@ export class SearXNGRuntimeSupervisor {
 }
 
 export const SearXNGRuntimeTestUtils = {
+  acquireExtractionLock,
+  extractionLockOwnerIsStale,
   safeArchivePath,
   validateConnectionRecord,
   verifyExtractedRuntime,
@@ -1233,6 +1926,18 @@ export const SearXNGRuntime = {
 
   initialize() {
     return supervisor().initialize();
+  },
+
+  repair() {
+    return supervisor().repair();
+  },
+
+  retry() {
+    return supervisor().retry();
+  },
+
+  status() {
+    return supervisor().status();
   },
 
   isAvailable() {

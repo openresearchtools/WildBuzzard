@@ -4,14 +4,19 @@
 
 The native runtime launches the source-built bundled CPython and Granian. The
 upstream application listens only on a mode-0600 Unix socket. A small
-WildBuzzard gateway selects an ephemeral `127.0.0.1` port and enforces the
-local trust boundary.
+WildBuzzard gateway exposes token-free HTML navigation on an ephemeral
+`127.0.0.1` port. It rejects Authorization and private-nonce headers, JSON
+formats, `/config`, `/stats`, `/metrics`, and `/v1` on that public listener, as
+well as mismatched Host, cross-origin Origin, and cross-site Fetch Metadata
+requests.
 
-JSON searches, `/config`, `/stats`, `/metrics`, `/v1/health`, and
-`/v1/identity` require `Authorization: Bearer <token>`. HTML navigation is
-allowed without placing the capability in a URL, but rejects a mismatched Host,
-cross-origin Origin, or cross-site Fetch Metadata request. The gateway emits no
-CORS headers and does not log requests.
+Privileged health, identity, configuration, and search requests use a separate
+mode-0600 Unix socket. They carry a unique nonce and an HMAC-SHA256 request
+signature instead of the capability itself. The service admits only the same
+UID with `SO_PEERCRED`, rejects nonce replay, and signs the status, content type,
+and complete response body. A replaced socket therefore receives no reusable
+secret and cannot forge a response. Metrics and stats remain unavailable. Both
+gateways emit no CORS headers and do not log requests.
 
 The browser starts or reconnects to the detached service with:
 
@@ -28,13 +33,20 @@ The browser starts or reconnects to the detached service with:
 
 `browser/components/websearch/SearXNGRuntime.sys.mjs` verifies and atomically
 extracts the bundled ZIP into versioned per-profile XDG state before invoking
-that lifecycle interface. The AppImage packager also streams and verifies the
-complete manifest inventory and every payload digest before producing an
-image. The owner ID is a domain-separated digest of the canonical browser
-profile path. Normal navigation receives only the live loopback search URL;
-the bundled Pi web-access extension receives the private connection-record
-path through its privileged service environment and reads the capability from
-that mode-0600 file.
+that lifecycle interface. It verifies the exact corresponding-source digest
+before any service start. A corrupt retained archive, source archive, or
+immutable extraction is moved to a recoverable quarantine name and rebuilt
+only from the verified packaged bytes. Extraction-lock creation, stale-lock
+claim, and release use atomic directory renames and process-start identities so
+one browser cannot remove a peer's lock. The AppImage packager also streams and
+verifies the complete manifest inventory and every payload digest before
+producing an image.
+
+The owner ID is a domain-separated digest of the canonical browser profile
+path. Normal navigation receives only the live loopback HTML URL. The browser
+controller and bundled Pi web-access extension receive the private
+connection-record path and use its Unix socket with authenticated requests;
+neither sends the record capability to the loopback port or on the wire.
 
 Every browser package carries the exact complete corresponding source at
 `notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz` and the
@@ -52,20 +64,32 @@ validate the private connection record, process start time, executable digest,
 owner identity, and authenticated `/v1/identity` response before signaling the
 recorded PID. On supported Linux kernels the controller opens a pidfd after
 validation, revalidates `/proc` identity, and signals only that pinned process.
-The fallback path revalidates the complete process identity immediately before
-each PID signal.
+If pidfds are unavailable, stop and restart fail closed without issuing a
+PID-only signal.
+
+The browser keeps mode-0600 active and staged activation records beside the
+retained runtime and source archives. An upgrade validates the active runtime,
+its archive, corresponding source, data-root identity, process, and private
+health response before stopping it. It stages the candidate, starts it against
+the same persistent data root, and commits activation only after health and
+engine synchronization succeed. Failure stops only an authenticated candidate
+and restarts the verified retained runtime. Interrupted handoffs are resolved
+conservatively on the next launch. The public runtime API exposes read-only
+authenticated `status()`, `retry()`, and data-preserving `repair()`; repair
+refuses to act while a live connection record cannot be verified.
 
 The runtime directory and data directory are mode 0700. The connection record,
 launch lock, generated settings, installation secret, and capability are mode
-0600. The backend socket is mode 0600 inside an atomically allocated mode-0700
-directory under `/tmp`. Its short ASCII name is bound to the user, data-root,
-and owner identities, so long or non-ASCII profile paths cannot exceed the Unix
-socket path limit. The service verifies the directory's device, inode,
-ownership, and mode before use and cleanup; it never follows a replacement or
-recursively removes the directory. A nonblocking file lock prevents two owners
-from starting the component. Reconnects must authenticate `/v1/identity` and
-compare every recorded process, executable, data-root, owner, protocol, and
-runtime field before reuse or termination.
+0600. The backend and privileged gateway sockets are mode 0600 inside
+independently allocated mode-0700 directories under `/tmp`. Their short ASCII
+names are bound to their purpose, user, data-root, and owner identities, so long
+or non-ASCII profile paths cannot exceed the Unix socket path limit. The
+service verifies each directory and socket's device, inode, ownership, and mode
+before use and cleanup; it never follows a replacement or recursively removes
+the directory. A nonblocking file lock prevents two owners from starting the
+component. Reconnects authenticate `/v1/identity` and compare every recorded
+process, executable, socket, data-root, owner, protocol, and runtime field
+before reuse or termination.
 
 Accepted sockets have a five-second read timeout. If all 16 request workers are
 occupied, the accept thread waits at most 250 milliseconds for a slot and then
@@ -101,6 +125,9 @@ Expanded for readability, the schema is:
   "ownerInstanceId": "opaque",
   "pid": 1234,
   "port": 49152,
+  "privateSocket": "/tmp/wb-sx-g-1000-0123456789abcdef01234567-0123456789abcdef0123456789abcdef/s",
+  "privateSocketDevice": 42,
+  "privateSocketInode": 123456,
   "processStartTime": "12345678",
   "protocolVersion": 1,
   "runtimeVersion": "2026.8.6+b023a28ba",
@@ -109,7 +136,7 @@ Expanded for readability, the schema is:
 }
 ```
 
-Normal browser searches use the gateway HTML surface. Privileged tools use
-form-encoded `POST /search` with the bearer header and `format=json`. The
-gateway never forwards its Authorization header to SearXNG or an upstream
-engine.
+Normal browser searches use the public gateway HTML surface. Privileged tools
+use form-encoded `POST /search` with `format=json` over the authenticated Unix
+socket. The gateway never forwards its authentication headers to SearXNG or an
+upstream engine.

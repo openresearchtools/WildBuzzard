@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 from __future__ import annotations
@@ -8,6 +9,7 @@ import contextlib
 import datetime
 import difflib
 import hashlib
+import hmac
 import json
 import os
 import pathlib
@@ -55,6 +57,9 @@ CONNECTION_FIELDS = {
     "ownerInstanceId",
     "createdAt",
     "lastHealthAt",
+    "privateSocket",
+    "privateSocketDevice",
+    "privateSocketInode",
 }
 TOKEN_PATTERN = re.compile(r"Bearer [A-Za-z0-9._~-]+", re.IGNORECASE)
 PORT_PATTERN = re.compile(r"http://127\.0\.0\.1:\d+")
@@ -576,24 +581,93 @@ def prepare_native_runtime(
     return derived
 
 
+def request_authentication(
+    capability: str, method: str, target: str, body: bytes, nonce: str
+) -> str:
+    message = b"\0".join((
+        b"wildbuzzard-searxng-request-v1",
+        method.encode("ascii"),
+        target.encode("utf-8"),
+        nonce.encode("ascii"),
+        hashlib.sha256(body).hexdigest().encode("ascii"),
+    ))
+    return hmac.new(capability.encode("ascii"), message, hashlib.sha256).hexdigest()
+
+
+def response_authentication(
+    capability: str, nonce: str, status: int, content_type: str, body: bytes
+) -> str:
+    message = b"\0".join((
+        b"wildbuzzard-searxng-response-v1",
+        nonce.encode("ascii"),
+        str(status).encode("ascii"),
+        content_type.encode("ascii"),
+        hashlib.sha256(body).hexdigest().encode("ascii"),
+    ))
+    return hmac.new(capability.encode("ascii"), message, hashlib.sha256).hexdigest()
+
+
+def response_header(response: dict[str, object], name: str) -> str:
+    values = [
+        str(value)
+        for raw_name, value in response.get("headers", [])
+        if str(raw_name).lower() == name.lower()
+    ]
+    if len(values) != 1:
+        raise RuntimeError(f"Authenticated response has invalid {name} header")
+    return values[0]
+
+
+def verify_authenticated_response(
+    response: dict[str, object], capability: str, nonce: str
+) -> None:
+    encoded = response.get("body")
+    if not isinstance(encoded, str):
+        raise RuntimeError("Host probe response has no body")
+    try:
+        body = base64.b64decode(encoded, validate=True)
+    except ValueError as error:
+        raise RuntimeError("Host probe response body is invalid") from error
+    status = response.get("status")
+    if not isinstance(status, int) or isinstance(status, bool):
+        raise RuntimeError("Authenticated response has no status")
+    content_type = response_header(response, "Content-Type")
+    actual = response_header(response, "X-WildBuzzard-Response-Authentication")
+    expected = response_authentication(capability, nonce, status, content_type, body)
+    if not hmac.compare_digest(actual, expected):
+        raise RuntimeError("Authenticated response signature mismatch")
+
+
 def wait_http(
     client: HostClient,
     port: int,
     path: str,
     headers: dict[str, str],
     timeout: float,
+    capability: str | None = None,
 ) -> None:
     deadline = time.monotonic() + timeout
     last_error = "not started"
     while time.monotonic() < deadline:
         try:
+            request_headers = {**headers, "Host": f"127.0.0.1:{port}"}
+            nonce = secrets.token_urlsafe(24)
+            if capability is not None:
+                signature = request_authentication(capability, "GET", path, b"", nonce)
+                request_headers.update({
+                    "Authorization": f"WildBuzzard-HMAC-SHA256 {signature}",
+                    "Host": "localhost",
+                    "X-WildBuzzard-Nonce": nonce,
+                })
             response = client.invoke({
                 "mode": "request",
                 "method": "GET",
                 "path": path,
                 "port": port,
-                "headers": {**headers, "Host": f"127.0.0.1:{port}"},
+                "headers": request_headers,
             })
+            if capability is not None:
+                verify_authenticated_response(response, capability, nonce)
             if response.get("status") == 200:
                 return
             last_error = f"HTTP {response.get('status')}"
@@ -692,6 +766,7 @@ def read_connection(
         pid = record.get("pid")
         token = record.get("token")
         process_start = record.get("processStartTime")
+        private_socket_value = record.get("privateSocket")
         if (
             record.get("version") != 1
             or record.get("protocolVersion") != 1
@@ -711,8 +786,29 @@ def read_connection(
             or not isinstance(record.get("dataRootId"), str)
             or not record["dataRootId"]
             or record.get("ownerInstanceId") != owner_instance_id
+            or not isinstance(private_socket_value, str)
+            or not private_socket_value.startswith("/tmp/wb-sx-g-")
+            or len(os.fsencode(private_socket_value)) > MAX_UNIX_SOCKET_PATH_BYTES
         ):
             raise RuntimeError("Native SearXNG connection record is invalid")
+        private_socket = pathlib.Path(private_socket_value)
+        try:
+            socket_status = private_socket.lstat()
+            parent_status = private_socket.parent.lstat()
+        except FileNotFoundError as error:
+            raise RuntimeError("Native SearXNG private socket is absent") from error
+        if (
+            private_socket.is_symlink()
+            or not stat.S_ISSOCK(socket_status.st_mode)
+            or stat.S_IMODE(socket_status.st_mode) != 0o600
+            or socket_status.st_uid != os.getuid()
+            or record.get("privateSocketDevice") != socket_status.st_dev
+            or record.get("privateSocketInode") != socket_status.st_ino
+            or not stat.S_ISDIR(parent_status.st_mode)
+            or stat.S_IMODE(parent_status.st_mode) != 0o700
+            or parent_status.st_uid != os.getuid()
+        ):
+            raise RuntimeError("Native SearXNG private socket identity mismatch")
         if not isinstance(token, str) or not re.fullmatch(
             r"[A-Za-z0-9_-]{32,512}", token
         ):
@@ -812,12 +908,14 @@ def issue_request(
     port: int,
     case: dict[str, object],
     capability: str,
+    *,
+    authenticated: bool = False,
+    nonce: str | None = None,
 ) -> dict[str, object]:
     headers = {
         "Accept": str(case["accept"]),
-        "Authorization": f"Bearer {capability}",
         "Connection": "close",
-        "Host": f"127.0.0.1:{port}",
+        "Host": "localhost" if authenticated else f"127.0.0.1:{port}",
         "Sec-Fetch-Site": "none",
         "User-Agent": "WildBuzzard-SearXNG-Comparison/1",
     }
@@ -826,6 +924,17 @@ def issue_request(
     body = case.get("body", b"")
     if not isinstance(body, bytes):
         raise TypeError("Scenario body must be bytes")
+    if authenticated:
+        nonce = nonce or secrets.token_urlsafe(24)
+        signature = request_authentication(
+            capability, str(case["method"]), str(case["path"]), body, nonce
+        )
+        headers.update({
+            "Authorization": f"WildBuzzard-HMAC-SHA256 {signature}",
+            "X-WildBuzzard-Nonce": nonce,
+        })
+    else:
+        headers["Authorization"] = f"Bearer {capability}"
     result = client.invoke({
         "mode": "request",
         "method": str(case["method"]),
@@ -834,6 +943,10 @@ def issue_request(
         "headers": headers,
         "body": base64.b64encode(body).decode("ascii"),
     })
+    if authenticated:
+        if nonce is None:
+            raise AssertionError("Authenticated request has no nonce")
+        verify_authenticated_response(result, capability, nonce)
     encoded = result.get("body")
     if not isinstance(encoded, str):
         raise RuntimeError("Host probe response has no body")
@@ -979,16 +1092,35 @@ def content_type(response: dict[str, object]) -> str:
     return ""
 
 
-def request_transcript(case: dict[str, object], port: int, capability: str) -> bytes:
+def request_transcript(
+    case: dict[str, object],
+    port: int,
+    capability: str,
+    *,
+    authenticated: bool = False,
+    nonce: str | None = None,
+) -> bytes:
     body = case.get("body", b"")
+    if not isinstance(body, bytes):
+        raise TypeError("Scenario body must be bytes")
+    if authenticated:
+        if nonce is None:
+            raise ValueError("Authenticated transcript has no nonce")
+        authorization = "WildBuzzard-HMAC-SHA256 " + request_authentication(
+            capability, str(case["method"]), str(case["path"]), body, nonce
+        )
+    else:
+        authorization = f"Bearer {capability}"
     headers = [
-        f"Host: 127.0.0.1:{port}",
+        f"Host: {'localhost' if authenticated else f'127.0.0.1:{port}'}",
         f"Accept: {case['accept']}",
-        f"Authorization: Bearer {capability}",
+        f"Authorization: {authorization}",
         "Connection: close",
         "Sec-Fetch-Site: none",
         "User-Agent: WildBuzzard-SearXNG-Comparison/1",
     ]
+    if authenticated:
+        headers.append(f"X-WildBuzzard-Nonce: {nonce}")
     if case.get("contentType"):
         headers.append(f"Content-Type: {case['contentType']}")
         headers.append(f"Content-Length: {len(body)}")
@@ -1033,8 +1165,21 @@ def compare_scenarios(
     for index, case in enumerate(scenarios(), 1):
         directory = scenario_root / f"{index:02d}-{case['name']}"
         directory.mkdir(mode=0o700)
+        nonce = (
+            base64
+            .urlsafe_b64encode(hashlib.sha256(f"scenario-{index}".encode()).digest())
+            .decode("ascii")
+            .rstrip("=")
+        )
         pristine = issue_request(pristine_client, pristine_port, case, capability)
-        native = issue_request(native_client, native_port, case, capability)
+        native = issue_request(
+            native_client,
+            native_port,
+            case,
+            capability,
+            authenticated=True,
+            nonce=nonce,
+        )
         (directory / "pristine.request.http").write_bytes(
             redact_bytes(
                 request_transcript(case, pristine_port, capability), replacements
@@ -1042,7 +1187,14 @@ def compare_scenarios(
         )
         (directory / "native.request.http").write_bytes(
             redact_bytes(
-                request_transcript(case, native_port, capability), replacements
+                request_transcript(
+                    case,
+                    native_port,
+                    capability,
+                    authenticated=True,
+                    nonce=nonce,
+                ),
+                replacements,
             )
         )
         record_response(directory, "pristine", pristine, replacements)
@@ -1094,18 +1246,29 @@ def compare_scenarios(
 
 
 def cancellation_probe(
-    client: HostClient, port: int, capability: str
+    client: HostClient, port: int, capability: str, *, authenticated: bool = False
 ) -> dict[str, object]:
     body = urllib.parse.urlencode({
         "q": "cancel",
         "format": "json",
         "engines": "fixture engine",
     }).encode()
+    target = "/search"
+    if authenticated:
+        nonce = secrets.token_urlsafe(24)
+        authorization = "WildBuzzard-HMAC-SHA256 " + request_authentication(
+            capability, "POST", target, body, nonce
+        )
+        authentication_headers = (
+            f"Authorization: {authorization}\r\nX-WildBuzzard-Nonce: {nonce}\r\n"
+        )
+    else:
+        authentication_headers = f"Authorization: Bearer {capability}\r\n"
     request = (
         "POST /search HTTP/1.1\r\n"
-        f"Host: 127.0.0.1:{port}\r\n"
+        f"Host: {'localhost' if authenticated else f'127.0.0.1:{port}'}\r\n"
         "Accept: application/json\r\n"
-        f"Authorization: Bearer {capability}\r\n"
+        f"{authentication_headers}"
         "Content-Type: application/x-www-form-urlencoded\r\n"
         f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n"
     ).encode() + body
@@ -1395,6 +1558,7 @@ def main() -> int:
             args.timeout,
         )
         native_port = int(connection["port"])
+        native_client.unix_socket = pathlib.Path(str(connection["privateSocket"]))
         capability = str(connection["token"])
         artifact_replacements[capability] = "<capability>"
         common_health_headers = {
@@ -1412,8 +1576,9 @@ def main() -> int:
             native_client,
             native_port,
             "/v1/health",
-            common_health_headers,
+            {"Sec-Fetch-Site": "none"},
             args.timeout,
+            capability,
         )
         startup_logs = {
             "native": native_log_path.read_text(encoding="utf-8", errors="replace"),
@@ -1492,14 +1657,17 @@ def main() -> int:
         native_process_baseline = native_client.invoke({"mode": "snapshot"})
         cancellation = {
             "pristine": cancellation_probe(pristine_client, pristine_port, capability),
-            "native": cancellation_probe(native_client, native_port, capability),
+            "native": cancellation_probe(
+                native_client, native_port, capability, authenticated=True
+            ),
         }
         wait_http(
             native_client,
             native_port,
             "/v1/health",
-            common_health_headers,
+            {"Sec-Fetch-Site": "none"},
             args.timeout,
+            capability,
         )
         native_process_after = wait_for_quiescence(
             native_client, native_process_baseline, args.timeout
@@ -1676,9 +1844,9 @@ def main() -> int:
             if pristine_socket_root is not None:
                 try:
                     shutil.rmtree(pristine_socket_root)
-                    cleanup["pristineSocketDirectoryRemoved"] = (
-                        not pristine_socket_root.exists()
-                    )
+                    cleanup[
+                        "pristineSocketDirectoryRemoved"
+                    ] = not pristine_socket_root.exists()
                     if pristine_socket_root.exists():
                         raise RuntimeError(
                             "Pristine SearXNG socket directory was not removed"

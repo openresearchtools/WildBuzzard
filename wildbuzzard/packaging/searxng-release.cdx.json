@@ -6,7 +6,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587"
+          "content": "db683529031080cc1d35f5cfbe119b0d92f5985c4ecb996fc44e7c50838646f7"
         }
       ],
       "licenses": [
@@ -39,7 +39,7 @@
       "hashes": [
         {
           "alg": "SHA-256",
-          "content": "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751"
+          "content": "c4d07e484d9e88a6deef78e02701bc6bdc100dbccb432d8492bbaa689e499f57"
         }
       ],
       "name": "WildBuzzard SearXNG complete corresponding source",

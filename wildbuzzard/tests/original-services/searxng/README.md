@@ -10,10 +10,13 @@ The deterministic suite uses upstream's `demo_offline` engine with no optional
 plugins. It starts only the pristine application in a rootless container with
 `--network none`. The bundled native managed service runs directly from the
 shipping runtime as a host process with a sanitized UTC/hash/locale environment
-and an ephemeral loopback listener. Both HTTP clients are direct host processes
-running with the pinned native runtime's Python: one reaches the pristine
-service through a private Unix socket, and the other reaches the native service
-through loopback. They send the same ordered GET and POST requests to both
+and an ephemeral loopback HTML listener plus a private authenticated Unix
+socket. Both HTTP clients are direct host processes running with the pinned
+native runtime's Python: one reaches the pristine service through its private
+Unix socket, and the other reaches the native service through its private Unix
+socket using nonce-bound HMAC request and response authentication. The native
+loopback listener is not used for privileged comparison traffic. They send the
+same ordered GET and POST requests to both
 original APIs, compare raw responses in memory, and write redacted transcripts
 and canonical diffs below a required external artifact directory. No system
 service, provider credential, or shipping configuration is reused, and the

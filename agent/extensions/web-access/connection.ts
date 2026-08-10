@@ -4,11 +4,20 @@ import {
   closeSync,
   constants,
   fstatSync,
+  lstatSync,
   openSync,
   readFileSync,
+  readlinkSync,
 } from "node:fs";
+import {
+  createHash,
+  createHmac,
+  randomBytes,
+  timingSafeEqual,
+} from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { homedir } from "node:os";
-import { isAbsolute, join } from "node:path";
+import { dirname, isAbsolute, join } from "node:path";
 
 export interface SearchConnection {
   version: 1;
@@ -25,6 +34,9 @@ export interface SearchConnection {
   ownerInstanceId: string;
   createdAt: number;
   lastHealthAt: number;
+  privateSocket: string;
+  privateSocketDevice: number;
+  privateSocketInode: number;
 }
 
 const CONNECTION_FIELDS = new Set([
@@ -39,10 +51,19 @@ const CONNECTION_FIELDS = new Set([
   "port",
   "processStartTime",
   "protocolVersion",
+  "privateSocket",
+  "privateSocketDevice",
+  "privateSocketInode",
   "runtimeVersion",
   "token",
   "version",
 ]);
+
+const AUTHORIZATION_SCHEME = "WildBuzzard-HMAC-SHA256";
+const REQUEST_AUTH_DOMAIN = "wildbuzzard-searxng-request-v1";
+const RESPONSE_AUTH_DOMAIN = "wildbuzzard-searxng-response-v1";
+const MAX_RESPONSE_BYTES = 16 * 1024 * 1024;
+const SOCKET_PATH = /^\/tmp\/wb-sx-g-\d+-[a-f0-9]{24}-[a-f0-9]{32}\/s$/;
 
 function connectionPath(): string {
   if (process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE) {
@@ -68,6 +89,116 @@ function isTimestamp(value: unknown): value is number {
   );
 }
 
+function hmac(token: string, parts: Array<string | number>): string {
+  return createHmac("sha256", token)
+    .update(parts.map(String).join("\0"), "utf8")
+    .digest("hex");
+}
+
+function requestAuthentication(
+  token: string,
+  method: string,
+  path: string,
+  body: Buffer,
+  nonce: string
+): string {
+  return hmac(token, [
+    REQUEST_AUTH_DOMAIN,
+    method,
+    path,
+    nonce,
+    createHash("sha256").update(body).digest("hex"),
+  ]);
+}
+
+function responseAuthentication(
+  token: string,
+  nonce: string,
+  status: number,
+  contentType: string,
+  body: Buffer
+): string {
+  return hmac(token, [
+    RESPONSE_AUTH_DOMAIN,
+    nonce,
+    status,
+    contentType,
+    createHash("sha256").update(body).digest("hex"),
+  ]);
+}
+
+function privateSocketIdentity(record: SearchConnection): void {
+  if (!SOCKET_PATH.test(record.privateSocket)) {
+    throw new Error("WildBuzzard search private socket path is invalid");
+  }
+  const socket = lstatSync(record.privateSocket, { bigint: false });
+  const parent = lstatSync(dirname(record.privateSocket), { bigint: false });
+  const expectedUid =
+    typeof process.getuid === "function" ? process.getuid() : null;
+  if (
+    !socket.isSocket() ||
+    socket.isSymbolicLink() ||
+    (socket.mode & 0o777) !== 0o600 ||
+    socket.dev !== record.privateSocketDevice ||
+    socket.ino !== record.privateSocketInode ||
+    !parent.isDirectory() ||
+    parent.isSymbolicLink() ||
+    (parent.mode & 0o777) !== 0o700 ||
+    (expectedUid !== null &&
+      (socket.uid !== expectedUid || parent.uid !== expectedUid))
+  ) {
+    throw new Error("WildBuzzard search private socket identity changed");
+  }
+}
+
+function processIdentity(record: SearchConnection): void {
+  let stat: string;
+  let executable: string;
+  let executableSha256: string;
+  try {
+    stat = readFileSync(`/proc/${record.pid}/stat`, "ascii");
+    executable = readlinkSync(`/proc/${record.pid}/exe`);
+    executableSha256 = createHash("sha256")
+      .update(readFileSync(`/proc/${record.pid}/exe`))
+      .digest("hex");
+  } catch {
+    throw new Error("WildBuzzard search process is unavailable");
+  }
+  const closingParenthesis = stat.lastIndexOf(")");
+  const fields = stat
+    .slice(closingParenthesis + 2)
+    .trim()
+    .split(/\s+/);
+  if (
+    closingParenthesis < 0 ||
+    fields.length < 20 ||
+    fields[19] !== record.processStartTime ||
+    executable !== record.executablePath ||
+    executableSha256 !== record.executableSha256
+  ) {
+    throw new Error("WildBuzzard search process identity changed");
+  }
+}
+
+function requestBody(body: BodyInit | null | undefined): Buffer {
+  if (body === undefined || body === null) {
+    return Buffer.alloc(0);
+  }
+  if (typeof body === "string") {
+    return Buffer.from(body, "utf8");
+  }
+  if (body instanceof URLSearchParams) {
+    return Buffer.from(body.toString(), "utf8");
+  }
+  if (body instanceof ArrayBuffer) {
+    return Buffer.from(body);
+  }
+  if (ArrayBuffer.isView(body)) {
+    return Buffer.from(body.buffer, body.byteOffset, body.byteLength);
+  }
+  throw new Error("Unsupported WildBuzzard search request body");
+}
+
 function validateConnection(value: unknown): SearchConnection {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("WildBuzzard search connection record is invalid");
@@ -87,6 +218,13 @@ function validateConnection(value: unknown): SearchConnection {
     record.token.length < 32 ||
     record.token.length > 512 ||
     !/^[A-Za-z0-9_-]+$/.test(record.token) ||
+    typeof record.privateSocket !== "string" ||
+    !SOCKET_PATH.test(record.privateSocket) ||
+    Buffer.byteLength(record.privateSocket) > 107 ||
+    !Number.isSafeInteger(record.privateSocketDevice) ||
+    Number(record.privateSocketDevice) < 0 ||
+    !Number.isSafeInteger(record.privateSocketInode) ||
+    Number(record.privateSocketInode) < 1 ||
     !Number.isSafeInteger(record.pid) ||
     Number(record.pid) < 1 ||
     typeof record.processStartTime !== "string" ||
@@ -153,25 +291,128 @@ export async function requestSearchService(
   signal?: AbortSignal
 ): Promise<Response> {
   const connection = readSearchConnection();
-  if (!path.startsWith("/") || path.startsWith("//")) {
+  if (!path.startsWith("/") || path.startsWith("//") || /[\r\n]/.test(path)) {
     throw new Error("Invalid WildBuzzard search service path");
   }
+  processIdentity(connection);
+  privateSocketIdentity(connection);
   const timeout = AbortSignal.timeout(30_000);
   const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+  const method = (init.method ?? "GET").toUpperCase();
+  if (!/^(?:GET|POST)$/.test(method)) {
+    throw new Error("Invalid WildBuzzard search service method");
+  }
+  const body = requestBody(init.body);
+  const nonce = randomBytes(24).toString("base64url");
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
-  headers.set("Authorization", `Bearer ${connection.token}`);
+  headers.set(
+    "Authorization",
+    `${AUTHORIZATION_SCHEME} ${requestAuthentication(
+      connection.token,
+      method,
+      path,
+      body,
+      nonce
+    )}`
+  );
   headers.set("Cache-Control", "no-store");
-  const endpoint = `http://${connection.address}:${connection.port}${path}`;
-  let response: Response;
+  headers.set("Connection", "close");
+  headers.set("Content-Length", String(body.length));
+  headers.set("Host", "localhost");
+  headers.set("Sec-Fetch-Site", "none");
+  headers.set("X-WildBuzzard-Nonce", nonce);
+  headers.delete("Transfer-Encoding");
   try {
-    response = await fetch(endpoint, {
-      ...init,
-      redirect: "error",
-      signal: combined,
-      headers,
+    const response = await new Promise<Response>((resolve, reject) => {
+      const request = httpRequest({
+        headers: Object.fromEntries(headers),
+        method,
+        path,
+        signal: combined,
+        socketPath: connection.privateSocket,
+      });
+      request.on("error", reject);
+      request.on("response", incoming => {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        incoming.on("data", (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > MAX_RESPONSE_BYTES) {
+            incoming.destroy(new Error("response-too-large"));
+            return;
+          }
+          chunks.push(chunk);
+        });
+        incoming.on("error", reject);
+        incoming.on("end", () => {
+          try {
+            const payload = Buffer.concat(chunks);
+            const status = incoming.statusCode ?? 0;
+            const contentType = String(incoming.headers["content-type"] ?? "");
+            const signature = String(
+              incoming.headers["x-wildbuzzard-response-authentication"] ?? ""
+            );
+            const expected = responseAuthentication(
+              connection.token,
+              nonce,
+              status,
+              contentType,
+              payload
+            );
+            const declaredLength = String(
+              incoming.headers["content-length"] ?? ""
+            );
+            if (
+              !/^[1-5]\d\d$/.test(String(status)) ||
+              !/^\d+$/.test(declaredLength) ||
+              Number(declaredLength) !== payload.length ||
+              !/^[a-f0-9]{64}$/.test(signature) ||
+              !timingSafeEqual(
+                Buffer.from(signature, "hex"),
+                Buffer.from(expected, "hex")
+              )
+            ) {
+              throw new Error("invalid-private-response");
+            }
+            const responseHeaders = new Headers();
+            for (const [name, value] of Object.entries(incoming.headers)) {
+              if (
+                value !== undefined &&
+                name !== "x-wildbuzzard-response-authentication"
+              ) {
+                responseHeaders.set(
+                  name,
+                  Array.isArray(value) ? value.join(", ") : value
+                );
+              }
+            }
+            resolve(
+              new Response(payload, {
+                headers: responseHeaders,
+                status,
+                statusText: incoming.statusMessage,
+              })
+            );
+          } catch (error) {
+            reject(error);
+          }
+        });
+      });
+      request.end(body);
     });
-  } catch {
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => {});
+      throw new Error(`WildBuzzard search service returned ${response.status}`);
+    }
+    return response;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /^WildBuzzard search service returned \d+$/.test(error.message)
+    ) {
+      throw error;
+    }
     if (signal?.aborted) {
       throw new Error("WildBuzzard search service request was cancelled");
     }
@@ -180,20 +421,9 @@ export async function requestSearchService(
     }
     throw new Error("WildBuzzard search service is unavailable");
   }
-  const responseUrl = new URL(response.url);
-  if (
-    responseUrl.origin !== `http://${connection.address}:${connection.port}` ||
-    responseUrl.username ||
-    responseUrl.password
-  ) {
-    await response.body?.cancel().catch(() => {});
-    throw new Error(
-      "WildBuzzard search service returned an invalid response URL"
-    );
-  }
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => {});
-    throw new Error(`WildBuzzard search service returned ${response.status}`);
-  }
-  return response;
 }
+
+export const SearchConnectionTestUtils = {
+  requestAuthentication,
+  responseAuthentication,
+};

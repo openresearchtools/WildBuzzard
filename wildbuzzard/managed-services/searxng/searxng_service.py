@@ -19,7 +19,9 @@ import secrets
 import select
 import signal
 import socket
+import socketserver
 import stat
+import struct
 import subprocess
 import sys
 import threading
@@ -42,6 +44,13 @@ MAX_EPOCH_MILLISECONDS = 8_640_000_000_000_000
 BACKEND_SOCKET_PARENT = pathlib.Path("/tmp")
 MAX_UNIX_SOCKET_PATH_BYTES = 107
 BACKEND_SOCKET_DIRECTORY_ATTEMPTS = 128
+AUTHORIZATION_SCHEME = "WildBuzzard-HMAC-SHA256"
+AUTH_NONCE = re.compile(r"[A-Za-z0-9_-]{32,128}")
+AUTH_DIGEST = re.compile(r"[a-f0-9]{64}")
+AUTH_NONCE_TTL_SECONDS = 120
+MAX_AUTH_NONCES = 4096
+REQUEST_AUTH_DOMAIN = b"wildbuzzard-searxng-request-v1"
+RESPONSE_AUTH_DOMAIN = b"wildbuzzard-searxng-response-v1"
 HOP_HEADERS = {
     "connection",
     "keep-alive",
@@ -79,6 +88,9 @@ CONNECTION_FIELDS = {
     "ownerInstanceId",
     "createdAt",
     "lastHealthAt",
+    "privateSocket",
+    "privateSocketDevice",
+    "privateSocketInode",
 }
 
 
@@ -94,6 +106,32 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
+def request_authentication(
+    token: str, method: str, target: str, body: bytes, nonce: str
+) -> str:
+    message = b"\0".join((
+        REQUEST_AUTH_DOMAIN,
+        method.encode("ascii"),
+        target.encode("utf-8"),
+        nonce.encode("ascii"),
+        hashlib.sha256(body).hexdigest().encode("ascii"),
+    ))
+    return hmac.new(token.encode("ascii"), message, hashlib.sha256).hexdigest()
+
+
+def response_authentication(
+    token: str, nonce: str, status: int, content_type: str, body: bytes
+) -> str:
+    message = b"\0".join((
+        RESPONSE_AUTH_DOMAIN,
+        nonce.encode("ascii"),
+        str(status).encode("ascii"),
+        content_type.encode("ascii"),
+        hashlib.sha256(body).hexdigest().encode("ascii"),
+    ))
+    return hmac.new(token.encode("ascii"), message, hashlib.sha256).hexdigest()
+
+
 def ensure_private_directory(path: pathlib.Path) -> pathlib.Path:
     if path.is_symlink():
         raise RuntimeError(f"Refusing symlink directory: {path}")
@@ -106,10 +144,18 @@ def ensure_private_directory(path: pathlib.Path) -> pathlib.Path:
     return resolved
 
 
-def backend_socket_prefix(data_root_id: str, owner_instance_id: str) -> str:
-    payload = f"{os.getuid()}\0{data_root_id}\0{owner_instance_id}".encode()
+def private_socket_prefix(
+    purpose: str, data_root_id: str, owner_instance_id: str
+) -> str:
+    if purpose not in ("backend", "gateway"):
+        raise RuntimeError("Invalid private SearXNG socket purpose")
+    payload = f"{purpose}\0{os.getuid()}\0{data_root_id}\0{owner_instance_id}".encode()
     identity = hashlib.sha256(payload).hexdigest()[:24]
-    return f"wb-sx-{os.getuid()}-{identity}-"
+    return f"wb-sx-{purpose[0]}-{os.getuid()}-{identity}-"
+
+
+def backend_socket_prefix(data_root_id: str, owner_instance_id: str) -> str:
+    return private_socket_prefix("backend", data_root_id, owner_instance_id)
 
 
 def validate_backend_socket_directory(
@@ -129,8 +175,8 @@ def validate_backend_socket_directory(
     return status
 
 
-def create_backend_socket_path(
-    data_root_id: str, owner_instance_id: str
+def create_private_socket_path(
+    purpose: str, data_root_id: str, owner_instance_id: str
 ) -> tuple[pathlib.Path, pathlib.Path, tuple[int, int]]:
     parent_status = os.stat(BACKEND_SOCKET_PARENT, follow_symlinks=False)
     if (
@@ -139,7 +185,7 @@ def create_backend_socket_path(
         or (parent_status.st_mode & 0o022 and not parent_status.st_mode & stat.S_ISVTX)
     ):
         raise RuntimeError("Invalid SearXNG socket parent directory")
-    prefix = backend_socket_prefix(data_root_id, owner_instance_id)
+    prefix = private_socket_prefix(purpose, data_root_id, owner_instance_id)
     for _ in range(BACKEND_SOCKET_DIRECTORY_ATTEMPTS):
         root = BACKEND_SOCKET_PARENT / f"{prefix}{secrets.token_hex(16)}"
         try:
@@ -156,6 +202,12 @@ def create_backend_socket_path(
             raise RuntimeError("Private SearXNG socket path is too long")
         return root, socket_path, identity
     raise RuntimeError("Cannot allocate a private SearXNG socket directory")
+
+
+def create_backend_socket_path(
+    data_root_id: str, owner_instance_id: str
+) -> tuple[pathlib.Path, pathlib.Path, tuple[int, int]]:
+    return create_private_socket_path("backend", data_root_id, owner_instance_id)
 
 
 def remove_backend_socket_path(
@@ -179,7 +231,7 @@ def remove_backend_socket_path(
             or socket_status.st_uid != os.getuid()
             or stat.S_IMODE(socket_status.st_mode) != 0o600
         ):
-            raise RuntimeError("Invalid private SearXNG backend socket")
+            raise RuntimeError("Invalid private SearXNG socket")
         socket_path.unlink()
     try:
         root.rmdir()
@@ -463,9 +515,33 @@ class UnixHTTPConnection(http.client.HTTPConnection):
 
     def connect(self) -> None:
         connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        connection.settimeout(self.timeout)
-        connection.connect(str(self.socket_path))
-        self.sock = connection
+        try:
+            connection.settimeout(self.timeout)
+            connection.connect(str(self.socket_path))
+            self.sock = connection
+        except BaseException:
+            connection.close()
+            raise
+
+
+class VerifiedUnixHTTPConnection(UnixHTTPConnection):
+    def __init__(
+        self, socket_path: pathlib.Path, expected_pid: int, timeout: float = 5.0
+    ):
+        super().__init__(socket_path, timeout)
+        self.expected_pid = expected_pid
+
+    def connect(self) -> None:
+        super().connect()
+        if self.sock is None:
+            raise RuntimeError("Private SearXNG socket is unavailable")
+        credentials = self.sock.getsockopt(
+            socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+        )
+        pid, uid, _gid = struct.unpack("3i", credentials)
+        if pid != self.expected_pid or uid != os.getuid():
+            self.close()
+            raise RuntimeError("Private SearXNG socket peer identity mismatch")
 
 
 class Gateway(http.server.ThreadingHTTPServer):
@@ -473,6 +549,7 @@ class Gateway(http.server.ThreadingHTTPServer):
 
     def __init__(self, service: SearXNGService):
         self.service = service
+        self.private = False
         self.request_slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
         super().__init__((ADDRESS, 0), GatewayHandler, bind_and_activate=True)
 
@@ -498,6 +575,48 @@ class Gateway(http.server.ThreadingHTTPServer):
             self.request_slots.release()
 
 
+class PrivateGateway(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+    def __init__(self, service: SearXNGService):
+        if service.private_socket is None:
+            raise RuntimeError("Private SearXNG gateway socket is unavailable")
+        self.service = service
+        self.private = True
+        self.request_slots = threading.BoundedSemaphore(MAX_CONCURRENT_REQUESTS)
+        super().__init__(str(service.private_socket), GatewayHandler)
+        service.private_socket.chmod(0o600)
+
+    def verify_request(self, request: socket.socket, client_address: object) -> bool:
+        try:
+            credentials = request.getsockopt(
+                socket.SOL_SOCKET, socket.SO_PEERCRED, struct.calcsize("3i")
+            )
+            _pid, uid, _gid = struct.unpack("3i", credentials)
+            return uid == os.getuid()
+        except OSError:
+            return False
+
+    def process_request(self, request: socket.socket, client_address: object) -> None:
+        request.settimeout(ACCEPTED_SOCKET_TIMEOUT_SECONDS)
+        if not self.request_slots.acquire(timeout=REQUEST_SLOT_WAIT_SECONDS):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:
+            self.request_slots.release()
+            raise
+
+    def process_request_thread(
+        self, request: socket.socket, client_address: object
+    ) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.request_slots.release()
+
+
 class GatewayHandler(http.server.BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "WildBuzzard"
@@ -506,6 +625,10 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
     @property
     def service(self) -> SearXNGService:
         return self.server.service  # type: ignore[attr-defined, no-any-return]
+
+    @property
+    def is_private(self) -> bool:
+        return bool(self.server.private)  # type: ignore[attr-defined, no-any-return]
 
     def log_message(self, format: str, *args: object) -> None:
         return
@@ -521,12 +644,33 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
 
     def _send_json(self, status: int, value: dict[str, object]) -> None:
         body = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        self._send_payload(
+            status,
+            [("Content-Type", "application/json"), ("Cache-Control", "no-store")],
+            body,
+        )
+
+    def _send_payload(
+        self, status: int, headers: list[tuple[str, str]], body: bytes
+    ) -> None:
+        content_type = next(
+            (value for name, value in headers if name.lower() == "content-type"), ""
+        )
         try:
             self.send_response(status)
-            self.send_header("Content-Type", "application/json")
+            for name, value in headers:
+                self.send_header(name, value)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")
+            if self.is_private and getattr(self, "request_nonce", None):
+                signature = response_authentication(
+                    self.service.token,
+                    self.request_nonce,
+                    status,
+                    content_type,
+                    body,
+                )
+                self.send_header("X-WildBuzzard-Response-Authentication", signature)
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(body)
@@ -556,34 +700,43 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             if readable:
                 return True
 
-    def _authorized(self) -> bool:
+    def _authorized(self, body: bytes) -> bool:
+        nonce = self.headers.get("X-WildBuzzard-Nonce", "")
         header = self.headers.get("Authorization", "")
-        prefix = "Bearer "
-        return header.startswith(prefix) and hmac.compare_digest(
-            header[len(prefix) :], self.service.token
+        prefix = f"{AUTHORIZATION_SCHEME} "
+        if (
+            not AUTH_NONCE.fullmatch(nonce)
+            or not header.startswith(prefix)
+            or not AUTH_DIGEST.fullmatch(header[len(prefix) :])
+        ):
+            return False
+        expected = request_authentication(
+            self.service.token, self.command, self.path, body, nonce
         )
-
-    def _valid_boundary(self, authorized: bool) -> bool:
-        expected_host = f"{ADDRESS}:{self.service.port}"
-        if not hmac.compare_digest(self.headers.get("Host", ""), expected_host):
+        if not hmac.compare_digest(header[len(prefix) :], expected):
             return False
-        origin = self.headers.get("Origin")
-        if origin and origin != f"http://{expected_host}":
+        if not self.service.consume_auth_nonce(nonce):
             return False
-        fetch_site = self.headers.get("Sec-Fetch-Site", "")
-        if not authorized and fetch_site not in ("", "none", "same-origin"):
-            return False
+        self.request_nonce = nonce
         return True
 
-    def _requires_capability(
-        self, parsed: urllib.parse.SplitResult, body: bytes
-    ) -> bool:
-        protected_roots = ("/config", "/stats", "/metrics")
-        if parsed.path.startswith("/v1/") or any(
-            parsed.path == root or parsed.path.startswith(f"{root}/")
-            for root in protected_roots
-        ):
-            return True
+    def _valid_boundary(self) -> bool:
+        if self.is_private:
+            return (
+                hmac.compare_digest(self.headers.get("Host", ""), "localhost")
+                and not self.headers.get("Origin")
+                and self.headers.get("Sec-Fetch-Site", "") in ("", "none")
+            )
+        expected_host = f"{ADDRESS}:{self.service.port}"
+        return (
+            hmac.compare_digest(self.headers.get("Host", ""), expected_host)
+            and self.headers.get("Origin") in (None, f"http://{expected_host}")
+            and self.headers.get("Sec-Fetch-Site", "") in ("", "none", "same-origin")
+            and not self.headers.get("Authorization")
+            and not self.headers.get("X-WildBuzzard-Nonce")
+        )
+
+    def _parameters(self, parsed: urllib.parse.SplitResult, body: bytes) -> dict:
         parameters = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
         if (
             self.command == "POST"
@@ -594,10 +747,31 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                     body.decode("utf-8", "replace"), keep_blank_values=True
                 )
             )
-        formats = parameters.get("format", [])
-        return any(value != "html" for value in formats)
+        return parameters
+
+    def _public_route_allowed(
+        self, parsed: urllib.parse.SplitResult, body: bytes
+    ) -> bool:
+        protected_roots = ("/config", "/stats", "/metrics", "/v1")
+        if any(
+            parsed.path == root or parsed.path.startswith(f"{root}/")
+            for root in protected_roots
+        ):
+            return False
+        formats = self._parameters(parsed, body).get("format", [])
+        return all(value == "html" for value in formats)
+
+    def _private_route_allowed(
+        self, parsed: urllib.parse.SplitResult, body: bytes
+    ) -> bool:
+        if parsed.path in ("/v1/identity", "/v1/health", "/healthz", "/config"):
+            return self.command in ("GET", "HEAD")
+        if parsed.path != "/search" or self.command not in ("GET", "POST"):
+            return False
+        return True
 
     def _handle(self) -> None:
+        self.request_nonce = None
         parsed = urllib.parse.urlsplit(self.path)
         if parsed.scheme or parsed.netloc or not parsed.path.startswith("/"):
             self._send_json(400, {"error": "invalid-request-target"})
@@ -611,20 +785,23 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(413, {"error": "request-too-large"})
             return
         body = self.rfile.read(length) if length else b""
-        authorized = self._authorized()
-        if not self._valid_boundary(authorized):
+        if not self._valid_boundary():
             self._send_json(403, {"error": "forbidden"})
             return
-        if parsed.path == "/v1/identity":
-            if not authorized:
+        if self.is_private:
+            if not self._authorized(body):
                 self._send_json(401, {"error": "capability-required"})
                 return
+            if not self._private_route_allowed(parsed, body):
+                self._send_json(404, {"error": "not-found"})
+                return
+        elif not self._public_route_allowed(parsed, body):
+            self._send_json(404, {"error": "not-found"})
+            return
+        if parsed.path == "/v1/identity":
             self._send_json(200, self.service.public_identity())
             return
         if parsed.path == "/v1/health":
-            if not authorized:
-                self._send_json(401, {"error": "capability-required"})
-                return
             healthy = self.service.backend_healthy()
             if healthy:
                 self.service.mark_healthy()
@@ -633,18 +810,12 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
                 {"ok": healthy, **self.service.public_identity()},
             )
             return
-        if parsed.path == "/metrics":
-            self._send_json(404, {"error": "not-found"})
-            return
-        if self._requires_capability(parsed, body) and not authorized:
-            self._send_json(401, {"error": "capability-required"})
-            return
         if parsed.path == "/search" and not self.service.allow_search():
-            self.send_response(429)
-            self.send_header("Content-Length", "0")
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("Retry-After", "60")
-            self.end_headers()
+            self._send_payload(
+                429,
+                [("Cache-Control", "no-store"), ("Retry-After", "60")],
+                b"",
+            )
             return
         self._proxy(body)
 
@@ -698,24 +869,15 @@ class GatewayHandler(http.server.BaseHTTPRequestHandler):
         if upstream is None:
             return
         status, response_headers, payload = upstream
-        try:
-            self.send_response(status)
-            for name, value in response_headers:
-                lowered = name.lower()
-                if (
-                    lowered in HOP_HEADERS
-                    or lowered == "content-length"
-                    or lowered.startswith("access-control-")
-                ):
-                    continue
-                self.send_header(name, value)
-            self.send_header("Content-Length", str(len(payload)))
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.end_headers()
-            if self.command != "HEAD":
-                self.wfile.write(payload)
-        except OSError:
-            self.close_connection = True
+        filtered = [
+            (name, value)
+            for name, value in response_headers
+            if name.lower() not in HOP_HEADERS
+            and name.lower() not in ("content-length", "x-content-type-options")
+            and not name.lower().startswith("access-control-")
+            and not name.lower().startswith("x-wildbuzzard-")
+        ]
+        self._send_payload(status, filtered, payload)
 
 
 class SearXNGService:
@@ -736,10 +898,16 @@ class SearXNGService:
         self.backend_socket_root: pathlib.Path | None = None
         self.backend_socket: pathlib.Path | None = None
         self.backend_socket_directory_identity: tuple[int, int] | None = None
+        self.private_socket_root: pathlib.Path | None = None
+        self.private_socket: pathlib.Path | None = None
+        self.private_socket_directory_identity: tuple[int, int] | None = None
         self.settings_path = self.state_root / "settings.yml"
         self.lock_descriptor: int | None = None
         self.backend: subprocess.Popen[bytes] | None = None
         self.gateway: Gateway | None = None
+        self.gateway_thread: threading.Thread | None = None
+        self.private_gateway: PrivateGateway | None = None
+        self.private_gateway_thread: threading.Thread | None = None
         self.port = 0
         self.token = secrets.token_urlsafe(32)
         self.created_at = epoch_milliseconds()
@@ -748,6 +916,9 @@ class SearXNGService:
         self.record_lock = threading.Lock()
         self.search_lock = threading.Lock()
         self.search_times: collections.deque[float] = collections.deque()
+        self.auth_nonce_lock = threading.Lock()
+        self.auth_nonces: collections.deque[tuple[float, str]] = collections.deque()
+        self.auth_nonce_set: set[str] = set()
         (
             self.manifest,
             self.executable_path,
@@ -803,6 +974,43 @@ class SearXNGService:
         self.backend_socket = None
         self.backend_socket_directory_identity = None
 
+    def allocate_private_socket(self) -> None:
+        if (
+            self.private_socket_root is not None
+            or self.private_socket is not None
+            or self.private_socket_directory_identity is not None
+        ):
+            raise RuntimeError("Private SearXNG gateway socket is already allocated")
+        (
+            self.private_socket_root,
+            self.private_socket,
+            self.private_socket_directory_identity,
+        ) = create_private_socket_path(
+            "gateway", self.data_root_id, self.owner_instance_id
+        )
+
+    def release_private_socket(self) -> None:
+        if (
+            self.private_socket_root is None
+            or self.private_socket is None
+            or self.private_socket_directory_identity is None
+        ):
+            if not (
+                self.private_socket_root is None
+                and self.private_socket is None
+                and self.private_socket_directory_identity is None
+            ):
+                raise RuntimeError("Private SearXNG gateway socket state is incomplete")
+            return
+        remove_backend_socket_path(
+            self.private_socket_root,
+            self.private_socket,
+            self.private_socket_directory_identity,
+        )
+        self.private_socket_root = None
+        self.private_socket = None
+        self.private_socket_directory_identity = None
+
     def acquire_lock(self) -> None:
         lock_path = self.state_root / "launch.lock"
         descriptor = os.open(
@@ -827,7 +1035,27 @@ class SearXNGService:
             raise
         self.lock_descriptor = descriptor
 
+    def private_socket_status(self) -> os.stat_result:
+        if (
+            self.private_socket_root is None
+            or self.private_socket is None
+            or self.private_socket_directory_identity is None
+        ):
+            raise RuntimeError("Private SearXNG gateway socket is unavailable")
+        validate_backend_socket_directory(
+            self.private_socket_root, self.private_socket_directory_identity
+        )
+        status = os.stat(self.private_socket, follow_symlinks=False)
+        if (
+            not stat.S_ISSOCK(status.st_mode)
+            or status.st_uid != os.getuid()
+            or stat.S_IMODE(status.st_mode) != 0o600
+        ):
+            raise RuntimeError("Invalid private SearXNG gateway socket")
+        return status
+
     def connection_record(self) -> dict[str, object]:
+        private_socket_status = self.private_socket_status()
         return {
             "version": 1,
             "protocolVersion": PROTOCOL_VERSION,
@@ -843,6 +1071,9 @@ class SearXNGService:
             "ownerInstanceId": self.owner_instance_id,
             "createdAt": self.created_at,
             "lastHealthAt": self.last_health_at,
+            "privateSocket": str(self.private_socket),
+            "privateSocketDevice": private_socket_status.st_dev,
+            "privateSocketInode": private_socket_status.st_ino,
         }
 
     def public_identity(self) -> dict[str, object]:
@@ -872,9 +1103,39 @@ class SearXNGService:
             self.search_times.append(now)
             return True
 
+    def consume_auth_nonce(self, nonce: str) -> bool:
+        now = time.monotonic()
+        cutoff = now - AUTH_NONCE_TTL_SECONDS
+        with self.auth_nonce_lock:
+            while self.auth_nonces and (
+                self.auth_nonces[0][0] <= cutoff
+                or len(self.auth_nonces) >= MAX_AUTH_NONCES
+            ):
+                _, expired = self.auth_nonces.popleft()
+                self.auth_nonce_set.discard(expired)
+            if nonce in self.auth_nonce_set:
+                return False
+            self.auth_nonces.append((now, nonce))
+            self.auth_nonce_set.add(nonce)
+            return True
+
     def mark_healthy(self) -> None:
         self.last_health_at = epoch_milliseconds()
         self.write_record()
+
+    def start_gateway_threads(self) -> None:
+        if not self.gateway or not self.private_gateway:
+            raise RuntimeError("SearXNG gateways are not initialized")
+        if self.gateway_thread or self.private_gateway_thread:
+            raise RuntimeError("SearXNG gateways are already serving")
+        self.gateway_thread = threading.Thread(
+            target=self.gateway.serve_forever, daemon=True
+        )
+        self.private_gateway_thread = threading.Thread(
+            target=self.private_gateway.serve_forever, daemon=True
+        )
+        self.gateway_thread.start()
+        self.private_gateway_thread.start()
 
     def backend_healthy(self) -> bool:
         if (
@@ -911,7 +1172,9 @@ class SearXNGService:
     def start(self) -> None:
         self.acquire_lock()
         self.allocate_backend_socket()
+        self.allocate_private_socket()
         self.gateway = Gateway(self)
+        self.private_gateway = PrivateGateway(self)
         self.port = self.gateway.server_address[1]
         atomic_text(
             self.settings_path, settings_text(self.secret, self.port, self.engines)
@@ -954,6 +1217,7 @@ class SearXNGService:
             if self.stopping.is_set():
                 raise RuntimeError("SearXNG startup interrupted")
             if self.backend_healthy():
+                self.start_gateway_threads()
                 self.mark_healthy()
                 return
             if self.backend.poll() is not None:
@@ -964,12 +1228,10 @@ class SearXNGService:
         raise RuntimeError("SearXNG health readiness timed out")
 
     def serve(self) -> None:
-        if not self.gateway:
-            raise RuntimeError("SearXNG gateway is not initialized")
-        self.gateway.timeout = 0.5
+        if not self.gateway_thread or not self.private_gateway_thread:
+            raise RuntimeError("SearXNG gateways are not serving")
         next_health = time.monotonic() + 30
-        while not self.stopping.is_set():
-            self.gateway.handle_request()
+        while not self.stopping.wait(0.5):
             if self.backend and self.backend.poll() is not None:
                 raise RuntimeError(
                     f"SearXNG exited unexpectedly ({self.backend.returncode})"
@@ -981,8 +1243,20 @@ class SearXNGService:
 
     def stop(self) -> None:
         self.stopping.set()
+        if self.gateway and self.gateway_thread:
+            self.gateway.shutdown()
+        if self.private_gateway and self.private_gateway_thread:
+            self.private_gateway.shutdown()
         if self.gateway:
             self.gateway.server_close()
+        if self.private_gateway:
+            self.private_gateway.server_close()
+        if self.gateway_thread:
+            self.gateway_thread.join(timeout=5)
+            self.gateway_thread = None
+        if self.private_gateway_thread:
+            self.private_gateway_thread.join(timeout=5)
+            self.private_gateway_thread = None
         if self.backend and self.backend.poll() is None:
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(self.backend.pid, signal.SIGTERM)
@@ -1004,6 +1278,7 @@ class SearXNGService:
         if self.lock_descriptor is not None:
             os.close(self.lock_descriptor)
             self.lock_descriptor = None
+        self.release_private_socket()
         self.release_backend_socket()
 
 
@@ -1077,6 +1352,9 @@ class SearXNGController:
         pid = record.get("pid")
         port = record.get("port")
         token = record.get("token")
+        private_socket_value = record.get("privateSocket")
+        private_socket_device = record.get("privateSocketDevice")
+        private_socket_inode = record.get("privateSocketInode")
         process_time = record.get("processStartTime")
         created_at = record.get("createdAt")
         last_health_at = record.get("lastHealthAt")
@@ -1091,6 +1369,16 @@ class SearXNGController:
             or port > 65535
             or not isinstance(token, str)
             or not re.fullmatch(r"[A-Za-z0-9_-]{32,512}", token)
+            or not isinstance(private_socket_value, str)
+            or not private_socket_value.startswith("/")
+            or "\0" in private_socket_value
+            or len(os.fsencode(private_socket_value)) > MAX_UNIX_SOCKET_PATH_BYTES
+            or not isinstance(private_socket_device, int)
+            or isinstance(private_socket_device, bool)
+            or private_socket_device < 0
+            or not isinstance(private_socket_inode, int)
+            or isinstance(private_socket_inode, bool)
+            or private_socket_inode < 1
             or not isinstance(pid, int)
             or isinstance(pid, bool)
             or pid < 1
@@ -1132,28 +1420,86 @@ class SearXNGController:
             raise ServiceNotRunning("SearXNG process is not running") from None
         if actual_executable != self.executable_path:
             raise RuntimeError("SearXNG process executable mismatch")
+        private_socket = pathlib.Path(private_socket_value)
+        expected_parent = BACKEND_SOCKET_PARENT / private_socket.parent.name
+        if (
+            private_socket.name != "s"
+            or private_socket.parent != expected_parent
+            or not private_socket.parent.name.startswith(
+                private_socket_prefix(
+                    "gateway", str(record["dataRootId"]), self.owner_instance_id
+                )
+            )
+        ):
+            raise RuntimeError("Private SearXNG socket path mismatch")
+        try:
+            parent_status = os.stat(private_socket.parent, follow_symlinks=False)
+            socket_status = os.stat(private_socket, follow_symlinks=False)
+        except FileNotFoundError:
+            raise ServiceNotRunning("Private SearXNG socket is missing") from None
+        if (
+            not stat.S_ISDIR(parent_status.st_mode)
+            or parent_status.st_uid != os.getuid()
+            or stat.S_IMODE(parent_status.st_mode) != 0o700
+            or not stat.S_ISSOCK(socket_status.st_mode)
+            or socket_status.st_uid != os.getuid()
+            or stat.S_IMODE(socket_status.st_mode) != 0o600
+            or socket_status.st_dev != private_socket_device
+            or socket_status.st_ino != private_socket_inode
+        ):
+            raise RuntimeError("Private SearXNG socket identity mismatch")
         return record
 
     def request_identity(
         self, record: dict[str, object], path: str
     ) -> dict[str, object]:
-        connection = http.client.HTTPConnection(ADDRESS, int(record["port"]), timeout=2)
+        nonce = secrets.token_urlsafe(24)
+        authorization = request_authentication(
+            str(record["token"]), "GET", path, b"", nonce
+        )
+        connection = VerifiedUnixHTTPConnection(
+            pathlib.Path(str(record["privateSocket"])), int(record["pid"]), timeout=2
+        )
         try:
             connection.request(
                 "GET",
                 path,
                 headers={
-                    "Authorization": f"Bearer {record['token']}",
+                    "Authorization": f"{AUTHORIZATION_SCHEME} {authorization}",
                     "Cache-Control": "no-store",
+                    "Connection": "close",
+                    "Host": "localhost",
                     "Sec-Fetch-Site": "none",
+                    "X-WildBuzzard-Nonce": nonce,
                 },
             )
             response = connection.getresponse()
             payload = response.read(MAX_CONNECTION_BYTES + 1)
-            if response.status != 200 or len(payload) > MAX_CONNECTION_BYTES:
+            content_type = response.getheader("Content-Type", "")
+            response_signature = response.getheader(
+                "X-WildBuzzard-Response-Authentication", ""
+            )
+            expected_signature = response_authentication(
+                str(record["token"]),
+                nonce,
+                response.status,
+                content_type,
+                payload,
+            )
+            if (
+                response.status != 200
+                or len(payload) > MAX_CONNECTION_BYTES
+                or not AUTH_DIGEST.fullmatch(response_signature)
+                or not hmac.compare_digest(response_signature, expected_signature)
+            ):
                 raise RuntimeError("SearXNG authenticated health check failed")
             value = json.loads(payload)
-        except (OSError, http.client.HTTPException, json.JSONDecodeError) as error:
+        except (
+            OSError,
+            http.client.HTTPException,
+            json.JSONDecodeError,
+            RuntimeError,
+        ) as error:
             raise RuntimeError("SearXNG authenticated health check failed") from error
         finally:
             connection.close()
@@ -1285,8 +1631,7 @@ class SearXNGController:
     ) -> None:
         self.validate_record(record)
         if pidfd is None:
-            os.kill(int(record["pid"]), signum)
-            return
+            raise RuntimeError("Safe SearXNG process signaling is unavailable")
         pidfd_send_signal = getattr(signal, "pidfd_send_signal", None)
         if pidfd_send_signal is None:
             raise RuntimeError("SearXNG pidfd signaling is unavailable")
@@ -1308,6 +1653,8 @@ class SearXNGController:
         try:
             try:
                 pidfd = self.open_pidfd(pid)
+                if pidfd is None:
+                    raise RuntimeError("Safe SearXNG process signaling is unavailable")
                 self.signal_record_process(record, pidfd, signal.SIGTERM)
             except (ProcessLookupError, ServiceNotRunning):
                 self.remove_stale_record(record)

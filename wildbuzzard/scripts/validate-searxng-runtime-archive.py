@@ -23,18 +23,18 @@ EXPECTED_FILE_COUNT = 7_042
 MANIFEST = "wildbuzzard-runtime.json"
 MANIFEST_LIMIT = 2 * 1024 * 1024
 RUNTIME_ARCHIVE_SHA256 = (
-    "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587"
+    "db683529031080cc1d35f5cfbe119b0d92f5985c4ecb996fc44e7c50838646f7"
 )
 SOURCE_ARCHIVE_SHA256 = (
-    "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751"
+    "c4d07e484d9e88a6deef78e02701bc6bdc100dbccb432d8492bbaa689e499f57"
 )
-SOURCE_ARCHIVE_SIZE = 697_377_128
+SOURCE_ARCHIVE_SIZE = 697_380_812
 RELEASE_INVENTORY_SHA256 = (
-    "cb67704fee61966b386c661fd6b382005bd28d8e870c7b901989e472bdcf9e77"
+    "71ff13ca254db6a335be0ac9d3d4598663fa656435d76eff59cb65ca970c2f91"
 )
 RELEASE_INVENTORY_SIZE = 1_931
 SERVICE_PATH = "libexec/searxng_service.py"
-SERVICE_SHA256 = "b80378457f8d8e465a1efb4fcc3c22c75323fae09af2494ac23ecc47d40d7ffa"
+SERVICE_SHA256 = "4606ccd2c8d2123f42155f2567f1a71a2bf8a11fe225a153bad34cbb94d88cbe"
 LAUNCHER_PATH = "bin/searxng-service"
 LAUNCHER_SHA256 = "366af1e28c0fc029760f360896ce12d99ae22df58049fdc29584e3fc5f3a0fc7"
 POLICY_PATH = "share/wildbuzzard/searxng/engine-policy.json"
@@ -48,7 +48,7 @@ EXPECTED_MANIFEST = {
     "compilerTarget": "x86_64-linux-gnu.2.28",
     "component": "searxng",
     "correspondingSource": "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
-    "correspondingSourceSha256": "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751",
+    "correspondingSourceSha256": "c4d07e484d9e88a6deef78e02701bc6bdc100dbccb432d8492bbaa689e499f57",
     "dependencyLockSha256": "3532d6386c8fae458945006efae16a07ed10d327f66ceccae7a34140f753cf8e",
     "granianCargoComponentsLockSha256": "8ad3c33d6967c2fcf0d2b71889b230df0df46a4a1b63a4f3af04b2d94b6e0c30",
     "granianCargoVendorLockSha256": "6fbd1c743108c9484ec7995d4ff90f2effa1796dc2c3568c7210a0c14c2f8550",

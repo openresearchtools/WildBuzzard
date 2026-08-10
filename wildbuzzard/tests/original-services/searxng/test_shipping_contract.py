@@ -135,7 +135,7 @@ class ShippingContractTests(unittest.TestCase):
         )
         self.assertIn('"${searxng_runtime}"', appimage)
         self.assertIn(
-            "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587",
+            "db683529031080cc1d35f5cfbe119b0d92f5985c4ecb996fc44e7c50838646f7",
             appimage_validator,
         )
 
@@ -212,16 +212,42 @@ class ShippingContractTests(unittest.TestCase):
         web_access = (
             CHECKOUT / "agent" / "extensions" / "web-access" / "connection.ts"
         ).read_text(encoding="utf-8")
-        self.assertIn('request.setRequestHeader("Authorization"', supervisor)
+        private_transport = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "components"
+            / "websearch"
+            / "SearXNGPrivateTransport.sys.mjs"
+        ).read_text(encoding="utf-8")
+        service = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "managed-services"
+            / "searxng"
+            / "searxng_service.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("requestSearXNGPrivateJSON", supervisor)
+        self.assertNotIn("ServiceRequest", supervisor)
+        self.assertIn("createUnixDomainTransport", private_transport)
+        self.assertIn("WildBuzzard-HMAC-SHA256", private_transport)
         self.assertIn('command,\n        "--data-root"', supervisor)
-        self.assertNotIn('runLifecycle(runtime, "stop")', supervisor)
-        self.assertNotIn('runLifecycle(runtime, "restart")', supervisor)
+        self.assertIn('runLifecycle(runtime, "stop")', supervisor)
         self.assertIn("get correspondingSourcePath()", supervisor)
+        self.assertIn("repair()", supervisor)
+        self.assertIn("retry()", supervisor)
+        self.assertIn("status()", supervisor)
         self.assertIn("SearXNGRuntime.connectionPath", agent)
         self.assertIn("WILDBUZZARD_SEARCH_CONNECTION_FILE", agent)
-        self.assertIn('headers.set("Authorization"', web_access)
-        self.assertIn("${connection.address}:${connection.port}${path}", web_access)
-        self.assertNotIn("connection.token}${path}", web_access)
+        self.assertIn("socketPath: connection.privateSocket", web_access)
+        self.assertIn("WildBuzzard-HMAC-SHA256", web_access)
+        self.assertNotIn("Bearer ${connection.token}", web_access)
+        self.assertNotIn("fetch(endpoint", web_access)
+        self.assertIn("class PrivateGateway", service)
+        self.assertIn("SO_PEERCRED", service)
+        comparator = (HERE / "compare_searxng.py").read_text(encoding="utf-8")
+        self.assertIn("verify_authenticated_response", comparator)
+        self.assertIn("native_client.unix_socket", comparator)
 
     def test_only_pristine_comparator_uses_a_container(self) -> None:
         comparator = (HERE / "compare_searxng.py").read_text(encoding="utf-8")
