@@ -54,7 +54,7 @@ function canonicalProfilePath(profilePath) {
   if (!directory.isDirectory()) {
     throw new Error("The Firefox profile directory is unavailable");
   }
-  return directory.path.normalize("NFC");
+  return directory.path;
 }
 
 export function jackettMiniProfileNamespace(profilePath) {

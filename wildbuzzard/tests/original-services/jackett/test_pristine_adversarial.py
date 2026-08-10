@@ -30,6 +30,14 @@ class PristineAdversarialTest(unittest.TestCase):
             )
         )
 
+    def write_source_manifest(self, directory, entries):
+        manifest = pathlib.Path(directory) / "SOURCE-MANIFEST.sha256"
+        manifest.write_text(
+            "".join(f"{digest}  {path}\n" for path, digest in entries),
+            encoding="utf-8",
+        )
+        return manifest, MODULE.sha256_file(manifest)
+
     def test_snapshot_covers_error_and_transport_shapes(self):
         codes = {
             value.get("errorCode")
@@ -168,6 +176,98 @@ class PristineAdversarialTest(unittest.TestCase):
             (runtime / "unmanifested").write_bytes(b"unexpected")
             with self.assertRaisesRegex(RuntimeError, "unmanifested"):
                 MODULE.validate_mini_runtime(runtime, manifest_path)
+
+    def test_pristine_source_manifest_validates_listed_files_and_allows_outputs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "source"
+            nested = root / "nested"
+            nested.mkdir(parents=True)
+            first = root / "first.txt"
+            second = nested / "second.txt"
+            first.write_bytes(b"first")
+            second.write_bytes(b"second")
+            (root / "unlisted-build-output").write_bytes(b"allowed")
+            entries = [
+                ("first.txt", MODULE.sha256_file(first)),
+                ("nested/second.txt", MODULE.sha256_file(second)),
+            ]
+            manifest, manifest_sha256 = self.write_source_manifest(directory, entries)
+
+            evidence = MODULE.validate_pristine_source(root, manifest, manifest_sha256)
+
+            self.assertEqual(evidence["manifestSha256"], manifest_sha256)
+            self.assertEqual(evidence["entryCount"], 2)
+
+    def test_pristine_source_manifest_rejects_manifest_digest_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "source"
+            root.mkdir()
+            manifest, _digest = self.write_source_manifest(
+                directory, [("missing", "0" * 64)]
+            )
+            with self.assertRaisesRegex(RuntimeError, "manifest digest"):
+                MODULE.validate_pristine_source(root, manifest)
+
+    def test_pristine_source_manifest_rejects_unsafe_and_duplicate_paths(self):
+        unsafe_paths = [
+            "/absolute",
+            "../escape",
+            "nested/../escape",
+            "./relative",
+            "nested//file",
+            "nested\\file",
+        ]
+        for unsafe_path in unsafe_paths:
+            with self.subTest(
+                path=unsafe_path
+            ), tempfile.TemporaryDirectory() as directory:
+                manifest, digest = self.write_source_manifest(
+                    directory, [(unsafe_path, "0" * 64)]
+                )
+                with self.assertRaisesRegex(RuntimeError, "unsafe"):
+                    MODULE.parse_source_manifest(manifest, digest)
+
+        with tempfile.TemporaryDirectory() as directory:
+            manifest, digest = self.write_source_manifest(
+                directory,
+                [("duplicate", "0" * 64), ("duplicate", "1" * 64)],
+            )
+            with self.assertRaisesRegex(RuntimeError, "duplicate"):
+                MODULE.parse_source_manifest(manifest, digest)
+
+    def test_pristine_source_manifest_rejects_missing_symlink_and_nonregular(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "source"
+            root.mkdir()
+            regular = root / "regular"
+            regular.write_bytes(b"content")
+            expected = MODULE.sha256_file(regular)
+            (root / "link").symlink_to(regular)
+            (root / "directory").mkdir()
+            outside = pathlib.Path(directory) / "outside"
+            outside.mkdir()
+            (outside / "nested").write_bytes(b"outside")
+            (root / "linked-parent").symlink_to(outside, target_is_directory=True)
+            for path in ("missing", "link", "directory", "linked-parent/nested"):
+                with self.subTest(path=path):
+                    manifest, manifest_sha256 = self.write_source_manifest(
+                        directory, [(path, expected)]
+                    )
+                    with self.assertRaisesRegex(
+                        RuntimeError, "missing or unsafe|not a regular file"
+                    ):
+                        MODULE.validate_pristine_source(root, manifest, manifest_sha256)
+
+    def test_pristine_source_manifest_rejects_content_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory) / "source"
+            root.mkdir()
+            (root / "changed").write_bytes(b"changed")
+            manifest, manifest_sha256 = self.write_source_manifest(
+                directory, [("changed", hashlib.sha256(b"original").hexdigest())]
+            )
+            with self.assertRaisesRegex(RuntimeError, "content digest mismatch"):
+                MODULE.validate_pristine_source(root, manifest, manifest_sha256)
 
     def test_mini_normalization_removes_opaque_ids_and_timing(self):
         response = {
