@@ -83,8 +83,28 @@ class FirecrawlComparatorTest(unittest.TestCase):
                 "architecture": "amd64",
             }
             COMPARATOR.validate_base_identity(image, identity)
+            COMPARATOR.validate_base_identity(
+                image,
+                {
+                    **identity,
+                    "id": image["configDigest"].removeprefix("sha256:"),
+                },
+            )
             with self.assertRaisesRegex(RuntimeError, "config digest"):
                 COMPARATOR.validate_base_identity(image, {**identity, "id": "wrong"})
+
+    def test_digest_normalization_is_strict(self) -> None:
+        digest = "a" * 64
+        self.assertEqual(
+            COMPARATOR.canonical_sha256_digest(digest), f"sha256:{digest}"
+        )
+        self.assertEqual(
+            COMPARATOR.canonical_sha256_digest(f"sha256:{digest}"),
+            f"sha256:{digest}",
+        )
+        for value in (None, "", "sha512:" + digest, "A" * 64):
+            with self.assertRaises(RuntimeError):
+                COMPARATOR.canonical_sha256_digest(value)
 
     def test_pristine_dockerfile_from_parser(self) -> None:
         self.assertEqual(

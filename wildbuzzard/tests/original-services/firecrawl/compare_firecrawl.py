@@ -80,6 +80,15 @@ def sha256_file(path: pathlib.Path) -> str:
     return digest.hexdigest()
 
 
+def canonical_sha256_digest(value: object) -> str:
+    if not isinstance(value, str):
+        raise RuntimeError("OCI digest is not a string")
+    digest = value.removeprefix("sha256:")
+    if not re.fullmatch(r"[0-9a-f]{64}", digest):
+        raise RuntimeError("OCI digest is malformed")
+    return f"sha256:{digest}"
+
+
 def write_json(path: pathlib.Path, value: object) -> None:
     path.write_text(
         json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
@@ -581,9 +590,17 @@ def pinned_platform_descriptor(
 
 
 def validate_base_identity(image: dict[str, str], identity: dict[str, object]) -> None:
-    if identity.get("id") != image["configDigest"]:
+    try:
+        config_digest = canonical_sha256_digest(identity.get("id"))
+    except RuntimeError as error:
+        raise RuntimeError("Pinned base config digest mismatch") from error
+    if config_digest != image["configDigest"]:
         raise RuntimeError("Pinned base config digest mismatch")
-    if identity.get("digest") != image["platformDigest"]:
+    try:
+        platform_digest = canonical_sha256_digest(identity.get("digest"))
+    except RuntimeError as error:
+        raise RuntimeError("Pinned base platform digest mismatch") from error
+    if platform_digest != image["platformDigest"]:
         raise RuntimeError("Pinned base platform digest mismatch")
     if identity.get("os") != "linux" or identity.get("architecture") != "amd64":
         raise RuntimeError("Pinned base platform identity mismatch")
