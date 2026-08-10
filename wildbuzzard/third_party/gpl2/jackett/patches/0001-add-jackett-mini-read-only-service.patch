@@ -1,0 +1,2233 @@
+diff --git a/src/DateTimeRoutines/packages.lock.json b/src/DateTimeRoutines/packages.lock.json
+new file mode 100644
+index 000000000..0727383c2
+--- /dev/null
++++ b/src/DateTimeRoutines/packages.lock.json
+@@ -0,0 +1,24 @@
++{
++  "version": 1,
++  "dependencies": {
++    ".NETStandard,Version=v2.0": {
++      "NETStandard.Library": {
++        "type": "Direct",
++        "requested": "[2.0.3, )",
++        "resolved": "2.0.3",
++        "contentHash": "st47PosZSHrjECdjeIzZQbzivYBJFv6P2nv4cj2ypdI204DO+vZ7l5raGMiX4eXMJ53RfOIg+/s4DHVZ54Nu2A==",
++        "dependencies": {
++          "Microsoft.NETCore.Platforms": "1.1.0"
++        }
++      },
++      "Microsoft.NETCore.Platforms": {
++        "type": "Transitive",
++        "resolved": "1.1.0",
++        "contentHash": "kz0PEW2lhqygehI/d6XsPCQzD7ff7gUJaVGPVETX611eadGsA3A877GdSlU0LRVMCTH/+P3o2iDTak+S08V2+A=="
++      }
++    },
++    ".NETStandard,Version=v2.0/linux-x64": {},
++    "net9.0": {},
++    "net9.0/linux-x64": {}
++  }
++}
+\ No newline at end of file
+diff --git a/src/Jackett.Common/Jackett.Common.csproj b/src/Jackett.Common/Jackett.Common.csproj
+index ecc74883c..08543b384 100644
+--- a/src/Jackett.Common/Jackett.Common.csproj
++++ b/src/Jackett.Common/Jackett.Common.csproj
+@@ -14,7 +14,7 @@
+     <PackageReference Include="AngleSharp.Xml" Version="1.0.0" />
+     <PackageReference Include="Autofac" Version="8.0.0" />
+     <PackageReference Include="BencodeNET" Version="4.0.0" />
+-    <PackageReference Include="FlareSolverrSharp" Version="3.0.7" />
++    <PackageReference Include="FlareSolverrSharp" Version="3.0.7" Condition="'$(JackettMiniBuild)' != 'true'" />
+     <PackageReference Include="CommandLineParser" Version="2.9.1" />
+     <PackageReference Include="DotNet4.SocksProxy" Version="1.4.0.1" />
+     <PackageReference Include="Microsoft.AspNetCore.Http" Version="2.3.11" />
+@@ -196,6 +196,28 @@
+     <Service Include="{508349b6-6b84-4df5-91f0-309beebad82d}" />
+   </ItemGroup>
+ 
++  <ItemGroup Condition="'$(JackettMiniBuild)' == 'true'">
++    <Compile Remove="Indexers\Definitions\**\*.cs" />
++    <Compile Remove="Plumbing\JackettModule.cs" />
++    <Compile Remove="Utils\Clients\HttpWebClient.cs" />
++    <Compile Remove="Utils\Clients\HttpWebClient2.cs" />
++    <Compile Include="Indexers\Definitions\CardigannIndexer.cs" />
++    <Compile Include="Indexers\Definitions\Abstract\PublicBrazilianIndexerBase.cs" />
++    <Compile Include="Indexers\Definitions\Anilibria.cs" />
++    <Compile Include="Indexers\Definitions\ApacheTorrent.cs" />
++    <Compile Include="Indexers\Definitions\AudioBookBay.cs" />
++    <Compile Include="Indexers\Definitions\DonTorrent.cs" />
++    <Compile Include="Indexers\Definitions\EpubLibre.cs" />
++    <Compile Include="Indexers\Definitions\HDRTorrent.cs" />
++    <Compile Include="Indexers\Definitions\Knaben.cs" />
++    <Compile Include="Indexers\Definitions\MejorTorrent.cs" />
++    <Compile Include="Indexers\Definitions\RedeTorrent.cs" />
++    <Compile Include="Indexers\Definitions\SubsPlease.cs" />
++    <Compile Include="Indexers\Definitions\TorrentsCSV.cs" />
++    <Content Update="Content\**\*;Definitions\**\*.yml" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
++    <None Update="Content\**\*" CopyToOutputDirectory="Never" CopyToPublishDirectory="Never" />
++  </ItemGroup>
++
+   <ItemGroup>
+     <EmbeddedResource Update="Properties\Resources.resx">
+       <Generator>PublicResXFileCodeGenerator</Generator>
+@@ -206,7 +228,8 @@
+   <!-- Save the compiled date so that we know if the user is running an old version of Jackett -->
+   <ItemGroup>
+     <AssemblyAttribute Include="Jackett.Common.Utils.BuildDateAttribute">
+-      <_Parameter1>$([System.DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))</_Parameter1>
++      <_Parameter1 Condition="'$(JackettMiniBuild)' == 'true'">20260809053852</_Parameter1>
++      <_Parameter1 Condition="'$(JackettMiniBuild)' != 'true'">$([System.DateTime]::UtcNow.ToString("yyyyMMddHHmmss"))</_Parameter1>
+     </AssemblyAttribute>
+   </ItemGroup>
+ 
+diff --git a/src/Jackett.Common/packages.lock.json b/src/Jackett.Common/packages.lock.json
+new file mode 100644
+index 000000000..b25b77dbd
+--- /dev/null
++++ b/src/Jackett.Common/packages.lock.json
+@@ -0,0 +1,692 @@
++{
++  "version": 1,
++  "dependencies": {
++    ".NETStandard,Version=v2.0": {
++      "AngleSharp": {
++        "type": "Direct",
++        "requested": "[1.5.2, )",
++        "resolved": "1.5.2",
++        "contentHash": "LVZ7rrr6GHbhERhTgVDarVygl1e6KwE96pronA90LBOMacDhxR4lB+xYLjn/vlnUu+xbOB2RM9fuCPEx5bdyWA==",
++        "dependencies": {
++          "System.Text.Encoding.CodePages": "8.0.0"
++        }
++      },
++      "AngleSharp.Xml": {
++        "type": "Direct",
++        "requested": "[1.0.0, )",
++        "resolved": "1.0.0",
++        "contentHash": "TS+52am0+/HvCfh0yNiz7RlXUjOfdWl1bFQygBJkGKFHZ6N3RHv/vtK0VKfN4h7b0Kescy3+iWn6qqBlOkiL3w==",
++        "dependencies": {
++          "AngleSharp": "[1.0.0, 2.0.0)"
++        }
++      },
++      "Autofac": {
++        "type": "Direct",
++        "requested": "[8.0.0, )",
++        "resolved": "8.0.0",
++        "contentHash": "qxVqJcl3fixxa5aZc9TmIuYTwooI9GCL5RzfUiTZtTlbAF3NcWz7bPeEyJEAyS/0qGhSyGnXeku2eiu/7L+3qw==",
++        "dependencies": {
++          "Microsoft.Bcl.AsyncInterfaces": "7.0.0",
++          "System.Diagnostics.DiagnosticSource": "7.0.2"
++        }
++      },
++      "BencodeNET": {
++        "type": "Direct",
++        "requested": "[4.0.0, )",
++        "resolved": "4.0.0",
++        "contentHash": "dsgswftoaNKuKdOiRz7pTpk0RyuPHOWrAdc5/ohP3YOfAVzosKrHY8qZZBdjX/fHa6SA63wp62K6wQX93uuyFw==",
++        "dependencies": {
++          "System.Buffers": "4.5.1",
++          "System.IO.Pipelines": "4.6.0"
++        }
++      },
++      "CommandLineParser": {
++        "type": "Direct",
++        "requested": "[2.9.1, )",
++        "resolved": "2.9.1",
++        "contentHash": "OE0sl1/sQ37bjVsPKKtwQlWDgqaxWgtme3xZz7JssWUzg5JpMIyHgCTY9MVMxOg48fJ1AgGT3tgdH5m/kQ5xhA=="
++      },
++      "DotNet4.SocksProxy": {
++        "type": "Direct",
++        "requested": "[1.4.0.1, )",
++        "resolved": "1.4.0.1",
++        "contentHash": "Aa8R82IWyopfmb14QUq0edO4+rpoPWOlt2mfB40u3ysrCKDjaftRpegt5Z2ZrD7srsmy/KN6UMIsnKryJgCS7Q=="
++      },
++      "Microsoft.AspNetCore.Http": {
++        "type": "Direct",
++        "requested": "[2.3.11, )",
++        "resolved": "2.3.11",
++        "contentHash": "3H7dPd3knHBMQRvVPYsGlAd7cPI4wk0Hf5H5qhoxoQiEkJ0QdJDNIr34GcKA4CtOw0akQ7US67UpRxWMUeCy2w==",
++        "dependencies": {
++          "Microsoft.AspNetCore.Http.Abstractions": "2.3.10",
++          "Microsoft.AspNetCore.WebUtilities": "2.3.10",
++          "Microsoft.Extensions.ObjectPool": "8.0.11",
++          "Microsoft.Extensions.Options": "8.0.2",
++          "Microsoft.Net.Http.Headers": "2.3.10"
++        }
++      },
++      "Microsoft.AspNetCore.WebUtilities": {
++        "type": "Direct",
++        "requested": "[2.3.11, )",
++        "resolved": "2.3.11",
++        "contentHash": "bHEBMxxyfMjHgXYOUv51fpOn173axzmYw51rW6AyQhnbhZr7wIwHVkidPgKmGweDH1/sp5esnkcxhP+EI/pZkw==",
++        "dependencies": {
++          "Microsoft.Net.Http.Headers": "2.3.10",
++          "System.Text.Encodings.Web": "8.0.0"
++        }
++      },
++      "Microsoft.CSharp": {
++        "type": "Direct",
++        "requested": "[4.7.0, )",
++        "resolved": "4.7.0",
++        "contentHash": "pTj+D3uJWyN3My70i2Hqo+OXixq3Os2D1nJ2x92FFo6sk8fYS1m1WLNTs0Dc1uPaViH0YvEEwvzddQ7y4rhXmA=="
++      },
++      "MimeMapping": {
++        "type": "Direct",
++        "requested": "[1.0.1.50, )",
++        "resolved": "1.0.1.50",
++        "contentHash": "oT5gG5ig6J2IB3aH5BeEtX6yjIYKI5YOs29t+4p+7kcOFCjrTEex9rFJ610/jZRFGp76NFQbbx9QFQZpxV+kzA=="
++      },
++      "NETStandard.Library": {
++        "type": "Direct",
++        "requested": "[2.0.3, )",
++        "resolved": "2.0.3",
++        "contentHash": "st47PosZSHrjECdjeIzZQbzivYBJFv6P2nv4cj2ypdI204DO+vZ7l5raGMiX4eXMJ53RfOIg+/s4DHVZ54Nu2A==",
++        "dependencies": {
++          "Microsoft.NETCore.Platforms": "1.1.0"
++        }
++      },
++      "Newtonsoft.Json": {
++        "type": "Direct",
++        "requested": "[13.0.4, )",
++        "resolved": "13.0.4",
++        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
++      },
++      "NLog": {
++        "type": "Direct",
++        "requested": "[5.5.1, )",
++        "resolved": "5.5.1",
++        "contentHash": "ZpLbXSi91tZJPjzNefE+3NugAkQtpWZpSLfZWJGcP1y8qMiXDKxW/nAQ+LYWo7GwH2iYsbKOdsLCK9S3BeRQxA=="
++      },
++      "Polly": {
++        "type": "Direct",
++        "requested": "[8.7.0, )",
++        "resolved": "8.7.0",
++        "contentHash": "0qR4f0OR8FeCAfLWcfwzAM7w6EmpUgwa22PgxKjcL25dEAto7sKpQQXbtxp38vVvK+V3RFkh/TeI7g/iUdoYIQ==",
++        "dependencies": {
++          "Polly.Core": "8.7.0"
++        }
++      },
++      "SharpZipLib": {
++        "type": "Direct",
++        "requested": "[1.4.2, )",
++        "resolved": "1.4.2",
++        "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A==",
++        "dependencies": {
++          "System.Memory": "4.5.4",
++          "System.Threading.Tasks.Extensions": "4.5.2"
++        }
++      },
++      "System.IO.FileSystem.AccessControl": {
++        "type": "Direct",
++        "requested": "[5.0.0, )",
++        "resolved": "5.0.0",
++        "contentHash": "SxHB3nuNrpptVk+vZ/F+7OHEpoHUIKKMl02bUmYHQr1r+glbZQxs7pRtsf4ENO29TVm2TH3AEeep2fJcy92oYw==",
++        "dependencies": {
++          "System.Buffers": "4.5.1",
++          "System.Memory": "4.5.4",
++          "System.Security.AccessControl": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.ServiceProcess.ServiceController": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "RpiFJKQ1A2Ch9amnz+dZTslMf0+cX7zXVmHUsSXeUvaqeBEeZHDnzDqxtVc+74UBB4WTbqtVlPsZDmaDJt5OPg==",
++        "dependencies": {
++          "System.Diagnostics.EventLog": "9.0.18"
++        }
++      },
++      "System.Text.Encoding.CodePages": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "FFFZWE2sHSFVJLGBvcBT6zcTIHT7yxvQ5AMtc+BZh0oBWpT5jXTmKxI85tDkBieLoUK5Fg/8bbWGFvTS2oer+A==",
++        "dependencies": {
++          "System.Memory": "4.5.5",
++          "System.Runtime.CompilerServices.Unsafe": "6.0.0"
++        }
++      },
++      "System.Text.Json": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "/xX8vajlGUp1FoGSNUJBJS+E/2TQjmcMoUzHePa+coPdLnFGPcolRHlybSZhKyAKj+sNDSFlLNYYLe8aEOElfA==",
++        "dependencies": {
++          "Microsoft.Bcl.AsyncInterfaces": "9.0.18",
++          "System.Buffers": "4.5.1",
++          "System.IO.Pipelines": "9.0.18",
++          "System.Memory": "4.5.5",
++          "System.Runtime.CompilerServices.Unsafe": "6.0.0",
++          "System.Text.Encodings.Web": "9.0.18",
++          "System.Threading.Tasks.Extensions": "4.5.4"
++        }
++      },
++      "YamlDotNet": {
++        "type": "Direct",
++        "requested": "[18.1.0, )",
++        "resolved": "18.1.0",
++        "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
++      },
++      "Microsoft.AspNetCore.Http.Abstractions": {
++        "type": "Transitive",
++        "resolved": "2.3.10",
++        "contentHash": "FD6mE5v3qB/sEcnLNni1oHsATuLHIFzsKHCulUZS7iaJez8+TkD432L89DQtU9PfjCkaPO0JOQjB4tS4L8oZXQ==",
++        "dependencies": {
++          "Microsoft.AspNetCore.Http.Features": "2.3.9",
++          "System.Text.Encodings.Web": "8.0.0"
++        }
++      },
++      "Microsoft.AspNetCore.Http.Features": {
++        "type": "Transitive",
++        "resolved": "2.3.9",
++        "contentHash": "nDWDF0YBgElg6f0omqJ8DupmITQg5p4lklBxFpVR83tQQhOG2tw9Fa5ul8b+KywsYBsyfn9DschUmfzOV6RvGw==",
++        "dependencies": {
++          "Microsoft.Extensions.Primitives": "8.0.0"
++        }
++      },
++      "Microsoft.Bcl.AsyncInterfaces": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "T1+OeM47WtD78Hu0oY5oSy5JIU7j9jTKFdvpzbZkNs+5e12Q1bvPV7FBQxqfwa8AVZvW/EKufGzy7fPKtn0PQA==",
++        "dependencies": {
++          "System.Threading.Tasks.Extensions": "4.5.4"
++        }
++      },
++      "Microsoft.Bcl.TimeProvider": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "f5Kr5JepAbiGo7uDmhgvMqhntwxqXNn6/IpTBSSI4cuHhgnJGrLxFRhMjVpRkLPp6zJXO0/G0l3j9p9zSJxa+w==",
++        "dependencies": {
++          "Microsoft.Bcl.AsyncInterfaces": "6.0.0"
++        }
++      },
++      "Microsoft.Extensions.DependencyInjection.Abstractions": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "cjWrLkJXK0rs4zofsK4bSdg+jhDLTaxrkXu4gS6Y7MAlCvRyNNgwY/lJi5RDlQOnSZweHqoyvgvbdvQsRIW+hg==",
++        "dependencies": {
++          "Microsoft.Bcl.AsyncInterfaces": "8.0.0",
++          "System.Threading.Tasks.Extensions": "4.5.4"
++        }
++      },
++      "Microsoft.Extensions.ObjectPool": {
++        "type": "Transitive",
++        "resolved": "8.0.11",
++        "contentHash": "6ApKcHNJigXBfZa6XlDQ8feJpq7SG1ogZXg6M4FiNzgd6irs3LUAzo0Pfn4F2ZI9liGnH1XIBR/OtSbZmJAV5w=="
++      },
++      "Microsoft.Extensions.Options": {
++        "type": "Transitive",
++        "resolved": "8.0.2",
++        "contentHash": "dWGKvhFybsaZpGmzkGCbNNwBD1rVlWzrZKANLW/CcbFJpCEceMCGzT7zZwHOGBCbwM0SzBuceMj5HN1LKV1QqA==",
++        "dependencies": {
++          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.0",
++          "Microsoft.Extensions.Primitives": "8.0.0",
++          "System.ComponentModel.Annotations": "5.0.0"
++        }
++      },
++      "Microsoft.Extensions.Primitives": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "bXJEZrW9ny8vjMF1JV253WeLhpEVzFo1lyaZu1vQ4ZxWUlVvknZ/+ftFgVheLubb4eZPSwwxBeqS1JkCOjxd8g==",
++        "dependencies": {
++          "System.Memory": "4.5.5",
++          "System.Runtime.CompilerServices.Unsafe": "6.0.0"
++        }
++      },
++      "Microsoft.Net.Http.Headers": {
++        "type": "Transitive",
++        "resolved": "2.3.10",
++        "contentHash": "WjHfw2Esfhd8RcdVNM61gS5z6wGGA5rtPIPJTjSe9Y/k8aarXxHWQhOfMqFa+wE/quTUrgs9h+dddyEDsTN/IA==",
++        "dependencies": {
++          "Microsoft.Extensions.Primitives": "8.0.0",
++          "System.Buffers": "4.6.0"
++        }
++      },
++      "Microsoft.NETCore.Platforms": {
++        "type": "Transitive",
++        "resolved": "1.1.0",
++        "contentHash": "kz0PEW2lhqygehI/d6XsPCQzD7ff7gUJaVGPVETX611eadGsA3A877GdSlU0LRVMCTH/+P3o2iDTak+S08V2+A=="
++      },
++      "Polly.Core": {
++        "type": "Transitive",
++        "resolved": "8.7.0",
++        "contentHash": "BS2t+nsBer16PIebCEPNBK5fgMisADQyRCd7K+BgkMWpFmSaiYE+rVVNpFhGRqUkJmNSLmw0uCNzHHWfgml28Q==",
++        "dependencies": {
++          "Microsoft.Bcl.AsyncInterfaces": "6.0.0",
++          "Microsoft.Bcl.TimeProvider": "8.0.0",
++          "System.ComponentModel.Annotations": "4.5.0",
++          "System.Threading.Tasks.Extensions": "4.5.4"
++        }
++      },
++      "System.Buffers": {
++        "type": "Transitive",
++        "resolved": "4.6.0",
++        "contentHash": "lN6tZi7Q46zFzAbRYXTIvfXcyvQQgxnY7Xm6C6xQ9784dEL1amjM6S6Iw4ZpsvesAKnRVsM4scrDQaDqSClkjA=="
++      },
++      "System.ComponentModel.Annotations": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "dMkqfy2el8A8/I76n2Hi1oBFEbG1SfxD2l5nhwXV3XjlnOmwxJlQbYpJH4W51odnU9sARCSAgv7S3CyAFMkpYg=="
++      },
++      "System.Diagnostics.DiagnosticSource": {
++        "type": "Transitive",
++        "resolved": "7.0.2",
++        "contentHash": "hYr3I9N9811e0Bjf2WNwAGGyTuAFbbTgX1RPLt/3Wbm68x3IGcX5Cl75CMmgT6WlNwLQ2tCCWfqYPpypjaf2xA==",
++        "dependencies": {
++          "System.Memory": "4.5.5",
++          "System.Runtime.CompilerServices.Unsafe": "6.0.0"
++        }
++      },
++      "System.Diagnostics.EventLog": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "4f3CBS22A2Y+M+shvdYzeWaEPYycZ3IaouaH+NxGLW6xoFahR1+L+YM8bt8NI3TQRZbqPBp/myt+6+JXc+IhRg==",
++        "dependencies": {
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.IO.Pipelines": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "9AcBFLF9KZpCiv+xTN8emSsiF1FEq/DdswZrJgqlf37dKThJSXwCQ1QUfH24+k9X89C80CI0IQCZatdg0yj3Jw==",
++        "dependencies": {
++          "System.Buffers": "4.5.1",
++          "System.Memory": "4.5.5",
++          "System.Threading.Tasks.Extensions": "4.5.4"
++        }
++      },
++      "System.Memory": {
++        "type": "Transitive",
++        "resolved": "4.5.5",
++        "contentHash": "XIWiDvKPXaTveaB7HVganDlOCRoj03l+jrwNvcge/t8vhGYKvqV+dMv6G4SAX2NoNmN0wZfVPTAlFwZcZvVOUw==",
++        "dependencies": {
++          "System.Buffers": "4.5.1",
++          "System.Numerics.Vectors": "4.4.0",
++          "System.Runtime.CompilerServices.Unsafe": "4.5.3"
++        }
++      },
++      "System.Numerics.Vectors": {
++        "type": "Transitive",
++        "resolved": "4.4.0",
++        "contentHash": "UiLzLW+Lw6HLed1Hcg+8jSRttrbuXv7DANVj0DkL9g6EnnzbL75EB7EWsw5uRbhxd/4YdG8li5XizGWepmG3PQ=="
++      },
++      "System.Runtime.CompilerServices.Unsafe": {
++        "type": "Transitive",
++        "resolved": "6.0.0",
++        "contentHash": "/iUeP3tq1S0XdNNoMz5C9twLSrM/TH+qElHkXWaPvuNOt+99G75NrV0OS2EqHx5wMN7popYjpc8oTjC1y16DLg=="
++      },
++      "System.Security.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "dagJ1mHZO3Ani8GH0PHpPEe/oYO+rVdbQjvjJkBRNQkX4t0r1iaeGn8+/ybkSLEan3/slM0t59SVdHzuHf2jmw==",
++        "dependencies": {
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.Principal.Windows": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "t0MGLukB5WAVU9bO3MGzvlGnyJPgUlcwerXn1kzBRjwLKixT96XV0Uza41W49gVd8zEMFu9vQEFlv0IOrytICA=="
++      },
++      "System.Text.Encodings.Web": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "Uqybp2r2zFvSDKckcr30TbXRrjW16ihRFzdHVC8Jo8DwkRDJfBuPkXS7hqcUwRYE3ItHKeyfcbq/SpExNPuE2Q==",
++        "dependencies": {
++          "System.Buffers": "4.5.1",
++          "System.Memory": "4.5.5",
++          "System.Runtime.CompilerServices.Unsafe": "6.0.0"
++        }
++      },
++      "System.Threading.Tasks.Extensions": {
++        "type": "Transitive",
++        "resolved": "4.5.4",
++        "contentHash": "zteT+G8xuGu6mS+mzDzYXbzS7rd3K6Fjb9RiZlYlJPam2/hU7JCBZBVEcywNuR+oZ1ncTvc/cq0faRr3P01OVg==",
++        "dependencies": {
++          "System.Runtime.CompilerServices.Unsafe": "4.5.3"
++        }
++      },
++      "datetimeroutines": {
++        "type": "Project"
++      }
++    },
++    ".NETStandard,Version=v2.0/linux-x64": {
++      "System.IO.FileSystem.AccessControl": {
++        "type": "Direct",
++        "requested": "[5.0.0, )",
++        "resolved": "5.0.0",
++        "contentHash": "SxHB3nuNrpptVk+vZ/F+7OHEpoHUIKKMl02bUmYHQr1r+glbZQxs7pRtsf4ENO29TVm2TH3AEeep2fJcy92oYw==",
++        "dependencies": {
++          "System.Buffers": "4.5.1",
++          "System.Memory": "4.5.4",
++          "System.Security.AccessControl": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "dagJ1mHZO3Ani8GH0PHpPEe/oYO+rVdbQjvjJkBRNQkX4t0r1iaeGn8+/ybkSLEan3/slM0t59SVdHzuHf2jmw==",
++        "dependencies": {
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.Principal.Windows": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "t0MGLukB5WAVU9bO3MGzvlGnyJPgUlcwerXn1kzBRjwLKixT96XV0Uza41W49gVd8zEMFu9vQEFlv0IOrytICA=="
++      }
++    },
++    "net9.0": {
++      "AngleSharp": {
++        "type": "Direct",
++        "requested": "[1.5.2, )",
++        "resolved": "1.5.2",
++        "contentHash": "LVZ7rrr6GHbhERhTgVDarVygl1e6KwE96pronA90LBOMacDhxR4lB+xYLjn/vlnUu+xbOB2RM9fuCPEx5bdyWA=="
++      },
++      "AngleSharp.Xml": {
++        "type": "Direct",
++        "requested": "[1.0.0, )",
++        "resolved": "1.0.0",
++        "contentHash": "TS+52am0+/HvCfh0yNiz7RlXUjOfdWl1bFQygBJkGKFHZ6N3RHv/vtK0VKfN4h7b0Kescy3+iWn6qqBlOkiL3w==",
++        "dependencies": {
++          "AngleSharp": "[1.0.0, 2.0.0)"
++        }
++      },
++      "Autofac": {
++        "type": "Direct",
++        "requested": "[8.0.0, )",
++        "resolved": "8.0.0",
++        "contentHash": "qxVqJcl3fixxa5aZc9TmIuYTwooI9GCL5RzfUiTZtTlbAF3NcWz7bPeEyJEAyS/0qGhSyGnXeku2eiu/7L+3qw==",
++        "dependencies": {
++          "System.Diagnostics.DiagnosticSource": "7.0.2"
++        }
++      },
++      "BencodeNET": {
++        "type": "Direct",
++        "requested": "[4.0.0, )",
++        "resolved": "4.0.0",
++        "contentHash": "dsgswftoaNKuKdOiRz7pTpk0RyuPHOWrAdc5/ohP3YOfAVzosKrHY8qZZBdjX/fHa6SA63wp62K6wQX93uuyFw==",
++        "dependencies": {
++          "System.IO.Pipelines": "5.0.1"
++        }
++      },
++      "CommandLineParser": {
++        "type": "Direct",
++        "requested": "[2.9.1, )",
++        "resolved": "2.9.1",
++        "contentHash": "OE0sl1/sQ37bjVsPKKtwQlWDgqaxWgtme3xZz7JssWUzg5JpMIyHgCTY9MVMxOg48fJ1AgGT3tgdH5m/kQ5xhA=="
++      },
++      "DotNet4.SocksProxy": {
++        "type": "Direct",
++        "requested": "[1.4.0.1, )",
++        "resolved": "1.4.0.1",
++        "contentHash": "Aa8R82IWyopfmb14QUq0edO4+rpoPWOlt2mfB40u3ysrCKDjaftRpegt5Z2ZrD7srsmy/KN6UMIsnKryJgCS7Q=="
++      },
++      "Microsoft.AspNetCore.Http": {
++        "type": "Direct",
++        "requested": "[2.3.11, )",
++        "resolved": "2.3.11",
++        "contentHash": "3H7dPd3knHBMQRvVPYsGlAd7cPI4wk0Hf5H5qhoxoQiEkJ0QdJDNIr34GcKA4CtOw0akQ7US67UpRxWMUeCy2w==",
++        "dependencies": {
++          "Microsoft.AspNetCore.Http.Abstractions": "2.3.10",
++          "Microsoft.AspNetCore.WebUtilities": "2.3.10",
++          "Microsoft.Extensions.ObjectPool": "8.0.11",
++          "Microsoft.Extensions.Options": "8.0.2",
++          "Microsoft.Net.Http.Headers": "2.3.10"
++        }
++      },
++      "Microsoft.AspNetCore.WebUtilities": {
++        "type": "Direct",
++        "requested": "[2.3.11, )",
++        "resolved": "2.3.11",
++        "contentHash": "bHEBMxxyfMjHgXYOUv51fpOn173axzmYw51rW6AyQhnbhZr7wIwHVkidPgKmGweDH1/sp5esnkcxhP+EI/pZkw==",
++        "dependencies": {
++          "Microsoft.Net.Http.Headers": "2.3.10",
++          "System.Text.Encodings.Web": "8.0.0"
++        }
++      },
++      "Microsoft.CSharp": {
++        "type": "Direct",
++        "requested": "[4.7.0, )",
++        "resolved": "4.7.0",
++        "contentHash": "pTj+D3uJWyN3My70i2Hqo+OXixq3Os2D1nJ2x92FFo6sk8fYS1m1WLNTs0Dc1uPaViH0YvEEwvzddQ7y4rhXmA=="
++      },
++      "MimeMapping": {
++        "type": "Direct",
++        "requested": "[1.0.1.50, )",
++        "resolved": "1.0.1.50",
++        "contentHash": "oT5gG5ig6J2IB3aH5BeEtX6yjIYKI5YOs29t+4p+7kcOFCjrTEex9rFJ610/jZRFGp76NFQbbx9QFQZpxV+kzA=="
++      },
++      "Newtonsoft.Json": {
++        "type": "Direct",
++        "requested": "[13.0.4, )",
++        "resolved": "13.0.4",
++        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
++      },
++      "NLog": {
++        "type": "Direct",
++        "requested": "[5.5.1, )",
++        "resolved": "5.5.1",
++        "contentHash": "ZpLbXSi91tZJPjzNefE+3NugAkQtpWZpSLfZWJGcP1y8qMiXDKxW/nAQ+LYWo7GwH2iYsbKOdsLCK9S3BeRQxA=="
++      },
++      "Polly": {
++        "type": "Direct",
++        "requested": "[8.7.0, )",
++        "resolved": "8.7.0",
++        "contentHash": "0qR4f0OR8FeCAfLWcfwzAM7w6EmpUgwa22PgxKjcL25dEAto7sKpQQXbtxp38vVvK+V3RFkh/TeI7g/iUdoYIQ==",
++        "dependencies": {
++          "Polly.Core": "8.7.0"
++        }
++      },
++      "SharpZipLib": {
++        "type": "Direct",
++        "requested": "[1.4.2, )",
++        "resolved": "1.4.2",
++        "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A=="
++      },
++      "System.IO.FileSystem.AccessControl": {
++        "type": "Direct",
++        "requested": "[5.0.0, )",
++        "resolved": "5.0.0",
++        "contentHash": "SxHB3nuNrpptVk+vZ/F+7OHEpoHUIKKMl02bUmYHQr1r+glbZQxs7pRtsf4ENO29TVm2TH3AEeep2fJcy92oYw==",
++        "dependencies": {
++          "System.Security.AccessControl": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.ServiceProcess.ServiceController": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "RpiFJKQ1A2Ch9amnz+dZTslMf0+cX7zXVmHUsSXeUvaqeBEeZHDnzDqxtVc+74UBB4WTbqtVlPsZDmaDJt5OPg==",
++        "dependencies": {
++          "System.Diagnostics.EventLog": "9.0.18"
++        }
++      },
++      "System.Text.Encoding.CodePages": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "FFFZWE2sHSFVJLGBvcBT6zcTIHT7yxvQ5AMtc+BZh0oBWpT5jXTmKxI85tDkBieLoUK5Fg/8bbWGFvTS2oer+A=="
++      },
++      "System.Text.Json": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "/xX8vajlGUp1FoGSNUJBJS+E/2TQjmcMoUzHePa+coPdLnFGPcolRHlybSZhKyAKj+sNDSFlLNYYLe8aEOElfA=="
++      },
++      "YamlDotNet": {
++        "type": "Direct",
++        "requested": "[18.1.0, )",
++        "resolved": "18.1.0",
++        "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
++      },
++      "Microsoft.AspNetCore.Http.Abstractions": {
++        "type": "Transitive",
++        "resolved": "2.3.10",
++        "contentHash": "FD6mE5v3qB/sEcnLNni1oHsATuLHIFzsKHCulUZS7iaJez8+TkD432L89DQtU9PfjCkaPO0JOQjB4tS4L8oZXQ==",
++        "dependencies": {
++          "Microsoft.AspNetCore.Http.Features": "2.3.9",
++          "System.Text.Encodings.Web": "8.0.0"
++        }
++      },
++      "Microsoft.AspNetCore.Http.Features": {
++        "type": "Transitive",
++        "resolved": "2.3.9",
++        "contentHash": "nDWDF0YBgElg6f0omqJ8DupmITQg5p4lklBxFpVR83tQQhOG2tw9Fa5ul8b+KywsYBsyfn9DschUmfzOV6RvGw==",
++        "dependencies": {
++          "Microsoft.Extensions.Primitives": "8.0.0"
++        }
++      },
++      "Microsoft.Extensions.DependencyInjection.Abstractions": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "cjWrLkJXK0rs4zofsK4bSdg+jhDLTaxrkXu4gS6Y7MAlCvRyNNgwY/lJi5RDlQOnSZweHqoyvgvbdvQsRIW+hg=="
++      },
++      "Microsoft.Extensions.ObjectPool": {
++        "type": "Transitive",
++        "resolved": "8.0.11",
++        "contentHash": "6ApKcHNJigXBfZa6XlDQ8feJpq7SG1ogZXg6M4FiNzgd6irs3LUAzo0Pfn4F2ZI9liGnH1XIBR/OtSbZmJAV5w=="
++      },
++      "Microsoft.Extensions.Options": {
++        "type": "Transitive",
++        "resolved": "8.0.2",
++        "contentHash": "dWGKvhFybsaZpGmzkGCbNNwBD1rVlWzrZKANLW/CcbFJpCEceMCGzT7zZwHOGBCbwM0SzBuceMj5HN1LKV1QqA==",
++        "dependencies": {
++          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.0",
++          "Microsoft.Extensions.Primitives": "8.0.0"
++        }
++      },
++      "Microsoft.Extensions.Primitives": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "bXJEZrW9ny8vjMF1JV253WeLhpEVzFo1lyaZu1vQ4ZxWUlVvknZ/+ftFgVheLubb4eZPSwwxBeqS1JkCOjxd8g=="
++      },
++      "Microsoft.Net.Http.Headers": {
++        "type": "Transitive",
++        "resolved": "2.3.10",
++        "contentHash": "WjHfw2Esfhd8RcdVNM61gS5z6wGGA5rtPIPJTjSe9Y/k8aarXxHWQhOfMqFa+wE/quTUrgs9h+dddyEDsTN/IA==",
++        "dependencies": {
++          "Microsoft.Extensions.Primitives": "8.0.0",
++          "System.Buffers": "4.6.0"
++        }
++      },
++      "Microsoft.NETCore.Platforms": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "VyPlqzH2wavqquTcYpkIIAQ6WdenuKoFN0BdYBbCWsclXacSOHNQn66Gt4z5NBqEYW0FAPm5rlvki9ZiCij5xQ=="
++      },
++      "Polly.Core": {
++        "type": "Transitive",
++        "resolved": "8.7.0",
++        "contentHash": "BS2t+nsBer16PIebCEPNBK5fgMisADQyRCd7K+BgkMWpFmSaiYE+rVVNpFhGRqUkJmNSLmw0uCNzHHWfgml28Q=="
++      },
++      "System.Buffers": {
++        "type": "Transitive",
++        "resolved": "4.6.0",
++        "contentHash": "lN6tZi7Q46zFzAbRYXTIvfXcyvQQgxnY7Xm6C6xQ9784dEL1amjM6S6Iw4ZpsvesAKnRVsM4scrDQaDqSClkjA=="
++      },
++      "System.Diagnostics.DiagnosticSource": {
++        "type": "Transitive",
++        "resolved": "7.0.2",
++        "contentHash": "hYr3I9N9811e0Bjf2WNwAGGyTuAFbbTgX1RPLt/3Wbm68x3IGcX5Cl75CMmgT6WlNwLQ2tCCWfqYPpypjaf2xA=="
++      },
++      "System.Diagnostics.EventLog": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "4f3CBS22A2Y+M+shvdYzeWaEPYycZ3IaouaH+NxGLW6xoFahR1+L+YM8bt8NI3TQRZbqPBp/myt+6+JXc+IhRg=="
++      },
++      "System.IO.Pipelines": {
++        "type": "Transitive",
++        "resolved": "5.0.1",
++        "contentHash": "qEePWsaq9LoEEIqhbGe6D5J8c9IqQOUuTzzV6wn1POlfdLkJliZY3OlB0j0f17uMWlqZYjH7txj+2YbyrIA8Yg=="
++      },
++      "System.Security.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "dagJ1mHZO3Ani8GH0PHpPEe/oYO+rVdbQjvjJkBRNQkX4t0r1iaeGn8+/ybkSLEan3/slM0t59SVdHzuHf2jmw==",
++        "dependencies": {
++          "Microsoft.NETCore.Platforms": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.Principal.Windows": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "t0MGLukB5WAVU9bO3MGzvlGnyJPgUlcwerXn1kzBRjwLKixT96XV0Uza41W49gVd8zEMFu9vQEFlv0IOrytICA=="
++      },
++      "System.Text.Encodings.Web": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ=="
++      },
++      "datetimeroutines": {
++        "type": "Project"
++      }
++    },
++    "net9.0/linux-x64": {
++      "System.IO.FileSystem.AccessControl": {
++        "type": "Direct",
++        "requested": "[5.0.0, )",
++        "resolved": "5.0.0",
++        "contentHash": "SxHB3nuNrpptVk+vZ/F+7OHEpoHUIKKMl02bUmYHQr1r+glbZQxs7pRtsf4ENO29TVm2TH3AEeep2fJcy92oYw==",
++        "dependencies": {
++          "System.Security.AccessControl": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.ServiceProcess.ServiceController": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "RpiFJKQ1A2Ch9amnz+dZTslMf0+cX7zXVmHUsSXeUvaqeBEeZHDnzDqxtVc+74UBB4WTbqtVlPsZDmaDJt5OPg==",
++        "dependencies": {
++          "System.Diagnostics.EventLog": "9.0.18"
++        }
++      },
++      "System.Text.Encoding.CodePages": {
++        "type": "Direct",
++        "requested": "[9.0.18, )",
++        "resolved": "9.0.18",
++        "contentHash": "FFFZWE2sHSFVJLGBvcBT6zcTIHT7yxvQ5AMtc+BZh0oBWpT5jXTmKxI85tDkBieLoUK5Fg/8bbWGFvTS2oer+A=="
++      },
++      "System.Diagnostics.EventLog": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "4f3CBS22A2Y+M+shvdYzeWaEPYycZ3IaouaH+NxGLW6xoFahR1+L+YM8bt8NI3TQRZbqPBp/myt+6+JXc+IhRg=="
++      },
++      "System.Security.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "dagJ1mHZO3Ani8GH0PHpPEe/oYO+rVdbQjvjJkBRNQkX4t0r1iaeGn8+/ybkSLEan3/slM0t59SVdHzuHf2jmw==",
++        "dependencies": {
++          "Microsoft.NETCore.Platforms": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.Principal.Windows": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "t0MGLukB5WAVU9bO3MGzvlGnyJPgUlcwerXn1kzBRjwLKixT96XV0Uza41W49gVd8zEMFu9vQEFlv0IOrytICA=="
++      },
++      "System.Text.Encodings.Web": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ=="
++      }
++    }
++  }
++}
+\ No newline at end of file
+diff --git a/src/Jackett.Mini/ApiModels.cs b/src/Jackett.Mini/ApiModels.cs
+new file mode 100644
+index 000000000..2e4bbb92c
+--- /dev/null
++++ b/src/Jackett.Mini/ApiModels.cs
+@@ -0,0 +1,18 @@
++namespace Jackett.Mini;
++
++internal sealed record SearchRequest(string Query, string[]? SourceIds, int Limit = 100);
++internal sealed record ProviderStatus(string Id, string State, long ElapsedMs);
++internal sealed record SearchResult(
++    string ResultId,
++    string ProviderId,
++    string ProviderName,
++    string Name,
++    long? SizeBytes,
++    long? Seeders,
++    long? Leechers,
++    DateTimeOffset? PublishedAt,
++    int[] CategoryIds,
++    string Access,
++    string Acquisition);
++internal sealed record SearchResponse(string SearchId, bool Partial, ProviderStatus[] Providers, SearchResult[] Results);
++internal sealed record ResolutionResponse(string Kind, string? Magnet, string? TorrentBase64, int? TorrentBytes);
+diff --git a/src/Jackett.Mini/BencodeValidator.cs b/src/Jackett.Mini/BencodeValidator.cs
+new file mode 100644
+index 000000000..4c139c05d
+--- /dev/null
++++ b/src/Jackett.Mini/BencodeValidator.cs
+@@ -0,0 +1,127 @@
++using System.Text;
++
++namespace Jackett.Mini;
++
++internal static class BencodeValidator
++{
++    private const int MaximumBytes = 12 * 1024 * 1024;
++    private const int MaximumDepth = 64;
++    private const int MaximumItems = 200_000;
++
++    public static void ValidatePublicTorrent(byte[] bytes)
++    {
++        if (bytes.Length is 0 or > MaximumBytes)
++            throw new InvalidOperationException("Torrent payload size is invalid");
++        var parser = new Parser(bytes);
++        var root = parser.ReadValue(0, false, false);
++        if (root != ValueKind.Dictionary || parser.Offset != bytes.Length)
++            throw new InvalidOperationException("Torrent payload is not a canonical dictionary");
++        if (parser.PrivateFlag)
++            throw new InvalidOperationException("Private torrents are not accepted from discovery providers");
++    }
++
++    private enum ValueKind
++    {
++        Bytes,
++        Integer,
++        List,
++        Dictionary,
++    }
++
++    private ref struct Parser
++    {
++        private readonly ReadOnlySpan<byte> _bytes;
++        private int _items;
++        public int Offset { get; private set; }
++        public bool PrivateFlag { get; private set; }
++
++        public Parser(ReadOnlySpan<byte> bytes)
++        {
++            _bytes = bytes;
++        }
++
++        public ValueKind ReadValue(int depth, bool markPrivateInteger, bool enterInfoDictionary)
++        {
++            if (depth > MaximumDepth || ++_items > MaximumItems || Offset >= _bytes.Length)
++                throw new InvalidOperationException("Torrent bencode limits exceeded");
++            return _bytes[Offset] switch
++            {
++                (byte)'i' => ReadInteger(markPrivateInteger),
++                (byte)'l' => ReadList(depth),
++                (byte)'d' => ReadDictionary(depth, enterInfoDictionary),
++                >= (byte)'0' and <= (byte)'9' => ReadBytes(out _),
++                _ => throw new InvalidOperationException("Invalid bencode token"),
++            };
++        }
++
++        private ValueKind ReadInteger(bool markPrivateInteger)
++        {
++            Offset++;
++            var start = Offset;
++            if (Offset < _bytes.Length && _bytes[Offset] == '-')
++                Offset++;
++            while (Offset < _bytes.Length && _bytes[Offset] is >= (byte)'0' and <= (byte)'9')
++                Offset++;
++            if (Offset == start || Offset >= _bytes.Length || _bytes[Offset++] != 'e')
++                throw new InvalidOperationException("Invalid bencode integer");
++            var number = Encoding.ASCII.GetString(_bytes[start..(Offset - 1)]);
++            if (number is "-0" || number.StartsWith('0') && number.Length > 1 || number.StartsWith("-0") || !long.TryParse(number, out var value))
++                throw new InvalidOperationException("Invalid bencode integer");
++            if (markPrivateInteger)
++            {
++                if (value != 1)
++                    throw new InvalidOperationException("Private flag has an invalid value");
++                PrivateFlag = true;
++            }
++            return ValueKind.Integer;
++        }
++
++        private ValueKind ReadList(int depth)
++        {
++            Offset++;
++            while (Offset < _bytes.Length && _bytes[Offset] != 'e')
++                ReadValue(depth + 1, false, false);
++            if (Offset >= _bytes.Length)
++                throw new InvalidOperationException("Unterminated bencode list");
++            Offset++;
++            return ValueKind.List;
++        }
++
++        private ValueKind ReadDictionary(int depth, bool inInfo)
++        {
++            Offset++;
++            ReadOnlySpan<byte> previous = default;
++            while (Offset < _bytes.Length && _bytes[Offset] != 'e')
++            {
++                ReadBytes(out var key);
++                if (!previous.IsEmpty && previous.SequenceCompareTo(key) >= 0)
++                    throw new InvalidOperationException("Bencode dictionary keys are not canonical");
++                previous = key.ToArray();
++                var keyIsInfo = !inInfo && key.SequenceEqual("info"u8);
++                var keyIsPrivate = inInfo && key.SequenceEqual("private"u8);
++                var kind = ReadValue(depth + 1, keyIsPrivate, keyIsInfo);
++                if (keyIsPrivate && kind != ValueKind.Integer)
++                    throw new InvalidOperationException("Private flag must be an integer");
++            }
++            if (Offset >= _bytes.Length)
++                throw new InvalidOperationException("Unterminated bencode dictionary");
++            Offset++;
++            return ValueKind.Dictionary;
++        }
++
++        private ValueKind ReadBytes(out ReadOnlySpan<byte> value)
++        {
++            var start = Offset;
++            while (Offset < _bytes.Length && _bytes[Offset] is >= (byte)'0' and <= (byte)'9')
++                Offset++;
++            if (Offset == start || Offset >= _bytes.Length || _bytes[Offset++] != ':')
++                throw new InvalidOperationException("Invalid bencode string length");
++            var text = Encoding.ASCII.GetString(_bytes[start..(Offset - 1)]);
++            if (text.StartsWith('0') && text.Length > 1 || !int.TryParse(text, out var length) || length < 0 || length > MaximumBytes - Offset)
++                throw new InvalidOperationException("Invalid bencode string length");
++            value = _bytes.Slice(Offset, length);
++            Offset += length;
++            return ValueKind.Bytes;
++        }
++    }
++}
+diff --git a/src/Jackett.Mini/CatalogPolicy.cs b/src/Jackett.Mini/CatalogPolicy.cs
+new file mode 100644
+index 000000000..6f9f74157
+--- /dev/null
++++ b/src/Jackett.Mini/CatalogPolicy.cs
+@@ -0,0 +1,76 @@
++using System.Security.Cryptography;
++using System.Text.Json;
++
++namespace Jackett.Mini;
++
++internal sealed record CatalogEntry(
++    string IndexerId,
++    string Name,
++    string Access,
++    string ContentClass,
++    bool RequiresCredentials,
++    bool RequiresExternalSolver,
++    string Eligibility,
++    string SourceKind,
++    string SourcePath,
++    string DefinitionSha256,
++    string? NativeType,
++    string[] Reasons);
++
++internal sealed record CatalogDocument(
++    int SchemaVersion,
++    string JackettVersion,
++    string JackettCommit,
++    string PolicySha256,
++    int[] AdultCategoryRange,
++    string[] EnabledIndexerIds,
++    CatalogEntry[] Entries);
++
++internal sealed class CatalogPolicy
++{
++    public const string Commit = "0cd8622b735922a909a128d8d6943bb8565a640f";
++    public const string Version = "v0.24.2360";
++    public CatalogDocument Document { get; }
++    public IReadOnlyDictionary<string, CatalogEntry> Enabled { get; }
++    public string FileSha256 { get; }
++
++    public CatalogPolicy(string path)
++    {
++        var bytes = File.ReadAllBytes(path);
++        FileSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
++        Document = JsonSerializer.Deserialize<CatalogDocument>(bytes, JsonDefaults.Options)
++            ?? throw new InvalidOperationException("Catalog is empty");
++        if (Document.SchemaVersion != 1 || Document.JackettVersion != Version || Document.JackettCommit != Commit)
++            throw new InvalidOperationException("Catalog pin or schema is invalid");
++        if (Document.AdultCategoryRange is not [6000, 6999])
++            throw new InvalidOperationException("Adult category policy is invalid");
++        var entries = Document.Entries.ToDictionary(entry => entry.IndexerId, StringComparer.Ordinal);
++        if (entries.Count != Document.Entries.Length)
++            throw new InvalidOperationException("Catalog contains duplicate providers");
++        foreach (var entry in Document.Entries)
++        {
++            if (entry.Eligibility == "enabled-public" &&
++                (entry.Access != "public" || entry.ContentClass == "adult-only" || entry.RequiresCredentials || entry.RequiresExternalSolver))
++                throw new InvalidOperationException($"Ineligible provider is enabled: {entry.IndexerId}");
++        }
++        var enabled = Document.EnabledIndexerIds.Select(id => entries.TryGetValue(id, out var entry)
++                ? entry
++                : throw new InvalidOperationException($"Enabled provider is absent: {id}"))
++            .ToDictionary(entry => entry.IndexerId, StringComparer.Ordinal);
++        if (enabled.Values.Any(entry => entry.Eligibility != "enabled-public") ||
++            !enabled.Keys.Order().SequenceEqual(Document.Entries.Where(entry => entry.Eligibility == "enabled-public").Select(entry => entry.IndexerId).Order()))
++            throw new InvalidOperationException("Enabled provider set does not match eligibility decisions");
++        Enabled = enabled;
++    }
++
++    public static bool IsAdultCategory(int category) => category is >= 6000 and <= 6999;
++}
++
++internal static class JsonDefaults
++{
++    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web)
++    {
++        PropertyNameCaseInsensitive = false,
++        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
++    };
++}
+diff --git a/src/Jackett.Mini/DirectWebClient.cs b/src/Jackett.Mini/DirectWebClient.cs
+new file mode 100644
+index 000000000..40ff4d8ba
+--- /dev/null
++++ b/src/Jackett.Mini/DirectWebClient.cs
+@@ -0,0 +1,87 @@
++using System.Net;
++using System.Net.Http.Headers;
++using System.Text;
++using Jackett.Common.Models.Config;
++using Jackett.Common.Services.Interfaces;
++using Jackett.Common.Utils.Clients;
++using NLog;
++using JackettWebClient = Jackett.Common.Utils.Clients.WebClient;
++using JackettWebRequest = Jackett.Common.Utils.Clients.WebRequest;
++
++namespace Jackett.Mini;
++
++internal sealed class DirectWebClient : JackettWebClient, IDisposable
++{
++    private const int MaximumResponseBytes = 16 * 1024 * 1024;
++    private readonly HttpClient _client;
++
++    public DirectWebClient(IProcessService process, Logger logger, IConfigurationService configuration, ServerConfig serverConfig)
++        : base(process, logger, configuration, serverConfig)
++    {
++        var handler = new HttpClientHandler
++        {
++            AllowAutoRedirect = false,
++            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
++            MaxConnectionsPerServer = 4,
++            UseCookies = false,
++            UseProxy = false,
++        };
++        _client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
++    }
++
++    public override void SetTimeout(int seconds) => _client.Timeout = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 15));
++
++    protected override async Task<WebResult> Run(JackettWebRequest webRequest)
++    {
++        using var request = new HttpRequestMessage
++        {
++            RequestUri = new Uri(webRequest.Url),
++            Method = webRequest.Type == RequestType.POST ? HttpMethod.Post : HttpMethod.Get,
++        };
++        if (request.RequestUri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(request.RequestUri.UserInfo))
++            throw new InvalidOperationException("Provider request URL is invalid");
++        foreach (var header in webRequest.Headers ?? new Dictionary<string, string>())
++        {
++            if (!header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
++                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
++        }
++        if (!string.IsNullOrWhiteSpace(webRequest.Cookies))
++            request.Headers.TryAddWithoutValidation("Cookie", webRequest.Cookies);
++        if (request.Headers.UserAgent.Count == 0)
++            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jackett-Mini", CatalogPolicy.Version.TrimStart('v')));
++        if (!string.IsNullOrWhiteSpace(webRequest.Referer))
++            request.Headers.Referrer = new Uri(webRequest.Referer);
++        if (!string.IsNullOrEmpty(webRequest.RawBody))
++            request.Content = new StringContent(webRequest.RawBody, Encoding.UTF8, webRequest.Headers?.GetValueOrDefault("Content-Type") ?? "application/octet-stream");
++        else if (webRequest.Type == RequestType.POST && webRequest.PostData is not null)
++            request.Content = new FormUrlEncodedContent(webRequest.PostData);
++        using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
++        await using var input = await response.Content.ReadAsStreamAsync();
++        using var output = new MemoryStream();
++        var buffer = new byte[64 * 1024];
++        while (true)
++        {
++            var count = await input.ReadAsync(buffer);
++            if (count == 0)
++                break;
++            if (output.Length + count > MaximumResponseBytes)
++                throw new InvalidOperationException("Provider response exceeded the byte limit");
++            output.Write(buffer, 0, count);
++        }
++        var result = new WebResult
++        {
++            ContentBytes = output.ToArray(),
++            Status = response.StatusCode,
++            RedirectingTo = response.Headers.Location?.ToString(),
++        };
++        foreach (var header in response.Headers)
++            result.Headers[header.Key] = header.Value.ToArray();
++        foreach (var header in response.Content.Headers)
++            result.Headers[header.Key] = header.Value.ToArray();
++        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
++            result.Cookies = string.Join(" ", cookies.Select(cookie => cookie.Split(';', 2)[0] + ";"));
++        return result;
++    }
++
++    public void Dispose() => _client.Dispose();
++}
+diff --git a/src/Jackett.Mini/DiscoveryService.cs b/src/Jackett.Mini/DiscoveryService.cs
+new file mode 100644
+index 000000000..792c7f857
+--- /dev/null
++++ b/src/Jackett.Mini/DiscoveryService.cs
+@@ -0,0 +1,234 @@
++using System.Diagnostics;
++using System.Security.Cryptography;
++using System.Text;
++using Jackett.Common.Indexers;
++using Jackett.Common.Models;
++using Microsoft.AspNetCore.WebUtilities;
++
++namespace Jackett.Mini;
++
++internal sealed class DiscoveryService
++{
++    private readonly IndexerRegistry _registry;
++    private readonly ResultStore _store;
++
++    public DiscoveryService(IndexerRegistry registry, ResultStore store)
++    {
++        _registry = registry;
++        _store = store;
++    }
++
++    public object Sources() => new
++    {
++        immutable = true,
++        sources = _registry.Sources.OrderBy(source => source.Entry.IndexerId, StringComparer.Ordinal).Select(source => new
++        {
++            id = source.Entry.IndexerId,
++            name = Clean(source.Entry.Name, 160),
++            state = source.State,
++            access = "public",
++            contentClass = source.Entry.ContentClass,
++            reasons = source.Entry.Reasons,
++        }),
++    };
++
++    public async Task<SearchResponse> Search(SearchRequest request, CancellationToken cancellationToken)
++    {
++        var queryText = request.Query?.Trim() ?? string.Empty;
++        if (queryText.Length is < 1 or > 256 || queryText.Any(char.IsControl))
++            throw new BadHttpRequestException("Query must contain 1 through 256 non-control characters");
++        if (request.Limit is < 1 or > 200)
++            throw new BadHttpRequestException("Limit must be between 1 and 200");
++        var selected = request.SourceIds is null
++            ? _registry.Sources.OrderBy(source => source.Entry.IndexerId, StringComparer.Ordinal).ToArray()
++            : SelectSources(request.SourceIds);
++        var searchId = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(24));
++        using var overall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
++        overall.CancelAfter(TimeSpan.FromSeconds(30));
++        using var permits = new SemaphoreSlim(4, 4);
++        var tasks = selected.Select(source => SearchSource(source, queryText, permits, overall.Token)).ToArray();
++        var outcomes = await Task.WhenAll(tasks);
++        var statuses = outcomes.Select(outcome => outcome.Status).ToArray();
++        var mapped = new List<SearchResult>();
++        var seen = new HashSet<string>(StringComparer.Ordinal);
++        foreach (var outcome in outcomes)
++        {
++            if (outcome.Source.Indexer is null)
++                continue;
++            foreach (var release in outcome.Releases)
++            {
++                var categories = (release.Category ?? Array.Empty<int>()).Distinct().Order().ToArray();
++                if (categories.Any(CatalogPolicy.IsAdultCategory))
++                    continue;
++                var acquisition = TryMagnet(release, out _) ? "magnet" : ResolveUri(release) is not null ? "torrent" : null;
++                if (acquisition is null)
++                    continue;
++                var deduplicationKey = DeduplicationKey(outcome.Source.Entry.IndexerId, release);
++                if (deduplicationKey is not null && !seen.Add(deduplicationKey))
++                    continue;
++                var id = _store.Add(searchId, outcome.Source.Indexer, release);
++                long? leechers = release.Peers.HasValue && release.Seeders.HasValue
++                    ? Math.Max(0, release.Peers.Value - release.Seeders.Value)
++                    : null;
++                mapped.Add(new SearchResult(
++                    id,
++                    outcome.Source.Entry.IndexerId,
++                    Clean(outcome.Source.Entry.Name, 160),
++                    Clean(release.Title, 512),
++                    release.Size is >= 0 ? release.Size : null,
++                    release.Seeders is >= 0 ? release.Seeders : null,
++                    leechers,
++                    release.PublishDate == default ? null : new DateTimeOffset(release.PublishDate.ToUniversalTime()),
++                    categories,
++                    "public",
++                    acquisition));
++            }
++        }
++        var results = mapped
++            .OrderBy(result => result.Seeders.HasValue ? 0 : 1)
++            .ThenByDescending(result => result.Seeders)
++            .ThenBy(result => result.ProviderId, StringComparer.Ordinal)
++            .ThenBy(result => result.Name, StringComparer.OrdinalIgnoreCase)
++            .ThenBy(result => result.ResultId, StringComparer.Ordinal)
++            .Take(request.Limit)
++            .ToArray();
++        return new SearchResponse(searchId, statuses.Any(status => status.State != "ok"), statuses, results);
++    }
++
++    public async Task<ResolutionResponse?> Resolve(string id, CancellationToken cancellationToken)
++    {
++        if (id.Length != 32 || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_') || !_store.TryTake(id, out var stored) || stored is null)
++            return null;
++        if (TryMagnet(stored.Release, out var magnet))
++            return new ResolutionResponse("magnet", magnet, null, null);
++        var uri = ResolveUri(stored.Release) ?? throw new InvalidOperationException("Stored result has no acquisition target");
++        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
++        timeout.CancelAfter(TimeSpan.FromSeconds(15));
++        var bytes = await stored.Indexer.Download(uri).WaitAsync(timeout.Token);
++        BencodeValidator.ValidatePublicTorrent(bytes);
++        return new ResolutionResponse("torrent", null, Convert.ToBase64String(bytes), bytes.Length);
++    }
++
++    private SourceState[] SelectSources(string[] ids)
++    {
++        if (ids.Length is < 1 or > 100 ||
++            ids.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 128 || id.Any(char.IsControl)) ||
++            ids.Distinct(StringComparer.Ordinal).Count() != ids.Length)
++            throw new BadHttpRequestException("Source ids must be a non-empty unique array");
++        try
++        {
++            return ids.Select(_registry.Get).ToArray();
++        }
++        catch (KeyNotFoundException)
++        {
++            throw new BadHttpRequestException("A source is not in the immutable eligible catalog");
++        }
++    }
++
++    private static async Task<SearchOutcome> SearchSource(SourceState source, string queryText, SemaphoreSlim permits, CancellationToken cancellationToken)
++    {
++        var timer = Stopwatch.StartNew();
++        if (source.Indexer is null)
++            return new SearchOutcome(source, new ProviderStatus(source.Entry.IndexerId, "unavailable", 0), Array.Empty<ReleaseInfo>());
++        try
++        {
++            await permits.WaitAsync(cancellationToken);
++        }
++        catch (OperationCanceledException)
++        {
++            return new SearchOutcome(source, new ProviderStatus(source.Entry.IndexerId, "timeout", timer.ElapsedMilliseconds), Array.Empty<ReleaseInfo>());
++        }
++        try
++        {
++            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
++            timeout.CancelAfter(TimeSpan.FromSeconds(15));
++            var query = new TorznabQuery
++            {
++                QueryType = "search",
++                SearchTerm = queryText,
++                Categories = Array.Empty<int>(),
++                Limit = 200,
++                Offset = 0,
++                Cache = true,
++                InteractiveSearch = false,
++            };
++            if (!source.Indexer.CanHandleQuery(query))
++                return new SearchOutcome(source, new ProviderStatus(source.Entry.IndexerId, "unsupported", timer.ElapsedMilliseconds), Array.Empty<ReleaseInfo>());
++            var result = await source.Indexer.ResultsForQuery(query).WaitAsync(timeout.Token);
++            return new SearchOutcome(source, new ProviderStatus(source.Entry.IndexerId, "ok", timer.ElapsedMilliseconds), result.Releases.ToArray());
++        }
++        catch (OperationCanceledException)
++        {
++            return new SearchOutcome(source, new ProviderStatus(source.Entry.IndexerId, "timeout", timer.ElapsedMilliseconds), Array.Empty<ReleaseInfo>());
++        }
++        catch
++        {
++            return new SearchOutcome(source, new ProviderStatus(source.Entry.IndexerId, "error", timer.ElapsedMilliseconds), Array.Empty<ReleaseInfo>());
++        }
++        finally
++        {
++            permits.Release();
++        }
++    }
++
++    private static Uri? ResolveUri(ReleaseInfo release) => release.Link ?? release.Guid ?? release.Details;
++
++    private static string? DeduplicationKey(string providerId, ReleaseInfo release)
++    {
++        if (TryInfoHash(release, out var hash))
++            return "btih:" + hash;
++        return release.Guid is null ? null : $"guid:{providerId}:{release.Guid.AbsoluteUri}";
++    }
++
++    private static bool TryInfoHash(ReleaseInfo release, out string? hash)
++    {
++        hash = release.InfoHash;
++        if (string.IsNullOrWhiteSpace(hash) && release.MagnetUri is not null)
++        {
++            var match = System.Text.RegularExpressions.Regex.Match(
++                release.MagnetUri.OriginalString,
++                @"(?:^|[?&])xt=urn:btih:([A-Fa-f0-9]{40}|[A-Za-z2-7]{32})(?:&|$)",
++                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
++            if (match.Success)
++                hash = match.Groups[1].Value;
++        }
++        if (string.IsNullOrWhiteSpace(hash) || !System.Text.RegularExpressions.Regex.IsMatch(hash, @"^(?:[A-Fa-f0-9]{40}|[A-Za-z2-7]{32})$"))
++        {
++            hash = null;
++            return false;
++        }
++        hash = hash.ToUpperInvariant();
++        return true;
++    }
++
++    private static bool TryMagnet(ReleaseInfo release, out string? magnet)
++    {
++        if (!TryInfoHash(release, out var hash))
++        {
++            magnet = null;
++            return false;
++        }
++        magnet = "magnet:?xt=urn:btih:" + hash;
++        var title = Clean(release.Title, 256);
++        if (title.Length > 0)
++            magnet += "&dn=" + Uri.EscapeDataString(title);
++        return true;
++    }
++
++    private static string Clean(string? value, int maximum)
++    {
++        if (string.IsNullOrEmpty(value))
++            return string.Empty;
++        var builder = new StringBuilder(Math.Min(value.Length, maximum));
++        foreach (var character in value.Normalize(NormalizationForm.FormC))
++        {
++            if (!char.IsControl(character))
++                builder.Append(character);
++            if (builder.Length == maximum)
++                break;
++        }
++        return builder.ToString();
++    }
++
++    private sealed record SearchOutcome(SourceState Source, ProviderStatus Status, ReleaseInfo[] Releases);
++}
+diff --git a/src/Jackett.Mini/ImmutableServices.cs b/src/Jackett.Mini/ImmutableServices.cs
+new file mode 100644
+index 000000000..f72e405a9
+--- /dev/null
++++ b/src/Jackett.Mini/ImmutableServices.cs
+@@ -0,0 +1,51 @@
++using Jackett.Common.Indexers;
++using Jackett.Common.Models;
++using Jackett.Common.Models.Config;
++using Jackett.Common.Services.Interfaces;
++using Newtonsoft.Json.Linq;
++
++namespace Jackett.Mini;
++
++internal sealed class ImmutableIndexerConfigurationService : IIndexerConfigurationService
++{
++    public void Load(IIndexer indexer)
++    {
++    }
++
++    public void Save(IIndexer indexer, JToken config) => throw new InvalidOperationException("Provider configuration is immutable");
++    public void Delete(IIndexer indexer) => throw new InvalidOperationException("Provider configuration is immutable");
++    public string GetIndexerConfigFilePath(string indexerId) => throw new InvalidOperationException("Provider configuration files do not exist");
++}
++
++internal sealed class ImmutableConfigurationService : IConfigurationService
++{
++    private readonly string _contentFolder;
++    private readonly string _dataFolder;
++    private readonly ServerConfig _serverConfig;
++
++    public ImmutableConfigurationService(string contentFolder, string dataFolder, ServerConfig serverConfig)
++    {
++        _contentFolder = contentFolder;
++        _dataFolder = dataFolder;
++        _serverConfig = serverConfig;
++    }
++
++    public string GetContentFolder() => _contentFolder;
++    public string GetVersion() => CatalogPolicy.Version;
++    public string GetIndexerConfigDir() => throw new InvalidOperationException("Provider configuration files do not exist");
++    public string GetAppDataFolder() => _dataFolder;
++    public string GetSonarrConfigFile() => throw new InvalidOperationException("External application configuration is unavailable");
++    public T GetConfig<T>() => throw new InvalidOperationException("Mutable global configuration is unavailable");
++    public void SaveConfig<T>(T config) => throw new InvalidOperationException("Mutable global configuration is unavailable");
++    public string ApplicationFolder() => _contentFolder;
++    public List<string> GetCardigannDefinitionsFolders() => new();
++    public void CreateOrMigrateSettings() => throw new InvalidOperationException("Configuration migration is unavailable");
++    public void PerformMigration(string oldDirectory) => throw new InvalidOperationException("Configuration migration is unavailable");
++    public ServerConfig BuildServerConfig(RuntimeSettings runtimeSettings) => _serverConfig;
++}
++
++internal sealed class IdentityProtectionService : IProtectionService
++{
++    public string Protect(string plainText) => throw new InvalidOperationException("Tracker credentials are unsupported");
++    public string UnProtect(string plainText) => throw new InvalidOperationException("Tracker credentials are unsupported");
++}
+diff --git a/src/Jackett.Mini/IndexerRegistry.cs b/src/Jackett.Mini/IndexerRegistry.cs
+new file mode 100644
+index 000000000..de6237474
+--- /dev/null
++++ b/src/Jackett.Mini/IndexerRegistry.cs
+@@ -0,0 +1,126 @@
++using System.Reflection;
++using System.Security.Cryptography;
++using Jackett.Common.Indexers;
++using Jackett.Common.Indexers.Definitions;
++using Jackett.Common.Models;
++using Jackett.Common.Models.Config;
++using Jackett.Common.Services;
++using Jackett.Common.Services.Interfaces;
++using Jackett.Common.Utils.Clients;
++using NLog;
++using YamlDotNet.Serialization;
++using YamlDotNet.Serialization.NamingConventions;
++
++namespace Jackett.Mini;
++
++internal sealed record SourceState(CatalogEntry Entry, IWebIndexer? Indexer, string State);
++
++internal sealed class IndexerRegistry
++{
++    private readonly IReadOnlyDictionary<string, SourceState> _sources;
++
++    public IndexerRegistry(CatalogPolicy policy, MiniOptions options)
++    {
++        LogManager.Configuration = new NLog.Config.LoggingConfiguration();
++        var logger = LogManager.GetLogger("JackettMiniEngine");
++        var runtime = new RuntimeSettings
++        {
++            CustomDataFolder = options.DataFolder,
++            NoUpdates = true,
++            NoRestart = true,
++            IgnoreSslErrors = false,
++            ClientOverride = "httpclient2",
++        };
++        var server = new ServerConfig(runtime)
++        {
++            AllowExternal = false,
++            AllowCORS = false,
++            CacheEnabled = true,
++            CacheTtl = 300,
++            CacheMaxResultsPerIndexer = 300,
++            FlareSolverrUrl = null,
++            ProxyType = ProxyType.Disabled,
++            UpdateDisabled = true,
++        };
++        var globalConfig = new ImmutableConfigurationService(AppContext.BaseDirectory, options.DataFolder, server);
++        var indexerConfig = new ImmutableIndexerConfigurationService();
++        var protection = new IdentityProtectionService();
++        var cache = new CacheService(logger, server);
++        var process = new ProcessService(logger);
++        var states = new Dictionary<string, SourceState>(StringComparer.Ordinal);
++        foreach (var entry in policy.Enabled.Values.OrderBy(entry => entry.IndexerId, StringComparer.Ordinal))
++        {
++            try
++            {
++                var client = new DirectWebClient(process, logger, globalConfig, server);
++                client.SetTimeout(15);
++                IWebIndexer indexer = entry.SourceKind switch
++                {
++                    "cardigann-yaml" => LoadCardigann(entry, client, indexerConfig, protection, cache, logger),
++                    "native-csharp" => LoadNative(entry, client, indexerConfig, protection, cache, logger),
++                    _ => throw new InvalidOperationException("Unsupported provider source kind"),
++                };
++                if (indexer.Id != entry.IndexerId || indexer.Type != "public")
++                    throw new InvalidOperationException("Provider identity differs from immutable catalog");
++                states.Add(entry.IndexerId, new SourceState(entry, indexer, "ready"));
++            }
++            catch
++            {
++                states.Add(entry.IndexerId, new SourceState(entry, null, "unavailable"));
++            }
++        }
++        _sources = states;
++    }
++
++    public IReadOnlyCollection<SourceState> Sources => _sources.Values.ToArray();
++
++    public SourceState Get(string id) => _sources.TryGetValue(id, out var source)
++        ? source
++        : throw new KeyNotFoundException("Source is not in the immutable eligible catalog");
++
++    private static IWebIndexer LoadCardigann(
++        CatalogEntry entry,
++        WebClient client,
++        IIndexerConfigurationService indexerConfig,
++        IProtectionService protection,
++        ICacheService cache,
++        Logger logger)
++    {
++        var path = Path.Combine(AppContext.BaseDirectory, "Definitions", Path.GetFileName(entry.SourcePath));
++        VerifyDefinition(path, entry.DefinitionSha256);
++        var deserializer = new DeserializerBuilder().WithNamingConvention(CamelCaseNamingConvention.Instance).Build();
++        var definition = deserializer.Deserialize<IndexerDefinition>(File.ReadAllText(path));
++        if (definition.Id != entry.IndexerId)
++            throw new InvalidOperationException("Definition id changed");
++        return new CardigannIndexer(indexerConfig, client, logger, protection, cache, definition);
++    }
++
++    private static IWebIndexer LoadNative(
++        CatalogEntry entry,
++        WebClient client,
++        IIndexerConfigurationService indexerConfig,
++        IProtectionService protection,
++        ICacheService cache,
++        Logger logger)
++    {
++        if (string.IsNullOrWhiteSpace(entry.NativeType))
++            throw new InvalidOperationException("Native provider has no reviewed type");
++        var type = typeof(CardigannIndexer).Assembly.GetType(entry.NativeType, throwOnError: true, ignoreCase: false)
++            ?? throw new InvalidOperationException("Native provider type is absent");
++        var constructor = type.GetConstructor(new[]
++        {
++            typeof(IIndexerConfigurationService), typeof(WebClient), typeof(Logger),
++            typeof(IProtectionService), typeof(ICacheService),
++        }) ?? throw new InvalidOperationException("Native provider constructor changed");
++        return (IWebIndexer)constructor.Invoke(new object[] { indexerConfig, client, logger, protection, cache });
++    }
++
++    private static void VerifyDefinition(string path, string expected)
++    {
++        if (!File.Exists(path))
++            throw new InvalidOperationException("Reviewed definition is absent");
++        var actual = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))).ToLowerInvariant();
++        if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(actual), Convert.FromHexString(expected)))
++            throw new InvalidOperationException("Definition digest changed");
++    }
++}
+diff --git a/src/Jackett.Mini/Jackett.Mini.csproj b/src/Jackett.Mini/Jackett.Mini.csproj
+new file mode 100644
+index 000000000..b3f1d8727
+--- /dev/null
++++ b/src/Jackett.Mini/Jackett.Mini.csproj
+@@ -0,0 +1,24 @@
++<Project Sdk="Microsoft.NET.Sdk.Web">
++  <PropertyGroup>
++    <AssemblyName>jackett-mini</AssemblyName>
++    <OutputType>Exe</OutputType>
++    <TargetFramework>net9.0</TargetFramework>
++    <RuntimeIdentifiers>linux-x64</RuntimeIdentifiers>
++    <InvariantGlobalization>false</InvariantGlobalization>
++    <ImplicitUsings>enable</ImplicitUsings>
++    <Nullable>enable</Nullable>
++    <PublishReadyToRun>false</PublishReadyToRun>
++    <PublishSingleFile>false</PublishSingleFile>
++    <PublishTrimmed>false</PublishTrimmed>
++    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
++    <ServerGarbageCollection>false</ServerGarbageCollection>
++  </PropertyGroup>
++  <ItemGroup>
++    <ProjectReference Include="..\Jackett.Common\Jackett.Common.csproj" AdditionalProperties="JackettMiniBuild=true" />
++  </ItemGroup>
++  <ItemGroup>
++    <Content Update="catalog.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
++    <Content Remove="Definitions\*.yml" />
++    <None Include="Definitions\*.yml" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
++  </ItemGroup>
++</Project>
+diff --git a/src/Jackett.Mini/MiniOptions.cs b/src/Jackett.Mini/MiniOptions.cs
+new file mode 100644
+index 000000000..bc1b3d868
+--- /dev/null
++++ b/src/Jackett.Mini/MiniOptions.cs
+@@ -0,0 +1,116 @@
++using System.Security.Cryptography;
++using System.Text;
++
++namespace Jackett.Mini;
++
++internal sealed record MiniOptions(int Port, string DataFolder, string PidFile, string CapabilityFile)
++{
++    public static MiniOptions Parse(string[] args)
++    {
++        var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
++        var flags = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
++        for (var index = 0; index < args.Length; index++)
++        {
++            var argument = args[index];
++            if (!argument.StartsWith("--", StringComparison.Ordinal))
++                throw new ArgumentException("Only named options are accepted");
++            var name = argument[2..];
++            if (name is "ListenPrivate" or "NoUpdates" or "NoRestart")
++            {
++                if (!flags.Add(name))
++                    throw new ArgumentException($"Duplicate option --{name}");
++                continue;
++            }
++            if (name is not ("Port" or "DataFolder" or "PIDFile" or "CapabilityFile") || index + 1 >= args.Length)
++                throw new ArgumentException($"Unsupported or incomplete option --{name}");
++            if (!values.TryAdd(name, args[++index]))
++                throw new ArgumentException($"Duplicate option --{name}");
++        }
++        foreach (var required in new[] { "ListenPrivate", "NoUpdates", "NoRestart" })
++            if (!flags.Contains(required))
++                throw new ArgumentException($"Required option --{required} is missing");
++        foreach (var required in new[] { "Port", "DataFolder", "PIDFile", "CapabilityFile" })
++            if (!values.ContainsKey(required))
++                throw new ArgumentException($"Required option --{required} is missing");
++        if (!int.TryParse(values["Port"], out var port) || port is < 1024 or > 65535)
++            throw new ArgumentException("Port must be between 1024 and 65535");
++        return new MiniOptions(
++            port,
++            Path.GetFullPath(values["DataFolder"]),
++            Path.GetFullPath(values["PIDFile"]),
++            Path.GetFullPath(values["CapabilityFile"]));
++    }
++
++    public string ReadCapability()
++    {
++        var info = new FileInfo(CapabilityFile);
++        if (!info.Exists || info.LinkTarget is not null)
++            throw new InvalidOperationException("Capability file is missing or is a symbolic link");
++        if (!OperatingSystem.IsWindows())
++        {
++            var mode = File.GetUnixFileMode(CapabilityFile);
++            const UnixFileMode forbidden = UnixFileMode.GroupRead | UnixFileMode.GroupWrite |
++                UnixFileMode.GroupExecute | UnixFileMode.OtherRead | UnixFileMode.OtherWrite |
++                UnixFileMode.OtherExecute;
++            if ((mode & forbidden) != 0)
++                throw new InvalidOperationException("Capability file permissions must be 0600 or stricter");
++        }
++        var capability = File.ReadAllText(CapabilityFile, Encoding.ASCII).Trim();
++        if (capability.Length < 43 || capability.Length > 128 || capability.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_'))
++            throw new InvalidOperationException("Capability file is invalid");
++        return capability;
++    }
++
++    public void PrepareState()
++    {
++        Directory.CreateDirectory(DataFolder);
++        if (new DirectoryInfo(DataFolder).LinkTarget is not null)
++            throw new InvalidOperationException("Data folder cannot be a symbolic link");
++        if (!OperatingSystem.IsWindows())
++            File.SetUnixFileMode(DataFolder, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
++        var pidDirectory = Path.GetDirectoryName(PidFile) ?? throw new InvalidOperationException("PID file has no parent");
++        Directory.CreateDirectory(pidDirectory);
++        using var stream = new FileStream(PidFile, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 64, FileOptions.WriteThrough);
++        using var writer = new StreamWriter(stream, Encoding.ASCII, leaveOpen: true);
++        writer.Write(Environment.ProcessId);
++        writer.Flush();
++        stream.Flush(true);
++        if (!OperatingSystem.IsWindows())
++            File.SetUnixFileMode(PidFile, UnixFileMode.UserRead | UnixFileMode.UserWrite);
++        EnsureDataRootId();
++    }
++
++    private void EnsureDataRootId()
++    {
++        var path = Path.Combine(DataFolder, "data-root-id");
++        var info = new FileInfo(path);
++        if (info.Exists && info.LinkTarget is not null)
++            throw new InvalidOperationException("Data root identity cannot be a symbolic link");
++        if (!File.Exists(path))
++        {
++            var value = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
++            using var stream = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.Read, 64, FileOptions.WriteThrough);
++            using var writer = new StreamWriter(stream, Encoding.ASCII, leaveOpen: true);
++            writer.Write(value);
++            writer.Flush();
++            stream.Flush(true);
++        }
++        var identity = File.ReadAllText(path, Encoding.ASCII).Trim();
++        if (identity.Length != 32 || identity.Any(character => !char.IsAsciiHexDigit(character) || char.IsAsciiLetter(character) && char.IsUpper(character)))
++            throw new InvalidOperationException("Data root identity is invalid");
++        if (!OperatingSystem.IsWindows())
++            File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
++    }
++
++    public void RemoveOwnedPidFile()
++    {
++        try
++        {
++            if (File.Exists(PidFile) && File.ReadAllText(PidFile).Trim() == Environment.ProcessId.ToString())
++                File.Delete(PidFile);
++        }
++        catch
++        {
++        }
++    }
++}
+diff --git a/src/Jackett.Mini/Program.cs b/src/Jackett.Mini/Program.cs
+new file mode 100644
+index 000000000..2931d6a15
+--- /dev/null
++++ b/src/Jackett.Mini/Program.cs
+@@ -0,0 +1,158 @@
++using System.Diagnostics;
++using System.Net;
++using System.Security.Cryptography;
++using System.Text;
++using System.Text.Json;
++using Jackett.Mini;
++
++MiniOptions options;
++try
++{
++    options = MiniOptions.Parse(args);
++    options.PrepareState();
++}
++catch (Exception error)
++{
++    Console.Error.WriteLine(error.Message);
++    return 2;
++}
++
++try
++{
++    Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
++    var capability = options.ReadCapability();
++    var catalog = new CatalogPolicy(Path.Combine(AppContext.BaseDirectory, "catalog.json"));
++    var instanceId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
++    var process = Process.GetCurrentProcess();
++    var executablePath = Path.GetFullPath(Environment.ProcessPath ?? throw new InvalidOperationException("Executable path is unavailable"));
++    var executableSha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(executablePath))).ToLowerInvariant();
++    var dataRootId = File.ReadAllText(Path.Combine(options.DataFolder, "data-root-id"), Encoding.ASCII).Trim();
++    var builder = WebApplication.CreateSlimBuilder(args);
++    builder.Logging.ClearProviders();
++    builder.WebHost.UseUrls($"http://127.0.0.1:{options.Port}");
++    builder.WebHost.ConfigureKestrel(server =>
++    {
++        server.AddServerHeader = false;
++        server.Limits.MaxRequestBodySize = 64 * 1024;
++        server.Limits.RequestHeadersTimeout = TimeSpan.FromSeconds(5);
++        server.Limits.KeepAliveTimeout = TimeSpan.FromSeconds(30);
++    });
++    builder.Services.ConfigureHttpJsonOptions(json =>
++    {
++        json.SerializerOptions.PropertyNameCaseInsensitive = false;
++        json.SerializerOptions.UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow;
++        json.SerializerOptions.MaxDepth = 16;
++    });
++    builder.Services.AddSingleton(options);
++    builder.Services.AddSingleton(catalog);
++    builder.Services.AddSingleton<IndexerRegistry>();
++    builder.Services.AddSingleton<ResultStore>();
++    builder.Services.AddSingleton<DiscoveryService>();
++    var app = builder.Build();
++    app.Use(async (context, next) =>
++    {
++        if (!IPAddress.IsLoopback(context.Connection.RemoteIpAddress ?? IPAddress.None) ||
++            !string.Equals(context.Request.Host.Host, "127.0.0.1", StringComparison.Ordinal) ||
++            context.Request.Host.Port != options.Port ||
++            context.Request.Headers.ContainsKey("Origin"))
++        {
++            context.Response.StatusCode = StatusCodes.Status403Forbidden;
++            return;
++        }
++        var authorization = context.Request.Headers.Authorization.ToString();
++        var supplied = authorization.StartsWith("Bearer ", StringComparison.Ordinal) ? authorization[7..] : string.Empty;
++        var expectedBytes = Encoding.ASCII.GetBytes(capability);
++        var suppliedBytes = Encoding.ASCII.GetBytes(supplied);
++        if (expectedBytes.Length != suppliedBytes.Length || !CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes))
++        {
++            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
++            return;
++        }
++        if (context.Request.Query.Keys.Any(key => key.Equals("apikey", StringComparison.OrdinalIgnoreCase) ||
++                key.Equals("passkey", StringComparison.OrdinalIgnoreCase) || key.Equals("token", StringComparison.OrdinalIgnoreCase) ||
++                key.Equals("capability", StringComparison.OrdinalIgnoreCase)))
++        {
++            context.Response.StatusCode = StatusCodes.Status400BadRequest;
++            return;
++        }
++        context.Response.Headers.CacheControl = "no-store";
++        context.Response.Headers.XContentTypeOptions = "nosniff";
++        await next();
++    });
++    app.MapGet("/v1/health", () => Results.Json(new
++    {
++        status = "ok",
++        protocolVersion = 1,
++        runtimeVersion = CatalogPolicy.Version,
++        commit = CatalogPolicy.Commit,
++        instanceId,
++        processId = Environment.ProcessId,
++        processStartTimeUtc = process.StartTime.ToUniversalTime(),
++        executablePath,
++        executableSha256,
++        dataRootId,
++        catalogSha256 = catalog.FileSha256,
++    }));
++    app.MapGet("/v1/version", () => Results.Json(new
++    {
++        protocolVersion = 1,
++        runtimeVersion = CatalogPolicy.Version,
++        commit = CatalogPolicy.Commit,
++        catalogPolicySha256 = catalog.Document.PolicySha256,
++    }));
++    app.MapGet("/v1/sources", (DiscoveryService discovery) => Results.Json(discovery.Sources()));
++    app.MapPost("/v1/search", async (HttpContext context, DiscoveryService discovery, CancellationToken cancellationToken) =>
++    {
++        if (!context.Request.HasJsonContentType())
++            return Results.BadRequest(new { error = "invalid-request" });
++        SearchRequest? request;
++        try
++        {
++            request = await context.Request.ReadFromJsonAsync<SearchRequest>(JsonDefaults.Options, cancellationToken);
++        }
++        catch (JsonException)
++        {
++            return Results.BadRequest(new { error = "invalid-request" });
++        }
++        if (request is null)
++            return Results.BadRequest(new { error = "invalid-request" });
++        try
++        {
++            return Results.Json(await discovery.Search(request, cancellationToken));
++        }
++        catch (BadHttpRequestException)
++        {
++            return Results.BadRequest(new { error = "invalid-request" });
++        }
++    });
++    app.MapPost("/v1/results/{id}/resolve", async (string id, DiscoveryService discovery, CancellationToken cancellationToken) =>
++    {
++        try
++        {
++            var result = await discovery.Resolve(id, cancellationToken);
++            return result is null ? Results.NotFound(new { error = "unknown-or-expired-result" }) : Results.Json(result);
++        }
++        catch (OperationCanceledException)
++        {
++            return Results.Json(new { error = "resolution-timeout" }, statusCode: StatusCodes.Status504GatewayTimeout);
++        }
++        catch
++        {
++            return Results.Json(new { error = "resolution-failed" }, statusCode: StatusCodes.Status502BadGateway);
++        }
++    });
++    app.MapFallback(async context =>
++    {
++        context.Response.StatusCode = StatusCodes.Status404NotFound;
++        await context.Response.WriteAsJsonAsync(new { error = "not-found" });
++    });
++    app.Lifetime.ApplicationStopped.Register(options.RemoveOwnedPidFile);
++    await app.RunAsync();
++    return 0;
++}
++catch (Exception error)
++{
++    Console.Error.WriteLine(error.Message);
++    options.RemoveOwnedPidFile();
++    return 1;
++}
+diff --git a/src/Jackett.Mini/ResultStore.cs b/src/Jackett.Mini/ResultStore.cs
+new file mode 100644
+index 000000000..35f3ad3df
+--- /dev/null
++++ b/src/Jackett.Mini/ResultStore.cs
+@@ -0,0 +1,54 @@
++using System.Security.Cryptography;
++using Jackett.Common.Indexers;
++using Jackett.Common.Models;
++using Microsoft.AspNetCore.WebUtilities;
++
++namespace Jackett.Mini;
++
++internal sealed record StoredResult(string SearchId, IWebIndexer Indexer, ReleaseInfo Release, DateTimeOffset ExpiresAt);
++
++internal sealed class ResultStore
++{
++    private readonly object _gate = new();
++    private readonly Dictionary<string, StoredResult> _results = new(StringComparer.Ordinal);
++    private const int MaximumResults = 2000;
++
++    public string Add(string searchId, IWebIndexer indexer, ReleaseInfo release)
++    {
++        lock (_gate)
++        {
++            Prune();
++            while (_results.Count >= MaximumResults)
++                _results.Remove(_results.MinBy(pair => pair.Value.ExpiresAt).Key);
++            string id;
++            do
++            {
++                id = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(24));
++            } while (_results.ContainsKey(id));
++            _results.Add(id, new StoredResult(searchId, indexer, release, DateTimeOffset.UtcNow.AddMinutes(10)));
++            return id;
++        }
++    }
++
++    public bool TryTake(string id, out StoredResult? result)
++    {
++        lock (_gate)
++        {
++            Prune();
++            if (_results.Remove(id, out var found))
++            {
++                result = found;
++                return true;
++            }
++            result = null;
++            return false;
++        }
++    }
++
++    private void Prune()
++    {
++        var now = DateTimeOffset.UtcNow;
++        foreach (var id in _results.Where(pair => pair.Value.ExpiresAt <= now).Select(pair => pair.Key).ToArray())
++            _results.Remove(id);
++    }
++}
+diff --git a/src/Jackett.Mini/packages.lock.json b/src/Jackett.Mini/packages.lock.json
+new file mode 100644
+index 000000000..2cee03093
+--- /dev/null
++++ b/src/Jackett.Mini/packages.lock.json
+@@ -0,0 +1,307 @@
++{
++  "version": 1,
++  "dependencies": {
++    "net9.0": {
++      "AngleSharp": {
++        "type": "Transitive",
++        "resolved": "1.5.2",
++        "contentHash": "LVZ7rrr6GHbhERhTgVDarVygl1e6KwE96pronA90LBOMacDhxR4lB+xYLjn/vlnUu+xbOB2RM9fuCPEx5bdyWA=="
++      },
++      "AngleSharp.Xml": {
++        "type": "Transitive",
++        "resolved": "1.0.0",
++        "contentHash": "TS+52am0+/HvCfh0yNiz7RlXUjOfdWl1bFQygBJkGKFHZ6N3RHv/vtK0VKfN4h7b0Kescy3+iWn6qqBlOkiL3w==",
++        "dependencies": {
++          "AngleSharp": "[1.0.0, 2.0.0)"
++        }
++      },
++      "Autofac": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "qxVqJcl3fixxa5aZc9TmIuYTwooI9GCL5RzfUiTZtTlbAF3NcWz7bPeEyJEAyS/0qGhSyGnXeku2eiu/7L+3qw==",
++        "dependencies": {
++          "System.Diagnostics.DiagnosticSource": "7.0.2"
++        }
++      },
++      "BencodeNET": {
++        "type": "Transitive",
++        "resolved": "4.0.0",
++        "contentHash": "dsgswftoaNKuKdOiRz7pTpk0RyuPHOWrAdc5/ohP3YOfAVzosKrHY8qZZBdjX/fHa6SA63wp62K6wQX93uuyFw==",
++        "dependencies": {
++          "System.IO.Pipelines": "5.0.1"
++        }
++      },
++      "CommandLineParser": {
++        "type": "Transitive",
++        "resolved": "2.9.1",
++        "contentHash": "OE0sl1/sQ37bjVsPKKtwQlWDgqaxWgtme3xZz7JssWUzg5JpMIyHgCTY9MVMxOg48fJ1AgGT3tgdH5m/kQ5xhA=="
++      },
++      "DotNet4.SocksProxy": {
++        "type": "Transitive",
++        "resolved": "1.4.0.1",
++        "contentHash": "Aa8R82IWyopfmb14QUq0edO4+rpoPWOlt2mfB40u3ysrCKDjaftRpegt5Z2ZrD7srsmy/KN6UMIsnKryJgCS7Q=="
++      },
++      "Microsoft.AspNetCore.Http": {
++        "type": "Transitive",
++        "resolved": "2.3.11",
++        "contentHash": "3H7dPd3knHBMQRvVPYsGlAd7cPI4wk0Hf5H5qhoxoQiEkJ0QdJDNIr34GcKA4CtOw0akQ7US67UpRxWMUeCy2w==",
++        "dependencies": {
++          "Microsoft.AspNetCore.Http.Abstractions": "2.3.10",
++          "Microsoft.AspNetCore.WebUtilities": "2.3.10",
++          "Microsoft.Extensions.ObjectPool": "8.0.11",
++          "Microsoft.Extensions.Options": "8.0.2",
++          "Microsoft.Net.Http.Headers": "2.3.10"
++        }
++      },
++      "Microsoft.AspNetCore.Http.Abstractions": {
++        "type": "Transitive",
++        "resolved": "2.3.10",
++        "contentHash": "FD6mE5v3qB/sEcnLNni1oHsATuLHIFzsKHCulUZS7iaJez8+TkD432L89DQtU9PfjCkaPO0JOQjB4tS4L8oZXQ==",
++        "dependencies": {
++          "Microsoft.AspNetCore.Http.Features": "2.3.9",
++          "System.Text.Encodings.Web": "8.0.0"
++        }
++      },
++      "Microsoft.AspNetCore.Http.Features": {
++        "type": "Transitive",
++        "resolved": "2.3.9",
++        "contentHash": "nDWDF0YBgElg6f0omqJ8DupmITQg5p4lklBxFpVR83tQQhOG2tw9Fa5ul8b+KywsYBsyfn9DschUmfzOV6RvGw==",
++        "dependencies": {
++          "Microsoft.Extensions.Primitives": "8.0.0"
++        }
++      },
++      "Microsoft.AspNetCore.WebUtilities": {
++        "type": "Transitive",
++        "resolved": "2.3.11",
++        "contentHash": "bHEBMxxyfMjHgXYOUv51fpOn173axzmYw51rW6AyQhnbhZr7wIwHVkidPgKmGweDH1/sp5esnkcxhP+EI/pZkw==",
++        "dependencies": {
++          "Microsoft.Net.Http.Headers": "2.3.10",
++          "System.Text.Encodings.Web": "8.0.0"
++        }
++      },
++      "Microsoft.CSharp": {
++        "type": "Transitive",
++        "resolved": "4.7.0",
++        "contentHash": "pTj+D3uJWyN3My70i2Hqo+OXixq3Os2D1nJ2x92FFo6sk8fYS1m1WLNTs0Dc1uPaViH0YvEEwvzddQ7y4rhXmA=="
++      },
++      "Microsoft.Extensions.DependencyInjection.Abstractions": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "cjWrLkJXK0rs4zofsK4bSdg+jhDLTaxrkXu4gS6Y7MAlCvRyNNgwY/lJi5RDlQOnSZweHqoyvgvbdvQsRIW+hg=="
++      },
++      "Microsoft.Extensions.ObjectPool": {
++        "type": "Transitive",
++        "resolved": "8.0.11",
++        "contentHash": "6ApKcHNJigXBfZa6XlDQ8feJpq7SG1ogZXg6M4FiNzgd6irs3LUAzo0Pfn4F2ZI9liGnH1XIBR/OtSbZmJAV5w=="
++      },
++      "Microsoft.Extensions.Options": {
++        "type": "Transitive",
++        "resolved": "8.0.2",
++        "contentHash": "dWGKvhFybsaZpGmzkGCbNNwBD1rVlWzrZKANLW/CcbFJpCEceMCGzT7zZwHOGBCbwM0SzBuceMj5HN1LKV1QqA==",
++        "dependencies": {
++          "Microsoft.Extensions.DependencyInjection.Abstractions": "8.0.0",
++          "Microsoft.Extensions.Primitives": "8.0.0"
++        }
++      },
++      "Microsoft.Extensions.Primitives": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "bXJEZrW9ny8vjMF1JV253WeLhpEVzFo1lyaZu1vQ4ZxWUlVvknZ/+ftFgVheLubb4eZPSwwxBeqS1JkCOjxd8g=="
++      },
++      "Microsoft.Net.Http.Headers": {
++        "type": "Transitive",
++        "resolved": "2.3.10",
++        "contentHash": "WjHfw2Esfhd8RcdVNM61gS5z6wGGA5rtPIPJTjSe9Y/k8aarXxHWQhOfMqFa+wE/quTUrgs9h+dddyEDsTN/IA==",
++        "dependencies": {
++          "Microsoft.Extensions.Primitives": "8.0.0",
++          "System.Buffers": "4.6.0"
++        }
++      },
++      "Microsoft.NETCore.Platforms": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "VyPlqzH2wavqquTcYpkIIAQ6WdenuKoFN0BdYBbCWsclXacSOHNQn66Gt4z5NBqEYW0FAPm5rlvki9ZiCij5xQ=="
++      },
++      "MimeMapping": {
++        "type": "Transitive",
++        "resolved": "1.0.1.50",
++        "contentHash": "oT5gG5ig6J2IB3aH5BeEtX6yjIYKI5YOs29t+4p+7kcOFCjrTEex9rFJ610/jZRFGp76NFQbbx9QFQZpxV+kzA=="
++      },
++      "Newtonsoft.Json": {
++        "type": "Transitive",
++        "resolved": "13.0.4",
++        "contentHash": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A=="
++      },
++      "NLog": {
++        "type": "Transitive",
++        "resolved": "5.5.1",
++        "contentHash": "ZpLbXSi91tZJPjzNefE+3NugAkQtpWZpSLfZWJGcP1y8qMiXDKxW/nAQ+LYWo7GwH2iYsbKOdsLCK9S3BeRQxA=="
++      },
++      "Polly": {
++        "type": "Transitive",
++        "resolved": "8.7.0",
++        "contentHash": "0qR4f0OR8FeCAfLWcfwzAM7w6EmpUgwa22PgxKjcL25dEAto7sKpQQXbtxp38vVvK+V3RFkh/TeI7g/iUdoYIQ==",
++        "dependencies": {
++          "Polly.Core": "8.7.0"
++        }
++      },
++      "Polly.Core": {
++        "type": "Transitive",
++        "resolved": "8.7.0",
++        "contentHash": "BS2t+nsBer16PIebCEPNBK5fgMisADQyRCd7K+BgkMWpFmSaiYE+rVVNpFhGRqUkJmNSLmw0uCNzHHWfgml28Q=="
++      },
++      "SharpZipLib": {
++        "type": "Transitive",
++        "resolved": "1.4.2",
++        "contentHash": "yjj+3zgz8zgXpiiC3ZdF/iyTBbz2fFvMxZFEBPUcwZjIvXOf37Ylm+K58hqMfIBt5JgU/Z2uoUS67JmTLe973A=="
++      },
++      "System.Buffers": {
++        "type": "Transitive",
++        "resolved": "4.6.0",
++        "contentHash": "lN6tZi7Q46zFzAbRYXTIvfXcyvQQgxnY7Xm6C6xQ9784dEL1amjM6S6Iw4ZpsvesAKnRVsM4scrDQaDqSClkjA=="
++      },
++      "System.Diagnostics.DiagnosticSource": {
++        "type": "Transitive",
++        "resolved": "7.0.2",
++        "contentHash": "hYr3I9N9811e0Bjf2WNwAGGyTuAFbbTgX1RPLt/3Wbm68x3IGcX5Cl75CMmgT6WlNwLQ2tCCWfqYPpypjaf2xA=="
++      },
++      "System.Diagnostics.EventLog": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "4f3CBS22A2Y+M+shvdYzeWaEPYycZ3IaouaH+NxGLW6xoFahR1+L+YM8bt8NI3TQRZbqPBp/myt+6+JXc+IhRg=="
++      },
++      "System.IO.FileSystem.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "SxHB3nuNrpptVk+vZ/F+7OHEpoHUIKKMl02bUmYHQr1r+glbZQxs7pRtsf4ENO29TVm2TH3AEeep2fJcy92oYw==",
++        "dependencies": {
++          "System.Security.AccessControl": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.IO.Pipelines": {
++        "type": "Transitive",
++        "resolved": "5.0.1",
++        "contentHash": "qEePWsaq9LoEEIqhbGe6D5J8c9IqQOUuTzzV6wn1POlfdLkJliZY3OlB0j0f17uMWlqZYjH7txj+2YbyrIA8Yg=="
++      },
++      "System.Security.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "dagJ1mHZO3Ani8GH0PHpPEe/oYO+rVdbQjvjJkBRNQkX4t0r1iaeGn8+/ybkSLEan3/slM0t59SVdHzuHf2jmw==",
++        "dependencies": {
++          "Microsoft.NETCore.Platforms": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.Principal.Windows": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "t0MGLukB5WAVU9bO3MGzvlGnyJPgUlcwerXn1kzBRjwLKixT96XV0Uza41W49gVd8zEMFu9vQEFlv0IOrytICA=="
++      },
++      "System.ServiceProcess.ServiceController": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "RpiFJKQ1A2Ch9amnz+dZTslMf0+cX7zXVmHUsSXeUvaqeBEeZHDnzDqxtVc+74UBB4WTbqtVlPsZDmaDJt5OPg==",
++        "dependencies": {
++          "System.Diagnostics.EventLog": "9.0.18"
++        }
++      },
++      "System.Text.Encoding.CodePages": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "FFFZWE2sHSFVJLGBvcBT6zcTIHT7yxvQ5AMtc+BZh0oBWpT5jXTmKxI85tDkBieLoUK5Fg/8bbWGFvTS2oer+A=="
++      },
++      "System.Text.Encodings.Web": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ=="
++      },
++      "System.Text.Json": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "/xX8vajlGUp1FoGSNUJBJS+E/2TQjmcMoUzHePa+coPdLnFGPcolRHlybSZhKyAKj+sNDSFlLNYYLe8aEOElfA=="
++      },
++      "YamlDotNet": {
++        "type": "Transitive",
++        "resolved": "18.1.0",
++        "contentHash": "5K+9KFg2TdTl7VXv88Qzi/0lqK6JFoNP3lRuImPYGRV7K/QYklDyTrj4+A+KAki1JsQi6qKY+hDyY7d6WRqjrw=="
++      },
++      "datetimeroutines": {
++        "type": "Project"
++      },
++      "jackett.common": {
++        "type": "Project",
++        "dependencies": {
++          "AngleSharp": "[1.5.2, )",
++          "AngleSharp.Xml": "[1.0.0, )",
++          "Autofac": "[8.0.0, )",
++          "BencodeNET": "[4.0.0, )",
++          "CommandLineParser": "[2.9.1, )",
++          "DateTimeRoutines": "[1.0.0, )",
++          "DotNet4.SocksProxy": "[1.4.0.1, )",
++          "Microsoft.AspNetCore.Http": "[2.3.11, )",
++          "Microsoft.AspNetCore.WebUtilities": "[2.3.11, )",
++          "Microsoft.CSharp": "[4.7.0, )",
++          "MimeMapping": "[1.0.1.50, )",
++          "NLog": "[5.5.1, )",
++          "Newtonsoft.Json": "[13.0.4, )",
++          "Polly": "[8.7.0, )",
++          "SharpZipLib": "[1.4.2, )",
++          "System.IO.FileSystem.AccessControl": "[5.0.0, )",
++          "System.ServiceProcess.ServiceController": "[9.0.18, )",
++          "System.Text.Encoding.CodePages": "[9.0.18, )",
++          "System.Text.Json": "[9.0.18, )",
++          "YamlDotNet": "[18.1.0, )"
++        }
++      }
++    },
++    "net9.0/linux-x64": {
++      "System.Diagnostics.EventLog": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "4f3CBS22A2Y+M+shvdYzeWaEPYycZ3IaouaH+NxGLW6xoFahR1+L+YM8bt8NI3TQRZbqPBp/myt+6+JXc+IhRg=="
++      },
++      "System.IO.FileSystem.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "SxHB3nuNrpptVk+vZ/F+7OHEpoHUIKKMl02bUmYHQr1r+glbZQxs7pRtsf4ENO29TVm2TH3AEeep2fJcy92oYw==",
++        "dependencies": {
++          "System.Security.AccessControl": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.AccessControl": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "dagJ1mHZO3Ani8GH0PHpPEe/oYO+rVdbQjvjJkBRNQkX4t0r1iaeGn8+/ybkSLEan3/slM0t59SVdHzuHf2jmw==",
++        "dependencies": {
++          "Microsoft.NETCore.Platforms": "5.0.0",
++          "System.Security.Principal.Windows": "5.0.0"
++        }
++      },
++      "System.Security.Principal.Windows": {
++        "type": "Transitive",
++        "resolved": "5.0.0",
++        "contentHash": "t0MGLukB5WAVU9bO3MGzvlGnyJPgUlcwerXn1kzBRjwLKixT96XV0Uza41W49gVd8zEMFu9vQEFlv0IOrytICA=="
++      },
++      "System.ServiceProcess.ServiceController": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "RpiFJKQ1A2Ch9amnz+dZTslMf0+cX7zXVmHUsSXeUvaqeBEeZHDnzDqxtVc+74UBB4WTbqtVlPsZDmaDJt5OPg==",
++        "dependencies": {
++          "System.Diagnostics.EventLog": "9.0.18"
++        }
++      },
++      "System.Text.Encoding.CodePages": {
++        "type": "Transitive",
++        "resolved": "9.0.18",
++        "contentHash": "FFFZWE2sHSFVJLGBvcBT6zcTIHT7yxvQ5AMtc+BZh0oBWpT5jXTmKxI85tDkBieLoUK5Fg/8bbWGFvTS2oer+A=="
++      },
++      "System.Text.Encodings.Web": {
++        "type": "Transitive",
++        "resolved": "8.0.0",
++        "contentHash": "yev/k9GHAEGx2Rg3/tU6MQh4HGBXJs70y7j1LaM1i/ER9po+6nnQ6RRqTJn1E7Xu0fbIFK80Nh5EoODxrbxwBQ=="
++      }
++    }
++  }
++}
+\ No newline at end of file
