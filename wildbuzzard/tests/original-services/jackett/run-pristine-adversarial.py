@@ -30,6 +30,9 @@ from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
 COMMIT = "0cd8622b735922a909a128d8d6943bb8565a640f"
 VERSION = "0.24.2360"
 SOURCE_SHA256 = "3816fea39546b5fa440d3e33b856e73500ee6129e91b14d839fc0f04c7f9bd3e"
+SOURCE_MANIFEST_SHA256 = (
+    "7ce151e9e59943d4411bc2347cbfb6a7a5fb29c636ca2692b521f1f2dc086187"
+)
 PRISTINE_EXECUTABLE_SHA256 = (
     "b8bb98aa78d9942563e303c12f511c040c7a16a8a08a8c9f02c982c61b9850c1"
 )
@@ -62,6 +65,114 @@ def sha256_file(path):
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def parse_source_manifest(manifest_path, expected_sha256=SOURCE_MANIFEST_SHA256):
+    try:
+        info = manifest_path.lstat()
+    except FileNotFoundError as error:
+        raise RuntimeError("the pinned source manifest is missing") from error
+    if not stat.S_ISREG(info.st_mode):
+        raise RuntimeError("the pinned source manifest must be a regular file")
+    manifest_sha256 = sha256_file(manifest_path)
+    if manifest_sha256 != expected_sha256:
+        raise RuntimeError("the pinned source manifest digest does not match")
+    try:
+        lines = manifest_path.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise RuntimeError("the pinned source manifest is not UTF-8") from error
+    entries = []
+    paths = set()
+    for line_number, line in enumerate(lines, 1):
+        match = re.fullmatch(r"([0-9a-f]{64})  (.+)", line)
+        if not match:
+            raise RuntimeError(f"invalid source manifest entry at line {line_number}")
+        digest, raw_path = match.groups()
+        path = pathlib.PurePosixPath(raw_path)
+        if (
+            path.is_absolute()
+            or str(path) != raw_path
+            or "\\" in raw_path
+            or "\0" in raw_path
+            or any(part in {"", ".", ".."} for part in path.parts)
+        ):
+            raise RuntimeError(
+                f"unsafe source manifest path at line {line_number}: {raw_path!r}"
+            )
+        if raw_path in paths:
+            raise RuntimeError(f"duplicate source manifest path: {raw_path}")
+        paths.add(raw_path)
+        entries.append((raw_path, digest))
+    if not entries:
+        raise RuntimeError("the pinned source manifest is empty")
+    return entries, manifest_sha256
+
+
+def sha256_source_entry(root_descriptor, raw_path):
+    parts = pathlib.PurePosixPath(raw_path).parts
+    descriptor = os.dup(root_descriptor)
+    try:
+        for part in parts[:-1]:
+            child = os.open(
+                part,
+                os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = child
+        file_descriptor = os.open(
+            parts[-1],
+            os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=descriptor,
+        )
+        try:
+            if not stat.S_ISREG(os.fstat(file_descriptor).st_mode):
+                raise RuntimeError(
+                    f"source manifest entry is not a regular file: {raw_path}"
+                )
+            digest = hashlib.sha256()
+            while chunk := os.read(file_descriptor, 1024 * 1024):
+                digest.update(chunk)
+            return digest.hexdigest()
+        finally:
+            os.close(file_descriptor)
+    except OSError as error:
+        raise RuntimeError(
+            f"source manifest entry is missing or unsafe: {raw_path}"
+        ) from error
+    finally:
+        os.close(descriptor)
+
+
+def validate_pristine_source(
+    source_root,
+    manifest_path,
+    expected_manifest_sha256=SOURCE_MANIFEST_SHA256,
+):
+    entries, manifest_sha256 = parse_source_manifest(
+        manifest_path, expected_manifest_sha256
+    )
+    try:
+        root_descriptor = os.open(
+            source_root,
+            os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW,
+        )
+    except OSError as error:
+        raise RuntimeError("the pristine source root is missing or unsafe") from error
+    try:
+        for raw_path, expected_sha256 in entries:
+            if sha256_source_entry(root_descriptor, raw_path) != expected_sha256:
+                raise RuntimeError(
+                    f"source manifest content digest mismatch: {raw_path}"
+                )
+    finally:
+        os.close(root_descriptor)
+    return {
+        "schemaVersion": 1,
+        "sourceCommit": COMMIT,
+        "manifestSha256": manifest_sha256,
+        "entryCount": len(entries),
+    }
 
 
 def choose_port(address):
@@ -1167,6 +1278,10 @@ def main():
     script_dir = pathlib.Path(__file__).resolve().parent
     expected_path = script_dir / "fixtures/pristine-adversarial-expected.json"
     template = script_dir / "fixtures/adversarial-indexer.yml.in"
+    source_manifest_path = (
+        script_dir.parents[2]
+        / "third_party/gpl2/jackett/upstream/SOURCE-MANIFEST.sha256"
+    )
     pristine_runtime = args.pristine_runtime.resolve(strict=True)
     pristine_source = args.pristine_source.resolve(strict=True)
     mini_runtime = args.mini_runtime.resolve(strict=True)
@@ -1177,6 +1292,9 @@ def main():
         or sha256_file(pristine_executable) != PRISTINE_EXECUTABLE_SHA256
     ):
         raise RuntimeError("the pinned pristine Jackett executable is required")
+    source_manifest_evidence = validate_pristine_source(
+        pristine_source, source_manifest_path
+    )
     mini_executable, mini_manifest = validate_mini_runtime(
         mini_runtime, mini_manifest_path
     )
@@ -1205,6 +1323,7 @@ def main():
         directory.chmod(0o700)
 
     write_json(logs / "rootless-namespace.json", rootless_namespace_identity())
+    write_json(artifacts / "pristine-source-manifest.json", source_manifest_evidence)
     run_command(["ip", "-json", "address", "show"], logs / "network-namespace.json")
     fixture_server = http.server.ThreadingHTTPServer(
         (args.fixture_address, 0), FixtureHandler
@@ -2434,6 +2553,8 @@ def main():
             "sourceCommit": COMMIT,
             "sourceVersion": VERSION,
             "sourceArchiveSha256": SOURCE_SHA256,
+            "sourceManifestSha256": source_manifest_evidence["manifestSha256"],
+            "sourceManifestEntryCount": source_manifest_evidence["entryCount"],
             "platform": "linux-x86_64-glibc",
             "executionMode": "direct-rootless-user-network-namespace",
             "ports": {

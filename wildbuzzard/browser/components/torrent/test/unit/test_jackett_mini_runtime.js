@@ -42,6 +42,53 @@ add_task(function test_profile_namespace_is_canonical_and_non_secret() {
   );
 });
 
+add_task(function test_unicode_distinct_profile_namespaces_do_not_collide() {
+  const root = do_get_tempdir().clone();
+  root.append("jackett-mini-unicode-profile-paths");
+  root.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
+  registerCleanupFunction(() => root.remove(true));
+  const nfcProfile = childDirectory(root, "profile-\u00e9");
+  const nfdProfile = root.clone();
+  nfdProfile.append("profile-e\u0301");
+  if (nfdProfile.exists()) {
+    info("The filesystem aliases NFC and NFD profile names");
+    return;
+  }
+  nfdProfile.create(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
+  const dataHome = childDirectory(root, "xdg-data");
+  const runtimeHome = childDirectory(root, "xdg-runtime");
+  const options = { dataHome: dataHome.path, runtimeHome: runtimeHome.path };
+  const nfcRuntime = new JackettMiniRuntime({
+    ...options,
+    profilePath: nfcProfile.path,
+  });
+  const nfdRuntime = new JackettMiniRuntime({
+    ...options,
+    profilePath: nfdProfile.path,
+  });
+
+  Assert.notEqual(
+    jackettMiniProfileNamespace(nfcProfile.path),
+    jackettMiniProfileNamespace(nfdProfile.path),
+    "Distinct profile paths use distinct namespaces",
+  );
+  Assert.notEqual(
+    nfcRuntime.connectionPath,
+    nfdRuntime.connectionPath,
+    "Distinct Unicode profile paths cannot share capabilities",
+  );
+  Assert.notEqual(
+    nfcRuntime.dataDirectory,
+    nfdRuntime.dataDirectory,
+    "Distinct Unicode profile paths cannot share data",
+  );
+  Assert.notEqual(
+    nfcRuntime.stateDirectory,
+    nfdRuntime.stateDirectory,
+    "Distinct Unicode profile paths cannot share process state",
+  );
+});
+
 add_task(function test_profile_runtime_paths_isolate_capabilities_and_data() {
   const root = do_get_tempdir().clone();
   root.append("jackett-mini-profile-paths");
