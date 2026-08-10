@@ -224,3 +224,90 @@ add_task(function test_url_and_header_validation() {
     "a null origin scope cannot disable enforcement"
   );
 });
+
+add_task(function test_comparator_options_are_narrow_and_automation_only() {
+  const valid = {
+    url: "http://127.0.0.1:32123/page",
+    _testAllowedHosts: [
+      "http://127.0.0.1:32123",
+      "http://[::1]:32124",
+      "http://localhost:32125",
+    ],
+    _testDiagnostics: true,
+  };
+  Assert.deepEqual(
+    [...GeckoRenderPolicy.validateGeckoRenderTestArgs(valid, true)],
+    valid._testAllowedHosts,
+    "only canonical loopback fixture origins are accepted"
+  );
+  Assert.throws(
+    () => GeckoRenderPolicy.validateGeckoRenderTestArgs(valid, false),
+    /automation-only/,
+    "shipping calls cannot enable the comparator override"
+  );
+  for (const value of [
+    "http://127.0.0.1",
+    "http://127.0.0.1:0",
+    "http://127.0.0.1:32123/",
+    "https://127.0.0.1:32123",
+    "http://127.0.0.2:32123",
+    "http://0.0.0.0:32123",
+    "http://[::ffff:127.0.0.1]:32123",
+    "http://localhost.:32123",
+    "http://user@localhost:32123",
+    "http://fixture.test:32123",
+  ]) {
+    Assert.throws(
+      () =>
+        GeckoRenderPolicy.validateGeckoRenderTestArgs(
+          {
+            url: "http://127.0.0.1:32123/page",
+            _testAllowedHosts: [value],
+            _testDiagnostics: true,
+          },
+          true
+        ),
+      /gecko_render/,
+      `${value} cannot widen the fixture policy`
+    );
+  }
+  for (const options of [
+    { _testAllowedHosts: [], _testDiagnostics: true },
+    { _testAllowedHosts: [123], _testDiagnostics: true },
+    {
+      _testAllowedHosts: Array(5).fill("http://127.0.0.1:32123"),
+      _testDiagnostics: true,
+    },
+    {
+      _testAllowedHosts: ["http://127.0.0.1:32123"],
+      _testDiagnostics: false,
+    },
+    {
+      _testAllowedHosts: ["http://127.0.0.1:32123"],
+    },
+    { _testDiagnostics: true },
+  ]) {
+    Assert.throws(
+      () =>
+        GeckoRenderPolicy.validateGeckoRenderTestArgs(
+          { url: "http://127.0.0.1:32123/page", ...options },
+          true
+        ),
+      /gecko_render/,
+      "partial and malformed test options are rejected"
+    );
+  }
+  Assert.throws(
+    () =>
+      GeckoRenderPolicy.validateGeckoRenderTestArgs(
+        {
+          url: "http://localhost:32124/page",
+          _testAllowedHosts: ["http://127.0.0.1:32123"],
+          _testDiagnostics: true,
+        },
+        true
+      ),
+    /outside the fixture origins/,
+    "the navigation must use one of the exact fixture origins"
+  );
+});

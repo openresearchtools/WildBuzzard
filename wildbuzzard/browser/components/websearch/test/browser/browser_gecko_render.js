@@ -7,11 +7,15 @@
 const { BrowserControl } = ChromeUtils.importESModule(
   "chrome://remote/content/wildbuzzard/BrowserControl.sys.mjs"
 );
+const { HttpServer } = ChromeUtils.importESModule(
+  "resource://testing-common/httpd.sys.mjs"
+);
 
 const FIXTURE_PATH =
   "/browser/wildbuzzard/browser/components/websearch/test/browser/file_gecko_render.sjs";
 const FIXTURE = `https://example.com${FIXTURE_PATH}`;
 const OTHER_FIXTURE = `https://example.org${FIXTURE_PATH}`;
+let automationFixture;
 
 async function render(url, args = {}, signal = new AbortController().signal) {
   const result = await BrowserControl.dispatch(
@@ -42,6 +46,21 @@ function assertClean(message) {
   );
 }
 
+function assertAutomationClean(result, message) {
+  Assert.deepEqual(
+    result._testDiagnostics,
+    {
+      active: 0,
+      queued: 0,
+      contexts: 0,
+      userContexts: 0,
+      cleanupFailedFlags: 0,
+      leakedContexts: 0,
+    },
+    `${message}: comparator diagnostics contain only clean bounded state`
+  );
+}
+
 add_setup(function setup_renderer() {
   const wasStarted = BrowserControl.started;
   BrowserControl.start();
@@ -61,6 +80,47 @@ add_setup(function setup_renderer() {
       BrowserControl.stop();
     }
   });
+});
+
+add_setup(function setup_automation_fixture() {
+  const server = new HttpServer();
+  const state = { active: 0, maxActive: 0 };
+  server.registerPathHandler("/fast", (_request, response) => {
+    state.active++;
+    state.maxActive = Math.max(state.maxActive, state.active);
+    response.setHeader("Content-Type", "text/html; charset=utf-8", false);
+    response.write("<!doctype html><title>Fast</title><h1>Fast fixture</h1>");
+    state.active--;
+  });
+  server.registerPathHandler("/slow", (request, response) => {
+    state.active++;
+    state.maxActive = Math.max(state.maxActive, state.active);
+    const delayMs = Math.min(
+      500,
+      Math.max(1, Number(request.queryString.split("=", 2)[1]) || 150)
+    );
+    response.processAsync();
+    // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
+    setTimeout(() => {
+      try {
+        response.setHeader("Content-Type", "text/html; charset=utf-8", false);
+        response.write(
+          "<!doctype html><title>Slow</title><h1>Slow fixture</h1>"
+        );
+        response.finish();
+      } catch {}
+      state.active--;
+    }, delayMs);
+  });
+  server.start(-1);
+  automationFixture = {
+    origin: `http://127.0.0.1:${server.identity.primaryPort}`,
+    server,
+    state,
+  };
+  registerCleanupFunction(
+    () => new Promise(resolve => automationFixture.server.stop(resolve))
+  );
 });
 
 add_task(async function test_javascript_dom_status_and_final_url() {
@@ -386,4 +446,107 @@ add_task(async function test_rejects_sensitive_headers() {
     );
   }
   assertClean("invalid headers");
+});
+
+add_task(async function test_comparator_override_is_exclusive_and_bounded() {
+  automationFixture.state.maxActive = 0;
+  const options = {
+    _testAllowedHosts: [automationFixture.origin],
+    _testDiagnostics: true,
+    timeoutMs: 2000,
+  };
+  const [slow, fast] = await Promise.all([
+    render(`${automationFixture.origin}/slow?delay=150`, options),
+    render(`${automationFixture.origin}/fast`, options),
+  ]);
+  is(automationFixture.state.maxActive, 1, "fixture overrides cannot overlap");
+  is(slow.pageError, null, "the first fixture render succeeds");
+  is(fast.pageError, null, "the queued fixture render succeeds");
+  assertAutomationClean(slow, "first exclusive fixture render");
+  assertAutomationClean(fast, "second exclusive fixture render");
+  assertClean("exclusive fixture renders");
+});
+
+add_task(async function test_comparator_override_queue_cancellation() {
+  const options = {
+    _testAllowedHosts: [automationFixture.origin],
+    _testDiagnostics: true,
+    timeoutMs: 2000,
+  };
+  const first = render(`${automationFixture.origin}/slow?delay=250`, options);
+  await TestUtils.waitForCondition(
+    () => automationFixture.state.active === 1,
+    "the exclusive fixture render starts"
+  );
+  const controller = new AbortController();
+  const queued = render(
+    `${automationFixture.origin}/fast`,
+    options,
+    controller.signal
+  );
+  controller.abort();
+  await Assert.rejects(
+    queued,
+    /aborted/,
+    "cancellation removes an exclusive fixture waiter"
+  );
+  const result = await first;
+  assertAutomationClean(result, "fixture render after queued cancellation");
+  const followup = await render(`${automationFixture.origin}/fast`, options);
+  is(followup.pageError, null, "the override lock remains usable");
+  assertAutomationClean(followup, "follow-up after queued cancellation");
+  assertClean("fixture override queue cancellation");
+});
+
+add_task(async function test_comparator_override_restores_after_timeout() {
+  const result = await render(`${automationFixture.origin}/slow?delay=250`, {
+    _testAllowedHosts: [automationFixture.origin],
+    _testDiagnostics: true,
+    timeoutMs: 50,
+  });
+  ok(result.pageError.includes("timeout"), "fixture timeout is reported");
+  assertAutomationClean(result, "timed out fixture render");
+  await TestUtils.waitForCondition(
+    () => automationFixture.state.active === 0,
+    "the timed out fixture response finishes"
+  );
+  const followup = await render(`${automationFixture.origin}/fast`);
+  ok(
+    followup.pageError.includes("private") ||
+      followup.pageError.includes("reserved"),
+    "a normal follow-up render cannot inherit the fixture override"
+  );
+  assertClean("fixture timeout restoration");
+});
+
+add_task(async function test_comparator_override_restores_after_cancel() {
+  const controller = new AbortController();
+  const pending = render(
+    `${automationFixture.origin}/slow?delay=250`,
+    {
+      _testAllowedHosts: [automationFixture.origin],
+      _testDiagnostics: true,
+      timeoutMs: 2000,
+    },
+    controller.signal
+  );
+  await TestUtils.waitForCondition(
+    () => automationFixture.state.active === 1,
+    "the cancellable fixture request starts"
+  );
+  controller.abort();
+  const result = await pending;
+  ok(result._testError.includes("aborted"), "fixture cancellation is reported");
+  assertAutomationClean(result, "cancelled fixture render");
+  await TestUtils.waitForCondition(
+    () => automationFixture.state.active === 0,
+    "the cancelled fixture response finishes"
+  );
+  const followup = await render(`${automationFixture.origin}/fast`);
+  ok(
+    followup.pageError.includes("private") ||
+      followup.pageError.includes("reserved"),
+    "cancellation does not leak the fixture override"
+  );
+  assertClean("fixture cancellation restoration");
 });
