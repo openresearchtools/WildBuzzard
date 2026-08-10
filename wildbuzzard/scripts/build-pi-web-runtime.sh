@@ -149,6 +149,7 @@ for path in \
   wildbuzzard/scripts/compare-pi-web-runtime-builds.py \
   wildbuzzard/scripts/runtime-archive-manifest.py \
   wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
+  wildbuzzard/scripts/verify-pi-web-installed-tree.mjs \
   wildbuzzard/scripts/verify-pi-web-runtime-inputs.py \
   wildbuzzard/pi-web-runtime-lock.json; do
   committed_sha="$(git -C "${source_repo}" show "${source_commit}:${path}" | sha256sum | awk '{ print $1 }')"
@@ -237,6 +238,7 @@ git -C "${source_checkout}" sparse-checkout set \
   /wildbuzzard/scripts/compare-pi-web-runtime-builds.py \
   /wildbuzzard/scripts/runtime-archive-manifest.py \
   /wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
+  /wildbuzzard/scripts/verify-pi-web-installed-tree.mjs \
   /wildbuzzard/scripts/verify-pi-web-runtime-inputs.py
 git -C "${source_checkout}" checkout --detach "${source_commit}"
 git clone --shared --no-checkout -- "${fork_repo}" "${pi_web_checkout}"
@@ -251,6 +253,9 @@ fi
   cd -- "${pi_web_checkout}"
   env "${npm_environment[@]}" PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \
     "${bundled_node}" "${bundled_npm}" ci
+  "${bundled_node}" \
+    "${source_checkout}/wildbuzzard/scripts/verify-pi-web-installed-tree.mjs" \
+    "${pi_web_checkout}"
   env "${npm_environment[@]}" PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \
     "${bundled_node}" "${bundled_npm}" run verify
   env "${npm_environment[@]}" PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \

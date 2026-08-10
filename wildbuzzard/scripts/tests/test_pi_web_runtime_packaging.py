@@ -202,7 +202,74 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
         self.assertIn("sbom.cdx.json", source)
         self.assertIn("sbom.spdx.json", source)
         self.assertIn("test-pi-web-runtime-lifecycle.mjs", source)
+        self.assertIn("verify-pi-web-installed-tree.mjs", source)
         self.assertIn('--runtime "${runtime_dir}"', source)
+
+    def run_installed_tree_verifier(self, root):
+        return subprocess.run(
+            ["node", SCRIPTS / "verify-pi-web-installed-tree.mjs", root],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def installed_tree(self, root, locked="1.0.0", installed="1.0.0"):
+        package = root / "node_modules" / "package"
+        package.mkdir(parents=True)
+        (root / "node_modules" / ".cache").mkdir()
+        (package / "package.json").write_text(
+            json.dumps({"name": "package", "version": installed}),
+            encoding="utf-8",
+        )
+        (root / "package-lock.json").write_text(
+            json.dumps(
+                {
+                    "lockfileVersion": 3,
+                    "packages": {
+                        "": {"name": "fixture", "version": "1.0.0"},
+                        "node_modules/package": {"version": locked},
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return package
+
+    def test_installed_tree_matches_lock(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.installed_tree(root)
+            result = self.run_installed_tree_verifier(root)
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_installed_tree_rejects_shrinkwrap_version_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self.installed_tree(root, locked="2.0.0", installed="1.0.0")
+            result = self.run_installed_tree_verifier(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("identity differs", result.stderr)
+
+    def test_installed_tree_rejects_unlocked_and_missing_packages(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            package = self.installed_tree(root)
+            extra = root / "node_modules" / "extra"
+            extra.mkdir()
+            (extra / "package.json").write_text(
+                json.dumps({"name": "extra", "version": "1.0.0"}),
+                encoding="utf-8",
+            )
+            result = self.run_installed_tree_verifier(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("absent from package-lock", result.stderr)
+            extra.joinpath("package.json").unlink()
+            extra.rmdir()
+            package.joinpath("package.json").unlink()
+            package.rmdir()
+            result = self.run_installed_tree_verifier(root)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("not installed", result.stderr)
 
 
 if __name__ == "__main__":
