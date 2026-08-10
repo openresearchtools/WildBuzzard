@@ -194,6 +194,11 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             "Bundled npm does not match the Pi Web package-manager pin", source
         )
         self.assertIn("npm_config_offline=true", source)
+        self.assertIn(
+            'npm_config_globalconfig=${run_root}/npmrc-global', source
+        )
+        self.assertIn('npm_config_userconfig=${run_root}/npmrc-user', source)
+        self.assertNotIn('=${run_root}/npmrc"', source)
         self.assertIn("sbom.cdx.json", source)
         self.assertIn("sbom.spdx.json", source)
         self.assertIn("test-pi-web-runtime-lifecycle.mjs", source)

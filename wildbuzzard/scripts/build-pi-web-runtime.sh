@@ -183,7 +183,8 @@ mkdir -p -- \
   "${artifacts_dir}" \
   "${run_root}/home" \
   "${run_root}/npm-cache"
-install -m 600 /dev/null "${run_root}/npmrc"
+install -m 600 /dev/null "${run_root}/npmrc-global"
+install -m 600 /dev/null "${run_root}/npmrc-user"
 
 if [[ ! -f "${node_path}" ]]; then
   if [[ "${offline}" == 1 ]]; then
@@ -214,10 +215,10 @@ npm_environment=(
   "TZ=UTC"
   "npm_config_cache=${run_root}/npm-cache"
   "npm_config_fund=false"
-  "npm_config_globalconfig=${run_root}/npmrc"
+  "npm_config_globalconfig=${run_root}/npmrc-global"
   "npm_config_registry=https://registry.npmjs.org/"
   "npm_config_update_notifier=false"
-  "npm_config_userconfig=${run_root}/npmrc"
+  "npm_config_userconfig=${run_root}/npmrc-user"
 )
 if [[ "${offline}" == 1 ]]; then
   npm_environment+=("npm_config_offline=true")
