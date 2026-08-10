@@ -1,17 +1,11 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import {
-  defineTool,
-  type ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
+import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import pLimit from "p-limit";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  normalizeSearchInput,
-  type WebSearchInput,
-} from "./contracts.ts";
+import { normalizeSearchInput, type WebSearchInput } from "./contracts.ts";
 import { searchSearXNG } from "./searxng.ts";
 import {
   fetchWithGecko,
@@ -30,6 +24,11 @@ import {
   restoreSearches,
   storeSearch,
 } from "./storage.ts";
+import { registerTorrentTools } from "./torrent.ts";
+import {
+  TORRENT_TOOL_NAMES,
+  torrentToolsForPrompt,
+} from "./torrent-contracts.ts";
 
 const WEB_TOOL_NAMES = [
   "web_search",
@@ -115,12 +114,17 @@ export default function webAccess(pi: ExtensionAPI) {
     skillPaths: [join(extensionDirectory, "skills")],
   }));
   const activate = (prompt: string) => {
+    const managedToolNames = new Set([
+      ...WEB_TOOL_NAMES,
+      ...TORRENT_TOOL_NAMES,
+    ]);
     const active = pi
       .getActiveTools()
-      .filter(name => !WEB_TOOL_NAMES.includes(name));
+      .filter(name => !managedToolNames.has(name));
     if (ACTIVATION_PATTERN.test(prompt)) {
       active.push(...WEB_TOOL_NAMES);
     }
+    active.push(...torrentToolsForPrompt(prompt));
     pi.setActiveTools(active);
   };
   pi.on("session_start", (_event, context) => {
@@ -131,6 +135,8 @@ export default function webAccess(pi: ExtensionAPI) {
     restoreSearches(context.sessionManager.getBranch());
     activate(event.prompt);
   });
+
+  registerTorrentTools(pi);
 
   pi.registerTool(
     defineTool({
@@ -202,7 +208,9 @@ export default function webAccess(pi: ExtensionAPI) {
         const urls = [
           ...new Set(
             searches.flatMap(search =>
-              search.queries.flatMap(query => query.results.map(result => result.url))
+              search.queries.flatMap(query =>
+                query.results.map(result => result.url)
+              )
             )
           ),
         ].slice(0, 5);
@@ -214,13 +222,7 @@ export default function webAccess(pi: ExtensionAPI) {
         const documents = await Promise.all(
           urls.map(url =>
             fetchLimit(() =>
-              fetchWithGecko(
-                url,
-                "readable",
-                context.cwd,
-                sessionId,
-                signal
-              )
+              fetchWithGecko(url, "readable", context.cwd, sessionId, signal)
             )
           )
         );
@@ -228,9 +230,7 @@ export default function webAccess(pi: ExtensionAPI) {
         storeSearch(fetched);
         pi.appendEntry("wildbuzzard-web-search", fetched);
         return toolResult({
-          assessment: resultCount
-            ? "evidence-found"
-            : "insufficient-evidence",
+          assessment: resultCount ? "evidence-found" : "insufficient-evidence",
           truthVerdict: null,
           searches,
           fetchedResponseId: fetched.id,
@@ -311,13 +311,13 @@ export default function webAccess(pi: ExtensionAPI) {
                   }))
                 : fetchMode !== "raw" && parseYouTubeUrl(url)
                   ? extractYouTubeCaptions(url, signal)
-                : fetchWithGecko(
-                    url,
-                    fetchMode,
-                    context.cwd,
-                    sessionId,
-                    signal
-                  )
+                  : fetchWithGecko(
+                      url,
+                      fetchMode,
+                      context.cwd,
+                      sessionId,
+                      signal
+                    )
             )
           )
         );
@@ -325,32 +325,37 @@ export default function webAccess(pi: ExtensionAPI) {
         const documents =
           input.mode === "answer"
             ? await Promise.all(
-                extractedDocuments.map(document => answerLimit(async () => {
-                  if (document.error) return document;
-                  try {
-                    const answer = await answerFromPage(
-                      {
-                        question: input.prompt!,
-                        pageText: document.content,
-                        sourceUrl: document.finalUrl,
-                        model: input.answerModel,
-                      },
-                      context,
-                      signal
-                    );
-                    return {
-                      ...document,
-                      content: answer.text,
-                      answer,
-                    };
-                  } catch (error) {
-                    return {
-                      ...document,
-                      content: "",
-                      error: error instanceof Error ? error.message : String(error),
-                    };
-                  }
-                }))
+                extractedDocuments.map(document =>
+                  answerLimit(async () => {
+                    if (document.error) return document;
+                    try {
+                      const answer = await answerFromPage(
+                        {
+                          question: input.prompt!,
+                          pageText: document.content,
+                          sourceUrl: document.finalUrl,
+                          model: input.answerModel,
+                        },
+                        context,
+                        signal
+                      );
+                      return {
+                        ...document,
+                        content: answer.text,
+                        answer,
+                      };
+                    } catch (error) {
+                      return {
+                        ...document,
+                        content: "",
+                        error:
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                      };
+                    }
+                  })
+                )
               )
             : extractedDocuments;
         const stored = createStoredDocuments(documents);
@@ -395,9 +400,7 @@ export default function webAccess(pi: ExtensionAPI) {
         maxBytes: Type.Optional(
           Type.Integer({ minimum: 65536, maximum: 104857600 })
         ),
-        maxConcurrency: Type.Optional(
-          Type.Integer({ minimum: 1, maximum: 8 })
-        ),
+        maxConcurrency: Type.Optional(Type.Integer({ minimum: 1, maximum: 8 })),
         allowSubdomains: Type.Optional(Type.Boolean()),
         allowExternalLinks: Type.Optional(Type.Boolean()),
         robots: Type.Optional(
