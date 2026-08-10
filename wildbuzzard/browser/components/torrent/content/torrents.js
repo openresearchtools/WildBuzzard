@@ -409,7 +409,7 @@ function renderDraft() {
   if (!ready) {
     if (draft.state === "error") {
       elements.draftKeepWaiting.hidden = true;
-      elements.draftStatus.textContent = draft.error;
+      l10n(elements.draftStatus, "wildbuzzard-torrents-draft-error");
       elements.draftFileList.replaceChildren();
       return;
     }
@@ -467,8 +467,8 @@ async function refreshDraft() {
     if (draft.state === "metadata") {
       state.draftTimer = setTimeout(refreshDraft, 500);
     }
-  } catch (error) {
-    showToast(error.message, true);
+  } catch {
+    showToast(await localized("wildbuzzard-torrents-draft-error"), true);
     await closeDraft(true);
   }
 }
@@ -518,9 +518,9 @@ async function commitDraft() {
     await closeDraft(false);
     showToast(await localized("wildbuzzard-torrents-draft-committed"));
     await refresh();
-  } catch (error) {
+  } catch {
     elements.draftCommit.disabled = false;
-    showToast(error.message, true);
+    showToast(await localized("wildbuzzard-torrents-draft-commit-error"), true);
   }
 }
 
@@ -1058,6 +1058,13 @@ async function chooseTorrentFile(trigger) {
 }
 
 async function initializeTorrentSearch() {
+  if (window.docShell.usePrivateBrowsing) {
+    elements.searchQuery.disabled = true;
+    elements.searchSubmit.disabled = true;
+    elements.searchSources.hidden = true;
+    l10n(elements.searchStatus, "wildbuzzard-torrents-search-private-disabled");
+    return;
+  }
   try {
     const response = await TorrentDiscoveryManager.getSources();
     state.search.sources = response.sources;
@@ -1241,9 +1248,22 @@ async function initialize() {
   initializeTorrentSearch();
   try {
     await TorrentManager.initialize();
-    const source = new URL(location.href).searchParams.get("add");
-    if (source) {
+    const parameters = new URL(location.href).searchParams;
+    const draftId = parameters.get("draft");
+    const draftError = parameters.has("draft-error");
+    const source = parameters.get("add");
+    if (draftId || draftError || source) {
       history.replaceState(null, "", "about:torrents");
+    }
+    if (draftId) {
+      try {
+        await openDraft(await TorrentManager.getTorrentDraft(draftId));
+      } catch {
+        showToast(await localized("wildbuzzard-torrents-draft-error"), true);
+      }
+    } else if (draftError) {
+      showToast(await localized("wildbuzzard-torrents-draft-error"), true);
+    } else if (source) {
       await addSource(source);
     }
     await refresh();

@@ -21,16 +21,50 @@ export class TorrentContentHandler {
       throw Components.Exception("", Cr.NS_ERROR_WONT_HANDLE_CONTENT);
     }
     const { loadInfo, URI } = request;
+    const privateBrowsing = Boolean(
+      loadInfo.originAttributes.privateBrowsingId
+    );
+    const originatingWindow =
+      loadInfo.targetBrowsingContext?.top?.embedderElement?.ownerGlobal;
+    const targetWindow = () =>
+      originatingWindow && !originatingWindow.closed
+        ? originatingWindow
+        : BrowserWindowTracker.getTopWindow({ private: privateBrowsing });
     request.cancel(Cr.NS_BINDING_ABORTED);
-    TorrentManager.addFromURL(
+    const window = targetWindow();
+    if (!window) {
+      throw Components.Exception("", Cr.NS_ERROR_NOT_AVAILABLE);
+    }
+    TorrentManager.createDraftFromURL(
       URI.spec,
       loadInfo.triggeringPrincipal,
-      undefined,
       loadInfo.cookieJarSettings
-    ).catch(error => {
-      console.error(error);
-    });
-    const window = BrowserWindowTracker.getTopWindow();
-    window?.openTrustedLinkIn("about:torrents", "tab");
+    )
+      .then(async draft => {
+        const destination = targetWindow();
+        if (destination) {
+          try {
+            destination.openTrustedLinkIn(
+              `about:torrents?draft=${encodeURIComponent(draft.draftId)}`,
+              "tab"
+            );
+          } catch (error) {
+            await TorrentManager.cancelTorrentDraft(draft.draftId).catch(
+              () => {}
+            );
+            throw error;
+          }
+        } else {
+          await TorrentManager.cancelTorrentDraft(draft.draftId).catch(
+            () => {}
+          );
+        }
+      })
+      .catch(() => {
+        targetWindow()?.openTrustedLinkIn(
+          "about:torrents?draft-error=1",
+          "tab"
+        );
+      });
   }
 }

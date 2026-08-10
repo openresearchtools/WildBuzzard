@@ -11,6 +11,9 @@ const originalEnvironment = new Map(
 const { UrlbarTestUtils } = ChromeUtils.importESModule(
   "resource://testing-common/UrlbarTestUtils.sys.mjs"
 );
+const { HttpServer } = ChromeUtils.importESModule(
+  "resource://testing-common/httpd.sys.mjs"
+);
 const testRoot = PathUtils.join(
   PathUtils.tempDir,
   `wildbuzzard-torrent-${Services.appinfo.processID}-${Date.now()}`
@@ -71,6 +74,98 @@ add_task(async function test_about_torrents_shell() {
   }
 });
 
+add_task(async function test_torrent_mime_response_opens_confirmation() {
+  const prefix = new TextEncoder().encode(
+    "d4:infod6:lengthi1e4:name11:fixture.txt12:piece lengthi16384e6:pieces20:"
+  );
+  const suffix = new TextEncoder().encode("ee");
+  const torrent = new Uint8Array(prefix.length + 20 + suffix.length);
+  torrent.set(prefix);
+  torrent.fill(1, prefix.length, prefix.length + 20);
+  torrent.set(suffix, prefix.length + 20);
+
+  const server = new HttpServer();
+  let requests = 0;
+  server.registerPathHandler("/fixture.torrent", (request, response) => {
+    requests++;
+    response.setStatusLine(request.httpVersion, 200, "OK");
+    response.setHeader("Content-Type", "application/x-bittorrent", false);
+    response.setHeader("Cache-Control", "no-store", false);
+    const output = Cc["@mozilla.org/binaryoutputstream;1"].createInstance(
+      Ci.nsIBinaryOutputStream
+    );
+    output.setOutputStream(response.bodyOutputStream);
+    output.writeByteArray(torrent);
+  });
+  server.start(-1);
+
+  const sourceTab = BrowserTestUtils.addTab(gBrowser, "about:blank");
+  gBrowser.selectedTab = sourceTab;
+  let confirmationTab;
+  try {
+    const opened = BrowserTestUtils.waitForNewTab(
+      gBrowser,
+      url => url.startsWith("about:torrents"),
+      true
+    );
+    BrowserTestUtils.startLoadingURIString(
+      sourceTab.linkedBrowser,
+      `http://localhost:${server.identity.primaryPort}/fixture.torrent`
+    );
+    confirmationTab = await opened;
+    await SpecialPowers.spawn(confirmationTab.linkedBrowser, [], async () => {
+      const dialog = content.document.getElementById("torrent-draft-dialog");
+      await ContentTaskUtils.waitForCondition(
+        () => dialog.open,
+        "The MIME response opens the metadata confirmation dialog"
+      );
+      Assert.equal(
+        content.location.href,
+        "about:torrents",
+        "The draft capability is removed from visible history"
+      );
+      const files = [
+        ...content.document.querySelectorAll(
+          "#torrent-draft-files input[type=checkbox]"
+        ),
+      ];
+      Assert.equal(files.length, 1, "The real sidecar parsed the torrent file");
+      Assert.ok(
+        files.every(file => file.checked),
+        "All files default selected"
+      );
+    });
+
+    const { TorrentManager } = ChromeUtils.importESModule(
+      "resource:///modules/TorrentManager.sys.mjs"
+    );
+    let status = await TorrentManager.getStatus();
+    Assert.equal(status.torrents.length, 0, "No payload starts before commit");
+    Assert.equal(status.draftCount, 1, "The sidecar owns one pending draft");
+
+    BrowserTestUtils.synthesizeMouseAtCenter(
+      "#torrent-draft-cancel",
+      {},
+      confirmationTab.linkedBrowser
+    );
+    await TestUtils.waitForCondition(async () => {
+      status = await TorrentManager.getStatus();
+      return status.draftCount === 0;
+    }, "Cancelling destroys the sidecar draft");
+    Assert.greaterOrEqual(
+      requests,
+      2,
+      "The browser response and privileged metadata fetch both reached the server"
+    );
+  } finally {
+    if (confirmationTab) {
+      BrowserTestUtils.removeTab(confirmationTab);
+    }
+    BrowserTestUtils.removeTab(sourceTab);
+    server.stop();
+  }
+});
+
 add_task(async function test_magnet_redirects_to_torrent_client() {
   const magnet =
     "magnet:?xt=urn:btih:0123456789012345678901234567890123456789&dn=Test";
@@ -128,4 +223,50 @@ add_task(async function test_torrent_urlbar_mode_routes_query() {
     "Navigation exits torrent search mode"
   );
   await SpecialPowers.popPrefEnv();
+});
+
+add_task(async function test_private_window_does_not_start_discovery() {
+  const { TorrentDiscoveryManager } = ChromeUtils.importESModule(
+    "resource:///modules/TorrentDiscoveryManager.sys.mjs"
+  );
+  const originalGetSources = TorrentDiscoveryManager.getSources;
+  let sourceRequests = 0;
+  TorrentDiscoveryManager.getSources = async () => {
+    sourceRequests++;
+    return { immutable: true, sources: [] };
+  };
+  const privateWindow = await BrowserTestUtils.openNewBrowserWindow({
+    private: true,
+  });
+  try {
+    const tab = await BrowserTestUtils.openNewForegroundTab(
+      privateWindow.gBrowser,
+      "about:torrents?search=linux"
+    );
+    await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
+      const status = content.document.getElementById("torrent-search-status");
+      await ContentTaskUtils.waitForCondition(
+        () =>
+          status.getAttribute("data-l10n-id") ===
+          "wildbuzzard-torrents-search-private-disabled",
+        "The private-window policy is shown"
+      );
+      Assert.ok(
+        content.document.getElementById("torrent-search-query").disabled,
+        "The private-window torrent query is disabled"
+      );
+      Assert.ok(
+        content.document.getElementById("torrent-search-submit").disabled,
+        "The private-window torrent submit action is disabled"
+      );
+    });
+    Assert.equal(
+      sourceRequests,
+      0,
+      "Private-window initialization does not contact ordinary discovery state"
+    );
+  } finally {
+    TorrentDiscoveryManager.getSources = originalGetSources;
+    await BrowserTestUtils.closeWindow(privateWindow);
+  }
 });
