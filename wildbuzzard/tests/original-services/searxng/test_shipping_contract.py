@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import pathlib
 import re
+import runpy
+import shutil
 import socket
 import subprocess
 import sys
@@ -67,6 +70,9 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn("PLATFORM_REFERENCE,", comparator)
         self.assertIn('probe = HERE / "host_http_probe.py"', comparator)
         self.assertIn("unix_socket=pristine_socket", comparator)
+        self.assertIn("create_pristine_socket_root()", comparator)
+        self.assertNotIn('work / "pristine-socket"', comparator)
+        self.assertIn('"pristineSocketDirectoryRemoved"', comparator)
         self.assertIn('"--uds-permissions",\n                "0o600",', comparator)
         self.assertEqual(comparator.count("HostClient("), 2)
         self.assertIn("native_process = subprocess.Popen(", comparator)
@@ -74,6 +80,24 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn("pid != client.process.pid", comparator)
         self.assertIn('"containerized": False', comparator)
         self.assertFalse((HERE / "Containerfile.pristine").exists())
+
+    def test_pristine_socket_path_is_short_and_independent_of_artifacts(self) -> None:
+        comparator = runpy.run_path(
+            str(HERE / "compare_searxng.py"), run_name="searxng_comparator_contract"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            artifacts = pathlib.Path(temporary) / ("a" * 80) / ("b" * 80)
+            artifacts.mkdir(parents=True)
+            socket_root, socket_path = comparator["create_pristine_socket_root"]()
+            try:
+                self.assertLessEqual(
+                    len(os.fsencode(socket_path)),
+                    comparator["MAX_UNIX_SOCKET_PATH_BYTES"],
+                )
+                self.assertFalse(socket_path.is_relative_to(artifacts))
+                self.assertEqual(socket_root.stat().st_mode & 0o777, 0o700)
+            finally:
+                shutil.rmtree(socket_root)
 
     def test_host_probe_reaches_a_unix_socket(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

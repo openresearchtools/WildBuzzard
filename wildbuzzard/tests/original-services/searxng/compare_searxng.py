@@ -18,6 +18,7 @@ import signal
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.parse
 
@@ -38,6 +39,7 @@ DEFAULT_SECCOMP_SHA256 = (
     "886ae167646b7e5db381ecf7c31e6de720a8e8da15cf3202fe1f67f424af2b75"
 )
 MAX_EPOCH_MILLISECONDS = 8_640_000_000_000_000
+MAX_UNIX_SOCKET_PATH_BYTES = 107
 CONNECTION_FIELDS = {
     "version",
     "protocolVersion",
@@ -90,6 +92,19 @@ def sha256_file(path: pathlib.Path) -> str:
         for block in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
+
+
+def create_pristine_socket_root() -> tuple[pathlib.Path, pathlib.Path]:
+    temporary_root = pathlib.Path("/tmp").resolve(strict=True)
+    socket_root = pathlib.Path(
+        tempfile.mkdtemp(prefix="wb-searxng-", dir=temporary_root)
+    ).resolve(strict=True)
+    socket_root.chmod(0o700)
+    socket_path = socket_root / "searxng.sock"
+    if len(os.fsencode(socket_path)) > MAX_UNIX_SOCKET_PATH_BYTES:
+        shutil.rmtree(socket_root)
+        raise RuntimeError("Pristine SearXNG Unix socket path is too long")
+    return socket_root, socket_path
 
 
 def read_key_user() -> str | None:
@@ -1160,6 +1175,7 @@ def main() -> int:
     run_id = secrets.token_hex(8)
     pristine_container = f"wildbuzzard-searxng-pristine-{run_id}"
     pristine_container_created = False
+    pristine_socket_root: pathlib.Path | None = None
     native_process: subprocess.Popen[bytes] | None = None
     native_log = None
     native_log_path = artifacts / "native-service.log"
@@ -1234,11 +1250,10 @@ def main() -> int:
 
         pristine_config = work / "pristine-config"
         pristine_cache = work / "pristine-cache"
-        pristine_socket_root = work / "pristine-socket"
         pristine_config.mkdir(mode=0o700)
         pristine_cache.mkdir(mode=0o700)
-        pristine_socket_root.mkdir(mode=0o700)
-        pristine_socket = pristine_socket_root / "searxng.sock"
+        pristine_socket_root, pristine_socket = create_pristine_socket_root()
+        artifact_replacements[str(pristine_socket_root)] = "<pristine-socket-root>"
         settings_path = pristine_config / "settings.yml"
         template = (HERE / "fixture-settings.yml.in").read_text(encoding="utf-8")
         pristine_port = 8080
@@ -1658,6 +1673,19 @@ def main() -> int:
         except Exception as cleanup_error:
             record_failure(summary, cleanup_error)
         finally:
+            if pristine_socket_root is not None:
+                try:
+                    shutil.rmtree(pristine_socket_root)
+                    cleanup["pristineSocketDirectoryRemoved"] = (
+                        not pristine_socket_root.exists()
+                    )
+                    if pristine_socket_root.exists():
+                        raise RuntimeError(
+                            "Pristine SearXNG socket directory was not removed"
+                        )
+                except Exception as socket_cleanup_error:
+                    cleanup["pristineSocketDirectoryRemoved"] = False
+                    record_failure(summary, socket_cleanup_error)
             try:
                 key_user_after = read_key_user()
                 key_user_unchanged = key_user_after == key_user_before
