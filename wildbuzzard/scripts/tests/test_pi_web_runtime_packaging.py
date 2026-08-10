@@ -423,6 +423,29 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             self.assertEqual(output.getvalue(), expected)
             self.assertEqual(archive.read_bytes(), b"not a runtime")
 
+    def test_copy_uses_an_immutable_snapshot_after_in_place_rewrite(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            archive, lock = self.create_pinned_runtime(directory)
+            expected = archive.read_bytes()
+
+            class RewritingValidator:
+                @staticmethod
+                def validate_opened_archive(source, lock_path):
+                    result = VALIDATE.validate_opened_archive(source, lock_path)
+                    archive.write_bytes(b"rewritten after validation")
+                    return result
+
+            original_validator = COPY.validator
+            COPY.validator = lambda: RewritingValidator
+            try:
+                output = io.BytesIO()
+                COPY.main(output, archive, lock)
+            finally:
+                COPY.validator = original_validator
+            self.assertEqual(output.getvalue(), expected)
+            self.assertEqual(archive.read_bytes(), b"rewritten after validation")
+
     def test_runtime_validator_command_checks_real_archive(self):
         with tempfile.TemporaryDirectory() as temporary:
             archive, lock = self.create_pinned_runtime(Path(temporary))
@@ -555,6 +578,7 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             source,
         )
         self.assertIn('unlink -- "${browser_tools_modules}"', source)
+        self.assertIn("remote/wildbuzzard/TorrentAgentTools.sys.mjs", source)
         self.assertIn("'export PI_TELEMETRY=0'", source)
         self.assertIn("'export PI_SKIP_VERSION_CHECK=1'", source)
         committed_inputs = source[

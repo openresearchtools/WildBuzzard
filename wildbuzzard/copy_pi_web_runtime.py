@@ -2,7 +2,10 @@
 
 import importlib.util
 import shutil
+import tempfile
 from pathlib import Path
+
+MAX_RUNTIME_ARCHIVE_SIZE = 1024 * 1024 * 1024
 
 
 def validator():
@@ -17,10 +20,17 @@ def validator():
 
 def main(output, source, lock_path=None):
     root = Path(__file__).parent
-    with open(source, "rb") as source_file:
+    with open(source, "rb") as source_file, tempfile.TemporaryFile() as snapshot:
+        size = 0
+        while chunk := source_file.read(1024 * 1024):
+            size += len(chunk)
+            if size > MAX_RUNTIME_ARCHIVE_SIZE:
+                raise ValueError("Pi Web runtime archive exceeds the packaging limit")
+            snapshot.write(chunk)
+        snapshot.seek(0)
         validator().validate_opened_archive(
-            source_file,
+            snapshot,
             Path(lock_path) if lock_path else root / "pi-web-runtime-lock.json",
         )
-        source_file.seek(0)
-        shutil.copyfileobj(source_file, output)
+        snapshot.seek(0)
+        shutil.copyfileobj(snapshot, output)

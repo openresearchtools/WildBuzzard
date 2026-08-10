@@ -180,6 +180,7 @@ mkdir -p -- \
   "${runtime_dir}/source" \
   "${runtime_dir}/tools/git" \
   "${runtime_dir}/tools/yt-dlp" \
+  "${run_root}/remote/wildbuzzard" \
   "${downloads_dir}" \
   "${cargo_home}" \
   "${artifacts_dir}" \
@@ -233,6 +234,7 @@ git -C "${source_checkout}" sparse-checkout set \
   /agent/extensions/browser-tools/ \
   /agent/extensions/web-access/ \
   /agent/runtime/browser-runner/ \
+  /remote/wildbuzzard/TorrentAgentTools.sys.mjs \
   /wildbuzzard/pi-web-runtime-lock.json \
   /wildbuzzard/scripts/assemble-pi-web-runtime.mjs \
   /wildbuzzard/scripts/build-pi-web-runtime.sh \
@@ -242,6 +244,8 @@ git -C "${source_checkout}" sparse-checkout set \
   /wildbuzzard/scripts/verify-pi-web-installed-tree.mjs \
   /wildbuzzard/scripts/verify-pi-web-runtime-inputs.py
 git -C "${source_checkout}" checkout --detach "${source_commit}"
+cp -- "${source_checkout}/remote/wildbuzzard/TorrentAgentTools.sys.mjs" \
+  "${run_root}/remote/wildbuzzard/TorrentAgentTools.sys.mjs"
 git clone --shared --no-checkout -- "${fork_repo}" "${pi_web_checkout}"
 git -C "${pi_web_checkout}" checkout --detach "${pi_web_commit}"
 if [[ "$(git -C "${pi_web_checkout}" show -s --format=%T HEAD)" != "${pi_web_tree}" ||
@@ -422,7 +426,9 @@ validate_browser_tools
     "${bundled_node}" "${bundled_npm}" ci --ignore-scripts
   env "${npm_environment[@]}" PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \
     "${bundled_node}" "${bundled_npm}" run typecheck
-  env "${npm_environment[@]}" PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \
+  env "${npm_environment[@]}" \
+    WILDBUZZARD_SOURCE_ROOT="${source_checkout}" \
+    PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \
     "${bundled_node}" "${bundled_npm}" test
   env "${npm_environment[@]}" PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \
     "${bundled_node}" "${bundled_npm}" prune --omit=dev --ignore-scripts
@@ -509,6 +515,7 @@ git -C "${source_checkout}" archive "${source_commit}" -- \
   agent/extensions/browser-tools \
   agent/extensions/web-access \
   agent/runtime/browser-runner \
+  remote/wildbuzzard/TorrentAgentTools.sys.mjs \
   wildbuzzard/pi-web-runtime-lock.json \
   wildbuzzard/scripts/assemble-pi-web-runtime.mjs \
   wildbuzzard/scripts/build-pi-web-runtime.sh \
