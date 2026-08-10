@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+ARG BASE_IMAGE=docker.io/searxng/searxng@sha256:dc5c10fda6818dfef7abfdf9f451b898242c3321514a9524af215cbedc79c89b
+FROM ${BASE_IMAGE}
+
+USER root
+RUN rm -rf /usr/local/searxng/searx
+COPY upstream/searx /usr/local/searxng/searx
+COPY version_frozen.py /usr/local/searxng/searx/version_frozen.py
+ENV __SEARXNG_VERSION=2026.8.6-b023a28ba
