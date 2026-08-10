@@ -3,13 +3,16 @@
 
 import argparse
 import collections
+import contextlib
 import datetime
 import hashlib
 import http.client
 import json
+import os
 import pathlib
 import secrets
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -17,7 +20,6 @@ import time
 import traceback
 
 
-IMAGE = "mcr.microsoft.com/dotnet/sdk@sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164"
 QUERY = "ubuntu"
 
 
@@ -30,16 +32,115 @@ def sha256(path):
 
 
 def write_json(path, value):
-    path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    path.write_text(
+        json.dumps(value, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 def run(command, log_path=None, check=True):
-    completed = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    completed = subprocess.run(
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False
+    )
     if log_path:
         log_path.write_bytes(completed.stdout)
     if check and completed.returncode:
-        raise RuntimeError(f"command failed ({completed.returncode}): {' '.join(command)}")
+        raise RuntimeError(
+            f"command failed ({completed.returncode}): {' '.join(command)}"
+        )
     return completed
+
+
+def start_process(command, cwd, environment, log_path):
+    log = log_path.open("wb")
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=environment,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    except Exception:
+        log.close()
+        raise
+    return process, log
+
+
+def process_group_members(process_group_id):
+    members = []
+    for entry in pathlib.Path("/proc").iterdir():
+        if not entry.name.isdigit():
+            continue
+        try:
+            value = (entry / "stat").read_text(encoding="ascii")
+            fields = value[value.rfind(")") + 2 :].split()
+            if int(fields[2]) == process_group_id:
+                members.append(int(entry.name))
+        except (FileNotFoundError, IndexError, ValueError):
+            pass
+    return sorted(members)
+
+
+def wait_for_exit(process, timeout):
+    try:
+        process.wait(timeout=timeout)
+        return True
+    except subprocess.TimeoutExpired:
+        return False
+
+
+def stop_process(process):
+    evidence = {"exitCode": None, "signals": []}
+    if process is None:
+        evidence["processGroupEmpty"] = True
+        return evidence
+    process_group_id = process.pid
+    for signal_value, name, timeout in (
+        (signal.SIGINT, "SIGINT", 5),
+        (signal.SIGTERM, "SIGTERM", 10),
+        (signal.SIGKILL, "SIGKILL", 5),
+    ):
+        if process.poll() is not None and not process_group_members(process_group_id):
+            break
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(process_group_id, signal_value)
+            evidence["signals"].append(name)
+        if wait_for_exit(process, timeout):
+            deadline = time.monotonic() + timeout
+            while (
+                process_group_members(process_group_id) and time.monotonic() < deadline
+            ):
+                time.sleep(0.05)
+    evidence["exitCode"] = process.poll()
+    evidence["remainingProcessGroupMembers"] = process_group_members(process_group_id)
+    evidence["processGroupEmpty"] = not evidence["remainingProcessGroupMembers"]
+    return evidence
+
+
+def process_identity(process, expected_executable, pid_path):
+    pid_value = int(pid_path.read_text(encoding="ascii").strip())
+    if pid_value != process.pid:
+        raise RuntimeError("Jackett Mini PID file did not identify the host process")
+    if os.getpgid(process.pid) != process.pid or os.getsid(process.pid) != process.pid:
+        raise RuntimeError("Jackett Mini did not own its process group and session")
+    executable_link = pathlib.Path(f"/proc/{process.pid}/exe")
+    if not os.path.samefile(executable_link, expected_executable):
+        raise RuntimeError(
+            "Jackett Mini process executable did not match the verified runtime"
+        )
+    stat_value = pathlib.Path(f"/proc/{process.pid}/stat").read_text(encoding="ascii")
+    stat_fields = stat_value[stat_value.rfind(")") + 2 :].split()
+    return {
+        "pid": process.pid,
+        "pidFilePid": pid_value,
+        "processGroupId": os.getpgid(process.pid),
+        "sessionId": os.getsid(process.pid),
+        "linuxProcessStartTime": stat_fields[19],
+        "executable": os.readlink(executable_link),
+        "executableSha256": sha256(executable_link),
+        "executionBoundary": "direct-host-process",
+    }
 
 
 def choose_port():
@@ -100,18 +201,37 @@ def main():
     parser.add_argument("--mini-runtime", required=True, type=pathlib.Path)
     parser.add_argument("--mini-manifest", required=True, type=pathlib.Path)
     parser.add_argument("--artifact-root", required=True, type=pathlib.Path)
-    parser.add_argument("--oci-runtime")
     args = parser.parse_args()
+    os.umask(0o077)
 
     runtime = args.mini_runtime.resolve(strict=True)
     manifest_path = args.mini_manifest.resolve(strict=True)
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest["executableName"] != "jackett-mini":
+        raise RuntimeError("manifest does not identify the Jackett Mini executable")
     executable = runtime / manifest["executableName"]
-    executable_entry = next(entry for entry in manifest["files"] if entry["path"] == manifest["executableName"])
+    executable = executable.resolve(strict=True)
+    if (
+        executable.parent != runtime
+        or not executable.is_file()
+        or not os.access(executable, os.X_OK)
+    ):
+        raise RuntimeError(
+            "Jackett Mini executable is not a direct executable runtime file"
+        )
+    executable_entry = next(
+        entry
+        for entry in manifest["files"]
+        if entry["path"] == manifest["executableName"]
+    )
     if sha256(executable) != executable_entry["sha256"]:
         raise RuntimeError("Jackett Mini executable does not match its manifest")
 
-    run_id = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + secrets.token_hex(4)
+    run_id = (
+        datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        + "-"
+        + secrets.token_hex(4)
+    )
     artifacts = args.artifact_root.resolve() / f"live-source-report-{run_id}"
     logs = artifacts / "logs"
     transcripts = artifacts / "transcripts"
@@ -120,46 +240,71 @@ def main():
         directory.mkdir(parents=True, mode=0o700)
         directory.chmod(0o700)
 
-    podman = ["podman"]
-    if args.oci_runtime:
-        podman += ["--runtime", str(pathlib.Path(args.oci_runtime).resolve(strict=True))]
-    if run(podman + ["info", "--format", "{{.Host.Security.Rootless}}"], logs / "podman-rootless.log").stdout.strip() != b"true":
-        raise RuntimeError("live report requires rootless Podman")
-    run(podman + ["version", "--format", "json"], logs / "podman-version.json")
-    run(podman + ["image", "inspect", IMAGE], logs / "sdk-image-inspect.json")
-
     capability = secrets.token_urlsafe(32)
     capability_path = data / "capability"
     capability_path.write_text(capability + "\n", encoding="ascii")
     capability_path.chmod(0o600)
     port = choose_port()
-    name = "wildbuzzard-jackett-live-" + secrets.token_hex(5)
-    cleanup = {"container": name, "dataRootRemoved": False, "port": "unknown"}
+    pid_path = data / "jackett.pid"
+    environment = {
+        "HOME": str(data),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "TZ": "UTC",
+    }
+    cleanup = {"dataRootRemoved": False, "port": "unknown"}
+    process = None
+    process_log = None
     success = False
     try:
-        command = podman + [
-            "run", "-d", "--name", name, "--network", "host", "--userns=keep-id",
-            "-e", "LANG=C.UTF-8", "-e", "LC_ALL=C.UTF-8", "-e", "TZ=UTC",
-            "-v", f"{runtime}:/app:ro", "-v", f"{data}:/data:Z", IMAGE,
-            "/app/jackett-mini", "--ListenPrivate", "--Port", str(port),
-            "--PIDFile", "/data/jackett.pid", "--NoUpdates", "--NoRestart",
-            "--DataFolder", "/data", "--CapabilityFile", "/data/capability",
+        command = [
+            str(executable),
+            "--ListenPrivate",
+            "--Port",
+            str(port),
+            "--PIDFile",
+            str(pid_path),
+            "--NoUpdates",
+            "--NoRestart",
+            "--DataFolder",
+            str(data),
+            "--CapabilityFile",
+            str(capability_path),
         ]
-        run(command, logs / "container-start.log")
+        process, process_log = start_process(
+            command, runtime, environment, logs / "service.log"
+        )
         health = wait_for_health(port, capability)
+        identity = process_identity(process, executable, pid_path)
+        write_json(logs / "mini-process-identity.json", identity)
         sources = request(port, "GET", "/v1/sources", capability)
-        search = request(port, "POST", "/v1/search", capability, {"query": QUERY, "limit": 20})
-        for name_part, transcript in (("health", health), ("sources", sources), ("search", search)):
+        search = request(
+            port, "POST", "/v1/search", capability, {"query": QUERY, "limit": 20}
+        )
+        for name_part, transcript in (
+            ("health", health),
+            ("sources", sources),
+            ("search", search),
+        ):
             write_json(transcripts / f"{name_part}.json", transcript)
-        if any(transcript["response"]["status"] != 200 for transcript in (health, sources, search)):
+        if any(
+            transcript["response"]["status"] != 200
+            for transcript in (health, sources, search)
+        ):
             raise RuntimeError("live API request failed")
 
         source_document = json.loads(sources["response"]["bodyText"])
         search_document = json.loads(search["response"]["bodyText"])
         catalog = json.loads((runtime / "catalog.json").read_text(encoding="utf-8"))
-        enabled = {entry["indexerId"]: entry for entry in catalog["entries"] if entry["eligibility"] == "enabled-public"}
+        enabled = {
+            entry["indexerId"]: entry
+            for entry in catalog["entries"]
+            if entry["eligibility"] == "enabled-public"
+        }
         source_states = {source["id"]: source for source in source_document["sources"]}
-        live_states = {provider["id"]: provider for provider in search_document["providers"]}
+        live_states = {
+            provider["id"]: provider for provider in search_document["providers"]
+        }
         if set(enabled) != set(source_states) or set(enabled) != set(live_states):
             raise RuntimeError("live report did not cover the immutable enabled set")
         adult_results = sum(
@@ -179,7 +324,11 @@ def main():
             "adultCategoryResultCount": adult_results,
             "partial": search_document["partial"],
             "stateCounts": dict(
-                sorted(collections.Counter(state["state"] for state in live_states.values()).items())
+                sorted(
+                    collections.Counter(
+                        state["state"] for state in live_states.values()
+                    ).items()
+                )
             ),
             "sources": [
                 {
@@ -196,37 +345,52 @@ def main():
             ],
         }
         write_json(artifacts / "source-report.json", report)
-        run(podman + ["inspect", name], logs / "container-inspect.json")
         run(["ss", "-ltnp", f"sport = :{port}"], logs / "loopback-listener.log")
         listener = (logs / "loopback-listener.log").read_text(encoding="utf-8")
-        if f"127.0.0.1:{port}" not in listener or any(value in listener for value in (f"0.0.0.0:{port}", f"[::]:{port}", f"*:{port}")):
+        if f"127.0.0.1:{port}" not in listener or any(
+            value in listener
+            for value in (f"0.0.0.0:{port}", f"[::]:{port}", f"*:{port}")
+        ):
             raise RuntimeError("live service listener was not loopback-only")
-        write_json(artifacts / "run-metadata.json", {
-            "schemaVersion": 1,
-            "sourceCommit": manifest["upstreamCommit"],
-            "sourceSha256": manifest["sourceSha256"],
-            "sdkImage": IMAGE,
-            "rootless": True,
-            "port": port,
-            "runtimeManifestSha256": sha256(manifest_path),
-            "runtimeExecutableSha256": sha256(executable),
-            "dataRootMode": oct(stat.S_IMODE(data.stat().st_mode)),
-            "capabilityMode": oct(stat.S_IMODE(capability_path.stat().st_mode)),
-        })
+        if f"pid={process.pid}," not in listener:
+            raise RuntimeError("loopback listener did not belong to Jackett Mini")
+        write_json(
+            artifacts / "run-metadata.json",
+            {
+                "schemaVersion": 1,
+                "sourceCommit": manifest["upstreamCommit"],
+                "sourceSha256": manifest["sourceSha256"],
+                "executionMode": "direct-host-process",
+                "port": port,
+                "runtimeManifestSha256": sha256(manifest_path),
+                "runtimeExecutableSha256": sha256(executable),
+                "dataRootMode": oct(stat.S_IMODE(data.stat().st_mode)),
+                "capabilityMode": oct(stat.S_IMODE(capability_path.stat().st_mode)),
+                "environmentKeys": sorted(environment),
+            },
+        )
         success = True
     except Exception:
         (artifacts / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
         raise
     finally:
-        run(podman + ["logs", name], logs / "service.log", check=False)
-        cleanup["stopReturnCode"] = run(podman + ["stop", "--time", "10", name], logs / "container-stop.log", check=False).returncode
-        cleanup["removeReturnCode"] = run(podman + ["rm", name], logs / "container-remove.log", check=False).returncode
+        cleanup["process"] = stop_process(process)
+        if process_log:
+            process_log.close()
         with socket.socket() as probe:
-            cleanup["port"] = "closed" if probe.connect_ex(("127.0.0.1", port)) else "open"
+            cleanup["port"] = (
+                "closed" if probe.connect_ex(("127.0.0.1", port)) else "open"
+            )
         shutil.rmtree(data, ignore_errors=True)
         cleanup["dataRootRemoved"] = not data.exists()
         cleanup["succeeded"] = success
         write_json(artifacts / "cleanup.json", cleanup)
+        if success and (
+            not cleanup["process"]["processGroupEmpty"]
+            or cleanup["port"] != "closed"
+            or not cleanup["dataRootRemoved"]
+        ):
+            raise RuntimeError("live report cleanup was incomplete")
     print(artifacts)
 
 

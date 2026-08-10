@@ -13,20 +13,11 @@ wildbuzzard/tests/original-services/jackett/build-pristine-jackett.sh \
   --log-dir /absolute/artifact/path/pristine-build-logs
 ```
 
-Run the side-by-side comparison after building Jackett Mini:
-
-```sh
-python3 wildbuzzard/tests/original-services/jackett/run-comparison.py \
-  --pristine-runtime /absolute/artifact/path/pristine-runtime \
-  --mini-runtime /absolute/artifact/path/jackett-mini-runtime \
-  --mini-manifest /absolute/artifact/path/jackett-mini-runtime/jackett-mini-runtime.json \
-  --artifact-root /absolute/artifact/path
-```
-
-The preferred deterministic run uses a fresh rootless user and network
-namespace. The fixture receives a non-reserved test address inside that private
-namespace so Jackett Mini's production loopback/private-address rejection stays
-enabled:
+Run the side-by-side comparison after building Jackett Mini. The runner requires
+a fresh rootless user and network namespace and launches both executables as
+direct host processes. The fixture receives a non-reserved test address inside
+that private namespace so Jackett Mini's production loopback/private-address
+rejection stays enabled:
 
 ```sh
 wildbuzzard/tests/original-services/jackett/run-comparison-rootless.sh \
@@ -36,16 +27,7 @@ wildbuzzard/tests/original-services/jackett/run-comparison-rootless.sh \
   --artifact-root /absolute/artifact/path
 ```
 
-`--oci-runtime PATH` selects a rootless OCI runtime implementation when the host default cannot create a container. The runner records the runtime and image inspection, random ports, executable digests, redacted configuration hash, exact request mapping, redacted raw request/response transcripts, canonical semantic diff, listener evidence, service logs, exit status, and cleanup evidence. The only redactions are the original API key and Mini capability.
-
-If the invoking user's kernel key quota is already exhausted, use the bundled
-`crun-no-new-keyring.sh` as the pristine oracle's OCI runtime. It adds crun's
-`--no-new-keyring` option only to container creation, preserving the caller's
-existing keys instead of deleting them or changing the system-wide quota:
-
-```sh
-export JACKETT_ORACLE_OCI_RUNTIME="$PWD/wildbuzzard/tests/original-services/jackett/crun-no-new-keyring.sh"
-```
+The runner records namespace identity, random ports, executable digests, redacted configuration hash, exact request mapping, redacted raw request/response transcripts, canonical semantic diff, listener evidence, service logs, exit status, and cleanup evidence. The only redactions are the original API key and Mini capability.
 
 Audit the pinned catalog against the complete extracted source and built
 runtime:
@@ -66,9 +48,12 @@ not make tracker availability a deterministic gate:
 python3 wildbuzzard/tests/original-services/jackett/run-live-source-report.py \
   --mini-runtime /absolute/artifact/path/jackett-mini-runtime \
   --mini-manifest /absolute/artifact/path/jackett-mini-runtime/jackett-mini-runtime.json \
-  --artifact-root /absolute/artifact/path \
-  --oci-runtime "$JACKETT_MINI_OCI_RUNTIME"
+  --artifact-root /absolute/artifact/path
 ```
+
+The live report verifies the manifest-bound executable, starts it directly on
+the host with a clean environment and loopback listener, records its PID and
+executable identity, and removes the process group and disposable data root.
 
 The gating deterministic scenarios cover health, caps/source status, indexer enumeration, Unicode search, adult-category filtering, peer-to-leecher conversion, duplicate BTIH collapse, public and private torrent resolution, upstream `apikey`/`passkey` behavior, product capability authentication, excluded sources, and removed dashboard/configuration/update/raw-Torznab routes. Live public-provider drift is intentionally outside this deterministic suite.
 
@@ -103,6 +88,11 @@ wildbuzzard/tests/original-services/jackett/run-pristine-adversarial-rootless.sh
   --mini-fixture-manifest /absolute/artifact/path/jackett-mini-fixture-runtime/jackett-mini-runtime.json \
   --artifact-root /absolute/artifact/path
 ```
+
+If the invoking user's kernel key quota is already exhausted, set
+`JACKETT_ORACLE_OCI_RUNTIME` to the bundled `crun-no-new-keyring.sh`. It adds
+crun's `--no-new-keyring` option only when creating the pristine oracle
+container.
 
 The host comparator controls the pristine container through rootless Podman with host networking, a read-only root filesystem, read-only official runtime/source and fixture-overlay mounts, and one writable disposable data mount. The fixed `127.0.0.1:18080` fixture endpoint is compiled only into the test Mini runtime; the shipping runtime retains its loopback/private-address rejection. The runner records host PID, executable hash, and namespace evidence for every Mini process, records the pristine container/image/process identity, and fails if the named container, a listener, or a disposable data root survives cleanup. The runtime-backed manager test in `managed-services/jackett-mini/test/process.test.mjs` launches through the real manager, exits that launcher, reconnects from a fresh launcher, and requires the same PID, Linux process start time, instance ID, data-root ID, and executable digest.
 
