@@ -59,8 +59,18 @@ nsHttpConnectionInfo::nsHttpConnectionInfo(
     nsProxyInfo* proxyInfo, const OriginAttributes& originAttributes,
     const nsACString& routedHost, int32_t routedPort, bool aIsHttp3,
     bool aWebTransport)
+    : nsHttpConnectionInfo(originHost, originPort, npnToken, username,
+                           proxyInfo, originAttributes, true, routedHost,
+                           routedPort, aIsHttp3, aWebTransport) {}
+
+nsHttpConnectionInfo::nsHttpConnectionInfo(
+    const nsACString& originHost, int32_t originPort,
+    const nsACString& npnToken, const nsACString& username,
+    nsProxyInfo* proxyInfo, const OriginAttributes& originAttributes,
+    bool endToEndSSL, const nsACString& routedHost, int32_t routedPort,
+    bool aIsHttp3, bool aWebTransport)
     : mLessThanTls13(false) {
-  mEndToEndSSL = true;  // so DefaultPort() works
+  mEndToEndSSL = endToEndSSL;
   mRoutedPort = routedPort == -1 ? DefaultPort() : routedPort;
 
   if (!originHost.Equals(routedHost) || (originPort != routedPort) ||
@@ -68,7 +78,7 @@ nsHttpConnectionInfo::nsHttpConnectionInfo(
     mRoutedHost = routedHost;
   }
   Init(originHost, originPort, npnToken, username, proxyInfo, originAttributes,
-       true, aIsHttp3, aWebTransport);
+       endToEndSSL, aIsHttp3, aWebTransport);
 }
 
 // static
@@ -333,10 +343,10 @@ already_AddRefed<nsHttpConnectionInfo> nsHttpConnectionInfo::Clone() const {
                                      mProxyInfo, mOriginAttributes,
                                      mEndToEndSSL, mIsHttp3, mWebTransport);
   } else {
-    MOZ_ASSERT(mEndToEndSSL);
     clone = new nsHttpConnectionInfo(mOrigin, mOriginPort, mNPNToken, mUsername,
-                                     mProxyInfo, mOriginAttributes, mRoutedHost,
-                                     mRoutedPort, mIsHttp3, mWebTransport);
+                                     mProxyInfo, mOriginAttributes,
+                                     mEndToEndSSL, mRoutedHost, mRoutedPort,
+                                     mIsHttp3, mWebTransport);
   }
 
   // Make sure the anonymous, insecure-scheme, and private flags are transferred
@@ -359,6 +369,23 @@ already_AddRefed<nsHttpConnectionInfo> nsHttpConnectionInfo::Clone() const {
 
   MOZ_ASSERT(clone->Equals(this));
 
+  return clone.forget();
+}
+
+already_AddRefed<nsHttpConnectionInfo>
+nsHttpConnectionInfo::CloneAndRouteToIPAddress(const nsACString& aIPAddress,
+                                               int32_t aPort) const {
+  RefPtr<nsHttpConnectionInfo> clone = new nsHttpConnectionInfo(
+      mOrigin, mOriginPort, ""_ns, mUsername, mProxyInfo, mOriginAttributes,
+      mEndToEndSSL, aIPAddress, aPort, false, false);
+  clone->SetAnonymous(GetAnonymous());
+  clone->SetPrivate(GetPrivate());
+  clone->SetInsecureScheme(GetInsecureScheme());
+  clone->SetNoSpdy(true);
+  clone->SetBeConservative(true);
+  clone->SetAnonymousAllowClientCert(GetAnonymousAllowClientCert());
+  clone->SetTlsFlags(GetTlsFlags());
+  clone->SetTRRMode(GetTRRMode());
   return clone.forget();
 }
 
@@ -512,12 +539,11 @@ nsHttpConnectionInfo::DeserializeHttpConnectionInfoCloneArgs(
         aInfoArgs.username(), pi, aInfoArgs.originAttributes(),
         aInfoArgs.endToEndSSL(), aInfoArgs.isHttp3(), aInfoArgs.webTransport());
   } else {
-    MOZ_ASSERT(aInfoArgs.endToEndSSL());
     cinfo = new nsHttpConnectionInfo(
         aInfoArgs.host(), aInfoArgs.port(), aInfoArgs.npnToken(),
         aInfoArgs.username(), pi, aInfoArgs.originAttributes(),
-        aInfoArgs.routedHost(), aInfoArgs.routedPort(), aInfoArgs.isHttp3(),
-        aInfoArgs.webTransport());
+        aInfoArgs.endToEndSSL(), aInfoArgs.routedHost(), aInfoArgs.routedPort(),
+        aInfoArgs.isHttp3(), aInfoArgs.webTransport());
   }
   // Transfer Webtransport ids
   cinfo->SetWebTransportId(aInfoArgs.webTransportId());

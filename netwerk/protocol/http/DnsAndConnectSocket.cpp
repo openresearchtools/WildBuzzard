@@ -106,13 +106,17 @@ nsresult DnsAndConnectSocket::Init(ConnectionEntry* ent) {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   MOZ_ASSERT(mState == DnsAndSocketState::INIT);
 
-  if (mConnInfo->GetRoutedHost().IsEmpty()) {
-    mPrimaryTransport.mHost = mConnInfo->GetOrigin();
-    mBackupTransport.mHost = mConnInfo->GetOrigin();
-  } else {
-    mPrimaryTransport.mHost = mConnInfo->GetRoutedHost();
-    mBackupTransport.mHost = mConnInfo->GetRoutedHost();
+  const nsCString& connectionHost = mConnInfo->GetRoutedHost().IsEmpty()
+                                        ? mConnInfo->GetOrigin()
+                                        : mConnInfo->GetRoutedHost();
+  if (mCaps & NS_HTTP_REQUIRE_IP_LITERAL) {
+    NetAddr address;
+    if (NS_FAILED(address.InitFromString(connectionHost))) {
+      return NS_ERROR_NOT_AVAILABLE;
+    }
   }
+  mPrimaryTransport.mHost = connectionHost;
+  mBackupTransport.mHost = connectionHost;
 
   CheckProxyConfig();
 
@@ -1216,14 +1220,11 @@ nsresult DnsAndConnectSocket::TransportSetup::SetupStreams(
         getter_AddRefs(socketTransport));
   } else {
     if (!ci->GetRoutedHost().IsEmpty()) {
-      // There is a route requested, but the legacy nsISocketTransportService
-      // can't handle it.
-      // Origin should be reachable on origin host name, so this should
-      // not be a problem - but log it.
       LOG(
           ("DnsAndConnectSocket this=%p using legacy nsISocketTransportService "
-           "means explicit route %s:%d will be ignored.\n",
+           "cannot honor explicit route %s:%d.\n",
            this, ci->RoutedHost(), ci->RoutedPort()));
+      return NS_ERROR_NOT_AVAILABLE;
     }
 
     rv = sts->CreateTransport(socketTypes, ci->GetOrigin(), ci->OriginPort(),

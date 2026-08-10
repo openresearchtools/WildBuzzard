@@ -162,13 +162,15 @@ function handleRequest(request, response) {
   }
   if (mode === "private-subresource") {
     response.setHeader("Content-Type", "text/html", false);
-    const privateUrl = "http://127.0.0.1/private-resource";
+    const privateUrl =
+      params.get("target") || "http://127.0.0.1/private-resource";
     const kind = params.get("kind") || "image";
     const resource = {
       fetch: `<script>fetch(${JSON.stringify(privateUrl)}).catch(() => {})</script>`,
       iframe: `<iframe src=${JSON.stringify(privateUrl)}></iframe>`,
       image: `<img src=${JSON.stringify(privateUrl)}>`,
       script: `<script src=${JSON.stringify(privateUrl)}></script>`,
+      xhr: `<script>const xhr = new XMLHttpRequest(); xhr.open("GET", ${JSON.stringify(privateUrl)}); xhr.send()</script>`,
     }[kind];
     response.write(
       `<!doctype html><title>subresource</title>${resource ?? ""}`
@@ -184,6 +186,7 @@ function handleRequest(request, response) {
       iframe: `<iframe src=${JSON.stringify(publicUrl)}></iframe>`,
       image: `<img src=${JSON.stringify(publicUrl)}>`,
       script: `<script src=${JSON.stringify(publicUrl)}></script>`,
+      xhr: `<script>const xhr = new XMLHttpRequest(); xhr.open("GET", ${JSON.stringify(publicUrl)}); xhr.send()</script>`,
     }[kind];
     response.write(
       `<!doctype html><title>public subresource</title>${resource ?? ""}`

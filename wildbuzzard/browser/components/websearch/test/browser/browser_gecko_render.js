@@ -15,6 +15,8 @@ const FIXTURE_PATH =
   "/browser/wildbuzzard/browser/components/websearch/test/browser/file_gecko_render.sjs";
 const FIXTURE = `https://example.com${FIXTURE_PATH}`;
 const OTHER_FIXTURE = `https://example.org${FIXTURE_PATH}`;
+const PINNED_HOST = "wildbuzzard-pinned.example";
+const REBIND_HOST = "wildbuzzard-rebind.example";
 const COMPARATOR_CANCEL_BOUND_MS = 3000;
 let automationFixture;
 
@@ -64,6 +66,9 @@ function assertAutomationClean(result, message) {
 
 add_setup(function setup_renderer() {
   const wasStarted = BrowserControl.started;
+  const dnsOverride = Cc[
+    "@mozilla.org/network/native-dns-override;1"
+  ].getService(Ci.nsINativeDNSResolverOverride);
   BrowserControl.start();
   BrowserControl.setGeckoRenderTestAllowedHosts([
     "example.com",
@@ -72,9 +77,16 @@ add_setup(function setup_renderer() {
     "expired.example.com",
   ]);
   BrowserControl.setGeckoRenderTestDNSAnswers({
-    "rebind.example.com": ["93.184.216.34"],
+    [PINNED_HOST]: ["127.0.0.1"],
+    [REBIND_HOST]: ["127.0.0.2"],
   });
+  dnsOverride.addIPOverride(PINNED_HOST, "127.0.0.2");
+  dnsOverride.addIPOverride(REBIND_HOST, "127.0.0.1");
+  Services.dns.clearCache(false);
   registerCleanupFunction(() => {
+    dnsOverride.clearHostOverride(PINNED_HOST);
+    dnsOverride.clearHostOverride(REBIND_HOST);
+    Services.dns.clearCache(false);
     BrowserControl.setGeckoRenderTestAllowedHosts([]);
     BrowserControl.setGeckoRenderTestDNSAnswers({});
     if (!wasStarted) {
@@ -89,6 +101,9 @@ add_setup(function setup_automation_fixture() {
   const state = {
     active: 0,
     fastRequests: 0,
+    pinnedHost: null,
+    pinnedRequests: 0,
+    privateRequests: 0,
     maxActive: 0,
     releaseHold: null,
     releaseSlowRequests() {
@@ -104,6 +119,17 @@ add_setup(function setup_automation_fixture() {
     response.setHeader("Content-Type", "text/html; charset=utf-8", false);
     response.write("<!doctype html><title>Fast</title><h1>Fast fixture</h1>");
     state.active--;
+  });
+  server.registerPathHandler("/private", (_request, response) => {
+    state.privateRequests++;
+    response.setHeader("Content-Type", "text/plain; charset=utf-8", false);
+    response.write("private fixture");
+  });
+  server.registerPathHandler("/pinned", (request, response) => {
+    state.pinnedRequests++;
+    state.pinnedHost = request.getHeader("Host");
+    response.setHeader("Content-Type", "text/plain; charset=utf-8", false);
+    response.write("pinned fixture");
   });
   server.registerPathHandler("/hold", (_request, response) => {
     state.active++;
@@ -145,6 +171,8 @@ add_setup(function setup_automation_fixture() {
     timeoutId = setTimeout(finish, delayMs);
   });
   server.start(-1);
+  server.identity.add("http", PINNED_HOST, server.identity.primaryPort);
+  server.identity.add("http", REBIND_HOST, server.identity.primaryPort);
   automationFixture = {
     origin: `http://127.0.0.1:${server.identity.primaryPort}`,
     server,
@@ -292,25 +320,46 @@ add_task(async function test_initial_ssrf_policy() {
         result.pageError.includes("reserved")
     );
   }
+  automationFixture.state.privateRequests = 0;
+  const result = await render(`${automationFixture.origin}/private`);
+  ok(result.pageError.includes("private"), "private fixture is blocked");
+  is(
+    automationFixture.state.privateRequests,
+    0,
+    "blocked main navigation sends no request to the private fixture"
+  );
   assertClean("blocked initial navigations");
 });
 
 add_task(async function test_redirect_subresource_and_domain_policy() {
-  let target = "http://127.0.0.1/private";
+  automationFixture.state.privateRequests = 0;
+  let target = `${automationFixture.origin}/private`;
   let result = await render(
     `${FIXTURE}?mode=redirect&target=${encodeURIComponent(target)}`
   );
   ok(result.pageError.includes("ssrf-blocked"), "private redirect is blocked");
+  is(
+    automationFixture.state.privateRequests,
+    0,
+    "blocked redirect sends no request to the private fixture"
+  );
 
-  for (const kind of ["iframe", "image", "script", "fetch"]) {
-    result = await render(`${FIXTURE}?mode=private-subresource&kind=${kind}`);
+  for (const kind of ["iframe", "image", "script", "fetch", "xhr"]) {
+    result = await render(
+      `${FIXTURE}?mode=private-subresource&kind=${kind}&target=${encodeURIComponent(target)}`
+    );
     ok(
       result.pageError.includes("ssrf-blocked"),
       `private ${kind} aborts the render`
     );
+    is(
+      automationFixture.state.privateRequests,
+      0,
+      `blocked ${kind} sends no request to the private fixture`
+    );
   }
 
-  for (const kind of ["iframe", "image", "script", "fetch"]) {
+  for (const kind of ["iframe", "image", "script", "fetch", "xhr"]) {
     result = await render(`${FIXTURE}?mode=public-subresource&kind=${kind}`, {
       allowedOrigins: ["https://example.com"],
       waitMs: 50,
@@ -334,30 +383,52 @@ add_task(async function test_redirect_subresource_and_domain_policy() {
 });
 
 add_task(async function test_dns_rebinding_is_checked_at_the_channel() {
-  BrowserControl.setGeckoRenderTestAllowedHosts([
-    "example.org",
-    "www.example.com",
-    "expired.example.com",
-  ]);
-  BrowserControl.setGeckoRenderTestDNSAnswers({
-    "example.com": ["93.184.216.34"],
-  });
-  let result;
-  try {
-    result = await render(`${FIXTURE}?mode=html`);
-  } finally {
-    BrowserControl.setGeckoRenderTestAllowedHosts([
-      "example.com",
-      "example.org",
-      "www.example.com",
-      "expired.example.com",
-    ]);
-    BrowserControl.setGeckoRenderTestDNSAnswers({
-      "rebind.example.com": ["93.184.216.34"],
-    });
-  }
-  ok(result.pageError.includes("ssrf-blocked"), "rebound channel is blocked");
+  automationFixture.state.privateRequests = 0;
+  const result = await render(
+    `http://${REBIND_HOST}:${automationFixture.server.identity.primaryPort}/private`,
+    { timeoutMs: 2000 }
+  );
+  ok(result.pageError, "the pinned channel cannot follow the rebound answer");
+  is(
+    automationFixture.state.privateRequests,
+    0,
+    "DNS rebinding sends no request to the private fixture"
+  );
   assertClean("DNS rebinding");
+});
+
+add_task(async function test_approved_fixture_address_is_pinned() {
+  automationFixture.state.pinnedHost = null;
+  automationFixture.state.pinnedRequests = 0;
+  const result = await render(
+    `http://${PINNED_HOST}:${automationFixture.server.identity.primaryPort}/pinned`,
+    { timeoutMs: 2000 }
+  );
+  is(result.pageError, null, "the approved pinned fixture renders");
+  is(result.content, "pinned fixture", "the pinned response is returned");
+  is(
+    automationFixture.state.pinnedRequests,
+    1,
+    "the channel uses the approved address instead of the native DNS answer"
+  );
+  is(
+    automationFixture.state.pinnedHost,
+    `${PINNED_HOST}:${automationFixture.server.identity.primaryPort}`,
+    "address pinning retains the origin Host header"
+  );
+  assertClean("approved fixture address pinning");
+});
+
+add_task(async function test_test_dns_answers_require_ip_literals() {
+  Assert.throws(
+    () => BrowserControl.setGeckoRenderTestDNSAnswers({ invalid: ["host"] }),
+    /IP literals/,
+    "test DNS cannot install a hostname target"
+  );
+  BrowserControl.setGeckoRenderTestDNSAnswers({
+    [PINNED_HOST]: ["127.0.0.1"],
+    [REBIND_HOST]: ["127.0.0.2"],
+  });
 });
 
 add_task(async function test_cross_origin_header_stripping() {

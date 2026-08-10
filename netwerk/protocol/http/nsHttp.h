@@ -128,6 +128,9 @@ inline bool IsHttp3(SupportedAlpnRank aRank) {
 // on ERROR_NET_RESET.
 #define NS_HTTP_CONNECTION_RESTARTABLE (1 << 13)
 
+// Require the socket connection host to be an IP literal.
+#define NS_HTTP_REQUIRE_IP_LITERAL (1 << 14)
+
 // Allow re-using a spdy/http2 connection with NS_HTTP_ALLOW_KEEPALIVE not set.
 // This is primarily used to allow connection sharing for websockets over http/2
 // without accidentally allowing it for websockets not over http/2
