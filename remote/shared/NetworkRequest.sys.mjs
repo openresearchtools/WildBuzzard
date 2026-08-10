@@ -515,6 +515,9 @@ export class NetworkRequest {
     const browsingContext = lazy.NavigableManager.getBrowsingContextById(
       this.#contextId
     );
+    if (!browsingContext) {
+      return null;
+    }
 
     let navigation =
       this.#navigationManager.getNavigationForBrowsingContext(browsingContext);
@@ -540,7 +543,7 @@ export class NetworkRequest {
     const browsingContext = lazy.NavigableManager.getBrowsingContextById(
       this.#contextId
     );
-    return !browsingContext.parent;
+    return browsingContext ? !browsingContext.parent : false;
   }
 
   #readPostDataFromRequestAsUTF8() {

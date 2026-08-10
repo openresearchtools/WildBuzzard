@@ -45,14 +45,15 @@ function handleRequest(request, response) {
   }
   if (mode === "slow") {
     response.processAsync();
-    // eslint-disable-next-line no-undef
-    setTimeout(
+    const timer = Cc["@mozilla.org/timer;1"].createInstance(Ci.nsITimer);
+    timer.init(
       () => {
         response.setHeader("Content-Type", "text/html", false);
         response.write("<!doctype html><title>slow</title><p>done</p>");
         response.finish();
       },
-      Number(params.get("delay") || 1000)
+      Number(params.get("delay") || 1000),
+      Ci.nsITimer.TYPE_ONE_SHOT
     );
     return;
   }
@@ -157,9 +158,9 @@ function handleRequest(request, response) {
   }
   if (mode === "large-output") {
     response.setHeader("Content-Type", "text/html", false);
-    response.write(`<!doctype html><title>large output</title><script>
+    response.write(`<!doctype html><title>large output</title><body><script>
       document.body.textContent = "x".repeat(2 * 1024 * 1024 + 1);
-    </script>`);
+    </script></body>`);
     return;
   }
 
