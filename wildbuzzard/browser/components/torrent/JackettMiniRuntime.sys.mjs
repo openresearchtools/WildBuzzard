@@ -9,17 +9,17 @@ import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 const LocalFile = Components.Constructor(
   "@mozilla.org/file/local;1",
   "nsIFile",
-  "initWithPath"
+  "initWithPath",
 );
 const ZipReader = Components.Constructor(
   "@mozilla.org/libjar/zip-reader;1",
   "nsIZipReader",
-  "open"
+  "open",
 );
 const CryptoHash = Components.Constructor(
   "@mozilla.org/security/hash;1",
   "nsICryptoHash",
-  "initWithString"
+  "initWithString",
 );
 
 const HOST = "127.0.0.1";
@@ -29,12 +29,13 @@ const MAX_FILE_SIZE = 512 * 1024 * 1024;
 const MAX_EXPANDED_SIZE = 2 * 1024 * 1024 * 1024;
 const MAX_ENTRIES = 200000;
 const START_ATTEMPTS = 8;
+const PROFILE_NAMESPACE_DOMAIN = "wildbuzzard-jackett-mini-profile-v1\0";
 
 function hexDigest(bytes) {
   const hash = new CryptoHash("sha256");
   hash.update(bytes, bytes.length);
-  return Array.from(hash.finish(false), byte =>
-    byte.charCodeAt(0).toString(16).padStart(2, "0")
+  return Array.from(hash.finish(false), (byte) =>
+    byte.charCodeAt(0).toString(16).padStart(2, "0"),
   ).join("");
 }
 
@@ -44,6 +45,50 @@ function randomToken(bytes = 32) {
   return ChromeUtils.base64URLEncode(value, { pad: false });
 }
 
+function canonicalProfilePath(profilePath) {
+  if (typeof profilePath !== "string" || !profilePath) {
+    throw new Error("The Firefox profile path is unavailable");
+  }
+  const directory = new LocalFile(profilePath);
+  directory.normalize();
+  if (!directory.isDirectory()) {
+    throw new Error("The Firefox profile directory is unavailable");
+  }
+  return directory.path.normalize("NFC");
+}
+
+export function jackettMiniProfileNamespace(profilePath) {
+  const identity = new TextEncoder().encode(
+    PROFILE_NAMESPACE_DOMAIN + canonicalProfilePath(profilePath),
+  );
+  return `profile-${hexDigest(identity)}`;
+}
+
+export function jackettMiniProfilePaths({
+  profilePath,
+  dataHome,
+  runtimeHome,
+}) {
+  const profileNamespace = jackettMiniProfileNamespace(profilePath);
+  const rootDirectory = PathUtils.join(
+    dataHome,
+    "wildbuzzard",
+    "jackett-mini",
+    "profiles",
+    profileNamespace,
+  );
+  const stateDirectory = runtimeHome
+    ? PathUtils.join(
+        runtimeHome,
+        "wildbuzzard",
+        "jackett-mini",
+        "profiles",
+        profileNamespace,
+      )
+    : PathUtils.join(rootDirectory, "run");
+  return { profileNamespace, rootDirectory, stateDirectory };
+}
+
 function safeArchivePath(path) {
   const parts = path.split("/");
   return (
@@ -51,11 +96,11 @@ function safeArchivePath(path) {
     path.normalize("NFC") === path &&
     !path.startsWith("/") &&
     !path.includes("\\") &&
-    ![...path].some(character => {
+    ![...path].some((character) => {
       const code = character.codePointAt(0);
       return code < 32 || code === 127;
     }) &&
-    parts.every(part => part && part !== "." && part !== "..")
+    parts.every((part) => part && part !== "." && part !== "..")
   );
 }
 
@@ -130,7 +175,7 @@ function centralDirectoryEntries(bytes) {
       throw new Error("Unsupported Jackett Mini runtime entry");
     }
     const name = decoder.decode(
-      bytes.subarray(offset + 46, offset + 46 + nameLength)
+      bytes.subarray(offset + 46, offset + 46 + nameLength),
     );
     if (result.has(name)) {
       throw new Error(`Duplicate path in Jackett Mini runtime: ${name}`);
@@ -182,7 +227,7 @@ async function bundleInfo(archivePath) {
       manifest = JSON.parse(
         NetUtil.readInputStreamToString(stream, entry.realSize, {
           charset: "utf-8",
-        })
+        }),
       );
     } finally {
       stream.close();
@@ -239,22 +284,22 @@ async function bundleInfo(archivePath) {
       !files.has(manifest.executableName) ||
       !executables.has(manifest.executableName) ||
       !files.has(manifest.sbom) ||
-      manifest.licenseLocations.some(path => !files.has(path)) ||
+      manifest.licenseLocations.some((path) => !files.has(path)) ||
       new Set(manifest.licenseLocations).size !==
         manifest.licenseLocations.length ||
       ![...files].some(([path]) =>
-        path.startsWith(`${manifest.correspondingSource}/`)
+        path.startsWith(`${manifest.correspondingSource}/`),
       )
     ) {
       throw new Error("Incomplete Jackett Mini runtime inventory");
     }
     const canonical = JSON.stringify(
-      manifest.files.map(file => ({
+      manifest.files.map((file) => ({
         executable: file.executable,
         path: file.path,
         sha256: file.sha256,
         size: file.size,
-      }))
+      })),
     );
     if (
       hexDigest(new TextEncoder().encode(canonical)) !== manifest.runtimeSha256
@@ -264,12 +309,12 @@ async function bundleInfo(archivePath) {
     const actualFiles = new Set(
       [...centralEntries]
         .filter(([, metadata]) => !metadata.directory)
-        .map(([path]) => path)
+        .map(([path]) => path),
     );
     const expectedFiles = new Set([...files.keys(), MANIFEST]);
     if (
       actualFiles.size !== expectedFiles.size ||
-      [...actualFiles].some(path => !expectedFiles.has(path)) ||
+      [...actualFiles].some((path) => !expectedFiles.has(path)) ||
       [...centralEntries].some(([path, metadata]) => {
         const normalized = metadata.directory ? path.slice(0, -1) : path;
         return (
@@ -309,11 +354,11 @@ function requestHealth(record, timeout = 1000) {
     request.setRequestHeader("Authorization", `Bearer ${record.capability}`);
     request.setRequestHeader("Cache-Control", "no-store");
     request.addEventListener("load", () =>
-      resolve({ status: request.status, body: request.response })
+      resolve({ status: request.status, body: request.response }),
     );
     request.addEventListener("error", () => reject(new Error("health failed")));
     request.addEventListener("timeout", () =>
-      reject(new Error("health timed out"))
+      reject(new Error("health timed out")),
     );
     request.send();
   });
@@ -426,7 +471,7 @@ async function acquireLock(stateDirectory) {
       await privateJSON(ownerPath, {
         pid: Services.appinfo.processID,
         linuxProcessStartTime: await processStartTime(
-          Services.appinfo.processID
+          Services.appinfo.processID,
         ),
         token,
       });
@@ -456,39 +501,37 @@ async function acquireLock(stateDirectory) {
       });
       continue;
     }
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
   throw new Error("Timed out waiting for the Jackett Mini launch lock");
 }
 
 /** Activates and supervises the bundled native Jackett Mini service. */
 export class JackettMiniRuntime {
-  constructor() {
+  constructor({ profilePath, dataHome, runtimeHome } = {}) {
     const home = Services.dirsvc.get("Home", Ci.nsIFile).path;
-    const dataHome =
+    dataHome ??=
       Services.env.get("XDG_DATA_HOME") ||
       PathUtils.join(home, ".local", "share");
-    const runtimeHome =
-      Services.env.get("XDG_RUNTIME_DIR") ||
-      PathUtils.join(dataHome, "wildbuzzard", "jackett-mini", "run");
-    this.rootDirectory = PathUtils.join(
+    runtimeHome ??= Services.env.get("XDG_RUNTIME_DIR") || null;
+    profilePath ??= Services.dirsvc.get("ProfD", Ci.nsIFile).path;
+    const paths = jackettMiniProfilePaths({
+      profilePath,
       dataHome,
-      "wildbuzzard",
-      "jackett-mini"
-    );
+      runtimeHome,
+    });
+    this.profileNamespace = paths.profileNamespace;
+    this.rootDirectory = paths.rootDirectory;
+    this.stateDirectory = paths.stateDirectory;
     this.bundleRoot = PathUtils.join(this.rootDirectory, "runtime");
     this.dataDirectory = PathUtils.join(this.rootDirectory, "data");
-    this.stateDirectory = PathUtils.join(
-      runtimeHome,
-      "wildbuzzard-jackett-mini"
-    );
     this.connectionPath = PathUtils.join(
       this.stateDirectory,
-      "connection.json"
+      "connection.json",
     );
     this.activeRuntimePath = PathUtils.join(
       this.bundleRoot,
-      "active-runtime.json"
+      "active-runtime.json",
     );
   }
 
@@ -496,7 +539,7 @@ export class JackettMiniRuntime {
     const configured =
       Services.prefs.getStringPref(
         "wildbuzzard.torrent.discoveryRuntime",
-        ""
+        "",
       ) || Services.env.get("WILDBUZZARD_JACKETT_MINI_RUNTIME");
     if (configured) {
       return configured;
@@ -505,14 +548,14 @@ export class JackettMiniRuntime {
       Services.dirsvc.get("GreD", Ci.nsIFile).path,
       "runtime",
       "jackett-mini",
-      "wildbuzzard-jackett-mini-runtime.zip"
+      "wildbuzzard-jackett-mini-runtime.zip",
     );
   }
 
   async ensure() {
     if (AppConstants.platform !== "linux") {
       throw new Error(
-        "The bundled Jackett Mini runtime currently supports Linux"
+        "The bundled Jackett Mini runtime currently supports Linux",
       );
     }
     await privateDirectory(this.rootDirectory);
@@ -551,7 +594,7 @@ export class JackettMiniRuntime {
     const archivePath = this.archivePath();
     if (!(await IOUtils.exists(archivePath))) {
       throw new Error(
-        "The bundled torrent search runtime was not found. Build with --jackett-mini-runtime."
+        "The bundled torrent search runtime was not found. Build with --jackett-mini-runtime.",
       );
     }
     const bundle = await bundleInfo(archivePath);
@@ -569,7 +612,7 @@ export class JackettMiniRuntime {
     }
     const staging = PathUtils.join(
       this.bundleRoot,
-      `.staging-${bundle.bundleId}-${Services.appinfo.processID}-${Date.now()}`
+      `.staging-${bundle.bundleId}-${Services.appinfo.processID}-${Date.now()}`,
     );
     await IOUtils.makeDirectory(staging, {
       ignoreExisting: false,
@@ -613,7 +656,7 @@ export class JackettMiniRuntime {
         await IOUtils.write(target, bytes, { mode: "create" });
         await IOUtils.setPermissions(
           target,
-          bundle.executables.has(entry) ? 0o755 : 0o644
+          bundle.executables.has(entry) ? 0o755 : 0o644,
         );
       }
       await privateJSON(PathUtils.join(staging, ".extraction-complete"), {
@@ -633,7 +676,7 @@ export class JackettMiniRuntime {
   async runtimeFromBundle(directory, bundle) {
     const executablePath = PathUtils.join(
       directory,
-      bundle.manifest.executableName
+      bundle.manifest.executableName,
     );
     return {
       bundleId: bundle.bundleId,
@@ -651,7 +694,7 @@ export class JackettMiniRuntime {
       !/^[0-9A-Za-z._-]+$/.test(active.bundleId) ||
       active.directory !== PathUtils.join(this.bundleRoot, active.bundleId) ||
       !(await IOUtils.exists(
-        PathUtils.join(active.directory, ".extraction-complete")
+        PathUtils.join(active.directory, ".extraction-complete"),
       ))
     ) {
       return null;
@@ -661,10 +704,10 @@ export class JackettMiniRuntime {
 
   async runtimeFromDirectory(active) {
     const manifest = await IOUtils.readJSON(
-      PathUtils.join(active.directory, MANIFEST)
+      PathUtils.join(active.directory, MANIFEST),
     );
     const executable = manifest.files.find(
-      file => file.path === manifest.executableName && file.executable
+      (file) => file.path === manifest.executableName && file.executable,
     );
     if (!executable) {
       throw new Error("Previous Jackett Mini runtime is invalid");
@@ -698,11 +741,11 @@ export class JackettMiniRuntime {
       const suffix = randomToken(12);
       const capabilityPath = PathUtils.join(
         this.stateDirectory,
-        `capability-${suffix}`
+        `capability-${suffix}`,
       );
       const pidPath = PathUtils.join(
         this.stateDirectory,
-        `jackett-${suffix}.pid`
+        `jackett-${suffix}.pid`,
       );
       await IOUtils.writeUTF8(capabilityPath, `${capability}\n`, {
         mode: "create",
@@ -751,11 +794,11 @@ export class JackettMiniRuntime {
               break;
             }
           } catch {}
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
         if (!health) {
           throw new Error(
-            "Jackett Mini did not become identity-verified and healthy"
+            "Jackett Mini did not become identity-verified and healthy",
           );
         }
         const record = {
@@ -778,7 +821,7 @@ export class JackettMiniRuntime {
         };
         if (!(await processMatches(record)) || !(await healthMatches(record))) {
           throw new Error(
-            "Jackett Mini process identity changed during startup"
+            "Jackett Mini process identity changed during startup",
           );
         }
         await privateJSON(this.connectionPath, record);
@@ -787,7 +830,7 @@ export class JackettMiniRuntime {
         process.kill();
         await removeRecordFiles(
           { capabilityPath, pidPath },
-          this.stateDirectory
+          this.stateDirectory,
         );
         if (attempt === START_ATTEMPTS - 1) {
           throw error;

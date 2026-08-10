@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 id: __INDEXER_ID__
 name: __INDEXER_NAME__
-description: Deterministic adversarial tracker used only by the pristine Jackett oracle
+description: Deterministic adversarial tracker used only by the side-by-side comparison
 language: en-US
 type: public
 encoding: UTF-8
