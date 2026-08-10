@@ -17,7 +17,11 @@ Use this objective:
 > root orchestrator; use at most three isolated-worktree `gpt-5.6-sol`
 > subagents concurrently at the high/ultra levels assigned by the spec. Do not
 > stop at planning or mocks. Implement every phase, preserve license/process
-> boundaries. First reproduce and fix the existing Add Torrent/File
+> boundaries. Build and run every WildBuzzard component, bundled runtime,
+> Firefox test, and AppImage directly on the host. Containers are disposable
+> pristine-upstream parity oracles only and are never a product builder,
+> runtime, package stage, or user dependency. First reproduce and fix the
+> existing Add Torrent/File
 > native-chooser JavaScript failure, with an automated privileged-picker test
 > and headed built-browser/AppImage E2E. Ship the constrained GPL-2.0-only
 > Jackett Mini with an immutable catalog enabling every credential-free,
