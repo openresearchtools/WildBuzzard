@@ -150,6 +150,7 @@ for path in \
   wildbuzzard/scripts/runtime-archive-manifest.py \
   wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
   wildbuzzard/scripts/verify-pi-web-installed-tree.mjs \
+  wildbuzzard/scripts/validate-pi-web-runtime-archive.py \
   wildbuzzard/scripts/verify-pi-web-runtime-inputs.py \
   wildbuzzard/pi-web-runtime-lock.json; do
   committed_sha="$(git -C "${source_repo}" show "${source_commit}:${path}" | sha256sum | awk '{ print $1 }')"
@@ -515,6 +516,7 @@ git -C "${source_checkout}" archive "${source_commit}" -- \
   wildbuzzard/scripts/runtime-archive-manifest.py \
   wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
   wildbuzzard/scripts/validate-pi-web-runtime-archive.py \
+  wildbuzzard/scripts/verify-pi-web-installed-tree.mjs \
   wildbuzzard/scripts/verify-pi-web-runtime-inputs.py |
   tar -xf - -C "${source_stage}/wildbuzzard"
 git -C "${pi_web_checkout}" archive "${pi_web_commit}" |
@@ -695,6 +697,8 @@ python3 "${source_checkout}/wildbuzzard/scripts/runtime-archive-manifest.py" arc
   "${runtime_dir}" "${runtime_zip}" "${source_date_epoch}"
 python3 "${source_checkout}/wildbuzzard/scripts/runtime-archive-manifest.py" verify \
   "${runtime_zip}"
+python3 "${source_checkout}/wildbuzzard/scripts/validate-pi-web-runtime-archive.py" \
+  "${runtime_zip}" --lock "${source_checkout}/wildbuzzard/pi-web-runtime-lock.json"
 runtime_sha256="$(sha256sum "${runtime_zip}" | awk '{ print $1 }')"
 sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
 sha256sum "${source_archive}" >"${source_archive}.sha256"

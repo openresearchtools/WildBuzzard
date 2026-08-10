@@ -29,7 +29,19 @@ def required_object(value, keys, label):
 
 def load_lock(path):
     lock = json.loads(path.read_text(encoding="utf-8"))
-    required_object(lock, ["schema", "platform", "piWeb", "piPackages", "node"], "lock")
+    required_object(
+        lock,
+        [
+            "schema",
+            "platform",
+            "piWeb",
+            "piPackages",
+            "node",
+            "runtimeArchive",
+            "runtimePayload",
+        ],
+        "lock",
+    )
     if lock["schema"] != 1 or lock["platform"] != "linux-x64":
         fail("unsupported Pi Web runtime lock")
     pi_web = required_object(
@@ -43,6 +55,7 @@ def load_lock(path):
             "packageManager",
             "packageJsonSha256",
             "packageLockSha256",
+            "packageArchiveSha256",
             "licenseSha256",
         ],
         "Pi Web pin",
@@ -54,7 +67,12 @@ def load_lock(path):
         fail("invalid Pi Web commit or tree pin")
     if pi_web["repository"] != "https://github.com/openresearchtools/pi-web.git":
         fail("invalid Pi Web repository pin")
-    for key in ("packageJsonSha256", "packageLockSha256", "licenseSha256"):
+    for key in (
+        "packageJsonSha256",
+        "packageLockSha256",
+        "packageArchiveSha256",
+        "licenseSha256",
+    ):
         if not SHA256.fullmatch(pi_web[key]):
             fail(f"invalid Pi Web {key} pin")
     if (
@@ -72,6 +90,37 @@ def load_lock(path):
     }
     if lock["piPackages"] != expected_pi:
         fail("invalid Pi package pins")
+    runtime_archive = required_object(
+        lock["runtimeArchive"],
+        ["bootstrapBlocked", "sourceCommit", "sha256"],
+        "runtime archive pin",
+    )
+    if (
+        not isinstance(runtime_archive["bootstrapBlocked"], bool)
+        or not COMMIT.fullmatch(runtime_archive["sourceCommit"])
+        or not SHA256.fullmatch(runtime_archive["sha256"])
+        or runtime_archive["bootstrapBlocked"]
+        != (
+            runtime_archive["sourceCommit"] == "0" * 40
+            and runtime_archive["sha256"] == "0" * 64
+        )
+    ):
+        fail("invalid runtime archive pin")
+    payload = lock["runtimePayload"]
+    if (
+        not isinstance(payload, dict)
+        or not payload
+        or any(
+            not isinstance(path, str)
+            or not path
+            or not isinstance(pin, dict)
+            or set(pin) != {"sha256", "executable"}
+            or not SHA256.fullmatch(str(pin.get("sha256", "")))
+            or not isinstance(pin.get("executable"), bool)
+            for path, pin in payload.items()
+        )
+    ):
+        fail("invalid Pi Web runtime payload pins")
     return lock
 
 

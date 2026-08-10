@@ -1,12 +1,14 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import base64
+import gzip
 import hashlib
 import importlib.util
 import io
 import json
 import stat
 import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -27,6 +29,7 @@ VERIFY = load_script("verify-pi-web-runtime-inputs.py", "pi_web_verify")
 VALIDATE = load_script("validate-pi-web-runtime-archive.py", "pi_web_runtime_validate")
 COMPARE = load_script("compare-pi-web-runtime-builds.py", "pi_web_compare")
 ARCHIVE = load_script("runtime-archive-manifest.py", "pi_web_archive")
+COPY = load_script("../copy_pi_web_runtime.py", "pi_web_copy")
 
 
 def sha256(value):
@@ -34,7 +37,69 @@ def sha256(value):
 
 
 class PiWebRuntimePackagingTest(unittest.TestCase):
+    def pi_web_package_files(self):
+        return {
+            "package.json": json.dumps(
+                {"name": "@jmfederico/pi-web", "version": "1.202608.0"},
+                sort_keys=True,
+            ).encode(),
+            "dist/cli.js": b"pi web cli\n",
+            "dist/server/index.js": b"pi web server\n",
+            "dist/server/sessiond.js": b"pi web sessiond\n",
+        }
+
+    def package_archive(self):
+        compressed = io.BytesIO()
+        with gzip.GzipFile(fileobj=compressed, mode="wb", mtime=0) as zipped:
+            with tarfile.open(fileobj=zipped, mode="w") as archive:
+                for name, value in self.pi_web_package_files().items():
+                    info = tarfile.TarInfo(f"package/{name}")
+                    info.size = len(value)
+                    info.mode = 0o644
+                    info.mtime = 0
+                    archive.addfile(info, io.BytesIO(value))
+        return compressed.getvalue()
+
+    def core_payload(self):
+        files = {
+            "bin/pi": b"#!/bin/sh\npi\n",
+            "bin/pi-web": b"#!/bin/sh\npi-web\n",
+            "bin/pi-web-server": b"#!/bin/sh\npi-web-server\n",
+            "bin/pi-web-sessiond": b"#!/bin/sh\npi-web-sessiond\n",
+            "node/bin/node": b"\x7fELFnode",
+            "node_modules/@earendil-works/pi-agent-core/package.json": json.dumps(
+                {"name": "@earendil-works/pi-agent-core", "version": "0.84.1"},
+                sort_keys=True,
+            ).encode(),
+            "node_modules/@earendil-works/pi-ai/package.json": json.dumps(
+                {"name": "@earendil-works/pi-ai", "version": "0.84.1"},
+                sort_keys=True,
+            ).encode(),
+            "node_modules/@earendil-works/pi-coding-agent/package.json": json.dumps(
+                {
+                    "name": "@earendil-works/pi-coding-agent",
+                    "version": "0.84.1",
+                },
+                sort_keys=True,
+            ).encode(),
+            "node_modules/@earendil-works/pi-coding-agent/dist/cli.js": b"pi cli\n",
+        }
+        files.update({
+            f"node_modules/@jmfederico/pi-web/{name}": value
+            for name, value in self.pi_web_package_files().items()
+        })
+        return files
+
     def base_lock(self):
+        package_files = self.pi_web_package_files()
+        payload = self.core_payload()
+        executable = {
+            "bin/pi",
+            "bin/pi-web",
+            "bin/pi-web-server",
+            "bin/pi-web-sessiond",
+            "node/bin/node",
+        }
         return {
             "schema": 1,
             "platform": "linux-x64",
@@ -45,8 +110,9 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
                 "name": "@jmfederico/pi-web",
                 "version": "1.202608.0",
                 "packageManager": "npm@10.9.8",
-                "packageJsonSha256": "c" * 64,
-                "packageLockSha256": "d" * 64,
+                "packageJsonSha256": sha256(package_files["package.json"]),
+                "packageLockSha256": sha256(b'{"lockfileVersion":3}\n'),
+                "packageArchiveSha256": sha256(self.package_archive()),
                 "licenseSha256": "e" * 64,
             },
             "piPackages": {
@@ -59,6 +125,18 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
                 "archive": "node-v22.23.2-linux-x64.tar.xz",
                 "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-x64.tar.xz",
                 "sha256": "f" * 64,
+            },
+            "runtimeArchive": {
+                "bootstrapBlocked": False,
+                "sourceCommit": "8" * 40,
+                "sha256": "0" * 64,
+            },
+            "runtimePayload": {
+                path: {
+                    "sha256": sha256(value),
+                    "executable": path in executable,
+                }
+                for path, value in payload.items()
             },
         }
 
@@ -111,9 +189,15 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
                 VERIFY.verify_fork(self.base_lock(), repo)
 
     def create_pinned_runtime(
-        self, directory, *, manifest_overrides=None, inventory_overrides=None
+        self,
+        directory,
+        *,
+        manifest_overrides=None,
+        inventory_overrides=None,
+        file_overrides=None,
     ):
         lock = self.base_lock()
+        payload = self.core_payload()
         inventory = {
             "schema": 1,
             "piWebCommit": lock["piWeb"]["commit"],
@@ -125,7 +209,9 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
                     "version": version,
                     "resolved": f"https://registry.npmjs.org/{name}/-/package.tgz",
                     "integrity": "sha512-" + base64.b64encode(b"x" * 64).decode(),
-                    "manifestSha256": "1" * 64,
+                    "manifestSha256": sha256(
+                        payload[f"node_modules/{name}/package.json"]
+                    ),
                 }
                 for name, version in lock["piPackages"].items()
             ],
@@ -142,7 +228,20 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             "source/runtime-dependencies.json": inventory_bytes,
             "source/sbom.cdx.json": b"{}",
             "source/sbom.spdx.json": b"{}",
+            "source/pi-web-package-lock.json": b'{"lockfileVersion":3}\n',
+            f"source/pi-web-package-{lock['piWeb']['commit']}.tgz": self.package_archive(),
+            **payload,
         }
+        for name, value in (file_overrides or {}).items():
+            if value is None:
+                files.pop(name, None)
+            else:
+                files[name] = value
+        executables = [
+            path
+            for path, pin in lock["runtimePayload"].items()
+            if pin["executable"] and path in files
+        ]
         manifest = {
             "schema": 4,
             "component": "pi-web",
@@ -150,6 +249,7 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             "piWebCommit": lock["piWeb"]["commit"],
             "piWebTree": lock["piWeb"]["tree"],
             "piWebRepository": lock["piWeb"]["repository"],
+            "wildbuzzardCommit": lock["runtimeArchive"]["sourceCommit"],
             "dependencyLockSha256": lock["piWeb"]["packageLockSha256"],
             "nodeVersion": lock["node"]["version"],
             "nodeArchiveSha256": lock["node"]["sha256"],
@@ -161,15 +261,21 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             "sbom": "source/sbom.cdx.json",
             "spdxSbom": "source/sbom.spdx.json",
             "licenseLocations": [],
-            "executableAllowlist": [],
+            "executableAllowlist": executables,
             "files": {name: sha256(value) for name, value in files.items()},
         }
         manifest.update(manifest_overrides or {})
         archive = directory / "runtime.zip"
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_STORED) as output:
             for name, value in files.items():
-                output.writestr(name, value)
+                entry = zipfile.ZipInfo(name)
+                entry.create_system = 3
+                entry.external_attr = (
+                    stat.S_IFREG | (0o755 if name in executables else 0o644)
+                ) << 16
+                output.writestr(entry, value)
             output.writestr("wildbuzzard-runtime.json", json.dumps(manifest))
+        lock["runtimeArchive"]["sha256"] = sha256(archive.read_bytes())
         lock_path = directory / "lock.json"
         lock_path.write_text(json.dumps(lock), encoding="utf-8")
         return archive, lock_path
@@ -178,6 +284,27 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             archive, lock = self.create_pinned_runtime(Path(temporary))
             VALIDATE.validate(archive, lock)
+
+    def test_bootstrap_archive_pin_always_blocks_packaging(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive, lock_path = self.create_pinned_runtime(Path(temporary))
+            lock = json.loads(lock_path.read_text(encoding="utf-8"))
+            lock["runtimeArchive"] = {
+                "bootstrapBlocked": True,
+                "sourceCommit": "0" * 40,
+                "sha256": "0" * 64,
+            }
+            lock_path.write_text(json.dumps(lock), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "bootstrap pin blocks"):
+                VALIDATE.validate(archive, lock_path)
+
+    def test_runtime_archive_rejects_whole_archive_digest_drift(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive, lock = self.create_pinned_runtime(Path(temporary))
+            with open(archive, "ab") as output:
+                output.write(b"unexpected payload")
+            with self.assertRaisesRegex(ValueError, "archive digest differs"):
+                VALIDATE.validate(archive, lock)
 
     def test_runtime_archive_rejects_pin_drift(self):
         fields = {
@@ -196,17 +323,122 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, field):
                     VALIDATE.validate(archive, lock)
 
-    def test_runtime_archive_rejects_unverified_dependency(self):
+    def test_runtime_archive_rejects_unverified_dependencies(self):
+        invalid = [
+            ("resolved", None),
+            ("integrity", None),
+            ("integrity", "sha512-c2hvcnQ="),
+            ("integrity", "sha512-not+base64!"),
+        ]
+        for field, value in invalid:
+            with self.subTest(
+                field=field, value=value
+            ), tempfile.TemporaryDirectory() as temporary:
+                archive, _lock = self.create_pinned_runtime(Path(temporary))
+                with zipfile.ZipFile(archive) as source:
+                    inventory = json.loads(
+                        source.read("source/runtime-dependencies.json")
+                    )
+                inventory["packages"][0][field] = value
+                archive, lock = self.create_pinned_runtime(
+                    Path(temporary),
+                    inventory_overrides={"packages": inventory["packages"]},
+                )
+                with self.assertRaisesRegex(ValueError, "untrusted"):
+                    VALIDATE.validate(archive, lock)
+
+    def test_runtime_archive_rejects_unverified_web_access_dependency(self):
         with tempfile.TemporaryDirectory() as temporary:
-            archive, lock = self.create_pinned_runtime(Path(temporary))
-            with zipfile.ZipFile(archive) as source:
-                inventory = json.loads(source.read("source/runtime-dependencies.json"))
-            inventory["packages"][0]["integrity"] = None
+            directory = Path(temporary)
+            manifest_path = "seed/web-access/node_modules/web/package.json"
+            manifest = json.dumps({"name": "web", "version": "1.0.0"}).encode()
+            package = {
+                "path": "seed/web-access/node_modules/web",
+                "name": "web",
+                "version": "1.0.0",
+                "resolved": None,
+                "integrity": None,
+                "manifestSha256": sha256(manifest),
+            }
             archive, lock = self.create_pinned_runtime(
-                Path(temporary), inventory_overrides={"packages": inventory["packages"]}
+                directory,
+                inventory_overrides={"webAccessPackages": [package]},
+                file_overrides={manifest_path: manifest},
             )
             with self.assertRaisesRegex(ValueError, "untrusted"):
                 VALIDATE.validate(archive, lock)
+
+    def test_runtime_archive_rejects_malformed_inventory_types(self):
+        for field, value in (("packages", {}), ("webAccessPackages", {})):
+            with self.subTest(field=field), tempfile.TemporaryDirectory() as temporary:
+                archive, lock = self.create_pinned_runtime(
+                    Path(temporary), inventory_overrides={field: value}
+                )
+                with self.assertRaises(ValueError):
+                    VALIDATE.validate(archive, lock)
+
+    def test_runtime_archive_rejects_absent_or_changed_payload(self):
+        path = "node/bin/node"
+        for value in (None, b"different node"):
+            with self.subTest(value=value), tempfile.TemporaryDirectory() as temporary:
+                archive, lock = self.create_pinned_runtime(
+                    Path(temporary), file_overrides={path: value}
+                )
+                with self.assertRaises(ValueError):
+                    VALIDATE.validate(archive, lock)
+
+    def test_runtime_archive_rejects_wrong_embedded_lock_and_package(self):
+        lock_path = "source/pi-web-package-lock.json"
+        package_path = f"source/pi-web-package-{'a' * 40}.tgz"
+        for path, value in ((lock_path, b"wrong"), (package_path, b"wrong")):
+            with self.subTest(path=path), tempfile.TemporaryDirectory() as temporary:
+                archive, lock = self.create_pinned_runtime(
+                    Path(temporary), file_overrides={path: value}
+                )
+                with self.assertRaises(ValueError):
+                    VALIDATE.validate(archive, lock)
+
+    def test_copy_uses_the_validated_open_archive_after_replacement(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            archive, lock = self.create_pinned_runtime(directory)
+            expected = archive.read_bytes()
+            replacement = directory / "replacement.zip"
+            replacement.write_bytes(b"not a runtime")
+
+            class ReplacingValidator:
+                @staticmethod
+                def validate_opened_archive(source, lock_path):
+                    result = VALIDATE.validate_opened_archive(source, lock_path)
+                    replacement.replace(archive)
+                    return result
+
+            original_validator = COPY.validator
+            COPY.validator = lambda: ReplacingValidator
+            try:
+                output = io.BytesIO()
+                COPY.main(output, archive, lock)
+            finally:
+                COPY.validator = original_validator
+            self.assertEqual(output.getvalue(), expected)
+            self.assertEqual(archive.read_bytes(), b"not a runtime")
+
+    def test_runtime_validator_command_checks_real_archive(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive, lock = self.create_pinned_runtime(Path(temporary))
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    SCRIPTS / "validate-pi-web-runtime-archive.py",
+                    archive,
+                    "--lock",
+                    lock,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_configure_enforces_runtime_archive_pin(self):
         configure = (SCRIPTS.parent / "moz.configure").read_text(encoding="utf-8")
@@ -219,6 +451,10 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
         self.assertIn('"pi-web-runtime-lock.json"', mozbuild)
         self.assertIn('"scripts/validate-pi-web-runtime-archive.py"', mozbuild)
         self.assertIn("wildbuzzard/scripts/validate-pi-web-runtime-archive.py", build)
+        self.assertIn(
+            "validate_opened_archive",
+            (SCRIPTS.parent / "copy_pi_web_runtime.py").read_text(),
+        )
 
     def test_runtime_zip_is_byte_reproducible(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -321,6 +557,29 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
         self.assertIn('unlink -- "${browser_tools_modules}"', source)
         self.assertIn("'export PI_TELEMETRY=0'", source)
         self.assertIn("'export PI_SKIP_VERSION_CHECK=1'", source)
+        committed_inputs = source[
+            source.index("for path in ") : source.index(
+                "; do", source.index("for path in ")
+            )
+        ]
+        corresponding_source = source[
+            source.index('git -C "${source_checkout}" archive') : source.index(
+                "|\n  tar -xf", source.index('git -C "${source_checkout}" archive')
+            )
+        ]
+        build_controls = [
+            "assemble-pi-web-runtime.mjs",
+            "build-pi-web-runtime.sh",
+            "compare-pi-web-runtime-builds.py",
+            "runtime-archive-manifest.py",
+            "test-pi-web-runtime-lifecycle.mjs",
+            "validate-pi-web-runtime-archive.py",
+            "verify-pi-web-installed-tree.mjs",
+            "verify-pi-web-runtime-inputs.py",
+        ]
+        for path in build_controls:
+            self.assertIn(path, committed_inputs)
+            self.assertIn(path, corresponding_source)
 
     def run_installed_tree_verifier(self, root):
         return subprocess.run(

@@ -15,8 +15,12 @@ def validator():
     return module
 
 
-def main(output, source):
+def main(output, source, lock_path=None):
     root = Path(__file__).parent
-    validator().validate(Path(source), root / "pi-web-runtime-lock.json")
     with open(source, "rb") as source_file:
+        validator().validate_opened_archive(
+            source_file,
+            Path(lock_path) if lock_path else root / "pi-web-runtime-lock.json",
+        )
+        source_file.seek(0)
         shutil.copyfileobj(source_file, output)
