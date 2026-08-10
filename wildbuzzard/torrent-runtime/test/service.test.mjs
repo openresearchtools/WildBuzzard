@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createServer as createHttpServer } from "node:http";
+import {
+  createServer as createHttpServer,
+  request as httpRequest,
+} from "node:http";
 import { tmpdir } from "node:os";
 import {
   connect as netConnect,
@@ -24,6 +28,7 @@ let seedPath;
 const socksTargets = [];
 let trackerRequests = 0;
 let metadataRequests = 0;
+const servicePath = fileURLToPath(new URL("../service.mjs", import.meta.url));
 
 function socksServer() {
   return createNetServer(socket => {
@@ -148,6 +153,109 @@ function createTorrentBytes(input, options = {}) {
   );
 }
 
+function bencode(value) {
+  if (Buffer.isBuffer(value)) {
+    return Buffer.concat([Buffer.from(`${value.length}:`), value]);
+  }
+  if (typeof value === "string") {
+    return bencode(Buffer.from(value));
+  }
+  if (Number.isInteger(value)) {
+    return Buffer.from(`i${value}e`);
+  }
+  if (Array.isArray(value)) {
+    return Buffer.concat([
+      Buffer.from("l"),
+      ...value.map(bencode),
+      Buffer.from("e"),
+    ]);
+  }
+  const entries = Object.entries(value).sort(([a], [b]) => a.localeCompare(b));
+  return Buffer.concat([
+    Buffer.from("d"),
+    ...entries.flatMap(([key, item]) => [bencode(key), bencode(item)]),
+    Buffer.from("e"),
+  ]);
+}
+
+function apiRequest({
+  path = "/v1/status",
+  method = "GET",
+  body,
+  headers = {},
+  target = connection,
+}) {
+  return new Promise((resolve, reject) => {
+    const request = httpRequest(
+      {
+        host: "127.0.0.1",
+        port: target.port,
+        path,
+        method,
+        headers: {
+          authorization: `Bearer ${target.token}`,
+          ...(body === undefined
+            ? {}
+            : {
+                "content-length": Buffer.byteLength(body),
+                "content-type": "application/json",
+              }),
+          ...headers,
+        },
+      },
+      response => {
+        const chunks = [];
+        response.on("data", chunk => chunks.push(chunk));
+        response.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          resolve({
+            body: text ? JSON.parse(text) : null,
+            status: response.statusCode,
+          });
+        });
+      }
+    );
+    request.on("error", reject);
+    request.end(body);
+  });
+}
+
+function spawnResult(argumentsList) {
+  return new Promise(resolve => {
+    const child = spawn(process.execPath, argumentsList, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const stdout = [];
+    const stderr = [];
+    child.stdout.on("data", chunk => stdout.push(chunk));
+    child.stderr.on("data", chunk => stderr.push(chunk));
+    child.on("exit", exitCode =>
+      resolve({
+        exitCode,
+        stderr: Buffer.concat(stderr).toString("utf8"),
+        stdout: Buffer.concat(stdout).toString("utf8"),
+      })
+    );
+  });
+}
+
+function blockedMutation() {
+  const request = httpRequest({
+    host: "127.0.0.1",
+    port: connection.port,
+    path: "/v1/settings",
+    method: "PATCH",
+    headers: {
+      authorization: `Bearer ${connection.token}`,
+      "content-length": 2,
+      "content-type": "application/json",
+    },
+  });
+  request.on("error", () => {});
+  request.flushHeaders();
+  return request;
+}
+
 before(async () => {
   root = await mkdtemp(join(tmpdir(), "wildbuzzard-torrent-test-"));
   seedPath = join(root, "seed.txt");
@@ -170,6 +278,7 @@ before(async () => {
       dataDirectory: join(root, "data"),
       downloadDirectory: join(root, "downloads"),
       connectionPath,
+      ownerInstance: "runtime-test-owner-00000001",
       maxActive: 2,
       natUpnp: false,
       natPmp: false,
@@ -179,12 +288,7 @@ before(async () => {
   );
   service = spawn(
     process.execPath,
-    [
-      fileURLToPath(new URL("../service.mjs", import.meta.url)),
-      "serve",
-      "--config",
-      configPath,
-    ],
+    [servicePath, "serve", "--config", configPath],
     {
       stdio: "inherit",
     }
@@ -218,11 +322,13 @@ before(async () => {
 
 after(async () => {
   if (connection) {
-    await request("/v1/shutdown", { method: "POST", body: "{}" }).catch(
-      () => {}
+    await request("/v1/shutdown", { method: "POST", body: "{}" }).catch(() =>
+      service?.kill("SIGTERM")
     );
   }
-  await new Promise(resolve => service?.once("exit", resolve));
+  if (service?.exitCode === null) {
+    await new Promise(resolve => service.once("exit", resolve));
+  }
   await new Promise(resolve => seeder?.destroy(resolve));
   await new Promise(resolve => socks?.close(resolve));
   await new Promise(resolve => tracker?.close(resolve));
@@ -363,6 +469,25 @@ test("rejects colliding and platform-reserved paths", async () => {
   assert.equal(collisionFailure.status, 400);
   assert.match(collisionFailure.body.error, /colliding file paths/);
 
+  const prefixCollision = bencode({
+    info: {
+      files: [
+        { length: 1, path: ["a"] },
+        { length: 1, path: ["a-b"] },
+        { length: 1, path: ["a", "b"] },
+      ],
+      name: "prefix-fixture",
+      "piece length": 16384,
+      pieces: createHash("sha1").update("fixture").digest(),
+    },
+  });
+  const prefixFailure = await requestFailure("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ torrent: prefixCollision.toString("base64") }),
+  });
+  assert.equal(prefixFailure.status, 400);
+  assert.match(prefixFailure.body.error, /colliding file paths/);
+
   const reservedPath = join(root, "CON.txt");
   await writeFile(reservedPath, "reserved");
   const reserved = await createTorrentBytes(reservedPath, {
@@ -377,6 +502,59 @@ test("rejects colliding and platform-reserved paths", async () => {
   });
   assert.equal(reservedFailure.status, 400);
   assert.match(reservedFailure.body.error, /unsafe file path/);
+});
+
+test("consumes drafts atomically across commit and cancel races", async () => {
+  const first = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ torrent: globalThis.testTorrent }),
+  });
+  const commits = await Promise.all([
+    apiRequest({
+      path: `/v1/torrent-drafts/${first.draftId}/commit`,
+      method: "POST",
+      body: "{}",
+    }),
+    apiRequest({
+      path: `/v1/torrent-drafts/${first.draftId}/commit`,
+      method: "POST",
+      body: "{}",
+    }),
+  ]);
+  assert.deepEqual(commits.map(result => result.status).sort(), [201, 400]);
+  const committed = commits.find(result => result.status === 201).body;
+  assert.equal(
+    (await request("/v1/status")).torrents.filter(
+      torrent => torrent.id === committed.id
+    ).length,
+    1
+  );
+  await request(`/v1/torrents/${committed.id}`, { method: "DELETE" });
+
+  const second = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ torrent: globalThis.testTorrent }),
+  });
+  const race = await Promise.all([
+    apiRequest({
+      path: `/v1/torrent-drafts/${second.draftId}/commit`,
+      method: "POST",
+      body: "{}",
+    }),
+    apiRequest({
+      path: `/v1/torrent-drafts/${second.draftId}`,
+      method: "DELETE",
+    }),
+  ]);
+  assert.equal(
+    race.filter(result => result.status >= 200 && result.status < 300).length,
+    1
+  );
+  const raceCommit = race.find(result => result.status === 201)?.body;
+  if (raceCommit) {
+    await request(`/v1/torrents/${raceCommit.id}`, { method: "DELETE" });
+  }
+  assert.equal((await request("/v1/status")).draftCount, 0);
 });
 
 test("routes TCP peers through SOCKS and disables direct-only transports", async () => {
@@ -464,8 +642,215 @@ test("routes TCP peers through SOCKS and disables direct-only transports", async
   });
   await new Promise(resolve => setTimeout(resolve, 500));
   assert.equal(metadataRequests, 0);
+  const draftMagnet = new URL(magnet.href);
+  draftMagnet.searchParams.append("x.pe", `127.0.0.1:${seeder.torrentPort}`);
+  const torDraft = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ magnet: draftMagnet.href }),
+  });
+  await new Promise(resolve => setTimeout(resolve, 500));
+  assert.equal(
+    metadataRequests,
+    0,
+    "Tor magnet drafts never fetch as/ws/xs URLs directly"
+  );
+  await request(`/v1/torrent-drafts/${torDraft.draftId}`, {
+    method: "DELETE",
+  });
   await request(`/v1/torrents/${magnetRecord.id}`, { method: "DELETE" });
   await request(`/v1/torrents/${record.id}?deleteData=true`, {
     method: "DELETE",
   });
+});
+
+test("expires a draft atomically while commit and cancel race", async () => {
+  const expiryRoot = await mkdtemp(join(tmpdir(), "torrent-expiry-test-"));
+  const configPath = join(expiryRoot, "config.json");
+  const connectionPath = join(expiryRoot, "connection.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      dataDirectory: join(expiryRoot, "data"),
+      downloadDirectory: join(expiryRoot, "downloads"),
+      connectionPath,
+      draftTtlMs: 100,
+      ownerInstance: "expiry-test-owner-000000001",
+      dht: false,
+      lsd: false,
+      natPmp: false,
+      natUpnp: false,
+      utp: false,
+    })
+  );
+  const child = spawn(
+    process.execPath,
+    [servicePath, "serve", "--config", configPath],
+    {
+      stdio: "inherit",
+    }
+  );
+  const target = await waitFor(async () => {
+    try {
+      return JSON.parse(await readFile(connectionPath, "utf8"));
+    } catch {
+      return null;
+    }
+  });
+  try {
+    const draft = (
+      await apiRequest({
+        path: "/v1/torrent-drafts",
+        method: "POST",
+        body: JSON.stringify({ torrent: globalThis.testTorrent }),
+        target,
+      })
+    ).body;
+    await new Promise(resolve => setTimeout(resolve, 150));
+    const results = await Promise.all([
+      apiRequest({ path: `/v1/torrent-drafts/${draft.draftId}`, target }),
+      apiRequest({
+        path: `/v1/torrent-drafts/${draft.draftId}/commit`,
+        method: "POST",
+        body: "{}",
+        target,
+      }),
+      apiRequest({
+        path: `/v1/torrent-drafts/${draft.draftId}`,
+        method: "DELETE",
+        target,
+      }),
+    ]);
+    assert.deepEqual(
+      results.map(result => result.status),
+      [400, 400, 400]
+    );
+    const status = (await apiRequest({ target })).body;
+    assert.equal(status.draftCount, 0);
+    assert.equal(status.torrents.length, 0);
+  } finally {
+    await apiRequest({
+      path: "/v1/shutdown",
+      method: "POST",
+      body: "{}",
+      target,
+    }).catch(() => child.kill("SIGTERM"));
+    if (child.exitCode === null) {
+      await new Promise(resolve => child.once("exit", resolve));
+    }
+    await rm(expiryRoot, { recursive: true, force: true });
+  }
+});
+
+test("serializes launch ownership and refuses a live forged connection", async () => {
+  const launchRoot = await mkdtemp(join(tmpdir(), "torrent-launch-test-"));
+  const configPath = join(launchRoot, "config.json");
+  const connectionPath = join(launchRoot, "connection.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      dataDirectory: join(launchRoot, "data"),
+      downloadDirectory: join(launchRoot, "downloads"),
+      connectionPath,
+      ownerInstance: "launch-test-owner-000000001",
+      dht: false,
+      lsd: false,
+      natPmp: false,
+      natUpnp: false,
+      utp: false,
+    })
+  );
+  const argumentsList = [servicePath, "start", "--config", configPath];
+  const starters = await Promise.all([
+    spawnResult(argumentsList),
+    spawnResult(argumentsList),
+  ]);
+  assert.deepEqual(
+    starters.map(result => result.exitCode),
+    [0, 0]
+  );
+  const target = JSON.parse(await readFile(connectionPath, "utf8"));
+  try {
+    const status = (await apiRequest({ target })).body;
+    assert.equal(target.ownerInstance, "launch-test-owner-000000001");
+    assert.match(target.pidStartTime, /^\d+$/);
+    assert.match(target.executableSha256, /^[0-9a-f]{64}$/);
+    assert.deepEqual(status.serviceIdentity, {
+      ownerInstance: target.ownerInstance,
+      runtimeDirectory: target.runtimeDirectory,
+      executable: target.executable,
+      executableSha256: target.executableSha256,
+      dataRoot: target.dataRoot,
+      instanceId: target.instanceId,
+      pid: target.pid,
+      pidStartTime: target.pidStartTime,
+    });
+    const forged = { ...target, token: "0".repeat(64) };
+    await writeFile(connectionPath, JSON.stringify(forged));
+    const refused = await spawnResult(argumentsList);
+    assert.equal(refused.exitCode, 1);
+    assert.match(refused.stderr, /unverified live process/);
+    assert.deepEqual(
+      JSON.parse(await readFile(connectionPath, "utf8")),
+      forged
+    );
+    await writeFile(connectionPath, JSON.stringify(target));
+  } finally {
+    await apiRequest({
+      path: "/v1/shutdown",
+      method: "POST",
+      body: "{}",
+      target,
+    }).catch(() => process.kill(target.pid, "SIGTERM"));
+    await waitFor(async () => {
+      try {
+        process.kill(target.pid, 0);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    await rm(launchRoot, { recursive: true, force: true });
+  }
+});
+
+test("rejects cross-origin, misdirected, and invalid bearer requests", async () => {
+  const wrongHost = await apiRequest({
+    headers: { host: `localhost:${connection.port}` },
+  });
+  assert.equal(wrongHost.status, 421);
+  const origin = await apiRequest({
+    headers: { origin: "https://example.com" },
+  });
+  assert.equal(origin.status, 403);
+  const wrongBearer = await apiRequest({
+    headers: { authorization: `Bearer ${"0".repeat(64)}` },
+  });
+  assert.equal(wrongBearer.status, 401);
+  const shortBearer = await apiRequest({
+    headers: { authorization: "Bearer short" },
+  });
+  assert.equal(shortBearer.status, 401);
+});
+
+test("bounds authenticated mutation concurrency and request rate", async () => {
+  const blocked = Array.from({ length: 4 }, () => blockedMutation());
+  await new Promise(resolve => setTimeout(resolve, 100));
+  const busy = await apiRequest({
+    path: "/v1/settings",
+    method: "PATCH",
+    body: "{}",
+  });
+  assert.equal(busy.status, 503);
+  blocked.forEach(request => request.destroy());
+  await new Promise(resolve => setTimeout(resolve, 100));
+
+  const responses = [];
+  for (let index = 0; index < 140; index++) {
+    responses.push(await apiRequest({}));
+  }
+  assert.equal(
+    responses.some(result => result.status === 429),
+    true,
+    "The authenticated API has a bounded token bucket"
+  );
 });

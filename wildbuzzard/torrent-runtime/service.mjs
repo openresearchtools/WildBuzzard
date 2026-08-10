@@ -1,11 +1,19 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import { createReadStream } from "node:fs";
 import {
   chmod,
   mkdir,
+  open,
   readFile,
+  realpath,
   rename,
   rm,
   writeFile,
@@ -40,6 +48,11 @@ const MAX_PATH_BYTES = 4096;
 const MAX_PATH_COMPONENT_BYTES = 255;
 const MAX_TOTAL_SIZE = 16 * 1024 ** 4;
 const DRAFT_TTL_MS = 120000;
+const API_RATE_BURST = 120;
+const API_RATE_PER_SECOND = 30;
+const MAX_API_CONCURRENCY = 16;
+const MAX_MUTATION_CONCURRENCY = 4;
+const LOCK_STALE_MS = 30000;
 
 function argument(name, fallback = "") {
   const index = process.argv.indexOf(name);
@@ -60,6 +73,131 @@ async function writeJSON(path, value, mode = 0o600) {
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode });
   await rename(temporary, path);
   await chmod(path, mode);
+}
+
+function delay(milliseconds) {
+  return new Promise(resolveDelay => setTimeout(resolveDelay, milliseconds));
+}
+
+async function sha256File(path) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) {
+    hash.update(chunk);
+  }
+  return hash.digest("hex");
+}
+
+function parsePidStartTime(value) {
+  const commandEnd = value.lastIndexOf(")");
+  if (commandEnd === -1) {
+    return null;
+  }
+  const fields = value
+    .slice(commandEnd + 2)
+    .trim()
+    .split(/\s+/);
+  return /^\d+$/.test(fields[19] || "") ? fields[19] : null;
+}
+
+async function pidStartTime(pid) {
+  if (!Number.isInteger(pid) || pid < 1) {
+    return null;
+  }
+  try {
+    return parsePidStartTime(await readFile(`/proc/${pid}/stat`, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+async function processIdentityMatches(pid, startTime) {
+  return Boolean(startTime) && (await pidStartTime(pid)) === String(startTime);
+}
+
+async function staticServiceIdentity(config) {
+  await mkdir(config.dataDirectory, { recursive: true });
+  const executable = await realpath(process.execPath);
+  return {
+    ownerInstance: config.ownerInstance,
+    runtimeDirectory: await realpath(resolve(dirname(process.argv[1]), "..")),
+    executable,
+    executableSha256: await sha256File(executable),
+    dataRoot: await realpath(config.dataDirectory),
+  };
+}
+
+function sameStaticIdentity(candidate, expected) {
+  return Boolean(
+    candidate &&
+    expected &&
+    candidate.ownerInstance === expected.ownerInstance &&
+    candidate.runtimeDirectory === expected.runtimeDirectory &&
+    candidate.executable === expected.executable &&
+    candidate.executableSha256 === expected.executableSha256 &&
+    candidate.dataRoot === expected.dataRoot
+  );
+}
+
+async function removeIfUnchanged(path, expected) {
+  const current = await readJSON(path, null);
+  if (
+    !current ||
+    (expected.instanceId && current.instanceId !== expected.instanceId) ||
+    (!expected.instanceId &&
+      JSON.stringify(current) !== JSON.stringify(expected))
+  ) {
+    return false;
+  }
+  await rm(path, { force: true });
+  return true;
+}
+
+async function acquireLock(path, { wait = true } = {}) {
+  await mkdir(dirname(path), { recursive: true });
+  for (let attempt = 0; attempt < (wait ? 200 : 2); attempt++) {
+    const owner = {
+      pid: process.pid,
+      pidStartTime: await pidStartTime(process.pid),
+      nonce: randomBytes(16).toString("hex"),
+      createdAt: Date.now(),
+    };
+    try {
+      const handle = await open(path, "wx", 0o600);
+      await handle.writeFile(`${JSON.stringify(owner)}\n`);
+      await handle.sync();
+      return { handle, owner, path };
+    } catch (error) {
+      if (error.code !== "EEXIST") {
+        throw error;
+      }
+    }
+    const existing = await readJSON(path, null);
+    const active = await processIdentityMatches(
+      existing?.pid,
+      existing?.pidStartTime
+    );
+    const age = Date.now() - Number(existing?.createdAt || 0);
+    if (!active && age >= LOCK_STALE_MS) {
+      await removeIfUnchanged(path, existing || {}).catch(() => {});
+      continue;
+    }
+    if (!wait) {
+      throw new Error("Torrent service is already starting or running");
+    }
+    await delay(100);
+  }
+  throw new Error("Timed out waiting for the torrent service lock");
+}
+
+async function releaseLock(lock) {
+  if (!lock) {
+    return;
+  }
+  await lock.handle.close().catch(() => {});
+  const current = await readJSON(lock.path, null);
+  if (current?.nonce === lock.owner.nonce) {
+    await rm(lock.path, { force: true });
+  }
 }
 
 function magnetName(source) {
@@ -220,12 +358,18 @@ async function validatedTorrentMetadata(bytes) {
   if (totalSize !== parsed.length) {
     throw bencodeError();
   }
-  paths.sort();
-  for (let index = 1; index < paths.length; index++) {
-    if (
-      paths[index] === paths[index - 1] ||
-      paths[index].startsWith(`${paths[index - 1]}/`)
-    ) {
+  const pathSet = new Set(paths);
+  if (pathSet.size !== paths.length) {
+    throw new Error("Torrent contains colliding file paths");
+  }
+  for (const path of pathSet) {
+    const parts = path.split("/");
+    for (let index = 1; index < parts.length; index++) {
+      if (pathSet.has(parts.slice(0, index).join("/"))) {
+        throw new Error("Torrent contains colliding file paths");
+      }
+    }
+    if (parts.some(part => !part)) {
       throw new Error("Torrent contains colliding file paths");
     }
   }
@@ -394,6 +538,10 @@ function torCredentials() {
 function requestThroughAgent(url, agent, redirects = 0) {
   return new Promise((resolveRequest, reject) => {
     const parsed = new URL(url);
+    if (!["http:", "https:"].includes(parsed.protocol)) {
+      reject(new Error("Torrent request redirected to an unsafe protocol"));
+      return;
+    }
     const request = (parsed.protocol === "https:" ? httpsRequest : httpRequest)(
       parsed,
       { agent },
@@ -449,6 +597,11 @@ class TorrentEngine {
     this.metainfoDirectory = join(this.dataDirectory, "metainfo");
     this.draftDirectory = join(this.dataDirectory, "drafts");
     this.connectionPath = config.connectionPath;
+    this.draftTtlMs = clampInteger(
+      config.draftTtlMs ?? DRAFT_TTL_MS,
+      100,
+      DRAFT_TTL_MS
+    );
     this.records = new Map();
     this.drafts = new Map();
     this.settings = {
@@ -492,7 +645,11 @@ class TorrentEngine {
     this.client = this.createClient();
     this.timer = setInterval(() => this.updateStats(), 1000);
     this.timer.unref();
-    this.draftTimer = setInterval(() => this.cleanupExpiredDrafts(), 1000);
+    this.draftTimer = setInterval(() => {
+      this.cleanupExpiredDrafts().catch(error => {
+        this.lastError = error.message;
+      });
+    }, 1000);
     this.draftTimer.unref();
     await this.reconcile();
   }
@@ -567,6 +724,7 @@ class TorrentEngine {
     return {
       version: API_VERSION,
       engine: `WebTorrent/${WebTorrent.VERSION}`,
+      serviceIdentity: this.serviceIdentity,
       capabilities: {
         tcp: true,
         udpTrackers: !this.settings.torEnabled,
@@ -633,20 +791,28 @@ class TorrentEngine {
   }
 
   async cleanupDraftRuntime(draft) {
-    const torrent = draft.runtime;
-    draft.runtime = null;
-    if (torrent && !torrent.destroyed) {
-      await new Promise(resolveCleanup => {
-        this.client.remove(torrent, { destroyStore: true }, () =>
-          resolveCleanup()
-        );
-      });
+    if (!draft.cleanupTask) {
+      draft.cleanupTask = (async () => {
+        const torrent = draft.runtime;
+        draft.runtime = null;
+        if (torrent && !torrent.destroyed) {
+          await new Promise(resolveCleanup => {
+            this.client.remove(torrent, { destroyStore: true }, () =>
+              resolveCleanup()
+            );
+          });
+        }
+        await rm(draft.stagingPath, { recursive: true, force: true });
+      })();
     }
-    await rm(draft.stagingPath, { recursive: true, force: true });
+    return draft.cleanupTask;
   }
 
   async failDraft(draft, error) {
-    if (!this.drafts.has(draft.draftId)) {
+    if (
+      this.drafts.get(draft.draftId) !== draft ||
+      !["metadata", "ready"].includes(draft.state)
+    ) {
       return;
     }
     draft.state = "error";
@@ -700,8 +866,20 @@ class TorrentEngine {
               "Torrent payload arrived before the draft was committed"
             );
           }
+          if (
+            !torrent.torrentFile ||
+            torrent.torrentFile.byteLength > MAX_BODY_SIZE
+          ) {
+            throw new Error("Invalid or oversized torrent metadata");
+          }
           const torrentFile = Buffer.from(torrent.torrentFile);
           await this.cleanupDraftRuntime(draft);
+          if (
+            this.drafts.get(draft.draftId) !== draft ||
+            draft.state !== "metadata"
+          ) {
+            return;
+          }
           if (draft.precommitPayloadBytes) {
             throw new Error(
               "Torrent payload arrived before the draft was committed"
@@ -729,11 +907,12 @@ class TorrentEngine {
       files: [],
       private: false,
       createdAt: Date.now(),
-      expiresAt: Date.now() + DRAFT_TTL_MS,
+      expiresAt: Date.now() + this.draftTtlMs,
       precommitPayloadBytes: 0,
       error: null,
       torrent: null,
       runtime: null,
+      cleanupTask: null,
       stagingPath: join(this.draftDirectory, draftId),
     };
     this.drafts.set(draftId, draft);
@@ -741,7 +920,13 @@ class TorrentEngine {
       if (torrent !== undefined) {
         await this.populateDraft(draft, decodeTorrentPayload(torrent));
       } else {
-        await this.startMagnetDraft(draft, await validatedMagnet(magnet));
+        const omitted = this.settings.torEnabled
+          ? new Set(["as", "ws", "xs"])
+          : new Set();
+        await this.startMagnetDraft(
+          draft,
+          await validatedMagnet(magnet, omitted)
+        );
       }
       return publicDraft(draft);
     } catch (error) {
@@ -757,7 +942,11 @@ class TorrentEngine {
       throw new Error("Torrent draft not found");
     }
     if (Date.now() >= draft.expiresAt) {
-      this.cancelDraft(id).catch(() => {});
+      this.drafts.delete(id);
+      draft.state = "expired";
+      this.cleanupDraftRuntime(draft).catch(error => {
+        this.lastError = error.message;
+      });
       throw new Error("Torrent draft expired");
     }
     return publicDraft(draft);
@@ -769,6 +958,7 @@ class TorrentEngine {
       throw new Error("Torrent draft not found");
     }
     this.drafts.delete(id);
+    draft.state = "cancelled";
     await this.cleanupDraftRuntime(draft);
     return { ok: true };
   }
@@ -777,13 +967,21 @@ class TorrentEngine {
     const expired = [...this.drafts.values()].filter(
       draft => Date.now() >= draft.expiresAt
     );
-    await Promise.all(expired.map(draft => this.cancelDraft(draft.draftId)));
+    await Promise.allSettled(
+      expired.map(draft => this.cancelDraft(draft.draftId))
+    );
   }
 
   async commitDraft(id, { files, downloadPath }) {
     const draft = this.drafts.get(id);
     if (!draft) {
       throw new Error("Torrent draft not found");
+    }
+    if (Date.now() >= draft.expiresAt) {
+      this.drafts.delete(id);
+      draft.state = "expired";
+      await this.cleanupDraftRuntime(draft);
+      throw new Error("Torrent draft expired");
     }
     if (draft.state !== "ready" || !draft.torrent) {
       throw new Error("Torrent metadata is not ready");
@@ -800,14 +998,17 @@ class TorrentEngine {
     ) {
       throw new Error("Invalid torrent file selection");
     }
-    const record = await this.add({
-      torrent: draft.torrent.toString("base64"),
-      downloadPath,
-      files: selection,
-    });
     this.drafts.delete(id);
-    await this.cleanupDraftRuntime(draft);
-    return record;
+    draft.state = "committing";
+    try {
+      return await this.add({
+        torrent: draft.torrent.toString("base64"),
+        downloadPath,
+        files: selection,
+      });
+    } finally {
+      await this.cleanupDraftRuntime(draft);
+    }
   }
 
   async add({ source, torrent, downloadPath, files }) {
@@ -1201,6 +1402,14 @@ class TorrentEngine {
 }
 
 async function requestBody(request) {
+  const declaredSize = Number(request.headers["content-length"] || 0);
+  if (
+    !Number.isFinite(declaredSize) ||
+    declaredSize < 0 ||
+    declaredSize > MAX_BODY_SIZE * 2
+  ) {
+    throw new Error("Request body is too large");
+  }
   const chunks = [];
   let size = 0;
   for await (const chunk of request) {
@@ -1217,6 +1426,9 @@ async function requestBody(request) {
 }
 
 function send(response, status, body) {
+  if (response.headersSent || response.destroyed) {
+    return;
+  }
   const data = Buffer.from(JSON.stringify(body));
   response.writeHead(status, {
     "cache-control": "no-store",
@@ -1227,6 +1439,47 @@ function send(response, status, body) {
   response.end(data);
 }
 
+function validBearer(value, token) {
+  const prefix = "Bearer ";
+  const supplied = Buffer.from(
+    typeof value === "string" && value.startsWith(prefix)
+      ? value.slice(prefix.length)
+      : ""
+  );
+  const expected = Buffer.from(token);
+  const comparable = Buffer.alloc(expected.length);
+  supplied.copy(comparable, 0, 0, expected.length);
+  const equal = timingSafeEqual(comparable, expected);
+  return supplied.length === expected.length && equal;
+}
+
+function fullIdentityMatches(candidate, expected) {
+  return Boolean(
+    sameStaticIdentity(candidate, expected) &&
+    candidate.instanceId === expected.instanceId &&
+    candidate.pid === expected.pid &&
+    String(candidate.pidStartTime) === String(expected.pidStartTime)
+  );
+}
+
+function createRateLimiter() {
+  let tokens = API_RATE_BURST;
+  let lastRefill = Date.now();
+  return () => {
+    const now = Date.now();
+    tokens = Math.min(
+      API_RATE_BURST,
+      tokens + ((now - lastRefill) / 1000) * API_RATE_PER_SECOND
+    );
+    lastRefill = now;
+    if (tokens < 1) {
+      return false;
+    }
+    tokens--;
+    return true;
+  };
+}
+
 async function serve(configPath) {
   ({ default: parseTorrent } = await import("parse-torrent"));
   ({ default: WebTorrent } = await import("webtorrent"));
@@ -1234,136 +1487,243 @@ async function serve(configPath) {
   if (
     !config?.dataDirectory ||
     !config?.connectionPath ||
-    !config?.downloadDirectory
+    !config?.downloadDirectory ||
+    typeof config.ownerInstance !== "string" ||
+    !/^[0-9A-Za-z._-]{16,128}$/.test(config.ownerInstance)
   ) {
     throw new Error("Invalid torrent service configuration");
   }
-  const token = randomBytes(32).toString("hex");
-  const engine = new TorrentEngine(config, configPath);
-  await engine.initialize();
-  let shuttingDown = false;
-  const server = createServer(async (request, response) => {
-    try {
-      if (request.headers.authorization !== `Bearer ${token}`) {
-        send(response, 401, { error: "Unauthorized" });
-        return;
-      }
-      const url = new URL(request.url, "http://127.0.0.1");
-      if (request.method === "GET" && url.pathname === "/v1/status") {
-        send(response, 200, engine.snapshot());
-        return;
-      }
-      if (request.method === "POST" && url.pathname === "/v1/torrent-drafts") {
-        send(
-          response,
-          201,
-          await engine.createDraft(await requestBody(request))
-        );
-        return;
-      }
-      const draftMatch =
-        /^\/v1\/torrent-drafts\/([0-9a-f-]+)(?:\/(commit))?$/.exec(
-          url.pathname
-        );
-      if (draftMatch && request.method === "GET" && !draftMatch[2]) {
-        send(response, 200, engine.getDraft(draftMatch[1]));
-        return;
-      }
-      if (draftMatch && request.method === "POST" && draftMatch[2]) {
-        send(
-          response,
-          201,
-          await engine.commitDraft(draftMatch[1], await requestBody(request))
-        );
-        return;
-      }
-      if (draftMatch && request.method === "DELETE" && !draftMatch[2]) {
-        send(response, 200, await engine.cancelDraft(draftMatch[1]));
-        return;
-      }
-      if (request.method === "POST" && url.pathname === "/v1/torrents") {
-        send(response, 201, await engine.add(await requestBody(request)));
-        return;
-      }
-      if (request.method === "PATCH" && url.pathname === "/v1/settings") {
-        send(
-          response,
-          200,
-          await engine.updateSettings(await requestBody(request))
-        );
-        return;
-      }
-      const match = /^\/v1\/torrents\/([0-9a-f-]+)(?:\/(action))?$/.exec(
-        url.pathname
-      );
-      if (match && request.method === "POST" && match[2] === "action") {
-        const body = await requestBody(request);
-        send(response, 200, await engine.action(match[1], body.action, body));
-        return;
-      }
-      if (match && request.method === "PATCH" && !match[2]) {
-        send(
-          response,
-          200,
-          await engine.updateRecord(match[1], await requestBody(request))
-        );
-        return;
-      }
-      if (match && request.method === "DELETE" && !match[2]) {
-        await engine.remove(
-          match[1],
-          url.searchParams.get("deleteData") === "true"
-        );
-        send(response, 200, { ok: true });
-        return;
-      }
-      if (request.method === "POST" && url.pathname === "/v1/shutdown") {
-        send(response, 200, { ok: true });
-        setImmediate(() => shutdown());
-        return;
-      }
-      send(response, 404, { error: "Not found" });
-    } catch (error) {
-      send(response, 400, { error: error.message });
+  const staticIdentity = await staticServiceIdentity(config);
+  const serviceLock = await acquireLock(
+    `${config.connectionPath}.service.lock`,
+    {
+      wait: false,
     }
+  );
+  const oldConnection = await readJSON(config.connectionPath, null);
+  if (oldConnection) {
+    if (
+      await processIdentityMatches(
+        oldConnection.pid,
+        oldConnection.pidStartTime
+      )
+    ) {
+      await releaseLock(serviceLock);
+      throw new Error("A torrent service already owns this connection path");
+    }
+    await removeIfUnchanged(config.connectionPath, oldConnection);
+  }
+  const token = randomBytes(32).toString("hex");
+  const serviceIdentity = {
+    ...staticIdentity,
+    instanceId: randomUUID(),
+    pid: process.pid,
+    pidStartTime: await pidStartTime(process.pid),
+  };
+  const engine = new TorrentEngine(config, configPath);
+  try {
+    await engine.initialize();
+  } catch (error) {
+    await releaseLock(serviceLock);
+    throw error;
+  }
+  engine.serviceIdentity = serviceIdentity;
+  let shuttingDown = false;
+  let inFlight = 0;
+  let mutationsInFlight = 0;
+  const consumeRateToken = createRateLimiter();
+
+  async function handleRequest(request, response) {
+    const url = new URL(request.url, "http://127.0.0.1");
+    if (request.method === "GET" && url.pathname === "/v1/status") {
+      send(response, 200, engine.snapshot());
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/v1/torrent-drafts") {
+      send(response, 201, await engine.createDraft(await requestBody(request)));
+      return;
+    }
+    const draftMatch =
+      /^\/v1\/torrent-drafts\/([0-9a-f-]+)(?:\/(commit))?$/.exec(url.pathname);
+    if (draftMatch && request.method === "GET" && !draftMatch[2]) {
+      send(response, 200, engine.getDraft(draftMatch[1]));
+      return;
+    }
+    if (draftMatch && request.method === "POST" && draftMatch[2]) {
+      send(
+        response,
+        201,
+        await engine.commitDraft(draftMatch[1], await requestBody(request))
+      );
+      return;
+    }
+    if (draftMatch && request.method === "DELETE" && !draftMatch[2]) {
+      send(response, 200, await engine.cancelDraft(draftMatch[1]));
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/v1/torrents") {
+      send(response, 201, await engine.add(await requestBody(request)));
+      return;
+    }
+    if (request.method === "PATCH" && url.pathname === "/v1/settings") {
+      send(
+        response,
+        200,
+        await engine.updateSettings(await requestBody(request))
+      );
+      return;
+    }
+    const match = /^\/v1\/torrents\/([0-9a-f-]+)(?:\/(action))?$/.exec(
+      url.pathname
+    );
+    if (match && request.method === "POST" && match[2] === "action") {
+      const body = await requestBody(request);
+      send(response, 200, await engine.action(match[1], body.action, body));
+      return;
+    }
+    if (match && request.method === "PATCH" && !match[2]) {
+      send(
+        response,
+        200,
+        await engine.updateRecord(match[1], await requestBody(request))
+      );
+      return;
+    }
+    if (match && request.method === "DELETE" && !match[2]) {
+      await engine.remove(
+        match[1],
+        url.searchParams.get("deleteData") === "true"
+      );
+      send(response, 200, { ok: true });
+      return;
+    }
+    if (request.method === "POST" && url.pathname === "/v1/shutdown") {
+      send(response, 200, { ok: true });
+      setImmediate(() => {
+        shutdown().catch(error => {
+          console.error(error);
+          process.exit(1);
+        });
+      });
+      return;
+    }
+    send(response, 404, { error: "Not found" });
+  }
+
+  const server = createServer((request, response) => {
+    const address = server.address();
+    const expectedHost = `127.0.0.1:${address.port}`;
+    if (request.headers.host !== expectedHost) {
+      send(response, 421, { error: "Misdirected request" });
+      return;
+    }
+    if (request.headers.origin !== undefined) {
+      send(response, 403, { error: "Browser origins are not allowed" });
+      return;
+    }
+    if (!validBearer(request.headers.authorization, token)) {
+      send(response, 401, { error: "Unauthorized" });
+      return;
+    }
+    if (!consumeRateToken()) {
+      send(response, 429, { error: "Too many requests" });
+      return;
+    }
+    const isMutation = request.method !== "GET" && request.method !== "HEAD";
+    if (
+      inFlight >= MAX_API_CONCURRENCY ||
+      (isMutation && mutationsInFlight >= MAX_MUTATION_CONCURRENCY)
+    ) {
+      send(response, 503, { error: "Torrent service is busy" });
+      return;
+    }
+    inFlight++;
+    if (isMutation) {
+      mutationsInFlight++;
+    }
+    request.setTimeout(10000, () =>
+      request.destroy(new Error("Torrent service request timed out"))
+    );
+    Promise.resolve(handleRequest(request, response))
+      .catch(error => send(response, 400, { error: error.message }))
+      .finally(() => {
+        inFlight--;
+        if (isMutation) {
+          mutationsInFlight--;
+        }
+      });
   });
+  server.maxConnections = MAX_API_CONCURRENCY + 8;
+  server.headersTimeout = 5000;
+  server.requestTimeout = 15000;
+  server.on("clientError", (_error, socket) => socket.destroy());
   server.on("error", error => {
     console.error(error);
     process.exitCode = 1;
   });
-  await new Promise((resolveListen, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolveListen);
-  });
+  try {
+    await new Promise((resolveListen, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolveListen);
+    });
+  } catch (error) {
+    await engine.close();
+    await releaseLock(serviceLock);
+    throw error;
+  }
   const address = server.address();
-  const runtimeDirectory = resolve(dirname(process.argv[1]), "..");
-  await writeJSON(config.connectionPath, {
+  const connection = {
     version: API_VERSION,
-    pid: process.pid,
+    ...serviceIdentity,
     port: address.port,
     token,
-    runtimeDirectory,
     startedAt: Date.now(),
-  });
+  };
+  try {
+    await writeJSON(config.connectionPath, connection);
+  } catch (error) {
+    await new Promise(resolveClose => server.close(resolveClose));
+    await engine.close();
+    await releaseLock(serviceLock);
+    throw error;
+  }
 
   async function shutdown() {
     if (shuttingDown) {
       return;
     }
     shuttingDown = true;
-    server.close();
-    await engine.close();
-    await rm(config.connectionPath, { force: true });
+    await new Promise(resolveClose => server.close(resolveClose));
+    try {
+      await engine.close();
+    } finally {
+      await removeIfUnchanged(config.connectionPath, connection).catch(
+        () => {}
+      );
+      await releaseLock(serviceLock);
+    }
     process.exit(0);
   }
 
-  process.on("SIGTERM", shutdown);
-  process.on("SIGINT", shutdown);
+  const handleSignal = () => {
+    shutdown().catch(error => {
+      console.error(error);
+      process.exit(1);
+    });
+  };
+  process.on("SIGTERM", handleSignal);
+  process.on("SIGINT", handleSignal);
 }
 
-async function health(connectionPath) {
+async function health(connectionPath, expectedStaticIdentity) {
   const connection = await readJSON(connectionPath, null);
-  if (!connection?.port || !connection?.token) {
+  if (
+    !connection?.port ||
+    !/^[0-9a-f]{64}$/.test(connection?.token || "") ||
+    !/^[0-9a-f-]{36}$/.test(connection?.instanceId || "") ||
+    !sameStaticIdentity(connection, expectedStaticIdentity) ||
+    !(await processIdentityMatches(connection.pid, connection.pidStartTime))
+  ) {
     return false;
   }
   try {
@@ -1374,7 +1734,11 @@ async function health(connectionPath) {
         signal: AbortSignal.timeout(1000),
       }
     );
-    return response.ok;
+    if (!response.ok) {
+      return false;
+    }
+    const status = await response.json();
+    return fullIdentityMatches(status.serviceIdentity, connection);
   } catch {
     return false;
   }
@@ -1382,30 +1746,56 @@ async function health(connectionPath) {
 
 async function start(configPath) {
   const config = await readJSON(configPath, null);
-  if (!config?.connectionPath) {
+  if (
+    !config?.connectionPath ||
+    typeof config.ownerInstance !== "string" ||
+    !/^[0-9A-Za-z._-]{16,128}$/.test(config.ownerInstance)
+  ) {
     throw new Error("Invalid torrent service configuration");
   }
-  if (await health(config.connectionPath)) {
+  const expectedIdentity = await staticServiceIdentity(config);
+  if (await health(config.connectionPath, expectedIdentity)) {
     return;
   }
-  await rm(config.connectionPath, { force: true });
-  const child = spawn(
-    process.execPath,
-    [process.argv[1], "serve", "--config", configPath],
-    {
-      detached: true,
-      stdio: "ignore",
-      env: process.env,
-    }
-  );
-  child.unref();
-  for (let attempt = 0; attempt < 80; attempt++) {
-    await new Promise(resolveWait => setTimeout(resolveWait, 125));
-    if (await health(config.connectionPath)) {
+  const launchLock = await acquireLock(`${config.connectionPath}.launch.lock`);
+  try {
+    if (await health(config.connectionPath, expectedIdentity)) {
       return;
     }
+    const staleConnection = await readJSON(config.connectionPath, null);
+    if (staleConnection) {
+      if (
+        await processIdentityMatches(
+          staleConnection.pid,
+          staleConnection.pidStartTime
+        )
+      ) {
+        throw new Error(
+          "An unverified live process owns the torrent connection path"
+        );
+      }
+      await removeIfUnchanged(config.connectionPath, staleConnection);
+    }
+    const child = spawn(
+      process.execPath,
+      [process.argv[1], "serve", "--config", configPath],
+      {
+        detached: true,
+        stdio: "ignore",
+        env: process.env,
+      }
+    );
+    child.unref();
+    for (let attempt = 0; attempt < 80; attempt++) {
+      await delay(125);
+      if (await health(config.connectionPath, expectedIdentity)) {
+        return;
+      }
+    }
+    throw new Error("Torrent service did not become ready");
+  } finally {
+    await releaseLock(launchLock);
   }
-  throw new Error("Torrent service did not become ready");
 }
 
 const command = process.argv[2] || "serve";
@@ -1420,7 +1810,12 @@ if (command === "start") {
   await start(configPath);
 } else if (command === "status") {
   const config = await readJSON(configPath, null);
-  process.exitCode = config && (await health(config.connectionPath)) ? 0 : 1;
+  process.exitCode =
+    config &&
+    config.connectionPath &&
+    (await health(config.connectionPath, await staticServiceIdentity(config)))
+      ? 0
+      : 1;
 } else if (command === "serve") {
   await serve(configPath);
 } else {

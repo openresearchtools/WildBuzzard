@@ -15,7 +15,25 @@ PEX, LSD, and web seeds remain enabled.
 Tor mode uses authenticated SOCKS5 hostname resolution for HTTP(S)/WebSocket
 trackers and every outgoing TCP peer. It disables µTP, UDP trackers, DHT, LSD,
 web seeds, NAT traversal, and incoming listeners so a failed Tor proxy stalls
-the torrent instead of falling back to the direct network.
+the torrent instead of falling back to the direct network. Magnet drafts and
+downloads remove `as`, `ws`, and `xs` alternate-source parameters before they
+reach WebTorrent in Tor mode, and all accepted metadata is size and structure
+bounded before it can become a download.
+
+The loopback API requires a random bearer, rejects browser origins and
+misdirected Host headers, compares credentials in constant time, and bounds
+request rate and concurrency. Connection records are accepted only when the
+PID start time, executable path and digest, data root, runtime root, owner
+instance, and live health identity all agree. Launch and service-owner locks
+prevent concurrent starters from replacing one another's records.
+
+Runtime archives contain a complete size and SHA-256 manifest. Extraction
+rejects duplicate, extra, traversal, symbolic-link, non-regular, and unexpected
+executable entries, verifies every installed file, and activates a staged tree
+with an extraction lock and atomic rename. The source builder uses a pinned
+Node archive checksum, the bundled Node/npm for every npm operation, normalized
+timestamps and permissions, sorted ZIP input, and an in-build byte-for-byte
+archive reproducibility check.
 
 `npm audit` currently propagates GHSA-2p57-rm9w-gvfp from the `ip` package
 through `bittorrent-tracker`, `torrent-discovery`, and WebTorrent. WebTorrent
