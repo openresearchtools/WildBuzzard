@@ -31,6 +31,7 @@ import { SocksClient } from "socks";
 import { SocksProxyAgent } from "socks-proxy-agent";
 
 globalThis.fetch = nodeFetch;
+process.umask(0o077);
 
 let WebTorrent;
 let parseTorrent;
@@ -125,11 +126,16 @@ async function readJSON(path, fallback) {
 }
 
 async function writeJSON(path, value, mode = 0o600) {
-  await mkdir(dirname(path), { recursive: true });
+  await ensurePrivateDirectory(dirname(path));
   const temporary = `${path}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
   await writeFile(temporary, `${JSON.stringify(value, null, 2)}\n`, { mode });
   await rename(temporary, path);
   await chmod(path, mode);
+}
+
+async function ensurePrivateDirectory(path) {
+  await mkdir(path, { recursive: true, mode: 0o700 });
+  await chmod(path, 0o700);
 }
 
 function delay(milliseconds) {
@@ -172,7 +178,7 @@ async function processIdentityMatches(pid, startTime) {
 }
 
 async function staticServiceIdentity(config) {
-  await mkdir(config.dataDirectory, { recursive: true });
+  await ensurePrivateDirectory(config.dataDirectory);
   const executable = await realpath(process.execPath);
   return {
     ownerInstance: config.ownerInstance,
@@ -221,7 +227,7 @@ function validLockOwner(owner) {
 }
 
 async function acquireLock(path, { wait = true } = {}) {
-  await mkdir(dirname(path), { recursive: true });
+  await ensurePrivateDirectory(dirname(path));
   for (let attempt = 0; attempt < (wait ? 400 : 2); attempt++) {
     const owner = {
       pid: process.pid,
@@ -815,10 +821,10 @@ class TorrentEngine {
   }
 
   async initialize() {
-    await mkdir(this.dataDirectory, { recursive: true });
-    await mkdir(this.metainfoDirectory, { recursive: true });
+    await ensurePrivateDirectory(this.dataDirectory);
+    await ensurePrivateDirectory(this.metainfoDirectory);
     await rm(this.draftDirectory, { recursive: true, force: true });
-    await mkdir(this.draftDirectory, { recursive: true });
+    await ensurePrivateDirectory(this.draftDirectory);
     await mkdir(this.config.downloadDirectory, { recursive: true });
     const saved = await readJSON(this.statePath, { records: [], settings: {} });
     Object.assign(this.settings, saved.settings || {});
@@ -1073,7 +1079,7 @@ class TorrentEngine {
   }
 
   async startMagnetDraft(draft, magnet) {
-    await mkdir(draft.stagingPath, { recursive: true });
+    await ensurePrivateDirectory(draft.stagingPath);
     const torrent = this.client.add(magnet, {
       path: draft.stagingPath,
       deselect: true,

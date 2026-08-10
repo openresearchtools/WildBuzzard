@@ -6,6 +6,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -379,6 +380,18 @@ after(async () => {
   await new Promise(resolve => socks?.close(resolve));
   await new Promise(resolve => tracker?.close(resolve));
   await rm(root, { recursive: true, force: true });
+});
+
+test("creates private service state", async () => {
+  for (const path of [
+    root,
+    join(root, "data"),
+    join(root, "data", "drafts"),
+    join(root, "data", "metainfo"),
+  ]) {
+    assert.equal((await stat(path)).mode & 0o777, 0o700, path);
+  }
+  assert.equal((await stat(join(root, "connection.json"))).mode & 0o777, 0o600);
 });
 
 test("downloads, stops, resumes, and removes a local torrent", async () => {

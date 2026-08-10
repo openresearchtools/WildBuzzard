@@ -340,6 +340,14 @@ async function processMatches(pid, startTime) {
   }
 }
 
+async function ensurePrivateDirectory(path) {
+  await IOUtils.makeDirectory(path, {
+    createAncestors: true,
+    ignoreExisting: true,
+  });
+  await IOUtils.setPermissions(path, 0o700);
+}
+
 function validExtractionLockOwner(owner) {
   return Boolean(
     Number.isInteger(owner?.pid) &&
@@ -512,18 +520,9 @@ class TorrentManagerImpl {
     if (AppConstants.platform !== "linux") {
       throw new Error("The bundled torrent runtime currently supports Linux");
     }
-    await IOUtils.makeDirectory(this.rootDirectory, {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
-    await IOUtils.makeDirectory(PathUtils.parent(this.configPath), {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
-    await IOUtils.makeDirectory(PathUtils.parent(this.connectionPath), {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
+    await ensurePrivateDirectory(this.rootDirectory);
+    await ensurePrivateDirectory(PathUtils.parent(this.configPath));
+    await ensurePrivateDirectory(PathUtils.parent(this.connectionPath));
     await this.#writeConfig();
     this.runtimeDirectory = await this.#extractRuntime();
     await this.#prepareServiceIdentity();
@@ -565,10 +564,7 @@ class TorrentManagerImpl {
     if (await this.#verifyRuntimeDirectory(destination, bundle)) {
       return destination;
     }
-    await IOUtils.makeDirectory(this.bundleRoot, {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
+    await ensurePrivateDirectory(this.bundleRoot);
     const lock = await this.#acquireExtractionLock(bundle.bundleId);
     const staging = PathUtils.join(
       this.bundleRoot,
@@ -589,10 +585,7 @@ class TorrentManagerImpl {
         ignoreAbsent: true,
       });
       await IOUtils.remove(staging, { recursive: true, ignoreAbsent: true });
-      await IOUtils.makeDirectory(staging, {
-        createAncestors: true,
-        ignoreExisting: true,
-      });
+      await ensurePrivateDirectory(staging);
       const zip = new ZipReader(new LocalFile(archivePath));
       try {
         zip.test(null);
@@ -849,10 +842,7 @@ class TorrentManagerImpl {
   }
 
   async #prepareServiceIdentity() {
-    await IOUtils.makeDirectory(this.config.dataDirectory, {
-      createAncestors: true,
-      ignoreExisting: true,
-    });
+    await ensurePrivateDirectory(this.config.dataDirectory);
     const runtime = new LocalFile(this.runtimeDirectory);
     runtime.normalize();
     const dataRoot = new LocalFile(this.config.dataDirectory);

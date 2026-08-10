@@ -86,6 +86,27 @@ add_task(async function test_about_torrents_shell() {
   }
 });
 
+add_task(async function test_torrent_state_is_private() {
+  const { TorrentManager } = ChromeUtils.importESModule(
+    "resource:///modules/TorrentManager.sys.mjs"
+  );
+  await TorrentManager.initialize();
+  for (const path of [
+    TorrentManager.rootDirectory,
+    TorrentManager.config.dataDirectory,
+    PathUtils.parent(TorrentManager.configPath),
+    PathUtils.parent(TorrentManager.connectionPath),
+  ]) {
+    Assert.equal((await IOUtils.stat(path)).permissions & 0o777, 0o700, path);
+  }
+  for (const path of [
+    TorrentManager.configPath,
+    TorrentManager.connectionPath,
+  ]) {
+    Assert.equal((await IOUtils.stat(path)).permissions & 0o777, 0o600, path);
+  }
+});
+
 add_task(async function test_torrent_mime_response_opens_confirmation() {
   const prefix = new TextEncoder().encode(
     "d4:infod6:lengthi1e4:name11:fixture.txt12:piece lengthi16384e6:pieces20:"
