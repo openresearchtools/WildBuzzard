@@ -14,6 +14,7 @@ import {
   loadStoredSearch,
   persistStoredSearch,
 } from "./database.ts";
+import { redactSensitiveText, sanitizePersistedUrl } from "./safe-output.ts";
 
 export interface StoredSearch {
   id: string;
@@ -122,7 +123,14 @@ export function createStoredSearch(
     type,
     createdAt: now,
     expiresAt: now + RESULT_TTL_MS,
-    queries,
+    queries: queries.map(query => ({
+      ...query,
+      query: redactSensitiveText(query.query, 2_000),
+      results: query.results.map(result => ({
+        ...result,
+        url: sanitizePersistedUrl(result.url),
+      })),
+    })),
   };
 }
 
@@ -138,7 +146,11 @@ export function createStoredDocuments(
     type,
     createdAt: now,
     expiresAt: now + RESULT_TTL_MS,
-    documents,
+    documents: documents.map(document => ({
+      ...document,
+      url: sanitizePersistedUrl(document.url),
+      finalUrl: sanitizePersistedUrl(document.finalUrl),
+    })),
   };
 }
 
