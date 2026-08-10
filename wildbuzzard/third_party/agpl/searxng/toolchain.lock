@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# name	version	binary_archive	binary_sha256	binary_size	source_archive	source_sha256	source_size	license	binary_url	source_url
+Rust	1.96.0	rust-1.96.0-x86_64-unknown-linux-gnu.tar.xz	c295047583a56238ea06b43f849f4b877fa12bfd4c7103f8d9a74c94c9c4e108	197935124	rustc-1.96.0-src.tar.xz	b99ce16cdf0ecfc761b585ac84d131b46733465a02f8ecd0ff2de9713c62ee09	241429160	Apache-2.0 OR MIT	https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-x86_64-unknown-linux-gnu.tar.xz	https://static.rust-lang.org/dist/2026-05-28/rustc-1.96.0-src.tar.xz
+Zig	0.15.2	zig-x86_64-linux-0.15.2.tar.xz	02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239	53733924	zig-0.15.2.tar.xz	d9b30c7aa983fcff5eed2084d54ae83eaafe7ff3a84d8fb754d854165a6e521c	21366268	MIT	https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz	https://ziglang.org/download/0.15.2/zig-0.15.2.tar.xz
