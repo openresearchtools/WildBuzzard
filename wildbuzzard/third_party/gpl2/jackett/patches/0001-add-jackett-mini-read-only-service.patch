@@ -1114,7 +1114,8 @@ new file mode 100644
 index 000000000..40ff4d8ba
 --- /dev/null
 +++ b/src/Jackett.Mini/DirectWebClient.cs
-@@ -0,0 +1,166 @@
+@@ -0,0 +1,297 @@
++using System.IO.Compression;
 +using System.Net;
 +using System.Net.Http.Headers;
 +using System.Text;
@@ -1131,6 +1132,14 @@ index 000000000..40ff4d8ba
 +internal sealed class DirectWebClient : JackettWebClient, IDisposable
 +{
 +    private const int MaximumResponseBytes = 4 * 1024 * 1024;
++    private const int MaximumXmlNodes = 50_000;
++    private const int MaximumXmlDepth = 64;
++    private const int MaximumXmlAttributes = 32_768;
++    private const int MaximumXmlAttributesPerElement = 128;
++    private const int MaximumXmlAttributeCharacters = 1024 * 1024;
++    private const int MaximumXmlTextCharacters = 1024 * 1024;
++    private const int MaximumXmlNodeCharacters = 64 * 1024;
++    private const int MaximumXmlResults = 2_000;
 +    private readonly HttpClient _client;
 +    private TimeSpan _timeout = TimeSpan.FromSeconds(15);
 +
@@ -1140,7 +1149,7 @@ index 000000000..40ff4d8ba
 +        var handler = new SocketsHttpHandler
 +        {
 +            AllowAutoRedirect = false,
-+            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
++            AutomaticDecompression = DecompressionMethods.None,
 +            ConnectCallback = PublicNetworkPolicy.ConnectAsync,
 +            ConnectTimeout = TimeSpan.FromSeconds(10),
 +            MaxConnectionsPerServer = 4,
@@ -1166,38 +1175,71 @@ index 000000000..40ff4d8ba
 +            cancellationToken: timeout.Token);
 +        using (response)
 +        {
-+        await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
-+        using var output = new MemoryStream();
-+        var buffer = new byte[64 * 1024];
-+        while (true)
-+        {
-+            var count = await input.ReadAsync(buffer, timeout.Token);
-+            if (count == 0)
-+                break;
-+            if (output.Length + count > MaximumResponseBytes)
-+                throw new InvalidOperationException("Provider response exceeded the byte limit");
-+            output.Write(buffer, 0, count);
-+        }
-+        var result = new WebResult
-+        {
-+            ContentBytes = output.ToArray(),
-+            Status = response.StatusCode,
-+            RedirectingTo = response.Headers.Location?.ToString(),
-+        };
-+        foreach (var header in response.Headers)
-+            result.Headers[header.Key] = header.Value.ToArray();
-+        foreach (var header in response.Content.Headers)
-+            result.Headers[header.Key] = header.Value.ToArray();
-+        if (response.Content.Headers.ContentType?.MediaType?.Contains("xml", StringComparison.OrdinalIgnoreCase) is true)
-+            ValidateXml(result.ContentBytes);
-+        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
-+            result.Cookies = string.Join(" ", cookies.Select(cookie => cookie.Split(';', 2)[0] + ";"));
++            await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
++            var compressedBytes = await ReadBoundedAsync(input, "compressed", timeout.Token);
++            var contentBytes = await DecodeBoundedAsync(
++                compressedBytes,
++                response.Content.Headers.ContentEncoding,
++                timeout.Token);
++            var result = new WebResult
++            {
++                ContentBytes = contentBytes,
++                Status = response.StatusCode,
++                RedirectingTo = response.Headers.Location?.ToString(),
++            };
++            foreach (var header in response.Headers)
++                result.Headers[header.Key] = header.Value.ToArray();
++            foreach (var header in response.Content.Headers)
++                if (!header.Key.Equals("Content-Encoding", StringComparison.OrdinalIgnoreCase) &&
++                    !header.Key.Equals("Content-Length", StringComparison.OrdinalIgnoreCase))
++                    result.Headers[header.Key] = header.Value.ToArray();
++            ValidatePotentialXml(result.ContentBytes, response.Content.Headers.ContentType?.MediaType);
++            if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
++                result.Cookies = string.Join(" ", cookies.Select(cookie => cookie.Split(';', 2)[0] + ";"));
 +            return result;
 +        }
 +    }
 +
-+    private static void ValidateXml(byte[] bytes)
++    private static async Task<byte[]> ReadBoundedAsync(Stream input, string kind, CancellationToken cancellationToken)
 +    {
++        using var output = new MemoryStream();
++        var buffer = new byte[64 * 1024];
++        while (true)
++        {
++            var count = await input.ReadAsync(buffer, cancellationToken);
++            if (count == 0)
++                return output.ToArray();
++            if (output.Length + count > MaximumResponseBytes)
++                throw new InvalidOperationException($"Provider {kind} response exceeded the byte limit");
++            output.Write(buffer, 0, count);
++        }
++    }
++
++    private static async Task<byte[]> DecodeBoundedAsync(
++        byte[] bytes,
++        ICollection<string> contentEncodings,
++        CancellationToken cancellationToken)
++    {
++        if (contentEncodings.Count == 0)
++            return bytes;
++        if (contentEncodings.Count != 1)
++            throw new InvalidOperationException("Provider response used unsupported layered content encoding");
++        using var input = new MemoryStream(bytes, writable: false);
++        await using Stream decoded = contentEncodings.Single().ToLowerInvariant() switch
++        {
++            "br" => new BrotliStream(input, CompressionMode.Decompress),
++            "deflate" => new DeflateStream(input, CompressionMode.Decompress),
++            "gzip" => new GZipStream(input, CompressionMode.Decompress),
++            "identity" => input,
++            _ => throw new InvalidOperationException("Provider response used unsupported content encoding"),
++        };
++        return await ReadBoundedAsync(decoded, "decompressed", cancellationToken);
++    }
++
++    internal static void ValidatePotentialXml(byte[] bytes, string? mediaType)
++    {
++        if (!LooksLikeXml(bytes, mediaType))
++            return;
 +        var settings = new XmlReaderSettings
 +        {
 +            DtdProcessing = DtdProcessing.Prohibit,
@@ -1207,9 +1249,98 @@ index 000000000..40ff4d8ba
 +        };
 +        using var stream = new MemoryStream(bytes, writable: false);
 +        using var reader = XmlReader.Create(stream, settings);
++        var nodes = 0;
++        var attributes = 0;
++        var attributeCharacters = 0;
++        var textCharacters = 0;
++        var results = 0;
 +        while (reader.Read())
-+            if (reader.Depth > 64)
++        {
++            if (++nodes > MaximumXmlNodes)
++                throw new InvalidOperationException("Provider XML exceeded the node limit");
++            if (reader.Depth > MaximumXmlDepth)
 +                throw new InvalidOperationException("Provider XML exceeded the depth limit");
++            if (reader.NodeType == XmlNodeType.Element)
++            {
++                if (reader.AttributeCount > MaximumXmlAttributesPerElement ||
++                    (attributes += reader.AttributeCount) > MaximumXmlAttributes)
++                    throw new InvalidOperationException("Provider XML exceeded the attribute limit");
++                if (reader.HasAttributes)
++                {
++                    for (var index = 0; index < reader.AttributeCount; index++)
++                    {
++                        reader.MoveToAttribute(index);
++                        if (reader.Value.Length > MaximumXmlNodeCharacters ||
++                            (attributeCharacters += reader.Value.Length) > MaximumXmlAttributeCharacters)
++                            throw new InvalidOperationException("Provider XML exceeded the attribute text limit");
++                    }
++                    reader.MoveToElement();
++                }
++                if (reader.LocalName == "item" && ++results > MaximumXmlResults)
++                    throw new InvalidOperationException("Provider XML exceeded the result limit");
++            }
++            if (reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA or XmlNodeType.Whitespace or XmlNodeType.SignificantWhitespace)
++            {
++                if (reader.Value.Length > MaximumXmlNodeCharacters ||
++                    (textCharacters += reader.Value.Length) > MaximumXmlTextCharacters)
++                    throw new InvalidOperationException("Provider XML exceeded the text limit");
++            }
++        }
++    }
++
++    private static bool LooksLikeXml(byte[] bytes, string? mediaType)
++    {
++        if (mediaType?.Contains("xml", StringComparison.OrdinalIgnoreCase) is true)
++            return true;
++        if (mediaType?.Contains("html", StringComparison.OrdinalIgnoreCase) is true ||
++            mediaType?.Contains("json", StringComparison.OrdinalIgnoreCase) is true)
++            return false;
++        var text = Encoding.UTF8.GetString(bytes);
++        var offset = text.Length > 0 && text[0] == '\uFEFF' ? 1 : 0;
++        while (true)
++        {
++            while (offset < text.Length && char.IsWhiteSpace(text[offset]))
++                offset++;
++            if (text.AsSpan(offset).StartsWith("<!--", StringComparison.Ordinal))
++            {
++                var end = text.IndexOf("-->", offset + 4, StringComparison.Ordinal);
++                if (end < 0)
++                    return false;
++                offset = end + 3;
++                continue;
++            }
++            if (text.AsSpan(offset).StartsWith("<?xml", StringComparison.Ordinal))
++                return true;
++            if (text.AsSpan(offset).StartsWith("<?", StringComparison.Ordinal))
++            {
++                var end = text.IndexOf("?>", offset + 2, StringComparison.Ordinal);
++                if (end < 0)
++                    return false;
++                offset = end + 2;
++                continue;
++            }
++            break;
++        }
++        if (offset >= text.Length || text[offset] != '<')
++            return false;
++        offset++;
++        var declaration = text.AsSpan(offset).StartsWith("!DOCTYPE", StringComparison.OrdinalIgnoreCase);
++        if (declaration)
++            offset += "!DOCTYPE".Length;
++        while (offset < text.Length && char.IsWhiteSpace(text[offset]))
++            offset++;
++        var start = offset;
++        while (offset < text.Length &&
++               !char.IsWhiteSpace(text[offset]) &&
++               text[offset] is not '>' and not '/')
++            offset++;
++        var name = text[start..offset];
++        var colon = name.LastIndexOf(':');
++        if (colon >= 0)
++            name = name[(colon + 1)..];
++        if (name.Equals("html", StringComparison.OrdinalIgnoreCase))
++            return false;
++        return declaration || name.Length > 0;
 +    }
 +
 +    private static HttpRequestMessage CreateRequest(JackettWebRequest webRequest, Uri uri, HttpMethod method, bool includeSensitive)
@@ -1286,9 +1417,11 @@ new file mode 100644
 index 000000000..0a2a67758
 --- /dev/null
 +++ b/src/Jackett.Mini/SecuritySelfTest.cs
-@@ -0,0 +1,72 @@
+@@ -0,0 +1,96 @@
 +using System.Net;
 +using System.Security.Authentication;
++using System.Text;
++using System.Xml;
 +
 +namespace Jackett.Mini;
 +
@@ -1316,6 +1449,15 @@ index 000000000..0a2a67758
 +        await AssertThrows<TaskCanceledException>(() => Send(stalled));
 +        var tls = new HttpRequestException("TLS failed", new AuthenticationException("certificate rejected"));
 +        await AssertThrows<HttpRequestException>(() => Send(new StaticHandler(_ => throw tls)));
++        DirectWebClient.ValidatePotentialXml(
++            Encoding.UTF8.GetBytes("<html><body><br></body></html>"),
++            "text/html");
++        DirectWebClient.ValidatePotentialXml(
++            Encoding.UTF8.GetBytes("{\"markup\":\"<rss>not XML\"}"),
++            "application/json");
++        AssertActionThrows<XmlException>(() => DirectWebClient.ValidatePotentialXml(
++            Encoding.UTF8.GetBytes("<!DOCTYPE rss [<!ENTITY x 'entity'>]><rss>&x;</rss>"),
++            "text/plain"));
 +    }
 +
 +    private static Task<HttpResponseMessage> Send(HttpMessageHandler handler) => Send(new HttpClient(handler));
@@ -1332,6 +1474,19 @@ index 000000000..0a2a67758
 +        try
 +        {
 +            using var response = await action();
++        }
++        catch (T)
++        {
++            return;
++        }
++        throw new InvalidOperationException($"Expected {typeof(T).Name}");
++    }
++
++    private static void AssertActionThrows<T>(Action action) where T : Exception
++    {
++        try
++        {
++            action();
 +        }
 +        catch (T)
 +        {

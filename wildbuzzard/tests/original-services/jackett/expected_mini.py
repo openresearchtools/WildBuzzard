@@ -43,6 +43,15 @@ SCENARIOS = {
     "valid-passkey-alias",
 }
 
+XML_LIMIT_SCENARIOS = {
+    "mislabeled-attribute-xml",
+    "mislabeled-deep-xml",
+    "mislabeled-entity-xml",
+    "mislabeled-node-xml",
+    "mislabeled-result-xml",
+    "mislabeled-text-xml",
+}
+
 
 def response(**values):
     return {
@@ -227,3 +236,11 @@ def validate_all(pristine, mini):
             differences[name] = {"expected": expected, "actual": mini[name]}
     if differences:
         raise AssertionError(f"unexplained Mini semantic differences: {differences}")
+
+
+def validate_xml_limit_results(observed):
+    expected = {name: provider_error() for name in XML_LIMIT_SCENARIOS}
+    if observed != expected:
+        raise AssertionError(
+            f"unexpected Mini XML-limit semantics: expected {expected}, got {observed}"
+        )

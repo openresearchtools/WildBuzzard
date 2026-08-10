@@ -224,6 +224,13 @@ add_task(
       "An unmanifested runtime file invalidates a reused runtime"
     );
     await IOUtils.remove(PathUtils.join(root.path, "extra.dll"));
+    await IOUtils.makeDirectory(PathUtils.join(root.path, "empty"));
+    await Assert.rejects(
+      JackettMiniRuntimeTestUtils.verifyExtractedRuntime(root.path, bundle),
+      /Unexpected extracted Jackett Mini directory/,
+      "An unmanifested empty directory invalidates a reused runtime"
+    );
+    await IOUtils.remove(PathUtils.join(root.path, "empty"));
     await IOUtils.setPermissions(catalog, 0o755);
     await Assert.rejects(
       JackettMiniRuntimeTestUtils.verifyExtractedRuntime(root.path, bundle),

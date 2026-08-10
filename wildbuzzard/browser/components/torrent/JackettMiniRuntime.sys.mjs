@@ -435,20 +435,35 @@ async function verifyExtractedRuntime(directory, bundle) {
     sha256: bundle.manifestSha256,
     size: bundle.manifestSize,
   });
+  const expectedDirectories = new Set();
+  for (const path of expected.keys()) {
+    const parts = path.split("/");
+    for (let index = 1; index < parts.length; index++) {
+      expectedDirectories.add(parts.slice(0, index).join("/"));
+    }
+  }
   const actual = new Set();
   const pending = [directory];
   while (pending.length) {
     const parent = pending.pop();
     for (const path of await IOUtils.getChildren(parent)) {
       const relative = path.slice(directory.length + 1).replaceAll("\\", "/");
-      if (relative === ".extraction-complete") {
-        continue;
-      }
       const file = new LocalFile(path);
       if (file.isSymlink()) {
         throw new Error(`Link in extracted Jackett Mini runtime: ${relative}`);
       }
+      if (relative === ".extraction-complete") {
+        if (!file.isFile()) {
+          throw new Error("Invalid Jackett Mini extraction marker");
+        }
+        continue;
+      }
       if (file.isDirectory()) {
+        if (!expectedDirectories.has(relative)) {
+          throw new Error(
+            `Unexpected extracted Jackett Mini directory: ${relative}`
+          );
+        }
         pending.push(path);
         continue;
       }

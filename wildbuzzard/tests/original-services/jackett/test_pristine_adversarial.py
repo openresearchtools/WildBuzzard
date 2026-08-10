@@ -12,7 +12,14 @@ import time
 import unittest
 
 from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
-from expected_mini import SCENARIOS, expected_for, validate_all
+from expected_mini import (
+    SCENARIOS,
+    XML_LIMIT_SCENARIOS,
+    expected_for,
+    provider_error,
+    validate_all,
+    validate_xml_limit_results,
+)
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location(
@@ -90,6 +97,99 @@ class PristineAdversarialTest(unittest.TestCase):
         self.assertGreater(
             len(MODULE.fixture_xml(origin, "main", "oversized")), MAX_XML_BYTES
         )
+
+    def test_mislabeled_xml_fixtures_cross_each_mini_limit(self):
+        origin = "http://127.0.0.1:1"
+        fixtures = {
+            "mislabeled-attribute-xml": MODULE.fixture_xml(
+                origin, "main", "limit-attribute"
+            ),
+            "mislabeled-deep-xml": MODULE.fixture_xml(origin, "main", "limit-deep"),
+            "mislabeled-entity-xml": MODULE.fixture_xml(origin, "main", "limit-entity"),
+            "mislabeled-node-xml": MODULE.fixture_xml(origin, "main", "limit-node"),
+            "mislabeled-result-xml": MODULE.fixture_xml(origin, "main", "limit-result"),
+            "mislabeled-text-xml": MODULE.fixture_xml(origin, "main", "limit-text"),
+        }
+        self.assertEqual(set(fixtures), XML_LIMIT_SCENARIOS)
+        self.assertGreater(
+            fixtures["mislabeled-attribute-xml"].count(b'value="x"'),
+            MODULE.MINI_MAX_XML_ATTRIBUTES,
+        )
+        self.assertGreater(
+            fixtures["mislabeled-deep-xml"].count(b"<node>"),
+            MODULE.MINI_MAX_XML_DEPTH,
+        )
+        self.assertIn(b"<!ENTITY", fixtures["mislabeled-entity-xml"])
+        self.assertGreater(
+            fixtures["mislabeled-node-xml"].count(b"<node/>"),
+            MODULE.MINI_MAX_XML_NODES,
+        )
+        self.assertGreater(
+            fixtures["mislabeled-result-xml"].count(b"<item/>"),
+            MODULE.MINI_MAX_XML_RESULTS,
+        )
+        self.assertGreater(
+            fixtures["mislabeled-text-xml"].count(b"X"),
+            MODULE.MINI_MAX_XML_TEXT_CHARACTERS,
+        )
+        self.assertTrue(
+            all(len(payload) < MAX_XML_BYTES for payload in fixtures.values())
+        )
+
+    def test_mislabeled_xml_has_exact_reviewed_mini_semantics(self):
+        observed = {name: provider_error() for name in XML_LIMIT_SCENARIOS}
+        validate_xml_limit_results(observed)
+        changed = copy.deepcopy(observed)
+        changed["mislabeled-result-xml"]["items"] = [{"title": "escaped"}]
+        with self.assertRaisesRegex(AssertionError, "XML-limit semantics"):
+            validate_xml_limit_results(changed)
+
+    def test_shipping_transport_bounds_mislabeled_xml(self):
+        patch = (
+            SCRIPT_DIR.parent.parent.parent
+            / "third_party/gpl2/jackett/patches/0001-add-jackett-mini-read-only-service.patch"
+        ).read_text(encoding="utf-8")
+        required = (
+            "AutomaticDecompression = DecompressionMethods.None",
+            'ReadBoundedAsync(input, "compressed"',
+            'ReadBoundedAsync(decoded, "decompressed"',
+            "DtdProcessing = DtdProcessing.Prohibit",
+            "MaxCharactersFromEntities = 0",
+            "MaximumXmlNodes = 50_000",
+            "MaximumXmlDepth = 64",
+            "MaximumXmlAttributes = 32_768",
+            "MaximumXmlAttributeCharacters = 1024 * 1024",
+            "MaximumXmlTextCharacters = 1024 * 1024",
+            "MaximumXmlNodeCharacters = 64 * 1024",
+            "MaximumXmlResults = 2_000",
+            'mediaType?.Contains("html"',
+            'mediaType?.Contains("json"',
+            "return declaration || name.Length > 0",
+            "AssertActionThrows<XmlException>",
+        )
+        for token in required:
+            with self.subTest(token=token):
+                self.assertIn(token, patch)
+
+    def test_each_xml_limit_scenario_maps_to_the_expected_fixture_query(self):
+        expected = {
+            "mislabeled-attribute-xml": "limit-attribute",
+            "mislabeled-deep-xml": "limit-deep",
+            "mislabeled-entity-xml": "limit-entity",
+            "mislabeled-node-xml": "limit-node",
+            "mislabeled-result-xml": "limit-result",
+            "mislabeled-text-xml": "limit-text",
+        }
+        for name, query in expected.items():
+            with self.subTest(name=name):
+                _method, _path, body, _headers, _timeout = MODULE.mini_case(
+                    name, "A" * 43
+                )
+                self.assertEqual(json.loads(body)["query"], query)
+                self.assertEqual(
+                    MODULE.fixture_content_type(query),
+                    "text/plain; charset=utf-8",
+                )
 
     def test_absent_and_contradictory_peers_normalize_safely(self):
         absent = next(

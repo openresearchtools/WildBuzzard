@@ -27,7 +27,13 @@ import urllib.parse
 
 from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
 from catalog_audit import audit_catalog
-from expected_mini import validate_all as validate_mini_semantics
+from expected_mini import (
+    XML_LIMIT_SCENARIOS,
+    validate_xml_limit_results,
+)
+from expected_mini import (
+    validate_all as validate_mini_semantics,
+)
 from pristine_runtime import verify_runtime as verify_pristine_runtime
 
 COMMIT = "0cd8622b735922a909a128d8d6943bb8565a640f"
@@ -40,6 +46,11 @@ PRISTINE_EXECUTABLE_SHA256 = (
     "b8bb98aa78d9942563e303c12f511c040c7a16a8a08a8c9f02c982c61b9850c1"
 )
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
+MINI_MAX_XML_NODES = 50_000
+MINI_MAX_XML_DEPTH = 64
+MINI_MAX_XML_ATTRIBUTES = 32_768
+MINI_MAX_XML_TEXT_CHARACTERS = 1024 * 1024
+MINI_MAX_XML_RESULTS = 2_000
 ADULT_CATEGORIES = [6000, 6010, 6020, 6030, 6040, 6045, 6050, 6060, 6070, 6080, 6090]
 RAW_URL_SECRET = "raw-url-oracle-secret"
 TRACKER_USERNAME = "tracker-user-oracle-secret"
@@ -464,14 +475,25 @@ def fixture_xml(origin, source, query, generation=0):
     suffix = "</channel></rss>"
     if query == "malformed":
         return b"<rss><channel><item><title>unterminated"
-    if query == "deep":
+    if query in {"deep", "limit-deep"}:
         return (prefix + "<node>" * 80 + "deep" + "</node>" * 80 + suffix).encode()
-    if query == "entity":
+    if query in {"entity", "limit-entity"}:
         body = (
             f'<?xml version="1.0"?><!DOCTYPE rss [<!ENTITY xxe SYSTEM "{origin}/entity-leak">]>'
             f"<rss><channel>{fixture_item(origin, source, '&xxe;')}</channel></rss>"
         )
         return body.encode()
+    if query == "limit-node":
+        return (prefix + "<node/>" * (MINI_MAX_XML_NODES + 1) + suffix).encode()
+    if query == "limit-attribute":
+        return (
+            prefix + '<node value="x"/>' * (MINI_MAX_XML_ATTRIBUTES + 1) + suffix
+        ).encode()
+    if query == "limit-text":
+        chunks = ["<![CDATA[" + "X" * 60_000 + "]]>"] * 18
+        return (prefix + "<text>" + "".join(chunks) + "</text>" + suffix).encode()
+    if query == "limit-result":
+        return (prefix + "<item/>" * (MINI_MAX_XML_RESULTS + 1) + suffix).encode()
     if query == "oversized":
         return (
             prefix + "<padding>" + "X" * (MAX_XML_BYTES + 1024) + "</padding>" + suffix
@@ -539,6 +561,12 @@ def fixture_xml(origin, source, query, generation=0):
     return (prefix + fixture_item(origin, source, title) + suffix).encode()
 
 
+def fixture_content_type(query):
+    if query.startswith("limit-"):
+        return "text/plain; charset=utf-8"
+    return "application/xml; charset=utf-8"
+
+
 def fixture_torrent(origin):
     announce = f"{origin}/announce".encode("ascii")
 
@@ -592,9 +620,7 @@ class FixtureHandler(http.server.BaseHTTPRequestHandler):
             if search == "slow-generation":
                 time.sleep(0.6)
             payload = fixture_xml(self.server.origin, source, search, generation)
-            self._respond(
-                200, payload, {"Content-Type": "application/xml; charset=utf-8"}
-            )
+            self._respond(200, payload, {"Content-Type": fixture_content_type(search)})
             return
         if parsed.path == "/api.php":
             if query.get("query") == ["rate-limit"]:
@@ -952,7 +978,16 @@ def mini_case(name, capability):
         "hanging-provider-timeout": "hang",
     }
     match = re.fullmatch(r"tracker-(malformed|deep|entity|oversized)-xml", name)
-    query = match.group(1) if match else queries[name]
+    limit_match = re.fullmatch(
+        r"mislabeled-(attribute|deep|entity|node|result|text)-xml", name
+    )
+    query = (
+        match.group(1)
+        if match
+        else f"limit-{limit_match.group(1)}"
+        if limit_match
+        else queries[name]
+    )
     source_ids = (
         ["showrss", "linuxtracker"]
         if name
@@ -1948,6 +1983,70 @@ def main():
             })
             return response
 
+        def run_xml_limit_scenario(name):
+            nonlocal scenario_index
+            scenario_index += 1
+            shape = name.removeprefix("mislabeled-").removesuffix("-xml")
+            tracker_query = f"limit-{shape}"
+            pristine_path = torznab(
+                "oracle-main",
+                t="search",
+                q=tracker_query,
+                cache="false",
+            )
+            pristine_response = request(pristine_port, "GET", pristine_path, timeout=35)
+            save_transcript(
+                transcripts,
+                f"{scenario_index:02d}-pristine-{name}",
+                "GET",
+                pristine_path,
+                {},
+                None,
+                pristine_response,
+                redactions,
+            )
+            method, mini_path, body, headers, timeout = mini_case(name, capability)
+            mini_response = request(
+                mini_port, method, mini_path, body, headers, timeout=timeout
+            )
+            save_transcript(
+                transcripts,
+                f"{scenario_index:02d}-mini-{name}",
+                method,
+                mini_path,
+                headers,
+                body,
+                mini_response,
+                redactions,
+            )
+            pristine_canonical = canonical_response(pristine_response)
+            pristine_summary = {
+                key: pristine_canonical[key]
+                for key in ("outcome", "status", "errorCode", "contentType")
+                if key in pristine_canonical
+            }
+            if "items" in pristine_canonical:
+                pristine_summary["itemCount"] = len(pristine_canonical["items"])
+            mini_canonical = canonical_mini_response(mini_response)
+            security_evidence[name] = {
+                "fixtureContentType": "text/plain; charset=utf-8",
+                "pristine": pristine_summary,
+                "mini": mini_canonical,
+            }
+            mappings.append({
+                "scenario": name,
+                "original": "GET " + redact_text(pristine_path, redactions),
+                "ported": "POST /v1/search using the retained provider engine",
+                "executedMini": f"{method} {mini_path}",
+                "statuses": {
+                    "pristine": pristine_response["status"],
+                    "mini": mini_response["status"],
+                },
+                "normalization": "mislabeled XML exceeds a reviewed parser bound and maps to an exact provider error",
+                "executedSideBySide": True,
+            })
+            return mini_canonical
+
         def torznab(indexer, **params):
             values = {"apikey": api_key, **params}
             return (
@@ -2027,6 +2126,10 @@ def main():
                 "upstream shape is recorded; the independent client guard rejects unsafe XML",
                 guard=payload,
             )
+        xml_limit_observed = {
+            name: run_xml_limit_scenario(name) for name in sorted(XML_LIMIT_SCENARIOS)
+        }
+        validate_xml_limit_results(xml_limit_observed)
         run_scenario(
             "tracker-tls-failure",
             torznab("oracle-main", t="search", q="tls-failure", cache="false"),

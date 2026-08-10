@@ -134,6 +134,13 @@ test(
       assert.equal(reopenedRecord.ownerInstanceId, record.ownerInstanceId);
       assert.equal(reopenedRecord.dataRootId, record.dataRootId);
       assert.equal(reopenedRecord.executableSha256, record.executableSha256);
+      assert.equal(reopenedRecord.executablePath, record.executablePath);
+      assert.equal(reopenedRecord.dataRoot, record.dataRoot);
+      assert.equal(reopenedRecord.catalogFileSha256, record.catalogFileSha256);
+      assert.equal(
+        reopenedRecord.providerPolicySha256,
+        record.providerPolicySha256
+      );
       assert.equal(
         (await inspectJackettMini({ runtimeStateDirectory })).pid,
         record.pid
