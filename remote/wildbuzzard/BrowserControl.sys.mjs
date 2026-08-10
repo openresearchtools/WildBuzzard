@@ -3,7 +3,7 @@
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
-import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
+import { clearTimeout, setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 
 // eslint-disable-next-line mozilla/reject-importGlobalProperties
 Cu.importGlobalProperties(["File"]);
@@ -37,6 +37,13 @@ XPCOMUtils.defineLazyPreferenceGetter(
   true
 );
 
+XPCOMUtils.defineLazyServiceGetter(
+  lazy,
+  "ProxyService",
+  "@mozilla.org/network/protocol-proxy-service;1",
+  Ci.nsIProtocolProxyService
+);
+
 const ACT_SETTLE_MS = 350;
 const DRAG_SETTLE_MS = 1000;
 const DOWNLOAD_TIMEOUT_MS = 50000;
@@ -59,7 +66,55 @@ const MAX_NETWORK_RECORDS = 1000;
 const MAX_NETWORK_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_NETWORK_BODY_TOTAL_CHARS = 20 * 1024 * 1024;
 const NETWORK_RECORD_TTL_MS = 5 * 60 * 1000;
+const DEFAULT_RENDER_TIMEOUT_MS = 30000;
+const MAX_RENDER_TIMEOUT_MS = 60000;
+const MAX_RENDER_WAIT_MS = 5000;
+const MAX_RENDER_CLEANUP_MS = 10000;
+const MAX_RENDER_CONCURRENCY = 2;
+const MAX_RENDER_OUTPUT_BYTES = 2 * 1024 * 1024;
+const RENDER_PDF_PREFIX = "data:application/pdf;base64,";
+const MAX_RENDER_DOM_NODES = 20000;
+const MAX_RENDER_REQUESTS = 256;
+const MAX_RENDER_REDIRECTS = 10;
+const MAX_RENDER_RESOURCE_BYTES = 4 * 1024 * 1024;
+const MAX_RENDER_TOTAL_BYTES = 32 * 1024 * 1024;
+const RENDER_CONTEXT_ID_MIN = 0x40000000;
+const RENDER_CONTEXT_ID_RANGE = 0x3fffffff;
+const RENDER_PROXY_FILTER_POSITION = 0xffffffff;
 const TAB_OWNER_KEY = "wildbuzzard-agent-owner";
+const RENDER_ALLOWED_HEADERS = new Set([
+  "accept",
+  "accept-language",
+  "cache-control",
+  "dnt",
+  "pragma",
+  "priority",
+  "save-data",
+  "sec-gpc",
+  "user-agent",
+  "x-requested-with",
+]);
+const RENDER_SENSITIVE_HEADERS = new Set([
+  "authorization",
+  "connection",
+  "cookie",
+  "host",
+  "keep-alive",
+  "origin",
+  "proxy-authorization",
+  "proxy-connection",
+  "referer",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
+const RENDER_METADATA_HOSTS = new Set([
+  "instance-data",
+  "instance-data.ec2.internal",
+  "metadata.goog",
+  "metadata.google.internal",
+]);
 const PAGE_SCOPED_TOOLS = new Set([
   "navigate",
   "snapshot",
@@ -165,6 +220,356 @@ async function abortableDelay(milliseconds, signal) {
     ]);
   } finally {
     signal.removeEventListener("abort", onAbort);
+  }
+}
+
+function parseIPv4Address(host) {
+  const parts = host.split(".");
+  if (parts.length !== 4) {
+    return null;
+  }
+  let value = 0;
+  for (const part of parts) {
+    if (!/^\d{1,3}$/.test(part)) {
+      return null;
+    }
+    const octet = Number(part);
+    if (octet > 255) {
+      return null;
+    }
+    value = (value * 256 + octet) >>> 0;
+  }
+  return value;
+}
+
+function parseIPv6Address(host) {
+  let value = host.toLowerCase();
+  if (value.startsWith("[") && value.endsWith("]")) {
+    value = value.slice(1, -1);
+  }
+  if (!value.includes(":") || value.includes("%")) {
+    return null;
+  }
+  const doubleColon = value.indexOf("::");
+  if (doubleColon !== -1 && doubleColon !== value.lastIndexOf("::")) {
+    return null;
+  }
+  const convertIPv4Tail = parts => {
+    const tail = parts.at(-1);
+    if (!tail?.includes(".")) {
+      return parts;
+    }
+    const ipv4 = parseIPv4Address(tail);
+    if (ipv4 === null) {
+      return null;
+    }
+    return [
+      ...parts.slice(0, -1),
+      ((ipv4 >>> 16) & 0xffff).toString(16),
+      (ipv4 & 0xffff).toString(16),
+    ];
+  };
+  let left = convertIPv4Tail(
+    (doubleColon === -1 ? value : value.slice(0, doubleColon))
+      .split(":")
+      .filter(Boolean)
+  );
+  let right = convertIPv4Tail(
+    (doubleColon === -1 ? "" : value.slice(doubleColon + 2))
+      .split(":")
+      .filter(Boolean)
+  );
+  if (!left || !right) {
+    return null;
+  }
+  if (doubleColon === -1) {
+    if (left.length !== 8) {
+      return null;
+    }
+  } else {
+    const missing = 8 - left.length - right.length;
+    if (missing < 1) {
+      return null;
+    }
+    left = [...left, ...new Array(missing).fill("0")];
+  }
+  const parts = [...left, ...right];
+  if (parts.length !== 8 || parts.some(part => !/^[0-9a-f]{1,4}$/.test(part))) {
+    return null;
+  }
+  return parts.reduce(
+    (address, part) => (address << 16n) | BigInt(`0x${part}`),
+    0n
+  );
+}
+
+function ipv4InRange(address, base, prefixLength) {
+  const mask =
+    prefixLength === 0 ? 0 : (0xffffffff << (32 - prefixLength)) >>> 0;
+  return (address & mask) >>> 0 === (base & mask) >>> 0;
+}
+
+function ipv6InRange(address, base, prefixLength) {
+  const baseAddress = parseIPv6Address(base);
+  const shift = 128n - BigInt(prefixLength);
+  return address >> shift === baseAddress >> shift;
+}
+
+function isForbiddenIPv4(address) {
+  return [
+    [0x00000000, 8],
+    [0x0a000000, 8],
+    [0x64400000, 10],
+    [0x7f000000, 8],
+    [0xa9fe0000, 16],
+    [0xac100000, 12],
+    [0xc0000000, 24],
+    [0xc0000200, 24],
+    [0xc01fc400, 24],
+    [0xc034c100, 24],
+    [0xc0586300, 24],
+    [0xc0a80000, 16],
+    [0xc0af3000, 24],
+    [0xc6120000, 15],
+    [0xc6336400, 24],
+    [0xcb007100, 24],
+    [0xe0000000, 4],
+    [0xf0000000, 4],
+  ].some(([base, prefix]) => ipv4InRange(address, base, prefix));
+}
+
+function isForbiddenIPv6(address) {
+  if (address >> 32n === 0xffffn) {
+    return isForbiddenIPv4(Number(address & 0xffffffffn));
+  }
+  if (address >> 32n === 0n) {
+    return true;
+  }
+  const reserved = [
+    ["64:ff9b::", 96],
+    ["64:ff9b:1::", 48],
+    ["100::", 64],
+    ["2001::", 23],
+    ["2001:10::", 28],
+    ["2001:20::", 28],
+    ["2001:db8::", 32],
+    ["2002::", 16],
+    ["3fff::", 20],
+    ["5f00::", 16],
+    ["fc00::", 7],
+    ["fe80::", 10],
+    ["fec0::", 10],
+    ["ff00::", 8],
+  ];
+  if (reserved.some(([base, prefix]) => ipv6InRange(address, base, prefix))) {
+    return true;
+  }
+  return address >> 125n !== 1n;
+}
+
+function ipAddressKey(host) {
+  const ipv4 = parseIPv4Address(host);
+  if (ipv4 !== null) {
+    return `4:${ipv4}`;
+  }
+  const ipv6 = parseIPv6Address(host);
+  return ipv6 === null ? null : `6:${ipv6.toString(16)}`;
+}
+
+function isForbiddenIPAddress(host) {
+  const ipv4 = parseIPv4Address(host);
+  if (ipv4 !== null) {
+    return isForbiddenIPv4(ipv4);
+  }
+  const ipv6 = parseIPv6Address(host);
+  return ipv6 === null ? null : isForbiddenIPv6(ipv6);
+}
+
+function isMetadataHostname(host) {
+  const value = host.toLowerCase().replace(/\.$/, "");
+  return (
+    value === "localhost" ||
+    value.endsWith(".localhost") ||
+    RENDER_METADATA_HOSTS.has(value)
+  );
+}
+
+function geckoRenderURI(value) {
+  if (typeof value !== "string" || !value || value.length > 8192) {
+    throw new Error("gecko_render: url must be a non-empty bounded string");
+  }
+  let uri;
+  try {
+    uri = Services.io.newURI(value);
+  } catch (error) {
+    throw new Error(`gecko_render: invalid URL (${errorMessage(error)})`);
+  }
+  if (!uri.schemeIs("http") && !uri.schemeIs("https")) {
+    throw new Error("gecko_render: only http and https URLs are allowed");
+  }
+  let userPass = "";
+  try {
+    userPass = uri.QueryInterface(Ci.nsIURL).userPass;
+  } catch {}
+  if (userPass) {
+    throw new Error("gecko_render: URL userinfo is not allowed");
+  }
+  if (!uri.host) {
+    throw new Error("gecko_render: URL must contain a hostname");
+  }
+  return uri;
+}
+
+function normalizeBlockDomain(value) {
+  if (typeof value !== "string") {
+    throw new Error("gecko_render: blockDomains entries must be strings");
+  }
+  let domain = value.trim().toLowerCase();
+  if (domain.startsWith("*.")) {
+    domain = domain.slice(2);
+  } else if (domain.startsWith(".")) {
+    domain = domain.slice(1);
+  }
+  if (
+    !domain ||
+    domain.length > 253 ||
+    /[\s/:?#@\[\]]/.test(domain) ||
+    domain.startsWith("-") ||
+    domain.endsWith("-")
+  ) {
+    throw new Error(`gecko_render: invalid blocked domain ${value}`);
+  }
+  try {
+    const normalized = Services.io
+      .newURI(`http://${domain}/`)
+      .host.toLowerCase()
+      .replace(/\.$/, "");
+    if (
+      !normalized ||
+      normalized.length > 253 ||
+      normalized
+        .split(".")
+        .some(
+          label =>
+            !label ||
+            label.length > 63 ||
+            label.startsWith("-") ||
+            label.endsWith("-")
+        )
+    ) {
+      throw new Error("invalid domain");
+    }
+    return normalized;
+  } catch {
+    throw new Error(`gecko_render: invalid blocked domain ${value}`);
+  }
+}
+
+function hostMatchesBlockDomain(host, domain) {
+  const value = host.toLowerCase().replace(/\.$/, "");
+  return value === domain || value.endsWith(`.${domain}`);
+}
+
+function validateRenderHeaders(value) {
+  if (value === undefined || value === null) {
+    return new Map();
+  }
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("gecko_render: headers must be an object");
+  }
+  const entries = Object.entries(value);
+  if (entries.length > 16) {
+    throw new Error("gecko_render: at most 16 custom headers are allowed");
+  }
+  const headers = new Map();
+  let totalBytes = 0;
+  for (const [rawName, rawValue] of entries) {
+    const name = rawName.toLowerCase();
+    if (!/^[!#$%&'*+.^_`|~0-9a-z-]+$/.test(name)) {
+      throw new Error(`gecko_render: invalid header name ${rawName}`);
+    }
+    if (!RENDER_ALLOWED_HEADERS.has(name)) {
+      throw new Error(`gecko_render: header ${rawName} is not allowed`);
+    }
+    if (headers.has(name)) {
+      throw new Error(`gecko_render: duplicate header ${rawName}`);
+    }
+    if (
+      typeof rawValue !== "string" ||
+      rawValue.length > 4096 ||
+      /[\0\r\n]/.test(rawValue)
+    ) {
+      throw new Error(`gecko_render: invalid value for header ${rawName}`);
+    }
+    totalBytes += new TextEncoder().encode(rawName + rawValue).byteLength;
+    if (totalBytes > 16384) {
+      throw new Error("gecko_render: custom headers exceed the byte limit");
+    }
+    headers.set(name, rawValue);
+  }
+  return headers;
+}
+
+function validateGeckoRenderArgs(args) {
+  const uri = geckoRenderURI(args.url);
+  const timeout = args.timeoutMs ?? DEFAULT_RENDER_TIMEOUT_MS;
+  if (
+    typeof timeout !== "number" ||
+    !Number.isInteger(timeout) ||
+    timeout < 1 ||
+    timeout > MAX_RENDER_TIMEOUT_MS
+  ) {
+    throw new Error(
+      `gecko_render: timeoutMs must be an integer from 1 through ${MAX_RENDER_TIMEOUT_MS}`
+    );
+  }
+  const wait = args.waitMs ?? 0;
+  if (
+    typeof wait !== "number" ||
+    !Number.isInteger(wait) ||
+    wait < 0 ||
+    wait > MAX_RENDER_WAIT_MS
+  ) {
+    throw new Error(
+      `gecko_render: waitMs must be an integer from 0 through ${MAX_RENDER_WAIT_MS}`
+    );
+  }
+  if (
+    args.waitForSelector !== undefined &&
+    (typeof args.waitForSelector !== "string" ||
+      !args.waitForSelector ||
+      args.waitForSelector.length > 512)
+  ) {
+    throw new Error(
+      "gecko_render: waitForSelector must be a non-empty bounded string"
+    );
+  }
+  if (
+    args.blockDomains !== undefined &&
+    (!Array.isArray(args.blockDomains) || args.blockDomains.length > 64)
+  ) {
+    throw new Error(
+      "gecko_render: blockDomains must contain at most 64 domains"
+    );
+  }
+  return {
+    uri,
+    timeout,
+    wait,
+    selector: args.waitForSelector ?? null,
+    headers: validateRenderHeaders(args.headers),
+    blockDomains: new Set((args.blockDomains ?? []).map(normalizeBlockDomain)),
+  };
+}
+
+function renderErrorName(status) {
+  if (Components.isSuccessCode(status)) {
+    return null;
+  }
+  try {
+    return ChromeUtils.getXPCOMErrorName(status);
+  } catch {
+    return `0x${Number(status).toString(16)}`;
   }
 }
 
@@ -395,6 +800,1186 @@ function agentNavigationURI(url) {
   return uri;
 }
 
+/** Bounds simultaneous renderer jobs and supports abortable queueing. */
+class RenderSemaphore {
+  constructor(limit) {
+    this.limit = limit;
+    this.active = 0;
+    this.queue = [];
+  }
+
+  acquire(signal) {
+    throwIfAborted(signal);
+    if (this.active < this.limit) {
+      this.active++;
+      return Promise.resolve(this.#releaseCallback());
+    }
+    return new Promise((resolve, reject) => {
+      const entry = { resolve, reject, signal, abort: null };
+      entry.abort = () => {
+        const index = this.queue.indexOf(entry);
+        if (index !== -1) {
+          this.queue.splice(index, 1);
+        }
+        reject(signal.reason ?? new Error("Browser tool call was aborted"));
+      };
+      signal.addEventListener("abort", entry.abort, { once: true });
+      this.queue.push(entry);
+    });
+  }
+
+  rejectQueued(error) {
+    for (const entry of this.queue.splice(0)) {
+      entry.signal.removeEventListener("abort", entry.abort);
+      entry.reject(error);
+    }
+  }
+
+  #releaseCallback() {
+    let released = false;
+    return () => {
+      if (released) {
+        return;
+      }
+      released = true;
+      this.active--;
+      while (this.queue.length) {
+        const entry = this.queue.shift();
+        entry.signal.removeEventListener("abort", entry.abort);
+        if (entry.signal.aborted) {
+          entry.reject(
+            entry.signal.reason ?? new Error("Browser tool call was aborted")
+          );
+          continue;
+        }
+        this.active++;
+        entry.resolve(this.#releaseCallback());
+        break;
+      }
+    };
+  }
+}
+
+/** Cancels renderer channels that exceed response or decompression budgets. */
+class RenderBoundedListener {
+  constructor(controller, job, request, original, contentLength, capture) {
+    this.controller = controller;
+    this.job = job;
+    this.request = request;
+    this.original = original;
+    this.contentLength = contentLength;
+    this.capture = capture;
+    this.bytes = 0;
+    this.chunks = [];
+  }
+
+  onStartRequest(request) {
+    this.original.onStartRequest(request);
+  }
+
+  onDataAvailable(request, stream, offset, count) {
+    this.bytes += count;
+    this.job.decodedBytes += count;
+    const excessiveRatio =
+      this.contentLength > 0 &&
+      this.bytes > 1024 * 1024 &&
+      this.bytes / this.contentLength > 100;
+    if (
+      this.bytes > MAX_RENDER_RESOURCE_BYTES ||
+      this.job.decodedBytes > MAX_RENDER_TOTAL_BYTES ||
+      excessiveRatio
+    ) {
+      this.controller.failJob(
+        this.job,
+        excessiveRatio
+          ? "resource-limit: decompression ratio exceeded"
+          : "resource-limit: response body limit exceeded"
+      );
+      request.cancel(Cr.NS_ERROR_FILE_TOO_BIG);
+      return;
+    }
+    if (!this.capture) {
+      this.original.onDataAvailable(request, stream, offset, count);
+      return;
+    }
+    const binary = Cc["@mozilla.org/binaryinputstream;1"].createInstance(
+      Ci.nsIBinaryInputStream
+    );
+    binary.setInputStream(stream);
+    const bytes = Uint8Array.from(binary.readByteArray(count));
+    this.chunks.push(bytes);
+    const copy = Cc[
+      "@mozilla.org/io/arraybuffer-input-stream;1"
+    ].createInstance(Ci.nsIArrayBufferInputStream);
+    copy.setData(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    this.original.onDataAvailable(request, copy, offset, bytes.byteLength);
+  }
+
+  onStopRequest(request, status) {
+    if (this.capture) {
+      this.controller.recordCapturedBody(
+        this.job,
+        this.request.URI.spec,
+        Components.isSuccessCode(status) ? this.chunks : null
+      );
+    }
+    this.original.onStopRequest(request, status);
+  }
+}
+
+RenderBoundedListener.prototype.QueryInterface = ChromeUtils.generateQI([
+  "nsIStreamListener",
+  "nsIRequestObserver",
+]);
+
+/** Owns restricted renderer contexts, network policy, and cleanup. */
+class GeckoRenderController {
+  constructor(service) {
+    this.service = service;
+    this.jobsByUserContext = new Map();
+    this.jobsByBrowsingContext = new Map();
+    this.semaphore = new RenderSemaphore(MAX_RENDER_CONCURRENCY);
+    this.tracedChannels = new WeakSet();
+    this.testAllowedHosts = new Set();
+    this.testDNSAnswers = new Map();
+    this.lastCleanup = null;
+    this.started = false;
+  }
+
+  start() {
+    if (this.started) {
+      return;
+    }
+    this.started = true;
+    lazy.ProxyService.registerChannelFilter(this, RENDER_PROXY_FILTER_POSITION);
+    for (const topic of [
+      "http-on-modify-request",
+      "http-on-examine-response",
+      "http-on-examine-cached-response",
+      "http-on-examine-merged-response",
+      "http-on-stop-request",
+    ]) {
+      Services.obs.addObserver(this, topic);
+    }
+  }
+
+  stop() {
+    if (!this.started) {
+      return;
+    }
+    this.started = false;
+    lazy.ProxyService.unregisterChannelFilter(this);
+    for (const topic of [
+      "http-on-modify-request",
+      "http-on-examine-response",
+      "http-on-examine-cached-response",
+      "http-on-examine-merged-response",
+      "http-on-stop-request",
+    ]) {
+      Services.obs.removeObserver(this, topic);
+    }
+    const error = new Error("Gecko renderer stopped");
+    this.semaphore.rejectQueued(error);
+    for (const job of this.jobsByUserContext.values()) {
+      this.failJob(job, error.message);
+      this.#closeWindowless(job);
+    }
+  }
+
+  applyFilter(channel, proxyInfo, callback) {
+    const userContextId =
+      channel.loadInfo?.originAttributes?.userContextId ?? 0;
+    callback.onProxyFilterResult(
+      this.jobsByUserContext.has(userContextId) ? null : proxyInfo
+    );
+  }
+
+  QueryInterface = ChromeUtils.generateQI([
+    Ci.nsIObserver,
+    Ci.nsIProtocolProxyChannelFilter,
+  ]);
+
+  observe(subject, topic) {
+    let channel;
+    try {
+      channel = subject.QueryInterface(Ci.nsIHttpChannel);
+    } catch {
+      return;
+    }
+    const userContextId =
+      channel.loadInfo?.originAttributes?.userContextId ?? 0;
+    const job = this.jobsByUserContext.get(userContextId);
+    if (!job) {
+      return;
+    }
+    if (topic === "http-on-modify-request") {
+      this.#onModifyRequest(job, channel);
+    } else if (topic === "http-on-stop-request") {
+      this.#onStopRequest(job, channel);
+    } else {
+      this.#onExamineResponse(job, channel);
+    }
+  }
+
+  jobForNetworkRequest(request) {
+    const contextId = Number(request.contextId);
+    const context = Number.isInteger(contextId)
+      ? BrowsingContext.get(contextId)
+      : null;
+    return this.jobsByBrowsingContext.get(context?.top?.id ?? contextId);
+  }
+
+  recordNetworkRequest(job, request) {
+    if (!this.#isMainDocumentNetworkRequest(job, request)) {
+      return;
+    }
+    const record = {
+      id: request.requestId,
+      url: request.serializedURL,
+      state: "pending",
+      sequence: ++job.responseSequence,
+    };
+    job.mainResponses.set(request.requestId, record);
+    job.notifyNetwork();
+  }
+
+  recordNetworkResponse(job, request, response, state, body = null) {
+    if (!this.#isMainDocumentNetworkRequest(job, request)) {
+      return;
+    }
+    const record = job.mainResponses.get(request.requestId) ?? {
+      id: request.requestId,
+      url: request.serializedURL,
+      sequence: ++job.responseSequence,
+    };
+    const headers = headersObject(response?.headers);
+    Object.assign(record, {
+      url: request.serializedURL,
+      status: response?.status ?? 0,
+      contentType: headers["content-type"] ?? response?.mimeType ?? "",
+      state,
+      body,
+      error: request.errorText ?? null,
+    });
+    job.mainResponses.set(request.requestId, record);
+    job.notifyNetwork();
+  }
+
+  failJob(job, message) {
+    if (job.fatalError) {
+      return;
+    }
+    job.fatalError = new Error(message);
+    job.controller.abort(job.fatalError);
+  }
+
+  setTestAllowedHosts(hosts) {
+    if (!Cu.isInAutomation) {
+      throw new Error("Gecko renderer test policy is automation-only");
+    }
+    this.testAllowedHosts = new Set(
+      hosts.map(host =>
+        geckoRenderURI(`http://${host}/`).host.toLowerCase().replace(/\.$/, "")
+      )
+    );
+  }
+
+  setTestDNSAnswers(answers) {
+    if (!Cu.isInAutomation) {
+      throw new Error("Gecko renderer test DNS is automation-only");
+    }
+    this.testDNSAnswers = new Map(
+      Object.entries(answers).map(([host, addresses]) => [
+        host.toLowerCase().replace(/\.$/, ""),
+        new Set(addresses.map(ipAddressKey)),
+      ])
+    );
+  }
+
+  diagnostics() {
+    return {
+      active: this.semaphore.active,
+      queued: this.semaphore.queue.length,
+      contexts: [...this.jobsByBrowsingContext.keys()],
+      userContexts: [...this.jobsByUserContext.keys()],
+      lastCleanup: this.lastCleanup,
+    };
+  }
+
+  async render(options, outerSignal) {
+    const controller = new AbortController();
+    const abortFromCaller = () =>
+      controller.abort(new Error("Browser tool call was aborted"));
+    if (outerSignal?.aborted) {
+      abortFromCaller();
+    } else {
+      outerSignal?.addEventListener("abort", abortFromCaller, { once: true });
+    }
+    const timeoutId = setTimeout(
+      () => controller.abort(new Error("timeout: Gecko render timed out")),
+      options.timeout
+    );
+    let release = null;
+    let job = null;
+    let result = null;
+    let errorToThrow = null;
+    try {
+      release = await this.semaphore.acquire(controller.signal);
+      const userContextId = this.#allocateUserContextId();
+      job = this.#createJob(options, controller, userContextId);
+      this.jobsByUserContext.set(userContextId, job);
+      const staleDataFlags = await this.#clearJobData(job);
+      if (staleDataFlags) {
+        throw new Error(
+          `Gecko render preflight cleanup failed (${staleDataFlags} failed flags)`
+        );
+      }
+      if (controller.signal.aborted) {
+        throw controller.signal.reason;
+      }
+      await this.#approveURI(job, options.uri);
+      this.#createWindowless(job);
+      this.jobsByBrowsingContext.set(job.browsingContext.id, job);
+      await this.#navigate(job);
+      if (job.fatalError) {
+        throw job.fatalError;
+      }
+      await this.#waitForPage(job);
+      if (job.fatalError) {
+        throw job.fatalError;
+      }
+      result = await this.#resultForJob(job);
+    } catch (error) {
+      if (outerSignal?.aborted) {
+        errorToThrow = new Error("Browser tool call was aborted");
+      } else {
+        result = {
+          content: "",
+          pageStatusCode: 0,
+          pageError: job?.fatalError?.message ?? errorMessage(error),
+          contentType: "",
+          finalUrl: job?.browsingContext?.currentURI?.spec ?? options.uri.spec,
+        };
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      outerSignal?.removeEventListener("abort", abortFromCaller);
+      let cleanupError = null;
+      if (job) {
+        try {
+          await this.#cleanup(job);
+        } catch (error) {
+          cleanupError = error;
+        }
+      }
+      release?.();
+      if (cleanupError) {
+        errorToThrow = cleanupError;
+      }
+    }
+    if (errorToThrow) {
+      throw errorToThrow;
+    }
+    return result;
+  }
+
+  #createJob(options, controller, userContextId) {
+    const job = {
+      options,
+      controller,
+      userContextId,
+      origin: options.uri.prePath,
+      channels: new Map(),
+      dnsRequests: new Set(),
+      addressCache: new Map(),
+      policyChecks: new Set(),
+      mainResponses: new Map(),
+      capturedBodies: new Map(),
+      pendingBodyCaptures: new Set(),
+      channelResponses: new Map(),
+      responseSequence: 0,
+      requests: 0,
+      redirects: 0,
+      decodedBytes: 0,
+      fatalError: null,
+      windowless: null,
+      browsingContext: null,
+      networkWaiter: Promise.withResolvers(),
+    };
+    job.notifyNetwork = () => {
+      job.networkWaiter.resolve();
+      job.networkWaiter = Promise.withResolvers();
+    };
+    job.abort = () => this.#cancelChannels(job);
+    controller.signal.addEventListener("abort", job.abort);
+    return job;
+  }
+
+  #allocateUserContextId() {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const random = crypto.getRandomValues(new Uint32Array(1))[0];
+      const id = RENDER_CONTEXT_ID_MIN + (random % RENDER_CONTEXT_ID_RANGE);
+      if (!this.jobsByUserContext.has(id)) {
+        return id;
+      }
+    }
+    throw new Error("Gecko renderer could not allocate an isolated context");
+  }
+
+  #createWindowless(job) {
+    let flags = Ci.nsIWebBrowserChrome.CHROME_REMOTE_WINDOW;
+    if (Services.appinfo.fissionAutostart) {
+      flags |= Ci.nsIWebBrowserChrome.CHROME_FISSION_WINDOW;
+    }
+    const windowless = Services.appShell.createWindowlessBrowser(false, flags);
+    const docShell = windowless.docShell;
+    docShell.setOriginAttributes({
+      ...docShell.getOriginAttributes(),
+      privateBrowsingId: 1,
+      userContextId: job.userContextId,
+    });
+    docShell.allowAuth = false;
+    docShell.allowContentRetargeting = false;
+    docShell.allowContentRetargetingOnChildren = false;
+    docShell.allowDNSPrefetch = false;
+    docShell.allowMedia = false;
+    docShell.allowWindowControl = false;
+    windowless.browsingContext.useGlobalHistory = false;
+    windowless.browsingContext.suspendMediaWhenInactive = true;
+    job.windowless = windowless;
+    job.browsingContext = windowless.browsingContext;
+  }
+
+  async #navigate(job) {
+    const webProgress = job.windowless
+      .QueryInterface(Ci.nsIInterfaceRequestor)
+      .getInterface(Ci.nsIWebProgress);
+    const done = Promise.withResolvers();
+    let settled = false;
+    const finish = status => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      webProgress.removeProgressListener(listener);
+      job.controller.signal.removeEventListener("abort", abort);
+      done.resolve(status);
+    };
+    const listener = {
+      QueryInterface: ChromeUtils.generateQI([
+        "nsIWebProgressListener",
+        "nsISupportsWeakReference",
+      ]),
+      onStateChange(progress, _request, flags, status) {
+        if (
+          progress.isTopLevel &&
+          flags & Ci.nsIWebProgressListener.STATE_STOP &&
+          flags & Ci.nsIWebProgressListener.STATE_IS_NETWORK
+        ) {
+          finish(status);
+        }
+      },
+      onLocationChange() {},
+      onProgressChange() {},
+      onStatusChange() {},
+      onSecurityChange() {},
+      onContentBlockingEvent() {},
+    };
+    const abort = () => {
+      try {
+        job.windowless.stop(Ci.nsIWebNavigation.STOP_ALL);
+      } catch {}
+      finish(Cr.NS_BINDING_ABORTED);
+    };
+    webProgress.addProgressListener(
+      listener,
+      Ci.nsIWebProgress.NOTIFY_STATE_NETWORK | Ci.nsIWebProgress.NOTIFY_LOCATION
+    );
+    job.controller.signal.addEventListener("abort", abort, { once: true });
+    job.windowless.loadURI(job.options.uri, {
+      loadFlags:
+        Ci.nsIRequest.LOAD_BYPASS_CACHE |
+        Ci.nsIRequest.INHIBIT_CACHING |
+        Ci.nsIRequest.LOAD_ANONYMOUS |
+        Ci.nsIChannel.LOAD_BYPASS_SERVICE_WORKER,
+      triggeringPrincipal: Services.scriptSecurityManager.createNullPrincipal({
+        privateBrowsingId: 1,
+        userContextId: job.userContextId,
+      }),
+    });
+    const status = await done.promise;
+    if (job.controller.signal.aborted) {
+      throw job.controller.signal.reason;
+    }
+    const navigationError = renderErrorName(status);
+    if (navigationError) {
+      throw new Error(`navigation-error: ${navigationError}`);
+    }
+  }
+
+  async #waitForPage(job) {
+    if (job.options.selector) {
+      const actor = await this.#actorForJob(job);
+      const result = await actor.sendQuery("geckoRenderWait", {
+        selector: job.options.selector,
+        timeout: Math.min(job.options.timeout, MAX_RENDER_TIMEOUT_MS),
+      });
+      if (!result.matched) {
+        throw new Error("timeout: selector was not found");
+      }
+    }
+    if (job.options.wait) {
+      await abortableDelay(job.options.wait, job.controller.signal);
+    }
+  }
+
+  async #actorForJob(job) {
+    let lastError = null;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (job.controller.signal.aborted) {
+        throw job.controller.signal.reason;
+      }
+      try {
+        return this.service.actorForBrowsingContext(job.browsingContext);
+      } catch (error) {
+        lastError = error;
+      }
+      await abortableDelay(25, job.controller.signal);
+    }
+    throw lastError ?? new Error("Gecko render actor was not created");
+  }
+
+  async #resultForJob(job) {
+    const currentUrl =
+      job.browsingContext.currentURI?.spec || job.options.uri.spec;
+    const response = await this.#waitForMainResponse(job, currentUrl);
+    let finalUrl = response?.url || currentUrl;
+    try {
+      const currentURI = Services.io.newURI(currentUrl);
+      if (currentURI.schemeIs("http") || currentURI.schemeIs("https")) {
+        finalUrl = currentUrl;
+      }
+    } catch {}
+    if (/^application\/pdf(?:;|$)/i.test(response?.contentType ?? "")) {
+      const bytes = await this.#capturedBodyBytes(job, finalUrl);
+      if (!bytes) {
+        throw new Error("response-body-unavailable: PDF body was not captured");
+      }
+      const base64Length = 4 * Math.ceil(bytes.byteLength / 3);
+      if (RENDER_PDF_PREFIX.length + base64Length > MAX_RENDER_OUTPUT_BYTES) {
+        throw new Error("resource-limit: serialized output limit exceeded");
+      }
+      return {
+        content: `${RENDER_PDF_PREFIX}${this.#base64Bytes(bytes)}`,
+        pageStatusCode: response.status ?? 0,
+        pageError: response.error ?? null,
+        contentType: response.contentType,
+        finalUrl,
+      };
+    }
+    const actor = await this.#actorForJob(job);
+    const snapshot = await actor.sendQuery("geckoRenderSnapshot", {
+      maxBytes: MAX_RENDER_OUTPUT_BYTES,
+      maxNodes: MAX_RENDER_DOM_NODES,
+    });
+    if (snapshot.error) {
+      throw new Error(snapshot.error);
+    }
+    const contentType = response?.contentType || snapshot.contentType || "";
+    let content = "";
+    if (/^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType)) {
+      content = snapshot.html;
+    } else if (
+      /^(?:text\/plain|application\/(?:[a-z0-9.+-]*\+)?json)(?:;|$)/i.test(
+        contentType
+      )
+    ) {
+      content =
+        (await this.#capturedBodyText(job, finalUrl, contentType)) ??
+        this.#responseBodyText(response?.body) ??
+        snapshot.text;
+    } else if (response?.status !== 204) {
+      throw new Error(`unsupported-content-type: ${contentType || "unknown"}`);
+    }
+    if (
+      new TextEncoder().encode(content).byteLength > MAX_RENDER_OUTPUT_BYTES
+    ) {
+      throw new Error("resource-limit: serialized output limit exceeded");
+    }
+    return {
+      content,
+      pageStatusCode: response?.status ?? 0,
+      pageError: response?.error ?? null,
+      contentType,
+      finalUrl,
+    };
+  }
+
+  #responseBodyText(body) {
+    if (!body || body.type !== "string") {
+      return null;
+    }
+    return body.value;
+  }
+
+  async #capturedBodyBytes(job, url) {
+    const key = String(url ?? "").split("#", 1)[0];
+    for (let attempt = 0; attempt < 40; attempt++) {
+      if (job.capturedBodies.has(key) || !job.pendingBodyCaptures.has(key)) {
+        break;
+      }
+      await Promise.race([job.networkWaiter.promise, delay(25)]);
+    }
+    const chunks = job.capturedBodies.get(key);
+    if (!chunks) {
+      return null;
+    }
+    const length = chunks.reduce((total, chunk) => total + chunk.length, 0);
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return bytes;
+  }
+
+  async #capturedBodyText(job, url, contentType) {
+    const bytes = await this.#capturedBodyBytes(job, url);
+    if (!bytes) {
+      return null;
+    }
+    const charset =
+      /(?:^|;)\s*charset\s*=\s*["']?([^;"'\s]+)/i.exec(contentType)?.[1] ??
+      "utf-8";
+    try {
+      return new TextDecoder(charset).decode(bytes);
+    } catch {
+      return new TextDecoder().decode(bytes);
+    }
+  }
+
+  #base64Bytes(bytes) {
+    const stream = Cc[
+      "@mozilla.org/io/arraybuffer-input-stream;1"
+    ].createInstance(Ci.nsIArrayBufferInputStream);
+    stream.setData(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const encoder = Cc["@mozilla.org/scriptablebase64encoder;1"].createInstance(
+      Ci.nsIScriptableBase64Encoder
+    );
+    return encoder.encodeToString(stream, bytes.byteLength);
+  }
+
+  recordCapturedBody(job, url, chunks) {
+    const key = String(url).split("#", 1)[0];
+    if (chunks) {
+      job.capturedBodies.set(key, chunks);
+    }
+    job.pendingBodyCaptures.delete(key);
+    job.notifyNetwork();
+  }
+
+  async #waitForMainResponse(job, finalUrl) {
+    const withoutFragment = value => String(value ?? "").split("#", 1)[0];
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const records = [...job.mainResponses.values()].sort(
+        (left, right) => right.sequence - left.sequence
+      );
+      const response =
+        records.find(
+          record => withoutFragment(record.url) === withoutFragment(finalUrl)
+        ) ?? records[0];
+      if (response && ["completed", "failed"].includes(response.state)) {
+        return response;
+      }
+      if (job.controller.signal.aborted) {
+        throw job.controller.signal.reason;
+      }
+      await Promise.race([job.networkWaiter.promise, delay(25)]);
+    }
+    return [...job.mainResponses.values()].sort(
+      (left, right) => right.sequence - left.sequence
+    )[0];
+  }
+
+  #isMainDocumentNetworkRequest(job, request) {
+    if (request.destination !== "document") {
+      return false;
+    }
+    const contextId = Number(request.contextId);
+    const context = Number.isInteger(contextId)
+      ? BrowsingContext.get(contextId)
+      : null;
+    return (context?.top?.id ?? contextId) === job.browsingContext?.id;
+  }
+
+  #onModifyRequest(job, channel) {
+    if (job.controller.signal.aborted) {
+      channel.cancel(Cr.NS_BINDING_ABORTED);
+      return;
+    }
+    job.requests++;
+    if (job.requests > MAX_RENDER_REQUESTS) {
+      this.failJob(job, "resource-limit: request count exceeded");
+      channel.cancel(Cr.NS_ERROR_FILE_TOO_BIG);
+      return;
+    }
+    let uri;
+    try {
+      uri = geckoRenderURI(channel.URI.spec);
+      this.#checkBlockedDomain(job, uri.host);
+    } catch (error) {
+      this.failJob(job, `ssrf-blocked: ${errorMessage(error)}`);
+      channel.cancel(Cr.NS_ERROR_PORT_ACCESS_NOT_ALLOWED);
+      return;
+    }
+    if (
+      [
+        Ci.nsIContentPolicy.TYPE_BEACON,
+        Ci.nsIContentPolicy.TYPE_MEDIA,
+        Ci.nsIContentPolicy.TYPE_OBJECT,
+        Ci.nsIContentPolicy.TYPE_PING,
+        Ci.nsIContentPolicy.TYPE_SAVEAS_DOWNLOAD,
+        Ci.nsIContentPolicy.TYPE_WEBSOCKET,
+        Ci.nsIContentPolicy.TYPE_WEB_IDENTITY,
+        Ci.nsIContentPolicy.TYPE_WEB_TRANSPORT,
+      ].includes(channel.loadInfo.externalContentPolicyType)
+    ) {
+      this.failJob(job, "network-policy-blocked: request type is not allowed");
+      channel.cancel(Cr.NS_ERROR_PORT_ACCESS_NOT_ALLOWED);
+      return;
+    }
+    if (this.#isMainDocumentChannel(job, channel)) {
+      job.redirects++;
+      if (job.redirects > MAX_RENDER_REDIRECTS + 1) {
+        this.failJob(job, "resource-limit: redirect count exceeded");
+        channel.cancel(Cr.NS_ERROR_REDIRECT_LOOP);
+        return;
+      }
+    }
+    channel.loadFlags |=
+      Ci.nsIRequest.LOAD_BYPASS_CACHE |
+      Ci.nsIRequest.INHIBIT_CACHING |
+      Ci.nsIRequest.LOAD_ANONYMOUS |
+      Ci.nsIChannel.LOAD_BYPASS_SERVICE_WORKER;
+    const internal = channel.QueryInterface(Ci.nsIHttpChannelInternal);
+    internal.blockAuthPrompt = true;
+    internal.corsIncludeCredentials = false;
+    internal.fetchCacheMode =
+      Ci.nsIHttpChannelInternal.FETCH_CACHE_MODE_NO_STORE;
+    for (const name of RENDER_SENSITIVE_HEADERS) {
+      try {
+        channel.setRequestHeader(name, "", false);
+      } catch {}
+    }
+    for (const name of job.options.headers.keys()) {
+      try {
+        channel.setRequestHeader(name, "", false);
+      } catch {}
+    }
+    if (uri.prePath === job.origin) {
+      for (const [name, value] of job.options.headers) {
+        try {
+          channel.setRequestHeader(name, value, false);
+        } catch (error) {
+          this.failJob(
+            job,
+            `header-policy-error: ${name}: ${errorMessage(error)}`
+          );
+          channel.cancel(Cr.NS_BINDING_ABORTED);
+          return;
+        }
+      }
+    }
+    const metadata = { suspended: false };
+    job.channels.set(channel, metadata);
+    try {
+      channel.suspend();
+      metadata.suspended = true;
+    } catch (error) {
+      this.failJob(job, `network-policy-error: ${errorMessage(error)}`);
+      channel.cancel(Cr.NS_BINDING_ABORTED);
+      return;
+    }
+    const policyCheck = this.#approveURI(job, uri)
+      .catch(error => {
+        this.failJob(job, `ssrf-blocked: ${errorMessage(error)}`);
+        channel.cancel(Cr.NS_ERROR_PORT_ACCESS_NOT_ALLOWED);
+      })
+      .finally(() => {
+        job.policyChecks.delete(policyCheck);
+        if (metadata.suspended) {
+          metadata.suspended = false;
+          try {
+            channel.resume();
+          } catch {}
+        }
+      });
+    job.policyChecks.add(policyCheck);
+  }
+
+  #onExamineResponse(job, channel) {
+    if (job.controller.signal.aborted) {
+      channel.cancel(Cr.NS_BINDING_ABORTED);
+      return;
+    }
+    let remoteAddress = null;
+    try {
+      remoteAddress = channel.QueryInterface(
+        Ci.nsIHttpChannelInternal
+      ).remoteAddress;
+    } catch {}
+    const addressSpace = channel.loadInfo.ipAddressSpace;
+    const testAllowed = this.#isTestAllowedHost(channel.URI.host);
+    if (
+      !testAllowed &&
+      (addressSpace === Ci.nsILoadInfo.Local ||
+        addressSpace === Ci.nsILoadInfo.Private ||
+        (remoteAddress && isForbiddenIPAddress(remoteAddress) !== false))
+    ) {
+      this.failJob(
+        job,
+        "ssrf-blocked: connection resolved to a private address"
+      );
+      channel.cancel(Cr.NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED);
+      return;
+    }
+    if (!testAllowed && remoteAddress) {
+      const approved = job.addressCache.get(
+        channel.URI.host.toLowerCase().replace(/\.$/, "")
+      );
+      const key = ipAddressKey(remoteAddress);
+      if (!key || !approved?.addresses.has(key)) {
+        this.failJob(job, "ssrf-blocked: DNS rebinding was detected");
+        channel.cancel(Cr.NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED);
+        return;
+      }
+    }
+    try {
+      if (
+        /^\s*attachment(?:\s*;|\s*$)/i.test(channel.contentDispositionHeader)
+      ) {
+        this.failJob(job, "network-policy-blocked: downloads are not allowed");
+        channel.cancel(Cr.NS_ERROR_PORT_ACCESS_NOT_ALLOWED);
+        return;
+      }
+    } catch {}
+    if (this.#isMainDocumentChannel(job, channel)) {
+      let status = 0;
+      let contentType = "";
+      try {
+        status = channel.responseStatus;
+      } catch {}
+      try {
+        contentType = channel.getResponseHeader("content-type");
+      } catch {}
+      const record = {
+        id: `native:${channel.channelId}`,
+        url: channel.URI.spec,
+        status,
+        contentType,
+        state: "response-started",
+        body: null,
+        error: null,
+        sequence: ++job.responseSequence,
+      };
+      job.channelResponses.set(channel, record);
+      job.mainResponses.set(record.id, record);
+      job.notifyNetwork();
+    }
+    if (this.tracedChannels.has(channel)) {
+      return;
+    }
+    this.tracedChannels.add(channel);
+    let contentLength = 0;
+    try {
+      contentLength = Number(channel.getResponseHeader("content-length"));
+    } catch {}
+    if (contentLength > MAX_RENDER_RESOURCE_BYTES) {
+      this.failJob(job, "resource-limit: response content-length exceeded");
+      channel.cancel(Cr.NS_ERROR_FILE_TOO_BIG);
+      return;
+    }
+    try {
+      const traceable = channel.QueryInterface(Ci.nsITraceableChannel);
+      const capture = this.#isMainDocumentChannel(job, channel);
+      const listener = new RenderBoundedListener(
+        this,
+        job,
+        channel,
+        null,
+        contentLength,
+        capture
+      );
+      listener.original = traceable.setNewListener(listener);
+      if (capture) {
+        job.pendingBodyCaptures.add(channel.URI.spec.split("#", 1)[0]);
+      }
+    } catch (error) {
+      this.failJob(job, `network-policy-error: ${errorMessage(error)}`);
+      channel.cancel(Cr.NS_BINDING_ABORTED);
+    }
+  }
+
+  #onStopRequest(job, channel) {
+    const record = job.channelResponses.get(channel);
+    if (record) {
+      const error = renderErrorName(channel.status);
+      record.state = error ? "failed" : "completed";
+      record.error = error;
+      job.notifyNetwork();
+      job.channelResponses.delete(channel);
+    }
+    job.channels.delete(channel);
+  }
+
+  #checkBlockedDomain(job, host) {
+    const value = host.toLowerCase();
+    if (
+      [...job.options.blockDomains].some(domain =>
+        hostMatchesBlockDomain(value, domain)
+      )
+    ) {
+      throw new Error(`hostname ${host} is blocked`);
+    }
+  }
+
+  #isMainDocumentChannel(job, channel) {
+    if (
+      channel.loadInfo.externalContentPolicyType !==
+      Ci.nsIContentPolicy.TYPE_DOCUMENT
+    ) {
+      return false;
+    }
+    const context = channel.loadInfo.browsingContext;
+    return context?.top?.id === job.browsingContext?.id;
+  }
+
+  #isTestAllowedHost(host) {
+    return (
+      Cu.isInAutomation &&
+      this.testAllowedHosts.has(host.toLowerCase().replace(/\.$/, ""))
+    );
+  }
+
+  async #approveURI(job, uri) {
+    this.#checkBlockedDomain(job, uri.host);
+    const host = uri.host.toLowerCase().replace(/\.$/, "");
+    if (isMetadataHostname(host)) {
+      throw new Error(`hostname ${host} is reserved`);
+    }
+    const literal = isForbiddenIPAddress(host);
+    if (literal === true) {
+      throw new Error(`address ${host} is private or reserved`);
+    }
+    if (literal === false) {
+      const record = {
+        addresses: new Set([ipAddressKey(host)]),
+        expires: Infinity,
+      };
+      job.addressCache.set(host, record);
+      return record;
+    }
+    const testAnswers = this.testDNSAnswers.get(host);
+    if (testAnswers) {
+      const record = { addresses: testAnswers, expires: Infinity };
+      job.addressCache.set(host, record);
+      return record;
+    }
+    if (this.#isTestAllowedHost(host)) {
+      const record = { addresses: new Set(), expires: Infinity };
+      job.addressCache.set(host, record);
+      return record;
+    }
+    const cached = job.addressCache.get(host);
+    if (cached?.pending) {
+      return cached.pending;
+    }
+    if (cached && cached.expires > Date.now()) {
+      return cached;
+    }
+    const pending = this.#resolveHost(job, host);
+    job.addressCache.set(host, { pending, addresses: new Set(), expires: 0 });
+    try {
+      const record = await pending;
+      job.addressCache.set(host, record);
+      return record;
+    } catch (error) {
+      job.addressCache.delete(host);
+      throw error;
+    }
+  }
+
+  #resolveHost(job, host) {
+    return new Promise((resolve, reject) => {
+      let request;
+      let settled = false;
+      const finish = (error, record = null) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        job.controller.signal.removeEventListener("abort", abort);
+        if (request) {
+          job.dnsRequests.delete(request);
+        }
+        if (error) {
+          reject(error);
+        } else {
+          resolve(record);
+        }
+      };
+      const abort = () => {
+        try {
+          request?.cancel(Cr.NS_BINDING_ABORTED);
+        } catch {}
+        finish(job.controller.signal.reason ?? new Error("render aborted"));
+      };
+      const listener = {
+        onLookupComplete(inRequest, inRecord, status) {
+          if (inRequest !== request) {
+            return;
+          }
+          if (!Components.isSuccessCode(status)) {
+            finish(new Error(`DNS lookup failed for ${host}`));
+            return;
+          }
+          inRecord.QueryInterface(Ci.nsIDNSAddrRecord);
+          const addresses = new Set();
+          while (inRecord.hasMore()) {
+            const address = inRecord.getNextAddrAsString();
+            if (isForbiddenIPAddress(address) !== false) {
+              finish(
+                new Error(`hostname ${host} resolved to a private address`)
+              );
+              return;
+            }
+            addresses.add(ipAddressKey(address));
+          }
+          if (!addresses.size) {
+            finish(new Error(`DNS lookup returned no addresses for ${host}`));
+            return;
+          }
+          let ttl = 1;
+          try {
+            ttl = Math.max(0.25, Math.min(5, inRecord.ttl));
+          } catch {}
+          finish(null, {
+            addresses,
+            expires: Date.now() + ttl * 1000,
+          });
+        },
+      };
+      job.controller.signal.addEventListener("abort", abort, { once: true });
+      try {
+        request = Services.dns.asyncResolve(
+          host,
+          Ci.nsIDNSService.RESOLVE_TYPE_DEFAULT,
+          Ci.nsIDNSService.RESOLVE_BYPASS_CACHE |
+            Ci.nsIDNSService.RESOLVE_REFRESH_CACHE,
+          null,
+          listener,
+          null,
+          { privateBrowsingId: 1, userContextId: job.userContextId }
+        );
+        job.dnsRequests.add(request);
+      } catch (error) {
+        finish(
+          new Error(`DNS lookup failed for ${host}: ${errorMessage(error)}`)
+        );
+      }
+    });
+  }
+
+  #cancelChannels(job) {
+    for (const [channel, metadata] of job.channels) {
+      try {
+        channel.cancel(Cr.NS_BINDING_ABORTED);
+      } catch {}
+      if (metadata.suspended) {
+        metadata.suspended = false;
+        try {
+          channel.resume();
+        } catch {}
+      }
+    }
+    for (const request of job.dnsRequests) {
+      try {
+        request.cancel(Cr.NS_BINDING_ABORTED);
+      } catch {}
+    }
+  }
+
+  #closeWindowless(job) {
+    try {
+      job.windowless?.stop(Ci.nsIWebNavigation.STOP_ALL);
+    } catch {}
+    try {
+      job.windowless?.close();
+    } catch {}
+    job.windowless = null;
+  }
+
+  async #clearJobData(job) {
+    const done = Promise.withResolvers();
+    const timeoutId = setTimeout(
+      () => done.reject(new Error("Gecko render data cleanup timed out")),
+      MAX_RENDER_CLEANUP_MS
+    );
+    try {
+      Services.clearData.deleteDataFromOriginAttributesPattern(
+        { userContextId: job.userContextId },
+        done.resolve
+      );
+      return await done.promise;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  async #cleanup(job) {
+    if (!job.controller.signal.aborted) {
+      job.controller.abort(new Error("render complete"));
+    }
+    this.#cancelChannels(job);
+    job.controller.signal.removeEventListener("abort", job.abort);
+    await Promise.allSettled([...job.policyChecks]);
+    const contexts = job.browsingContext
+      ? job.browsingContext.getAllBrowsingContextsInSubtree()
+      : [];
+    this.#closeWindowless(job);
+    let clearError = null;
+    let failedFlags = null;
+    try {
+      failedFlags = await this.#clearJobData(job);
+    } catch (error) {
+      clearError = error;
+    }
+    for (let attempt = 0; attempt < 80; attempt++) {
+      if (contexts.every(context => context.isDiscarded)) {
+        break;
+      }
+      await delay(25);
+    }
+    const leakedContexts = contexts.filter(context => !context.isDiscarded);
+    this.jobsByBrowsingContext.delete(job.browsingContext?.id);
+    this.jobsByUserContext.delete(job.userContextId);
+    this.lastCleanup = {
+      userContextId: job.userContextId,
+      failedFlags,
+      leakedContextIds: leakedContexts.map(context => context.id),
+    };
+    if (clearError) {
+      throw clearError;
+    }
+    if (failedFlags || leakedContexts.length) {
+      throw new Error(
+        `Gecko render cleanup failed (${failedFlags || 0} failed flags, ${leakedContexts.length} contexts)`
+      );
+    }
+  }
+}
+
 /**
  * Stores stable element references and snapshot baselines for one visible tab.
  */
@@ -467,6 +2052,7 @@ class BrowserControlService {
     this.networkRecords = new Map();
     this.sessionGroups = new Map();
     this.pendingDialogActions = new Map();
+    this.geckoRenderer = new GeckoRenderController(this);
     this.started = false;
   }
 
@@ -474,25 +2060,48 @@ class BrowserControlService {
     if (this.started) {
       return { port: this.server.localPort, token: this.token };
     }
-    try {
-      ChromeUtils.registerWindowActor("WildBuzzardBrowserControl", {
-        parent: {
-          esModuleURI:
-            "chrome://remote/content/wildbuzzard/BrowserControlParent.sys.mjs",
+    const actors = [
+      [
+        "WildBuzzardBrowserControl",
+        {
+          parent: {
+            esModuleURI:
+              "chrome://remote/content/wildbuzzard/BrowserControlParent.sys.mjs",
+          },
+          child: {
+            esModuleURI:
+              "chrome://remote/content/wildbuzzard/BrowserControlChild.sys.mjs",
+          },
+          allFrames: true,
+          includeChrome: true,
+          matches: ["*://*/*", "file://*/*", "about:*"],
         },
-        child: {
-          esModuleURI:
-            "chrome://remote/content/wildbuzzard/BrowserControlChild.sys.mjs",
+      ],
+      [
+        "WildBuzzardGeckoRenderRestrictions",
+        {
+          child: {
+            esModuleURI:
+              "chrome://remote/content/wildbuzzard/BrowserControlChild.sys.mjs",
+            events: {
+              DOMWindowCreated: {},
+            },
+          },
+          allFrames: true,
+          matches: ["*://*/*", "about:*", "blob:*", "data:*"],
         },
-        allFrames: true,
-        includeChrome: true,
-        matches: ["*://*/*", "file://*/*", "about:*"],
-      });
-    } catch (error) {
-      if (error.name !== "NotSupportedError") {
-        throw error;
+      ],
+    ];
+    for (const [name, options] of actors) {
+      try {
+        ChromeUtils.registerWindowActor(name, options);
+      } catch (error) {
+        if (error.name !== "NotSupportedError") {
+          throw error;
+        }
       }
     }
+    this.geckoRenderer.start();
 
     this.token =
       Services.env.get("WILDBUZZARD_BROWSER_CONTROL_TOKEN") ||
@@ -530,6 +2139,7 @@ class BrowserControlService {
     for (const socket of this.connections) {
       socket.close();
     }
+    this.geckoRenderer.stop();
     if (this.networkListener) {
       this.networkListener.off(
         "before-request-sent",
@@ -610,6 +2220,11 @@ class BrowserControlService {
   }
 
   #onBeforeRequestSent = async (_eventName, { request }) => {
+    const renderJob = this.geckoRenderer.jobForNetworkRequest(request);
+    if (renderJob) {
+      this.geckoRenderer.recordNetworkRequest(renderJob, request);
+      return;
+    }
     const page = this.#pageForNetworkRequest(request);
     if (page === null) {
       return;
@@ -642,6 +2257,25 @@ class BrowserControlService {
   };
 
   #onNetworkResponse = async (eventName, { request, response }) => {
+    const renderJob = this.geckoRenderer.jobForNetworkRequest(request);
+    if (renderJob) {
+      let body = null;
+      if (eventName === "response-completed") {
+        try {
+          body = await this.#networkBody(
+            await response.readAndProcessResponseBody()
+          );
+        } catch {}
+      }
+      this.geckoRenderer.recordNetworkResponse(
+        renderJob,
+        request,
+        response,
+        eventName === "response-completed" ? "completed" : "response-started",
+        body
+      );
+      return;
+    }
     const page = this.#pageForNetworkRequest(request);
     if (page === null) {
       return;
@@ -683,6 +2317,16 @@ class BrowserControlService {
   };
 
   #onNetworkFetchError = (_eventName, { request }) => {
+    const renderJob = this.geckoRenderer.jobForNetworkRequest(request);
+    if (renderJob) {
+      this.geckoRenderer.recordNetworkResponse(
+        renderJob,
+        request,
+        null,
+        "failed"
+      );
+      return;
+    }
     const page = this.#pageForNetworkRequest(request);
     if (page === null) {
       return;
@@ -2309,6 +3953,8 @@ class BrowserControlService {
         return this.uploadTool(args, cwd);
       case "download":
         return this.downloadTool(args, cwd, signal);
+      case "gecko_render":
+        return this.geckoRenderTool(args, signal);
       case "__resolve_ref":
         return this.resolveRefTool(args);
       case "__register_raw_ref":
@@ -2324,6 +3970,31 @@ class BrowserControlService {
       default:
         throw new Error(`Unknown browser tool: ${tool}`);
     }
+  }
+
+  async geckoRenderTool(args, signal) {
+    const details = await this.geckoRenderer.render(
+      validateGeckoRenderArgs(args),
+      signal
+    );
+    return textResult(
+      details.pageError
+        ? `Gecko render failed: ${details.pageError}`
+        : `Gecko rendered ${details.finalUrl}`,
+      details
+    );
+  }
+
+  setGeckoRenderTestAllowedHosts(hosts) {
+    this.geckoRenderer.setTestAllowedHosts(hosts);
+  }
+
+  setGeckoRenderTestDNSAnswers(answers) {
+    this.geckoRenderer.setTestDNSAnswers(answers);
+  }
+
+  geckoRenderDiagnostics() {
+    return this.geckoRenderer.diagnostics();
   }
 
   async tabsTool(args, clientId, signal) {
@@ -5041,5 +6712,15 @@ class BrowserControlService {
     }
   }
 }
+
+export const GeckoRenderPolicy = Object.freeze({
+  hostMatchesBlockDomain,
+  ipAddressKey,
+  isForbiddenIPAddress,
+  isMetadataHostname,
+  normalizeBlockDomain,
+  validateGeckoRenderArgs,
+  validateRenderHeaders,
+});
 
 export const BrowserControl = new BrowserControlService();

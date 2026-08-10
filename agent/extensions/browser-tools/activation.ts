@@ -11,6 +11,7 @@ const INTERACTION_TOOLS = [
   "read",
   "grep",
   "wait",
+  "gecko_render",
 ];
 const BROWSER_INTENT =
   /https?:\/\/|www\.|\.onion\b|\b(browser|browse|web(?:site|page)?|site|page|link|click|form|search online|youtube|github|duck\.ai|screenshot|bookmark|history|tab|window|download|upload|console|network|debug|tor|onion|dark web)\b/i;

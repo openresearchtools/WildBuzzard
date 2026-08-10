@@ -53,6 +53,7 @@ export const BROWSER_TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   wait: "Wait for page text, a selector, or a bounded delay",
   windows: "List, create, activate, or close browser windows",
   evaluate: "Evaluate a small JavaScript body in page context",
+  gecko_render: "Render a public page in a fresh restricted Gecko context",
   run: "Compose multi-step browser SDK work in one sandboxed call",
 };
 
@@ -716,6 +717,38 @@ export const BROWSER_TOOL_CATALOG: readonly BrowserToolDefinition[] = [
         })
       ),
     }),
+  },
+  {
+    name: "gecko_render",
+    label: "Gecko Render",
+    description:
+      "Render a public HTTP(S) URL in a fresh private windowless Gecko context. The restricted renderer blocks private and reserved networks, bounds page resources and output, strips custom headers across origins, and destroys its context and storage after every result. PDF content is returned as a bounded data:application/pdf;base64 URL.",
+    parameters: Type.Object(
+      {
+        url: Type.String({ minLength: 1, maxLength: 8192 }),
+        waitMs: Type.Optional(
+          Type.Integer({ minimum: 0, maximum: 5000, default: 0 })
+        ),
+        timeoutMs: Type.Optional(
+          Type.Integer({ minimum: 1, maximum: 60000, default: 30000 })
+        ),
+        headers: Type.Optional(
+          Type.Record(Type.String(), Type.String({ maxLength: 4096 }), {
+            maxProperties: 16,
+          })
+        ),
+        blockDomains: Type.Optional(
+          Type.Array(Type.String({ minLength: 1, maxLength: 253 }), {
+            maxItems: 64,
+          })
+        ),
+        waitForSelector: Type.Optional(
+          Type.String({ minLength: 1, maxLength: 512 })
+        ),
+      },
+      { additionalProperties: false }
+    ),
+    readOnly: true,
   },
   {
     name: "run",
