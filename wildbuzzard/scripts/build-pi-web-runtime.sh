@@ -471,6 +471,8 @@ launcher() {
   printf '%s\n' \
     '#!/bin/sh' \
     'launcher_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)' \
+    'export PI_TELEMETRY=0' \
+    'export PI_SKIP_VERSION_CHECK=1' \
     "exec \"\${launcher_dir}/../node/bin/node\" \"\${launcher_dir}/../${entrypoint}\" \"\$@\"" \
     >"${runtime_dir}/bin/${name}"
   chmod 755 "${runtime_dir}/bin/${name}"
