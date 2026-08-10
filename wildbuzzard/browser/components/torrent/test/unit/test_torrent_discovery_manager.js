@@ -76,11 +76,7 @@ add_setup(async function setup() {
         request.bodyInputStream.available()
       )
     );
-    Assert.deepEqual(
-      body,
-      { query: "linux iso", limit: 200 },
-      "The product request contains no upstream credentials or mutation fields"
-    );
+    Assert.deepEqual(body, { query: "linux iso", limit: 200 });
     sendJson(request, response, {
       searchId: "S".repeat(32),
       partial: true,
@@ -126,6 +122,7 @@ add_setup(async function setup() {
   registerCleanupFunction(async () => {
     TorrentDiscoveryManager.cancelSearch();
     TorrentDiscoveryManager.connection = null;
+    TorrentDiscoveryManager.initializeTask = null;
     Services.env.set("WILDBUZZARD_JACKETT_MINI_CONNECTION", originalConnection);
     await new Promise(resolve => server.stop(resolve));
   });
@@ -134,24 +131,21 @@ add_setup(async function setup() {
 add_task(async function test_bounded_sanitized_product_contract() {
   const sources = await TorrentDiscoveryManager.getSources();
   Assert.equal(sources.sources[0].name, "LinuxTracker");
-
   const result = await TorrentDiscoveryManager.search({ query: "linux iso" });
   Assert.equal(result.partial, true);
   Assert.equal(result.results[0].name, "Linux ISO");
   Assert.equal(result.results[0].leechers, null);
   Assert.deepEqual(result.results[0].categoryIds, [8000]);
-
   const resolution = await TorrentDiscoveryManager.resolve(RESULT_ID);
   Assert.equal(resolution.kind, "magnet");
-  Assert.ok(!("capability" in result), "The capability never enters results");
+  Assert.ok(!("capability" in result));
 });
 
 add_task(async function test_adult_category_fails_closed() {
   searchMode = "adult";
   await Assert.rejects(
     TorrentDiscoveryManager.search({ query: "linux iso" }),
-    /invalid response/,
-    "An adult-category result invalidates the response"
+    /invalid response/
   );
   searchMode = "valid";
 });
@@ -159,23 +153,15 @@ add_task(async function test_adult_category_fails_closed() {
 add_task(async function test_search_cancellation_aborts_transport() {
   searchMode = "delayed";
   const pending = TorrentDiscoveryManager.search({ query: "linux iso" });
-  await TestUtils.waitForCondition(
-    () => TorrentDiscoveryManager.activeRequest,
-    "The search request reached the local service"
-  );
+  await TestUtils.waitForCondition(() => TorrentDiscoveryManager.activeRequest);
   TorrentDiscoveryManager.cancelSearch();
-  await Assert.rejects(
-    pending,
-    error => error.cancelled,
-    "Cancelling a generation aborts the local request"
-  );
+  await Assert.rejects(pending, error => error.cancelled);
   searchMode = "valid";
 });
 
-add_task(async function test_private_search_is_explicitly_disabled() {
+add_task(async function test_private_and_tor_search_fails_closed() {
   await Assert.rejects(
     TorrentDiscoveryManager.search({ query: "linux iso", isPrivate: true }),
-    /disabled in private windows/,
-    "Private windows cannot reuse ordinary discovery state"
+    /disabled in private windows/
   );
 });

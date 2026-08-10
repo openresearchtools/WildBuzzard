@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
+/* global Buffer, process */
+
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
 import {
   chmod,
   copyFile,
@@ -24,6 +27,23 @@ import {
 const runtimeDirectory = process.env.JACKETT_MINI_TEST_RUNTIME;
 const runtimeManifestPath = process.env.JACKETT_MINI_TEST_MANIFEST;
 
+function ensureInFreshLauncher(options) {
+  const modulePath = new URL("../process.mjs", import.meta.url).href;
+  const program = `
+    import { ensureJackettMini } from ${JSON.stringify(modulePath)};
+    const record = await ensureJackettMini(JSON.parse(process.env.JACKETT_OPTIONS));
+    process.stdout.write(String(record.pid));
+  `;
+  return new Promise((resolve, reject) => {
+    execFile(
+      process.execPath,
+      ["--input-type=module", "--eval", program],
+      { env: { ...process.env, JACKETT_OPTIONS: JSON.stringify(options) } },
+      (error, stdout) => (error ? reject(error) : resolve(Number(stdout)))
+    );
+  });
+}
+
 function request(
   record,
   pathname,
@@ -31,7 +51,7 @@ function request(
 ) {
   return new Promise((resolve, reject) => {
     const serialized = body === undefined ? undefined : JSON.stringify(body);
-    const request = http.request(
+    const outbound = http.request(
       {
         host: "127.0.0.1",
         port: record.port,
@@ -59,11 +79,11 @@ function request(
         );
       }
     );
-    request.on("error", reject);
+    outbound.on("error", reject);
     if (serialized) {
-      request.write(serialized);
+      outbound.write(serialized);
     }
-    request.end();
+    outbound.end();
   });
 }
 
@@ -71,10 +91,17 @@ test(
   "Jackett Mini lifecycle, authentication, and forbidden routes",
   { skip: !runtimeDirectory || !runtimeManifestPath },
   async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "jackett-mini-contract-"));
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), "jackett-mini-contract-")
+    );
     const dataDirectory = path.join(root, "data");
     const runtimeStateDirectory = path.join(root, "run");
-    const options = { runtimeDirectory, runtimeManifestPath, dataDirectory, runtimeStateDirectory };
+    const options = {
+      runtimeDirectory,
+      runtimeManifestPath,
+      dataDirectory,
+      runtimeStateDirectory,
+    };
     const [record, concurrentRecord] = await Promise.all([
       ensureJackettMini(options),
       ensureJackettMini(options),
@@ -92,10 +119,28 @@ test(
       );
       assert.equal((await stat(record.capabilityPath)).mode & 0o777, 0o600);
       assert.equal((await ensureJackettMini(options)).pid, record.pid);
-      assert.equal((await inspectJackettMini({ runtimeStateDirectory })).pid, record.pid);
+      assert.equal(await ensureInFreshLauncher(options), record.pid);
+      assert.equal(
+        (await inspectJackettMini({ runtimeStateDirectory })).pid,
+        record.pid
+      );
+      const commandLine = await readFile(`/proc/${record.pid}/cmdline`, "utf8");
+      assert.ok(!commandLine.includes(record.capability));
+      await assert.rejects(
+        stat(path.join(runtimeStateDirectory, "service.stdout.log"))
+      );
+      await assert.rejects(
+        stat(path.join(runtimeStateDirectory, "service.stderr.log"))
+      );
 
-      assert.equal((await request(record, "/v1/health", { capability: "invalid" })).status, 401);
-      assert.equal((await request(record, "/v1/health?apikey=forbidden")).status, 400);
+      assert.equal(
+        (await request(record, "/v1/health", { capability: "invalid" })).status,
+        401
+      );
+      assert.equal(
+        (await request(record, "/v1/health?apikey=forbidden")).status,
+        400
+      );
       assert.equal(
         (
           await request(record, "/v1/health", {
@@ -193,12 +238,18 @@ test(
       try {
         assert.notEqual(otherRecord.dataRootId, record.dataRootId);
         assert.equal(
-          (await request(otherRecord, "/v1/health", { capability: record.capability })).status,
+          (
+            await request(otherRecord, "/v1/health", {
+              capability: record.capability,
+            })
+          ).status,
           401
         );
       } finally {
         assert.equal(
-          await stopJackettMini({ runtimeStateDirectory: path.join(root, "other-run") }),
+          await stopJackettMini({
+            runtimeStateDirectory: path.join(root, "other-run"),
+          }),
           true
         );
       }
@@ -226,7 +277,7 @@ test(
       { mode: 0o600 }
     );
     assert.equal(await stopJackettMini({ runtimeStateDirectory }), false);
-    assert.ok((await readFile(`/proc/${process.pid}/stat`, "utf8")).length > 0);
+    assert.ok((await readFile(`/proc/${process.pid}/stat`, "utf8")).length);
     await rm(root, { recursive: true });
   }
 );
@@ -235,7 +286,9 @@ test(
   "Jackett Mini rejects an incomplete runtime inventory",
   { skip: !runtimeDirectory || !runtimeManifestPath },
   async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "jackett-mini-manifest-"));
+    const root = await mkdtemp(
+      path.join(os.tmpdir(), "jackett-mini-manifest-")
+    );
     const incompleteRuntime = path.join(root, "runtime");
     const dataDirectory = path.join(root, "data");
     const runtimeStateDirectory = path.join(root, "run");

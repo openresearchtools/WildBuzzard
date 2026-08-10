@@ -1019,12 +1019,97 @@ index 000000000..6f9f74157
 +        UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow,
 +    };
 +}
+diff --git a/src/Jackett.Mini/PublicNetworkPolicy.cs b/src/Jackett.Mini/PublicNetworkPolicy.cs
+new file mode 100644
+index 000000000..fe8b23c47
+--- /dev/null
++++ b/src/Jackett.Mini/PublicNetworkPolicy.cs
+@@ -0,0 +1,79 @@
++using System.Net;
++using System.Net.Sockets;
++
++namespace Jackett.Mini;
++
++internal static class PublicNetworkPolicy
++{
++    public static async ValueTask<Stream> ConnectAsync(SocketsHttpConnectionContext context, CancellationToken cancellationToken)
++    {
++        var addresses = await ResolvePublicAsync(context.DnsEndPoint.Host, cancellationToken);
++        Exception? lastError = null;
++        foreach (var address in addresses)
++        {
++            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
++            try
++            {
++                await socket.ConnectAsync(new IPEndPoint(address, context.DnsEndPoint.Port), cancellationToken);
++                if (socket.RemoteEndPoint is not IPEndPoint remote || !remote.Address.Equals(address) || !IsPublic(remote.Address))
++                    throw new InvalidOperationException("Connected peer did not match the validated public address");
++                return new NetworkStream(socket, ownsSocket: true);
++            }
++            catch (Exception error)
++            {
++                socket.Dispose();
++                lastError = error;
++            }
++        }
++        throw new HttpRequestException("No validated public address accepted the connection", lastError);
++    }
++
++    public static async Task<IPAddress[]> ResolvePublicAsync(string host, CancellationToken cancellationToken)
++    {
++        var addresses = await Dns.GetHostAddressesAsync(host, cancellationToken);
++        if (addresses.Length == 0 || addresses.Any(address => !IsPublic(address)))
++            throw new InvalidOperationException("Destination DNS did not resolve exclusively to public addresses");
++        return addresses;
++    }
++
++    public static bool IsPublic(IPAddress address)
++    {
++        if (address.IsIPv4MappedToIPv6)
++            address = address.MapToIPv4();
++        if (address.AddressFamily == AddressFamily.InterNetworkV6)
++        {
++            var bytes = address.GetAddressBytes();
++            return !IPAddress.IPv6Any.Equals(address) &&
++                   !IPAddress.IPv6Loopback.Equals(address) &&
++                   !address.IsIPv6LinkLocal &&
++                   !address.IsIPv6SiteLocal &&
++                   !address.IsIPv6Multicast &&
++                   (bytes[0] & 0xfe) != 0xfc &&
++                   !(bytes[0] == 0x20 && bytes[1] == 0x01 && bytes[2] == 0x0d && bytes[3] == 0xb8);
++        }
++        if (address.AddressFamily != AddressFamily.InterNetwork)
++            return false;
++        var value = address.GetAddressBytes();
++        return value[0] != 0 &&
++               value[0] != 10 &&
++               value[0] != 127 &&
++               !(value[0] == 100 && value[1] is >= 64 and <= 127) &&
++               !(value[0] == 169 && value[1] == 254) &&
++               !(value[0] == 172 && value[1] is >= 16 and <= 31) &&
++               !(value[0] == 192 && value[1] == 0 && value[2] == 0) &&
++               !(value[0] == 192 && value[1] == 0 && value[2] == 2) &&
++               !(value[0] == 192 && value[1] == 88 && value[2] == 99) &&
++               !(value[0] == 192 && value[1] == 168) &&
++               !(value[0] == 198 && value[1] is 18 or 19) &&
++               !(value[0] == 198 && value[1] == 51 && value[2] == 100) &&
++               !(value[0] == 203 && value[1] == 0 && value[2] == 113) &&
++               value[0] < 224;
++    }
++
++    public static async Task ValidateUriAsync(Uri uri, CancellationToken cancellationToken)
++    {
++        if (!uri.IsAbsoluteUri || uri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(uri.UserInfo))
++            throw new InvalidOperationException("Provider request URL is invalid");
++        await ResolvePublicAsync(uri.DnsSafeHost, cancellationToken);
++    }
++}
 diff --git a/src/Jackett.Mini/DirectWebClient.cs b/src/Jackett.Mini/DirectWebClient.cs
 new file mode 100644
 index 000000000..40ff4d8ba
 --- /dev/null
 +++ b/src/Jackett.Mini/DirectWebClient.cs
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,147 @@
 +using System.Net;
 +using System.Net.Http.Headers;
 +using System.Text;
@@ -1041,14 +1126,17 @@ index 000000000..40ff4d8ba
 +{
 +    private const int MaximumResponseBytes = 16 * 1024 * 1024;
 +    private readonly HttpClient _client;
++    private TimeSpan _timeout = TimeSpan.FromSeconds(15);
 +
 +    public DirectWebClient(IProcessService process, Logger logger, IConfigurationService configuration, ServerConfig serverConfig)
 +        : base(process, logger, configuration, serverConfig)
 +    {
-+        var handler = new HttpClientHandler
++        var handler = new SocketsHttpHandler
 +        {
 +            AllowAutoRedirect = false,
 +            AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli,
++            ConnectCallback = PublicNetworkPolicy.ConnectAsync,
++            ConnectTimeout = TimeSpan.FromSeconds(10),
 +            MaxConnectionsPerServer = 4,
 +            UseCookies = false,
 +            UseProxy = false,
@@ -1056,39 +1144,28 @@ index 000000000..40ff4d8ba
 +        _client = new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(15) };
 +    }
 +
-+    public override void SetTimeout(int seconds) => _client.Timeout = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 15));
++    public override void SetTimeout(int seconds) => _timeout = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 15));
 +
 +    protected override async Task<WebResult> Run(JackettWebRequest webRequest)
 +    {
-+        using var request = new HttpRequestMessage
++        var uri = new Uri(webRequest.Url);
++        var origin = uri;
++        var method = webRequest.Type == RequestType.POST ? HttpMethod.Post : HttpMethod.Get;
++        using var timeout = new CancellationTokenSource(_timeout);
++        var response = await SendWithPolicy(
++            _client,
++            (target, verb) => CreateRequest(webRequest, target, verb, SameOrigin(origin, target)),
++            uri,
++            method,
++            cancellationToken: timeout.Token);
++        using (response)
 +        {
-+            RequestUri = new Uri(webRequest.Url),
-+            Method = webRequest.Type == RequestType.POST ? HttpMethod.Post : HttpMethod.Get,
-+        };
-+        if (request.RequestUri.Scheme is not ("http" or "https") || !string.IsNullOrEmpty(request.RequestUri.UserInfo))
-+            throw new InvalidOperationException("Provider request URL is invalid");
-+        foreach (var header in webRequest.Headers ?? new Dictionary<string, string>())
-+        {
-+            if (!header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase))
-+                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
-+        }
-+        if (!string.IsNullOrWhiteSpace(webRequest.Cookies))
-+            request.Headers.TryAddWithoutValidation("Cookie", webRequest.Cookies);
-+        if (request.Headers.UserAgent.Count == 0)
-+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jackett-Mini", CatalogPolicy.Version.TrimStart('v')));
-+        if (!string.IsNullOrWhiteSpace(webRequest.Referer))
-+            request.Headers.Referrer = new Uri(webRequest.Referer);
-+        if (!string.IsNullOrEmpty(webRequest.RawBody))
-+            request.Content = new StringContent(webRequest.RawBody, Encoding.UTF8, webRequest.Headers?.GetValueOrDefault("Content-Type") ?? "application/octet-stream");
-+        else if (webRequest.Type == RequestType.POST && webRequest.PostData is not null)
-+            request.Content = new FormUrlEncodedContent(webRequest.PostData);
-+        using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
-+        await using var input = await response.Content.ReadAsStreamAsync();
++        await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
 +        using var output = new MemoryStream();
 +        var buffer = new byte[64 * 1024];
 +        while (true)
 +        {
-+            var count = await input.ReadAsync(buffer);
++            var count = await input.ReadAsync(buffer, timeout.Token);
 +            if (count == 0)
 +                break;
 +            if (output.Length + count > MaximumResponseBytes)
@@ -1107,10 +1184,156 @@ index 000000000..40ff4d8ba
 +            result.Headers[header.Key] = header.Value.ToArray();
 +        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
 +            result.Cookies = string.Join(" ", cookies.Select(cookie => cookie.Split(';', 2)[0] + ";"));
-+        return result;
++            return result;
++        }
++    }
++
++    private static HttpRequestMessage CreateRequest(JackettWebRequest webRequest, Uri uri, HttpMethod method, bool includeSensitive)
++    {
++        var request = new HttpRequestMessage(method, uri);
++        foreach (var header in webRequest.Headers ?? new Dictionary<string, string>())
++        {
++            if (!header.Key.Equals("Content-Type", StringComparison.OrdinalIgnoreCase) &&
++                !header.Key.Equals("Host", StringComparison.OrdinalIgnoreCase) &&
++                (includeSensitive || !header.Key.Equals("Authorization", StringComparison.OrdinalIgnoreCase)) &&
++                (includeSensitive || !header.Key.Equals("Cookie", StringComparison.OrdinalIgnoreCase)))
++                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
++        }
++        if (includeSensitive && !string.IsNullOrWhiteSpace(webRequest.Cookies))
++            request.Headers.TryAddWithoutValidation("Cookie", webRequest.Cookies);
++        if (request.Headers.UserAgent.Count == 0)
++            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jackett-Mini", CatalogPolicy.Version.TrimStart('v')));
++        if (!string.IsNullOrWhiteSpace(webRequest.Referer))
++            request.Headers.Referrer = new Uri(webRequest.Referer);
++        if (method == HttpMethod.Post && !string.IsNullOrEmpty(webRequest.RawBody))
++            request.Content = new StringContent(webRequest.RawBody, Encoding.UTF8, webRequest.Headers?.GetValueOrDefault("Content-Type") ?? "application/octet-stream");
++        else if (method == HttpMethod.Post && webRequest.PostData is not null)
++            request.Content = new FormUrlEncodedContent(webRequest.PostData);
++        return request;
++    }
++
++    private static bool SameOrigin(Uri left, Uri right) =>
++        left.Scheme == right.Scheme && left.IdnHost == right.IdnHost && left.Port == right.Port;
++
++    internal static async Task<HttpResponseMessage> SendWithPolicy(
++        HttpClient client,
++        Func<Uri, HttpMethod, HttpRequestMessage> createRequest,
++        Uri uri,
++        HttpMethod method,
++        Func<Uri, CancellationToken, Task>? validate = null,
++        CancellationToken cancellationToken = default)
++    {
++        validate ??= PublicNetworkPolicy.ValidateUriAsync;
++        for (var redirects = 0; redirects <= 5; redirects++)
++        {
++            await validate(uri, cancellationToken);
++            using var request = createRequest(uri, method);
++            var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
++            if (response.StatusCode == HttpStatusCode.TooManyRequests)
++            {
++                response.Dispose();
++                throw new HttpRequestException("Provider rate limited the request", null, HttpStatusCode.TooManyRequests);
++            }
++            if ((int)response.StatusCode is < 300 or > 399 || response.Headers.Location is null)
++                return response;
++            if (redirects == 5)
++            {
++                response.Dispose();
++                throw new InvalidOperationException("Provider response exceeded the redirect limit");
++            }
++            var redirected = new Uri(uri, response.Headers.Location);
++            if (uri.Scheme == "https" && redirected.Scheme != "https")
++            {
++                response.Dispose();
++                throw new InvalidOperationException("Provider redirect attempted to downgrade TLS");
++            }
++            uri = redirected;
++            if (response.StatusCode is HttpStatusCode.Moved or HttpStatusCode.Found or HttpStatusCode.SeeOther)
++                method = HttpMethod.Get;
++            response.Dispose();
++        }
++        throw new InvalidOperationException("Provider response was unavailable");
 +    }
 +
 +    public void Dispose() => _client.Dispose();
++}
+diff --git a/src/Jackett.Mini/SecuritySelfTest.cs b/src/Jackett.Mini/SecuritySelfTest.cs
+new file mode 100644
+index 000000000..0a2a67758
+--- /dev/null
++++ b/src/Jackett.Mini/SecuritySelfTest.cs
+@@ -0,0 +1,72 @@
++using System.Net;
++using System.Security.Authentication;
++
++namespace Jackett.Mini;
++
++internal static class SecuritySelfTest
++{
++    public static async Task Run()
++    {
++        Assert(!PublicNetworkPolicy.IsPublic(IPAddress.Loopback), "loopback accepted");
++        Assert(!PublicNetworkPolicy.IsPublic(IPAddress.Parse("169.254.169.254")), "link-local accepted");
++        Assert(!PublicNetworkPolicy.IsPublic(IPAddress.Parse("fc00::1")), "unique-local accepted");
++        Assert(PublicNetworkPolicy.IsPublic(IPAddress.Parse("8.8.8.8")), "public address rejected");
++        await AssertThrows<HttpRequestException>(() => Send(new StaticHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests))));
++        var redirects = 0;
++        await AssertThrows<InvalidOperationException>(() => Send(new StaticHandler(_ =>
++        {
++            redirects++;
++            return new HttpResponseMessage(HttpStatusCode.Found) { Headers = { Location = new Uri("/loop", UriKind.Relative) } };
++        })));
++        Assert(redirects == 6, "redirect limit was not exact");
++        using var stalled = new HttpClient(new StaticHandler(async (_, cancellationToken) =>
++        {
++            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
++            return new HttpResponseMessage(HttpStatusCode.OK);
++        })) { Timeout = TimeSpan.FromMilliseconds(50) };
++        await AssertThrows<TaskCanceledException>(() => Send(stalled));
++        var tls = new HttpRequestException("TLS failed", new AuthenticationException("certificate rejected"));
++        await AssertThrows<HttpRequestException>(() => Send(new StaticHandler(_ => throw tls)));
++    }
++
++    private static Task<HttpResponseMessage> Send(HttpMessageHandler handler) => Send(new HttpClient(handler));
++
++    private static Task<HttpResponseMessage> Send(HttpClient client) => DirectWebClient.SendWithPolicy(
++        client,
++        (uri, method) => new HttpRequestMessage(method, uri),
++        new Uri("https://example.invalid/start"),
++        HttpMethod.Get,
++        (_, _) => Task.CompletedTask);
++
++    private static async Task AssertThrows<T>(Func<Task<HttpResponseMessage>> action) where T : Exception
++    {
++        try
++        {
++            using var response = await action();
++        }
++        catch (T)
++        {
++            return;
++        }
++        throw new InvalidOperationException($"Expected {typeof(T).Name}");
++    }
++
++    private static void Assert(bool condition, string message)
++    {
++        if (!condition)
++            throw new InvalidOperationException(message);
++    }
++
++    private sealed class StaticHandler : HttpMessageHandler
++    {
++        private readonly Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> _send;
++
++        public StaticHandler(Func<HttpRequestMessage, HttpResponseMessage> send)
++            : this((request, _) => Task.FromResult(send(request))) { }
++
++        public StaticHandler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) => _send = send;
++
++        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
++            _send(request, cancellationToken);
++    }
 +}
 diff --git a/src/Jackett.Mini/DiscoveryService.cs b/src/Jackett.Mini/DiscoveryService.cs
 new file mode 100644
@@ -1698,13 +1921,19 @@ new file mode 100644
 index 000000000..2931d6a15
 --- /dev/null
 +++ b/src/Jackett.Mini/Program.cs
-@@ -0,0 +1,158 @@
+@@ -0,0 +1,164 @@
 +using System.Diagnostics;
 +using System.Net;
 +using System.Security.Cryptography;
 +using System.Text;
 +using System.Text.Json;
 +using Jackett.Mini;
++
++if (args.SequenceEqual(new[] { "--SecuritySelfTest" }))
++{
++    await SecuritySelfTest.Run();
++    return 0;
++}
 +
 +MiniOptions options;
 +try

@@ -6,9 +6,11 @@ JAR_MANIFESTS += ["jar.mn"]
 
 EXTRA_JS_MODULES += [
     "AboutTorrents.sys.mjs",
+    "JackettMiniRuntime.sys.mjs",
     "MagnetProtocolHandler.sys.mjs",
     "TorrentDiscoveryManager.sys.mjs",
     "TorrentContentHandler.sys.mjs",
+    "TorrentDiscoveryManager.sys.mjs",
     "TorrentManager.sys.mjs",
 ]
 

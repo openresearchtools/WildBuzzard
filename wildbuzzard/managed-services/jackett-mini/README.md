@@ -6,4 +6,4 @@
 
 The helper never discovers or kills a process by name. Stop signals are sent only to the PID whose Linux start time, canonical executable path, and digest still match the connection record. A bind or health failure retries the complete spawn. The capability is stored in a private file and is never passed on the command line.
 
-The browser-side supervisor still needs to import or adapt this helper and retain the same checks. The product client should validate `protocol-v1.schema.json` independently and must never expose the connection record or capability to content.
+The browser supervisor in `browser/components/torrent/JackettMiniRuntime.sys.mjs` enforces the same identity checks while verifying and atomically activating the bundled archive. The product client validates the response contract independently and never exposes the connection record or capability to content.

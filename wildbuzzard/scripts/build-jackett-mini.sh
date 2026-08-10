@@ -12,18 +12,23 @@ source_directory_name=Jackett-0cd8622b735922a909a128d8d6943bb8565a640f
 sdk_image=mcr.microsoft.com/dotnet/sdk@sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164
 source_date_epoch=1786253932
 output_dir=
+archive_path=
 object_dir=
 log_dir=
 keep_object=false
 
 usage() {
-  echo "usage: $0 --output DIR [--object-dir DIR] [--log-dir DIR] [--keep-object]" >&2
+  echo "usage: $0 --output DIR [--archive FILE] [--object-dir DIR] [--log-dir DIR] [--keep-object]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --output)
       output_dir=${2:?}
+      shift 2
+      ;;
+    --archive)
+      archive_path=${2:?}
       shift 2
       ;;
     --object-dir)
@@ -52,6 +57,9 @@ if [[ -z "$output_dir" ]]; then
 fi
 
 output_dir=$(realpath -m -- "$output_dir")
+if [[ -n "$archive_path" ]]; then
+  archive_path=$(realpath -m -- "$archive_path")
+fi
 if [[ -e "$output_dir" ]] && [[ -n "$(find "$output_dir" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
   echo "output directory must not exist or must be empty: $output_dir" >&2
   exit 1
@@ -166,6 +174,13 @@ podman "${podman_args[@]}" run --rm --userns=keep-id \
     -p:PublishSingleFile=false \
     -p:PublishTrimmed=false > "$log_dir/publish.log" 2>&1
 
+podman "${podman_args[@]}" run --rm --userns=keep-id \
+  -e DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1 \
+  -v "$object_dir/publish:/runtime:Z" \
+  -w /runtime \
+  "$sdk_image" \
+  ./jackett-mini --SecuritySelfTest > "$log_dir/security-self-test.log" 2>&1
+
 mkdir -p -- "$object_dir/publish/licenses/jackett" "$object_dir/publish/licenses/dotnet"
 cp -- "$package_dir/LICENSE" "$object_dir/publish/licenses/jackett/LICENSE"
 cp -- "$package_dir/THIRD_PARTY_NOTICES.md" "$object_dir/publish/licenses/jackett/THIRD_PARTY_NOTICES.md"
@@ -189,6 +204,9 @@ if [[ "$actual_yaml" -ne "$expected_yaml" ]]; then
 fi
 
 cp -a -- "$object_dir/publish/." "$output_dir/"
+mkdir -p -- "$output_dir/source/jackett"
+cp -a -- "$package_dir/." "$output_dir/source/jackett/"
+cp -- "$script_dir/build-jackett-mini.sh" "$output_dir/source/jackett/build-jackett-mini.sh"
 find "$output_dir" -type d -exec chmod 0755 -- {} +
 find "$output_dir" -type f -exec chmod 0644 -- {} +
 chmod 0755 -- "$output_dir/jackett-mini"
@@ -200,7 +218,14 @@ python3 "$package_dir/packaging/write_runtime_metadata.py" \
   --source-sha256 "$source_sha256" \
   --sdk-image "$sdk_image" \
   --license-inventory "$package_dir/packaging/nuget-licenses.json" \
-  --manifest "$output_dir.manifest.json" \
-  --sbom "$output_dir.spdx.json"
+  --manifest "$output_dir/jackett-mini-runtime.json" \
+  --sbom "$output_dir/jackett-mini.spdx.json"
+
+if [[ -n "$archive_path" ]]; then
+  python3 "$package_dir/packaging/create_runtime_zip.py" \
+    --runtime "$output_dir" \
+    --output "$archive_path" \
+    --source-date-epoch "$source_date_epoch"
+fi
 
 echo "$output_dir"

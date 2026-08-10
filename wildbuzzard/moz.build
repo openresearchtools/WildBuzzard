@@ -24,6 +24,17 @@ if CONFIG["WILDBUZZARD_TORRENT_RUNTIME"]:
         "!wildbuzzard-torrent-runtime.zip",
     ]
 
+if CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"]:
+    GENERATED_FILES += ["wildbuzzard-jackett-mini-runtime.zip"]
+    jackett_mini_runtime = GENERATED_FILES["wildbuzzard-jackett-mini-runtime.zip"]
+    jackett_mini_runtime.script = "copy_file.py"
+    jackett_mini_runtime.flags = [CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"]]
+    jackett_mini_runtime.extra_deps = ["%" + CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"]]
+
+    FINAL_TARGET_FILES.runtime["jackett-mini"] += [
+        "!wildbuzzard-jackett-mini-runtime.zip",
+    ]
+
 if CONFIG["WILDBUZZARD_ARTI"]:
     arti_name = "arti" + CONFIG["BIN_SUFFIX"]
     GENERATED_FILES += [arti_name]

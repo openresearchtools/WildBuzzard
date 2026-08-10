@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+import { JackettMiniRuntime } from "resource:///modules/JackettMiniRuntime.sys.mjs";
 import { ServiceRequest } from "resource://gre/modules/ServiceRequest.sys.mjs";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
@@ -147,14 +148,22 @@ class TorrentDiscoveryManagerImpl {
     if (this.connection) {
       return;
     }
-    const configured = Services.env.get("WILDBUZZARD_JACKETT_MINI_CONNECTION");
-    if (!configured) {
-      throw Object.assign(
-        new Error("The bundled torrent search runtime is unavailable"),
-        { serviceUnavailable: true }
-      );
+    if (this.initializeTask) {
+      await this.initializeTask;
+      return;
     }
-    const connection = await IOUtils.readJSON(configured).catch(() => null);
+    this.initializeTask = this.#initialize().catch(error => {
+      this.initializeTask = null;
+      throw Object.assign(error, { serviceUnavailable: true });
+    });
+    await this.initializeTask;
+  }
+
+  async #initialize() {
+    const configured = Services.env.get("WILDBUZZARD_JACKETT_MINI_CONNECTION");
+    const connection = configured
+      ? await IOUtils.readJSON(configured).catch(() => null)
+      : await new JackettMiniRuntime().ensure();
     if (
       connection?.address !== "127.0.0.1" ||
       !Number.isInteger(connection.port) ||
@@ -166,7 +175,12 @@ class TorrentDiscoveryManagerImpl {
       throw new Error("The torrent search connection record is invalid");
     }
     this.connection = connection;
-    await this.#request("GET", "/v1/health", null, 3000);
+    try {
+      await this.#request("GET", "/v1/health", null, 3000);
+    } catch (error) {
+      this.connection = null;
+      throw error;
+    }
   }
 
   #request(method, path, body = null, timeout = 35000) {
@@ -191,6 +205,10 @@ class TorrentDiscoveryManagerImpl {
           this.activeRequest = null;
         }
         if (error) {
+          if (error.serviceUnavailable) {
+            this.connection = null;
+            this.initializeTask = null;
+          }
           reject(error);
           return;
         }
