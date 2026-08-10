@@ -36,6 +36,7 @@ const EXPECTED_NAMES = [
   "wait",
   "windows",
   "evaluate",
+  "gecko_render",
   "run",
 ];
 

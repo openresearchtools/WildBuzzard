@@ -27,6 +27,8 @@ const MAX_CHILD_TEXT_CHARS = 2 * 1024 * 1024;
 const MAX_SNAPSHOT_NODES = 10000;
 const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
 const MAX_SNAPSHOT_FIELD_CHARS = 4000;
+const RENDER_CONTEXT_ID_MIN = 0x40000000;
+const RENDER_CONTEXT_ID_MAX = 0x7ffffffe;
 const TEXT_CONTENT_ROLES = new Set([
   "alert",
   "log",
@@ -1082,9 +1084,42 @@ function boundedConsoleMessage(message) {
   return { value, bytes };
 }
 
-/**
- * Executes content-process portions of WildBuzzard browser tools.
- */
+/** Disables direct socket APIs in isolated renderer globals. */
+export class WildBuzzardGeckoRenderRestrictionsChild extends JSWindowActorChild {
+  handleEvent(event) {
+    if (event.type !== "DOMWindowCreated") {
+      return;
+    }
+    const { privateBrowsingId, userContextId } =
+      this.browsingContext.originAttributes;
+    if (
+      privateBrowsingId !== 1 ||
+      userContextId < RENDER_CONTEXT_ID_MIN ||
+      userContextId > RENDER_CONTEXT_ID_MAX
+    ) {
+      return;
+    }
+    const pageWindow = Cu.waiveXrays(this.contentWindow);
+    for (const name of [
+      "mozRTCPeerConnection",
+      "RTCPeerConnection",
+      "WebSocket",
+      "WebTransport",
+      "webkitRTCPeerConnection",
+    ]) {
+      try {
+        Object.defineProperty(pageWindow, name, {
+          configurable: false,
+          enumerable: false,
+          value: undefined,
+          writable: false,
+        });
+      } catch {}
+    }
+  }
+}
+
+/** Executes content-process portions of WildBuzzard browser tools. */
 export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
   #consoleAPIListener;
   #consoleListener;
@@ -1220,6 +1255,10 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
         return this.#evaluate(message.data);
       case "wait":
         return this.#wait(message.data);
+      case "geckoRenderWait":
+        return this.#geckoRenderWait(message.data);
+      case "geckoRenderSnapshot":
+        return this.#geckoRenderSnapshot(message.data);
       case "upload":
         return this.#upload(message.data);
       case "overlay":
@@ -1863,6 +1902,65 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
       await new Promise(resolve => this.contentWindow.setTimeout(resolve, 200));
     }
     return { matched: false };
+  }
+
+  async #geckoRenderWait({ selector, timeout }) {
+    const value = String(selector);
+    const deadline = Date.now() + Math.min(Math.max(Number(timeout), 1), 60000);
+    while (Date.now() < deadline) {
+      if (this.contentWindow.document.querySelector(value)) {
+        return { matched: true };
+      }
+      await new Promise(resolve => this.contentWindow.setTimeout(resolve, 50));
+    }
+    return { matched: false };
+  }
+
+  #geckoRenderSnapshot({ maxBytes, maxNodes }) {
+    const document = this.contentWindow.document;
+    const byteLimit = Math.min(
+      Math.max(Number(maxBytes), 1),
+      MAX_CHILD_TEXT_CHARS
+    );
+    const nodeLimit = Math.min(Math.max(Number(maxNodes), 1), 50000);
+    const walker = document.createTreeWalker(
+      document,
+      this.contentWindow.NodeFilter.SHOW_ALL
+    );
+    let nodes = 1;
+    while (walker.nextNode()) {
+      nodes++;
+      if (nodes > nodeLimit) {
+        return { error: "resource-limit: DOM node limit exceeded" };
+      }
+    }
+    const doctype = document.doctype
+      ? `<!DOCTYPE ${document.doctype.name}${
+          document.doctype.publicId
+            ? ` PUBLIC ${JSON.stringify(document.doctype.publicId)}`
+            : ""
+        }${
+          document.doctype.systemId
+            ? ` ${JSON.stringify(document.doctype.systemId)}`
+            : ""
+        }>`
+      : "";
+    const html = `${doctype}${document.documentElement?.outerHTML ?? ""}`;
+    const text = document.body?.textContent ?? "";
+    const encoder = new TextEncoder();
+    if (
+      encoder.encode(html).byteLength > byteLimit ||
+      encoder.encode(text).byteLength > byteLimit
+    ) {
+      return { error: "resource-limit: serialized output limit exceeded" };
+    }
+    return {
+      url: document.URL,
+      contentType: document.contentType,
+      html,
+      text,
+      nodes,
+    };
   }
 
   async #upload({ target, fileObjects }) {
