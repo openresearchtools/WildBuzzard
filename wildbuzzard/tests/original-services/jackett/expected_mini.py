@@ -50,6 +50,25 @@ XML_LIMIT_SCENARIOS = {
     "mislabeled-node-xml",
     "mislabeled-result-xml",
     "mislabeled-text-xml",
+    "mislabeled-declared-latin1-node-xml",
+    "mislabeled-utf16be-node-xml",
+    "mislabeled-utf16le-node-xml",
+    "mislabeled-utf16be-signature-node-xml",
+    "mislabeled-utf16le-signature-node-xml",
+    "mislabeled-utf32be-node-xml",
+    "mislabeled-utf32le-node-xml",
+    "mislabeled-utf32be-signature-node-xml",
+    "mislabeled-utf32le-signature-node-xml",
+}
+
+TRANSPORT_SCENARIOS = {
+    "transport-compressed-overflow",
+    "transport-decompressed-overflow",
+    "transport-layered-encoding",
+    "transport-malformed-gzip",
+    "transport-valid-br",
+    "transport-valid-deflate",
+    "transport-valid-gzip",
 }
 
 
@@ -243,4 +262,39 @@ def validate_xml_limit_results(observed):
     if observed != expected:
         raise AssertionError(
             f"unexpected Mini XML-limit semantics: expected {expected}, got {observed}"
+        )
+
+
+def expected_transport_result(name):
+    if name in {
+        "transport-valid-br",
+        "transport-valid-deflate",
+        "transport-valid-gzip",
+    }:
+        title = {
+            "transport-valid-br": "Transport Brotli",
+            "transport-valid-deflate": "Transport Deflate",
+            "transport-valid-gzip": "Transport Gzip",
+        }[name]
+        return search(
+            {},
+            items=[
+                {
+                    "title": title,
+                    "indexerId": "main",
+                    "categoryIds": [2000, 112735],
+                    "seeders": 4,
+                    "normalizedLeechers": 2,
+                    "acquisition": "magnet",
+                }
+            ],
+        )
+    return provider_error()
+
+
+def validate_transport_results(observed):
+    expected = {name: expected_transport_result(name) for name in TRANSPORT_SCENARIOS}
+    if observed != expected:
+        raise AssertionError(
+            f"unexpected Mini compressed-transport semantics: expected {expected}, got {observed}"
         )

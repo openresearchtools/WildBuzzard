@@ -6,6 +6,8 @@ import base64
 import contextlib
 import datetime
 import difflib
+import functools
+import gzip
 import hashlib
 import http.client
 import http.cookies
@@ -24,11 +26,14 @@ import threading
 import time
 import traceback
 import urllib.parse
+import zlib
 
 from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
 from catalog_audit import audit_catalog
 from expected_mini import (
+    TRANSPORT_SCENARIOS,
     XML_LIMIT_SCENARIOS,
+    validate_transport_results,
     validate_xml_limit_results,
 )
 from expected_mini import (
@@ -51,6 +56,23 @@ MINI_MAX_XML_DEPTH = 64
 MINI_MAX_XML_ATTRIBUTES = 32_768
 MINI_MAX_XML_TEXT_CHARACTERS = 1024 * 1024
 MINI_MAX_XML_RESULTS = 2_000
+BROTLI_XML = b"""<?xml version="1.0" encoding="UTF-8"?><rss><channel><item><title>Transport Brotli</title><details>https://example.invalid/details</details><published>2026-08-10T12:00:00Z</published><size>123456</size><trackerCategory>safe</trackerCategory><seeders>4</seeders><leechers>2</leechers><infoHash>0123456789ABCDEF0123456789ABCDEF01234567</infoHash></item></channel></rss>"""
+BROTLI_XML_COMPRESSED = base64.b64decode(
+    "G20BAMSqOZV9YUK8c0nL46vq6EJ0X5y6Cew/6Hdr+mPTunwTx+FYKgGm20QQfPqy"
+    "Spr6FVIN+Xfole/BWbvUvQHkwUZOWEUILzXKhEbzQDu1f4z4ZZ5WrbbrpPumrhiDCU"
+    "211nPS4fAJzWZEmllzODozQgU040kJ/INhx4ZjXxw3te3Utq+w6AXS/Jkc1/ODEJa"
+    "CAHCH1xBaSnIrGdbIIYT5yauQD6tl0DM/ak5dWLKFZiyn801qso2tFcXJZrvbH446"
+    "F9YyCxZOwsJNW6sIAQ=="
+)
+TRANSPORT_QUERIES = {
+    "transport-compressed-overflow": "transport-compressed-overflow",
+    "transport-decompressed-overflow": "transport-decompressed-overflow",
+    "transport-layered-encoding": "transport-layered",
+    "transport-malformed-gzip": "transport-malformed-gzip",
+    "transport-valid-br": "transport-br",
+    "transport-valid-deflate": "transport-deflate",
+    "transport-valid-gzip": "transport-gzip",
+}
 ADULT_CATEGORIES = [6000, 6010, 6020, 6030, 6040, 6045, 6050, 6060, 6070, 6080, 6090]
 RAW_URL_SECRET = "raw-url-oracle-secret"
 TRACKER_USERNAME = "tracker-user-oracle-secret"
@@ -494,6 +516,44 @@ def fixture_xml(origin, source, query, generation=0):
         return (prefix + "<text>" + "".join(chunks) + "</text>" + suffix).encode()
     if query == "limit-result":
         return (prefix + "<item/>" * (MINI_MAX_XML_RESULTS + 1) + suffix).encode()
+    if query == "limit-declared-latin1-node":
+        return (
+            '<?xml version="1.0" encoding="ISO-8859-1"?><rss><channel>'
+            + "<node/>" * (MINI_MAX_XML_NODES + 1)
+            + suffix
+        ).encode("iso-8859-1")
+    if query.startswith("limit-utf"):
+        document = (
+            '<?xml version="1.0"?><rss><channel>'
+            + "<node/>" * (MINI_MAX_XML_NODES + 1)
+            + suffix
+        )
+        encoding = (
+            query
+            .removeprefix("limit-")
+            .removesuffix("-node")
+            .removesuffix("-signature")
+        )
+        codecs = {
+            "utf16be": (b"\xfe\xff", "utf-16be"),
+            "utf16le": (b"\xff\xfe", "utf-16le"),
+            "utf32be": (b"\x00\x00\xfe\xff", "utf-32be"),
+            "utf32le": (b"\xff\xfe\x00\x00", "utf-32le"),
+        }
+        preamble, codec = codecs[encoding]
+        if "-signature-" in query:
+            preamble = b""
+        return preamble + document.encode(codec)
+    if query == "transport-br":
+        return BROTLI_XML
+    if query == "transport-decompressed-overflow":
+        return (
+            prefix
+            + f"<secret>{RAW_URL_SECRET}</secret><padding>"
+            + "X" * (MAX_XML_BYTES + 1024)
+            + "</padding>"
+            + suffix
+        ).encode()
     if query == "oversized":
         return (
             prefix + "<padding>" + "X" * (MAX_XML_BYTES + 1024) + "</padding>" + suffix
@@ -557,14 +617,54 @@ def fixture_xml(origin, source, query, generation=0):
         "fast-generation": "Fast generation",
         "redirect-target": "Redirect target",
         "custom-category": "Custom category",
+        "transport-deflate": "Transport Deflate",
+        "transport-gzip": "Transport Gzip",
     }.get(query, f"Fixture {source}")
     return (prefix + fixture_item(origin, source, title) + suffix).encode()
 
 
 def fixture_content_type(query):
-    if query.startswith("limit-"):
+    if query.startswith("limit-") or query.startswith("transport-"):
         return "text/plain; charset=utf-8"
     return "application/xml; charset=utf-8"
+
+
+@functools.lru_cache(maxsize=1)
+def incompressible_fixture_bytes():
+    result = bytearray()
+    counter = 0
+    while len(result) <= MAX_XML_BYTES + 64 * 1024:
+        result.extend(hashlib.sha256(counter.to_bytes(8, "big")).digest())
+        counter += 1
+    return bytes(result)
+
+
+def fixture_transport_response(query, payload):
+    headers = {"Content-Type": fixture_content_type(query)}
+    if query == "transport-gzip":
+        headers["Content-Encoding"] = "gzip"
+        return gzip.compress(payload, mtime=0), headers
+    if query == "transport-deflate":
+        headers["Content-Encoding"] = "deflate"
+        return zlib.compress(payload), headers
+    if query == "transport-br":
+        if payload != BROTLI_XML:
+            raise AssertionError("the pinned Brotli payload changed")
+        headers["Content-Encoding"] = "br"
+        return BROTLI_XML_COMPRESSED, headers
+    if query == "transport-malformed-gzip":
+        headers["Content-Encoding"] = "gzip"
+        return b"malformed-gzip-" + RAW_URL_SECRET.encode(), headers
+    if query == "transport-layered":
+        headers["Content-Encoding"] = "gzip, br"
+        return gzip.compress(payload, mtime=0), headers
+    if query == "transport-compressed-overflow":
+        headers["Content-Encoding"] = "gzip"
+        return gzip.compress(incompressible_fixture_bytes(), mtime=0), headers
+    if query == "transport-decompressed-overflow":
+        headers["Content-Encoding"] = "gzip"
+        return gzip.compress(payload, mtime=0), headers
+    return payload, headers
 
 
 def fixture_torrent(origin):
@@ -620,7 +720,8 @@ class FixtureHandler(http.server.BaseHTTPRequestHandler):
             if search == "slow-generation":
                 time.sleep(0.6)
             payload = fixture_xml(self.server.origin, source, search, generation)
-            self._respond(200, payload, {"Content-Type": fixture_content_type(search)})
+            payload, headers = fixture_transport_response(search, payload)
+            self._respond(200, payload, headers)
             return
         if parsed.path == "/api.php":
             if query.get("query") == ["rate-limit"]:
@@ -979,13 +1080,16 @@ def mini_case(name, capability):
     }
     match = re.fullmatch(r"tracker-(malformed|deep|entity|oversized)-xml", name)
     limit_match = re.fullmatch(
-        r"mislabeled-(attribute|deep|entity|node|result|text)-xml", name
+        r"mislabeled-(attribute|deep|entity|node|result|text|declared-latin1-node|utf16be-node|utf16le-node|utf16be-signature-node|utf16le-signature-node|utf32be-node|utf32le-node|utf32be-signature-node|utf32le-signature-node)-xml",
+        name,
     )
     query = (
         match.group(1)
         if match
         else f"limit-{limit_match.group(1)}"
         if limit_match
+        else TRANSPORT_QUERIES[name]
+        if name in TRANSPORT_QUERIES
         else queries[name]
     )
     source_ids = (
@@ -2047,6 +2151,99 @@ def main():
             })
             return mini_canonical
 
+        def run_transport_scenario(name):
+            nonlocal scenario_index
+            scenario_index += 1
+            query = TRANSPORT_QUERIES[name]
+            pristine_path = torznab(
+                "oracle-main",
+                t="search",
+                q=query,
+                cache="false",
+            )
+            pristine_response = request(pristine_port, "GET", pristine_path, timeout=35)
+            save_transcript(
+                transcripts,
+                f"{scenario_index:02d}-pristine-{name}",
+                "GET",
+                pristine_path,
+                {},
+                None,
+                pristine_response,
+                redactions,
+            )
+            method, mini_path, body, headers, timeout = mini_case(name, capability)
+            mini_response = request(
+                mini_port, method, mini_path, body, headers, timeout=timeout
+            )
+            save_transcript(
+                transcripts,
+                f"{scenario_index:02d}-mini-{name}",
+                method,
+                mini_path,
+                headers,
+                body,
+                mini_response,
+                redactions,
+            )
+            fixture_payload = fixture_xml(fixture_server.origin, "main", query)
+            wire_payload, wire_headers = fixture_transport_response(
+                query, fixture_payload
+            )
+            pristine_canonical = canonical_response(pristine_response)
+            pristine_summary = {
+                key: pristine_canonical[key]
+                for key in ("outcome", "status", "errorCode", "contentType")
+                if key in pristine_canonical
+            }
+            if "items" in pristine_canonical:
+                pristine_summary["itemCount"] = len(pristine_canonical["items"])
+            mini_canonical = canonical_mini_response(mini_response)
+            if (
+                name
+                not in {
+                    "transport-valid-br",
+                    "transport-valid-deflate",
+                    "transport-valid-gzip",
+                }
+                and RAW_URL_SECRET.encode() in mini_response["body"]
+            ):
+                raise AssertionError(f"raw provider data leaked from {name}")
+            security_evidence[name] = {
+                "fixtureWire": {
+                    "contentEncoding": wire_headers.get("Content-Encoding"),
+                    "decodedBytes": (
+                        len(incompressible_fixture_bytes())
+                        if name == "transport-compressed-overflow"
+                        else len(fixture_payload)
+                    ),
+                    "wireBytes": len(wire_payload),
+                },
+                "pristine": pristine_summary,
+                "mini": mini_canonical,
+                "rawProviderDataAbsent": RAW_URL_SECRET.encode()
+                not in mini_response["body"],
+            }
+            semantic_diffs[name] = {
+                "pristine": pristine_summary,
+                "mini": mini_canonical,
+                "diff": normalized_semantic_diff(pristine_summary, mini_canonical),
+                "normalization": "valid standard coding is decoded; malformed, layered, or oversized coding fails without results or raw data",
+            }
+            mappings.append({
+                "scenario": name,
+                "original": "GET " + redact_text(pristine_path, redactions),
+                "ported": "POST /v1/search using the retained provider engine",
+                "executedMini": f"{method} {mini_path}",
+                "statuses": {
+                    "pristine": pristine_response["status"],
+                    "mini": mini_response["status"],
+                },
+                "normalization": "compressed response semantics are bounded before provider parsing",
+                "executedSideBySide": True,
+            })
+            return mini_canonical
+
         def torznab(indexer, **params):
             values = {"apikey": api_key, **params}
             return (
@@ -2130,6 +2327,10 @@ def main():
             name: run_xml_limit_scenario(name) for name in sorted(XML_LIMIT_SCENARIOS)
         }
         validate_xml_limit_results(xml_limit_observed)
+        transport_observed = {
+            name: run_transport_scenario(name) for name in sorted(TRANSPORT_SCENARIOS)
+        }
+        validate_transport_results(transport_observed)
         run_scenario(
             "tracker-tls-failure",
             torznab("oracle-main", t="search", q="tls-failure", cache="false"),

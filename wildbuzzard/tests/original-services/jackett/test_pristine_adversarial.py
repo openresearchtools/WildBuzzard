@@ -14,10 +14,13 @@ import unittest
 from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
 from expected_mini import (
     SCENARIOS,
+    TRANSPORT_SCENARIOS,
     XML_LIMIT_SCENARIOS,
     expected_for,
+    expected_transport_result,
     provider_error,
     validate_all,
+    validate_transport_results,
     validate_xml_limit_results,
 )
 
@@ -109,6 +112,33 @@ class PristineAdversarialTest(unittest.TestCase):
             "mislabeled-node-xml": MODULE.fixture_xml(origin, "main", "limit-node"),
             "mislabeled-result-xml": MODULE.fixture_xml(origin, "main", "limit-result"),
             "mislabeled-text-xml": MODULE.fixture_xml(origin, "main", "limit-text"),
+            "mislabeled-declared-latin1-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-declared-latin1-node"
+            ),
+            "mislabeled-utf16be-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf16be-node"
+            ),
+            "mislabeled-utf16le-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf16le-node"
+            ),
+            "mislabeled-utf16be-signature-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf16be-signature-node"
+            ),
+            "mislabeled-utf16le-signature-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf16le-signature-node"
+            ),
+            "mislabeled-utf32be-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf32be-node"
+            ),
+            "mislabeled-utf32le-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf32le-node"
+            ),
+            "mislabeled-utf32be-signature-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf32be-signature-node"
+            ),
+            "mislabeled-utf32le-signature-node-xml": MODULE.fixture_xml(
+                origin, "main", "limit-utf32le-signature-node"
+            ),
         }
         self.assertEqual(set(fixtures), XML_LIMIT_SCENARIOS)
         self.assertGreater(
@@ -132,6 +162,31 @@ class PristineAdversarialTest(unittest.TestCase):
             fixtures["mislabeled-text-xml"].count(b"X"),
             MODULE.MINI_MAX_XML_TEXT_CHARACTERS,
         )
+        latin1 = fixtures["mislabeled-declared-latin1-node-xml"].decode("iso-8859-1")
+        self.assertIn('encoding="ISO-8859-1"', latin1)
+        self.assertGreater(latin1.count("<node/>"), MODULE.MINI_MAX_XML_NODES)
+        unicode_fixtures = {
+            "mislabeled-utf16be-node-xml": (b"\xfe\xff", "utf-16be"),
+            "mislabeled-utf16le-node-xml": (b"\xff\xfe", "utf-16le"),
+            "mislabeled-utf32be-node-xml": (b"\x00\x00\xfe\xff", "utf-32be"),
+            "mislabeled-utf32le-node-xml": (b"\xff\xfe\x00\x00", "utf-32le"),
+        }
+        for name, (preamble, codec) in unicode_fixtures.items():
+            with self.subTest(name=name):
+                self.assertTrue(fixtures[name].startswith(preamble))
+                document = fixtures[name][len(preamble) :].decode(codec)
+                self.assertGreater(document.count("<node/>"), MODULE.MINI_MAX_XML_NODES)
+        signature_fixtures = {
+            "mislabeled-utf16be-signature-node-xml": "utf-16be",
+            "mislabeled-utf16le-signature-node-xml": "utf-16le",
+            "mislabeled-utf32be-signature-node-xml": "utf-32be",
+            "mislabeled-utf32le-signature-node-xml": "utf-32le",
+        }
+        for name, codec in signature_fixtures.items():
+            with self.subTest(name=name):
+                document = fixtures[name].decode(codec)
+                self.assertTrue(document.startswith("<?xml"))
+                self.assertGreater(document.count("<node/>"), MODULE.MINI_MAX_XML_NODES)
         self.assertTrue(
             all(len(payload) < MAX_XML_BYTES for payload in fixtures.values())
         )
@@ -155,17 +210,27 @@ class PristineAdversarialTest(unittest.TestCase):
             'ReadBoundedAsync(decoded, "decompressed"',
             "DtdProcessing = DtdProcessing.Prohibit",
             "MaxCharactersFromEntities = 0",
-            "MaximumXmlNodes = 50_000",
-            "MaximumXmlDepth = 64",
-            "MaximumXmlAttributes = 32_768",
-            "MaximumXmlAttributeCharacters = 1024 * 1024",
-            "MaximumXmlTextCharacters = 1024 * 1024",
-            "MaximumXmlNodeCharacters = 64 * 1024",
-            "MaximumXmlResults = 2_000",
+            "MaximumNodes = 50_000",
+            "MaximumDepth = 64",
+            "MaximumAttributes = 32_768",
+            "MaximumAttributeCharacters = 1024 * 1024",
+            "MaximumTextCharacters = 1024 * 1024",
+            "MaximumNodeCharacters = 64 * 1024",
+            "MaximumResults = 2_000",
             'mediaType?.Contains("html"',
             'mediaType?.Contains("json"',
             "return declaration || name.Length > 0",
             "AssertActionThrows<XmlException>",
+            '"deflate" => new ZLibStream',
+            "DecodeForXmlSniff",
+            "new UTF32Encoding(bigEndian: true",
+            "new UnicodeEncoding(bigEndian: false",
+            "unsupported EBCDIC encoding",
+            'AssertCodec("br"',
+            'AssertCodec("deflate"',
+            'AssertCodec("gzip"',
+            "BoundedXmlValidator.Validate(bytes)",
+            "BoundedXmlValidator.Validate(response.ContentBytes)",
         )
         for token in required:
             with self.subTest(token=token):
@@ -179,6 +244,15 @@ class PristineAdversarialTest(unittest.TestCase):
             "mislabeled-node-xml": "limit-node",
             "mislabeled-result-xml": "limit-result",
             "mislabeled-text-xml": "limit-text",
+            "mislabeled-declared-latin1-node-xml": "limit-declared-latin1-node",
+            "mislabeled-utf16be-node-xml": "limit-utf16be-node",
+            "mislabeled-utf16le-node-xml": "limit-utf16le-node",
+            "mislabeled-utf16be-signature-node-xml": "limit-utf16be-signature-node",
+            "mislabeled-utf16le-signature-node-xml": "limit-utf16le-signature-node",
+            "mislabeled-utf32be-node-xml": "limit-utf32be-node",
+            "mislabeled-utf32le-node-xml": "limit-utf32le-node",
+            "mislabeled-utf32be-signature-node-xml": "limit-utf32be-signature-node",
+            "mislabeled-utf32le-signature-node-xml": "limit-utf32le-signature-node",
         }
         for name, query in expected.items():
             with self.subTest(name=name):
@@ -190,6 +264,68 @@ class PristineAdversarialTest(unittest.TestCase):
                     MODULE.fixture_content_type(query),
                     "text/plain; charset=utf-8",
                 )
+
+    def test_compressed_transport_fixtures_cover_codecs_and_both_byte_limits(self):
+        origin = "http://127.0.0.1:1"
+        fixtures = {}
+        for name, query in MODULE.TRANSPORT_QUERIES.items():
+            payload = MODULE.fixture_xml(origin, "main", query)
+            wire, headers = MODULE.fixture_transport_response(query, payload)
+            fixtures[name] = (payload, wire, headers)
+            self.assertEqual(headers["Content-Type"], "text/plain; charset=utf-8")
+        self.assertEqual(set(fixtures), TRANSPORT_SCENARIOS)
+        gzip_payload, gzip_wire, gzip_headers = fixtures["transport-valid-gzip"]
+        self.assertEqual(gzip_headers["Content-Encoding"], "gzip")
+        self.assertEqual(MODULE.gzip.decompress(gzip_wire), gzip_payload)
+        deflate_payload, deflate_wire, deflate_headers = fixtures[
+            "transport-valid-deflate"
+        ]
+        self.assertEqual(deflate_headers["Content-Encoding"], "deflate")
+        self.assertEqual(MODULE.zlib.decompress(deflate_wire), deflate_payload)
+        self.assertTrue(deflate_wire.startswith(b"\x78"))
+        brotli_payload, brotli_wire, brotli_headers = fixtures["transport-valid-br"]
+        self.assertEqual(brotli_headers["Content-Encoding"], "br")
+        self.assertEqual(brotli_payload, MODULE.BROTLI_XML)
+        self.assertEqual(
+            hashlib.sha256(brotli_wire).hexdigest(),
+            "afb5b892f099f71567a0ebf4216de984199198e5e6851d0db813042555ee8d43",
+        )
+        self.assertEqual(
+            fixtures["transport-layered-encoding"][2]["Content-Encoding"],
+            "gzip, br",
+        )
+        self.assertIn(
+            MODULE.RAW_URL_SECRET.encode(),
+            fixtures["transport-malformed-gzip"][1],
+        )
+        self.assertGreater(
+            len(fixtures["transport-compressed-overflow"][1]), MAX_XML_BYTES
+        )
+        bomb_payload, bomb_wire, bomb_headers = fixtures[
+            "transport-decompressed-overflow"
+        ]
+        self.assertEqual(bomb_headers["Content-Encoding"], "gzip")
+        self.assertLess(len(bomb_wire), 16 * 1024)
+        self.assertGreater(len(MODULE.gzip.decompress(bomb_wire)), MAX_XML_BYTES)
+        self.assertEqual(MODULE.gzip.decompress(bomb_wire), bomb_payload)
+        self.assertIn(MODULE.RAW_URL_SECRET.encode(), bomb_payload)
+
+    def test_compressed_transport_has_exact_reviewed_mini_semantics(self):
+        observed = {
+            name: expected_transport_result(name) for name in TRANSPORT_SCENARIOS
+        }
+        validate_transport_results(observed)
+        failures = TRANSPORT_SCENARIOS - {
+            "transport-valid-br",
+            "transport-valid-deflate",
+            "transport-valid-gzip",
+        }
+        for name in failures:
+            self.assertEqual(observed[name]["items"], [])
+        changed = copy.deepcopy(observed)
+        changed["transport-malformed-gzip"]["items"] = [{"raw": "leaked"}]
+        with self.assertRaisesRegex(AssertionError, "compressed-transport semantics"):
+            validate_transport_results(changed)
 
     def test_absent_and_contradictory_peers_normalize_safely(self):
         absent = next(
