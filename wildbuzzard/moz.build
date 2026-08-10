@@ -35,6 +35,30 @@ if CONFIG["WILDBUZZARD_JACKETT_MINI_RUNTIME"]:
         "!wildbuzzard-jackett-mini-runtime.zip",
     ]
 
+if CONFIG["WILDBUZZARD_SEARXNG_RUNTIME"]:
+    GENERATED_FILES += [
+        "wildbuzzard-searxng-runtime.zip",
+        "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
+    ]
+    searxng_runtime = GENERATED_FILES["wildbuzzard-searxng-runtime.zip"]
+    searxng_runtime.script = "copy_file.py"
+    searxng_runtime.flags = [CONFIG["WILDBUZZARD_SEARXNG_RUNTIME"]]
+    searxng_runtime.extra_deps = ["%" + CONFIG["WILDBUZZARD_SEARXNG_RUNTIME"]]
+    searxng_source = GENERATED_FILES[
+        "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
+    ]
+    searxng_source.script = "copy_file.py"
+    searxng_source.flags = [CONFIG["WILDBUZZARD_SEARXNG_SOURCE"]]
+    searxng_source.extra_deps = ["%" + CONFIG["WILDBUZZARD_SEARXNG_SOURCE"]]
+
+    FINAL_TARGET_FILES.runtime["search"] += [
+        "!wildbuzzard-searxng-runtime.zip",
+    ]
+    FINAL_TARGET_FILES.notices["source"] += [
+        "!wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
+        "packaging/searxng-release.cdx.json",
+    ]
+
 if CONFIG["WILDBUZZARD_ARTI"]:
     arti_name = "arti" + CONFIG["BIN_SUFFIX"]
     GENERATED_FILES += [arti_name]

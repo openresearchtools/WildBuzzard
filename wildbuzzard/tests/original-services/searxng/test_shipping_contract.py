@@ -9,13 +9,33 @@ import re
 import socket
 import subprocess
 import sys
+import tarfile
 import tempfile
 import threading
 import unittest
+import zipfile
 
 HERE = pathlib.Path(__file__).resolve().parent
 CHECKOUT = HERE.parents[3]
 SOURCE_ROOT = CHECKOUT / "wildbuzzard" / "third_party" / "agpl" / "searxng"
+
+
+def invalid_release_archive(root: pathlib.Path, name: str) -> pathlib.Path:
+    release = root / "release" / "wildbuzzard"
+    runtime = release / "runtime" / "search"
+    runtime.mkdir(parents=True)
+    browser = release / "wildbuzzard"
+    browser.write_text("#!/bin/sh\n", encoding="utf-8")
+    browser.chmod(0o755)
+    (release / "application.ini").write_text(
+        "Version=validation-test\n", encoding="utf-8"
+    )
+    with zipfile.ZipFile(runtime / "wildbuzzard-searxng-runtime.zip", "w") as archive:
+        archive.writestr("wildbuzzard-runtime.json", "{}\n")
+    package = root / name
+    with tarfile.open(package, "w:gz") as archive:
+        archive.add(root / "release" / "wildbuzzard", arcname="wildbuzzard")
+    return package
 
 
 class ShippingContractTests(unittest.TestCase):
@@ -35,17 +55,169 @@ class ShippingContractTests(unittest.TestCase):
         paths = (
             CHECKOUT / "wildbuzzard" / "scripts" / "build-searxng-runtime.sh",
             CHECKOUT / "wildbuzzard" / "scripts" / "build-searxng-native-deps.sh",
+            CHECKOUT / "wildbuzzard" / "scripts" / "build-linux-external.sh",
+            CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh",
+            CHECKOUT / "wildbuzzard" / "scripts" / "package-deb.sh",
+            CHECKOUT
+            / "wildbuzzard"
+            / "scripts"
+            / "validate-searxng-runtime-archive.py",
             CHECKOUT
             / "wildbuzzard"
             / "managed-services"
             / "searxng"
             / "searxng_service.py",
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "components"
+            / "websearch"
+            / "SearXNGRuntime.sys.mjs",
         )
         pattern = re.compile(
             r"\b(?:podman|buildah|nerdctl)\b|\bdocker\s+(?:build|run)\b"
         )
         for path in paths:
             self.assertIsNone(pattern.search(path.read_text(encoding="utf-8")), path)
+
+    def test_browser_and_appimage_ship_the_native_runtime(self) -> None:
+        configure = (CHECKOUT / "wildbuzzard" / "moz.configure").read_text(
+            encoding="utf-8"
+        )
+        mozbuild = (CHECKOUT / "wildbuzzard" / "moz.build").read_text(encoding="utf-8")
+        external = (
+            CHECKOUT / "wildbuzzard" / "scripts" / "build-linux-external.sh"
+        ).read_text(encoding="utf-8")
+        package_manifest = (
+            CHECKOUT / "browser" / "installer" / "package-manifest.in"
+        ).read_text(encoding="utf-8")
+        appimage = (
+            CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh"
+        ).read_text(encoding="utf-8")
+        debian = (CHECKOUT / "wildbuzzard" / "scripts" / "package-deb.sh").read_text(
+            encoding="utf-8"
+        )
+        appimage_validator = (
+            CHECKOUT / "wildbuzzard" / "scripts" / "validate-searxng-runtime-archive.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("--with-wildbuzzard-searxng-runtime", configure)
+        self.assertIn("--with-wildbuzzard-searxng-source", configure)
+        self.assertIn('FINAL_TARGET_FILES.runtime["search"]', mozbuild)
+        self.assertIn('FINAL_TARGET_FILES.notices["source"]', mozbuild)
+        self.assertIn("--searxng-runtime", external)
+        self.assertIn("--searxng-source", external)
+        self.assertIn("validate-searxng-runtime-archive.py", external)
+        self.assertIn(
+            "@BINPATH@/runtime/search/wildbuzzard-searxng-runtime.zip",
+            package_manifest,
+        )
+        self.assertIn(
+            "@BINPATH@/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
+            package_manifest,
+        )
+        self.assertIn(
+            "@BINPATH@/notices/source/searxng-release.cdx.json",
+            package_manifest,
+        )
+        self.assertIn("validate-searxng-runtime-archive.py", appimage)
+        self.assertIn("validate-searxng-runtime-archive.py", debian)
+        self.assertIn(
+            "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
+            appimage,
+        )
+        self.assertIn(
+            "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
+            debian,
+        )
+        self.assertIn('"${searxng_runtime}"', appimage)
+        self.assertIn(
+            "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587",
+            appimage_validator,
+        )
+
+    def test_appimage_rejects_an_invalid_runtime_before_packaging(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            package = invalid_release_archive(root, "wildbuzzard.tar.gz")
+            marker = root / "appimagetool-ran"
+            appimagetool = root / "appimagetool"
+            appimagetool.write_text(f"#!/bin/sh\ntouch -- {marker}\n", encoding="utf-8")
+            appimagetool.chmod(0o755)
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh",
+                    "--dist-dir",
+                    root,
+                    "--output-dir",
+                    root / "output",
+                    "--appimagetool",
+                    appimagetool,
+                    "--package",
+                    package,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("SearXNG runtime validation failed", result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_debian_rejects_an_invalid_runtime_before_packaging(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            package = invalid_release_archive(
+                root, "wildbuzzard-1.0.en-US.linux-x86_64.tar.gz"
+            )
+            dist = root / "dist"
+            dist.mkdir()
+            package.rename(dist / package.name)
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard" / "scripts" / "package-deb.sh",
+                    "--dist-dir",
+                    dist,
+                    "--output-dir",
+                    root / "output",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("SearXNG runtime validation failed", result.stderr)
+
+    def test_browser_keeps_search_capability_out_of_content_urls(self) -> None:
+        supervisor = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "components"
+            / "websearch"
+            / "SearXNGRuntime.sys.mjs"
+        ).read_text(encoding="utf-8")
+        agent = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "extensions"
+            / "agent-sidebar"
+            / "experiment-apis"
+            / "wildbuzzardAgent.js"
+        ).read_text(encoding="utf-8")
+        web_access = (
+            CHECKOUT / "agent" / "extensions" / "web-access" / "connection.ts"
+        ).read_text(encoding="utf-8")
+        self.assertIn('request.setRequestHeader("Authorization"', supervisor)
+        self.assertIn('command,\n        "--data-root"', supervisor)
+        self.assertNotIn('runLifecycle(runtime, "stop")', supervisor)
+        self.assertNotIn('runLifecycle(runtime, "restart")', supervisor)
+        self.assertIn("get correspondingSourcePath()", supervisor)
+        self.assertIn("SearXNGRuntime.connectionPath", agent)
+        self.assertIn("WILDBUZZARD_SEARCH_CONNECTION_FILE", agent)
+        self.assertIn('headers.set("Authorization"', web_access)
+        self.assertIn("${connection.address}:${connection.port}${path}", web_access)
+        self.assertNotIn("connection.token}${path}", web_access)
 
     def test_only_pristine_comparator_uses_a_container(self) -> None:
         comparator = (HERE / "compare_searxng.py").read_text(encoding="utf-8")

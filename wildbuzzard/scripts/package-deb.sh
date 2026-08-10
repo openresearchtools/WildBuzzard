@@ -7,6 +7,7 @@ usage() {
   echo "Usage: $0 --dist-dir DIR --output-dir DIR"
 }
 
+script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 dist_dir=""
 output_dir=""
 
@@ -85,6 +86,17 @@ if [[ -z "${product_dir}" || ! -x "${product_dir}/wildbuzzard" ]]; then
 fi
 if [[ "${product_dir}" != "${stage}/opt/wildbuzzard" ]]; then
   mv -- "${product_dir}" "${stage}/opt/wildbuzzard"
+fi
+searxng_runtime="${stage}/opt/wildbuzzard/runtime/search/wildbuzzard-searxng-runtime.zip"
+searxng_source="${stage}/opt/wildbuzzard/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
+searxng_inventory="${stage}/opt/wildbuzzard/notices/source/searxng-release.cdx.json"
+if [[ -e "${searxng_runtime}" || -L "${searxng_runtime}" || \
+  -e "${searxng_source}" || -L "${searxng_source}" || \
+  -e "${searxng_inventory}" || -L "${searxng_inventory}" ]]; then
+  python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
+    "${searxng_runtime}" \
+    --source "${searxng_source}" \
+    --inventory "${searxng_inventory}"
 fi
 
 ln -s /opt/wildbuzzard/wildbuzzard "${stage}/usr/bin/wildbuzzard"

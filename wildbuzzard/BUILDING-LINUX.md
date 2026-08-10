@@ -41,6 +41,8 @@ Useful variants:
 ./wildbuzzard/scripts/build-linux-external.sh \
   --working-tree \
   --pi-web-runtime /absolute/path/to/wildbuzzard-pi-web-runtime-linux-x64.zip \
+  --searxng-runtime /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.zip \
+  --searxng-source /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz \
   --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
   --action appimage
 
@@ -82,6 +84,25 @@ the first run's `build-record.json` to the second with `--compare-to`; the
 comparator checks archive bytes, members, modes, timestamps, per-member hashes,
 inputs, and build environment.
 
+Build the SearXNG runtime directly from the pinned sources and host-native
+toolchains. Its shipping path never invokes an OCI runtime:
+
+```bash
+./wildbuzzard/scripts/build-searxng-runtime.sh \
+  --output /absolute/path/to/searxng-output \
+  --cache /absolute/path/to/searxng-cache
+```
+
+The output includes the runtime ZIP, its build record, and the complete
+corresponding-source archive. Pass the pair through `--searxng-runtime` and
+`--searxng-source`; either option without the other is rejected. Every browser
+tarball and derived package keeps the source archive at
+`notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz` and its
+release SBOM at `notices/source/searxng-release.cdx.json`. The browser verifies
+the runtime's exact manifest and file inventory before extracting it into
+versioned per-profile XDG state. The AppImage and Debian packaging gates
+rehash the runtime, source archive, and release SBOM before producing output.
+
 After extracting a built runtime, run its lifecycle gate before packaging:
 
 ```bash
@@ -97,11 +118,12 @@ unchanged. It terminates only the two processes it created and removes its
 temporary state when complete.
 
 The `appimage` action builds the browser, creates Mozilla's Linux tar archive,
-and packages it as a self-contained AppImage. When a Pi Web runtime ZIP is
-supplied, its Node.js, Pi, Pi Web, and native dependencies are included in that
-image. The `all` action also runs the native blocker tests and every WildBuzzard
-component test, and creates both an `amd64` Debian package and an AppImage.
-Packaging runs entirely in the external run directory and does not use `sudo`.
+and packages it as a self-contained AppImage. Supplied Pi Web and SearXNG
+runtime ZIPs, including their native dependencies and license inventories, are
+included in that image. The `all` action also runs the native blocker tests and
+every WildBuzzard component test, and creates both an `amd64` Debian package
+and an AppImage. Packaging runs entirely in the external run directory and
+does not use `sudo`.
 
 Build the pinned, unmodified Tor Project Arti subtree into the external Arti
 build directory before packaging:

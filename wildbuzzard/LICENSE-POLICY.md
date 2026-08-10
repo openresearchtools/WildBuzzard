@@ -18,6 +18,7 @@ It does not erase or replace inherited licenses.
 | MPL files marked incompatible with Secondary Licenses | MPL only; exclude from any claim of AGPL secondary licensing |
 | `adblock-rs` | MPL-2.0 notice retained |
 | uBlock Origin code, scriptlets, resources, and lists | Retain the applicable GPL-3.0 notice and exact source revision |
+| Bundled SearXNG runtime | AGPL-3.0-or-later; ship its complete corresponding-source archive at `notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz`, its release SBOM, and bundled dependency notices in every distributable |
 | Other filter lists and data | Retain each asset's GPL, Creative Commons, attribution, or other terms |
 | Third-party libraries | Their existing licenses |
 

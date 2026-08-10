@@ -51,6 +51,18 @@ license = "GPL-2.0-only"
 path = "wildbuzzard/third_party/gpl2/jackett"
 role = "source-built-read-only-torrent-discovery-service"
 
+[searxng]
+remote = "https://github.com/searxng/searxng.git"
+ref = "b023a28bab8839dba9eac96e9a51cc91bbd0a267"
+commit = "b023a28bab8839dba9eac96e9a51cc91bbd0a267"
+version = "2026.8.6+b023a28ba"
+source_sha256 = "f5ab68baa420f26ac0d6b3fed1a8e5754bbe1fd31357c41271449980d3df779e"
+runtime_sha256 = "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587"
+corresponding_source_sha256 = "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751"
+license = "AGPL-3.0-or-later"
+path = "wildbuzzard/third_party/agpl/searxng"
+role = "source-built-loopback-web-search-service"
+
 [pi_web_access]
 remote = "https://github.com/nicobailon/pi-web-access.git"
 ref = "692483ae782e41978fb2eba0eec70fd4056608c8"

@@ -176,6 +176,11 @@
 #ifdef WILDBUZZARD_TORRENT_RUNTIME
 @BINPATH@/runtime/torrent/wildbuzzard-torrent-runtime.zip
 #endif
+#ifdef WILDBUZZARD_SEARXNG_RUNTIME
+@BINPATH@/runtime/search/wildbuzzard-searxng-runtime.zip
+@BINPATH@/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz
+@BINPATH@/notices/source/searxng-release.cdx.json
+#endif
 #ifdef WILDBUZZARD_ARTI_RUNTIME
 @BINPATH@/runtime/tor/arti@BIN_SUFFIX@
 @BINPATH@/runtime/tor/arti.toml
