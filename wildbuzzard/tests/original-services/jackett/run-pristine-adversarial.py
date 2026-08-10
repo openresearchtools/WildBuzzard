@@ -16,6 +16,7 @@ import pathlib
 import re
 import secrets
 import shutil
+import signal
 import socket
 import stat
 import subprocess
@@ -83,12 +84,13 @@ def rootless_namespace_identity():
 
 
 def process_identity(process):
-    stat_fields = pathlib.Path(f"/proc/{process.pid}/stat").read_text(encoding="ascii").split()
+    stat_value = pathlib.Path(f"/proc/{process.pid}/stat").read_text(encoding="ascii")
+    stat_fields = stat_value[stat_value.rfind(")") + 2 :].split()
     executable = pathlib.Path(os.readlink(f"/proc/{process.pid}/exe"))
     children_path = pathlib.Path(f"/proc/{process.pid}/task/{process.pid}/children")
     return {
         "pid": process.pid,
-        "linuxProcessStartTime": stat_fields[21],
+        "linuxProcessStartTime": stat_fields[19],
         "executable": str(executable),
         "executableSha256": sha256_file(executable),
         "children": children_path.read_text(encoding="ascii").split(),
@@ -119,11 +121,11 @@ def start_process(command, cwd, environment, log_path):
 
 def stop_process(process):
     if process and process.poll() is None:
-        process.terminate()
+        os.killpg(process.pid, signal.SIGTERM)
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            process.kill()
+            os.killpg(process.pid, signal.SIGKILL)
             process.wait(timeout=5)
     return process.returncode if process else None
 
@@ -584,6 +586,7 @@ def main():
     args = parser.parse_args()
     if not args.direct_rootless:
         raise RuntimeError("use run-pristine-adversarial-rootless.sh")
+    os.umask(0o077)
 
     script_dir = pathlib.Path(__file__).resolve().parent
     expected_path = script_dir / "fixtures/pristine-adversarial-expected.json"
@@ -624,6 +627,8 @@ def main():
     render_definition(template, definitions / "oracle-adult.yml", "oracle-adult", "Oracle Adult Only", fixture_server.origin, "adult-provider")
 
     pristine_port = choose_port("127.0.0.1")
+    bootstrap = None
+    bootstrap_log = None
     process = None
     process_log = None
     process_log_path = logs / "pristine-jackett.log"
@@ -914,6 +919,10 @@ def main():
         (artifacts / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
         raise
     finally:
+        if bootstrap and bootstrap.poll() is None:
+            cleanup["processes"]["bootstrapExitCode"] = stop_process(bootstrap)
+        if bootstrap_log and not bootstrap_log.closed:
+            bootstrap_log.close()
         if process:
             cleanup["processes"]["oracleExitCode"] = stop_process(process)
         if process_log:
@@ -926,9 +935,14 @@ def main():
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
                 probe.settimeout(0.2)
                 cleanup["ports"][label] = "closed" if probe.connect_ex((address, port)) != 0 else "open"
-        for log_path in (bootstrap_log_path, process_log_path):
+        for log_path in (
+            bootstrap_log_path,
+            process_log_path,
+            artifacts / "failure.txt",
+        ):
             if log_path.exists():
                 log_path.write_bytes(redact_bytes(log_path.read_bytes(), redactions))
+                log_path.chmod(0o600)
         shutil.rmtree(pristine_data, ignore_errors=True)
         cleanup["dataRootRemoved"] = not pristine_data.exists()
         cleanup["oracleSucceeded"] = success
@@ -936,7 +950,7 @@ def main():
         leak_markers = [secret.encode() for secret, _replacement in redactions]
         leaks = []
         for path in artifacts.rglob("*"):
-            if path.is_file() and path.name != "failure.txt":
+            if path.is_file():
                 payload = path.read_bytes()
                 if any(marker in payload for marker in leak_markers):
                     leaks.append(str(path.relative_to(artifacts)))
