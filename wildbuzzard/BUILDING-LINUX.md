@@ -58,6 +58,44 @@ Every run records the base commit and whether it included that snapshot in
 `build-manifest.txt`. Pi Web runtime builds require a clean, committed local
 Pi Web fork and always record its exact commit separately.
 
+Build the Pi Web runtime separately from the browser checkout. The Git and
+yt-dlp helper archives must be source-built runtime ZIPs and their SHA-256
+values are mandatory:
+
+```bash
+./wildbuzzard/scripts/build-pi-web-runtime.sh \
+  --fork /absolute/path/to/WildBuzzard-pi-web \
+  --build-root /absolute/path/to/pi-web-builds \
+  --git-runtime /absolute/path/to/git-runtime.zip \
+  --git-runtime-sha256 <sha256> \
+  --ytdlp-runtime /absolute/path/to/ytdlp-runtime.zip \
+  --ytdlp-runtime-sha256 <sha256>
+```
+
+The committed runtime lock pins the Pi Web commit and tree, package lock,
+Node archive, npm version, and Pi packages. Builds use isolated npm and Cargo
+state, fresh per-run Rust targets, production npm and RustSec audits, and emit
+CycloneDX and SPDX inventories covering Pi Web, web-access, and the native
+browser runner. `--offline` fails if a pinned input, package, or advisory
+database is absent. To verify reproducibility, run two clean builds and pass
+the first run's `build-record.json` to the second with `--compare-to`; the
+comparator checks archive bytes, members, modes, timestamps, per-member hashes,
+inputs, and build environment.
+
+After extracting a built runtime, run its lifecycle gate before packaging:
+
+```bash
+./wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
+  --runtime /absolute/path/to/extracted-runtime
+```
+
+The gate starts the runtime's bundled Node, web service, and session daemon;
+creates a real project and Pi session; rotates the private service identity as
+a cold browser restart does; reconnects with a fresh challenge; and verifies
+that the authenticated web and session-daemon PIDs and the session remain
+unchanged. It terminates only the two processes it created and removes its
+temporary state when complete.
+
 The `appimage` action builds the browser, creates Mozilla's Linux tar archive,
 and packages it as a self-contained AppImage. When a Pi Web runtime ZIP is
 supplied, its Node.js, Pi, Pi Web, and native dependencies are included in that
