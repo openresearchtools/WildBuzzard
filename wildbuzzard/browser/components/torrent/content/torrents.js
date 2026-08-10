@@ -69,6 +69,8 @@ function button(id, action, className = "secondary") {
 function showToast(message, isError = false) {
   elements.toast.textContent = message;
   elements.toast.dataset.error = String(isError);
+  elements.toast.setAttribute("role", isError ? "alert" : "status");
+  elements.toast.setAttribute("aria-live", isError ? "assertive" : "polite");
   elements.toast.hidden = false;
   clearTimeout(showToast.timer);
   showToast.timer = setTimeout(() => {
@@ -80,7 +82,18 @@ async function localized(id, args) {
   return document.l10n.formatValue(id, args);
 }
 
-async function run(task, successId) {
+async function errorMessage(error) {
+  const ids = {
+    invalid: "wildbuzzard-torrents-file-invalid",
+    "too-large": "wildbuzzard-torrents-file-too-large",
+    unreadable: "wildbuzzard-torrents-file-unreadable",
+    "wrong-type": "wildbuzzard-torrents-invalid-file",
+  };
+  const id = ids[error.torrentFileError];
+  return id ? localized(id) : error.message;
+}
+
+async function run(task, successId, focusTarget = null) {
   if (state.busy) {
     return;
   }
@@ -90,11 +103,14 @@ async function run(task, successId) {
     if (successId && result !== null && result !== false) {
       showToast(await localized(successId));
     }
-    await refresh();
+    if (result !== null && result !== false) {
+      await refresh();
+    }
   } catch (error) {
-    showToast(error.message, true);
+    showToast(await errorMessage(error), true);
   } finally {
     state.busy = false;
+    focusTarget?.focus();
   }
 }
 
@@ -575,11 +591,19 @@ async function handleAction(action) {
 }
 
 async function handleTorrentFile(file) {
-  if (!file?.name.toLowerCase().endsWith(".torrent")) {
-    throw new Error(await localized("wildbuzzard-torrents-invalid-file"));
-  }
-  await TorrentManager.addTorrentBytes(
-    new Uint8Array(await file.arrayBuffer())
+  return TorrentManager.addTorrentFile(file);
+}
+
+async function chooseTorrentFile(trigger) {
+  return run(
+    async () =>
+      TorrentManager.chooseTorrentFile(
+        window.browsingContext,
+        await localized("wildbuzzard-torrents-picker-title"),
+        await localized("wildbuzzard-torrents-picker-filter")
+      ),
+    "wildbuzzard-torrents-added",
+    trigger
   );
 }
 
@@ -606,11 +630,15 @@ async function initialize() {
     event.preventDefault();
     run(() => addSource(elements.source.value), "wildbuzzard-torrents-added");
   });
-  document.getElementById("choose-torrent").addEventListener("click", () => {
-    run(() => TorrentManager.chooseTorrentFile(), "wildbuzzard-torrents-added");
-  });
+  for (const trigger of document.querySelectorAll("[data-choose-torrent]")) {
+    trigger.addEventListener("click", event => {
+      if (event.isTrusted) {
+        chooseTorrentFile(trigger);
+      }
+    });
+  }
   document.getElementById("choose-directory").addEventListener("click", () => {
-    run(() => TorrentManager.chooseDownloadDirectory());
+    run(() => TorrentManager.chooseDownloadDirectory(window.browsingContext));
   });
   elements.list.addEventListener("click", event => {
     const item = event.target.closest(".torrent-item");

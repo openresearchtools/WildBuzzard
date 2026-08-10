@@ -1,4 +1,6 @@
 [DEFAULT]
 tags = "wildbuzzard_torrent"
 
+["browser_torrent_file_picker.js"]
+
 ["browser_torrent_ui.js"]

@@ -5,6 +5,8 @@ wildbuzzard-torrents-subtitle = Download and seed BitTorrent files without insta
 wildbuzzard-torrents-add-heading = Add a torrent
 wildbuzzard-torrents-add-description = Paste a magnet link or a direct URL to a .torrent file.
 wildbuzzard-torrents-choose-file = Choose .torrent file
+wildbuzzard-torrents-picker-title = Choose a torrent file
+wildbuzzard-torrents-picker-filter = Torrent files
 wildbuzzard-torrents-source-label = Magnet link or torrent URL
 wildbuzzard-torrents-source-input =
     .placeholder = magnet:?xt=urn:btih:… or https://example.com/file.torrent
@@ -81,5 +83,8 @@ wildbuzzard-torrents-confirm-remove = Remove “{ $name }” from WildBuzzard? D
 # $name is the display name of the torrent whose files will be deleted.
 wildbuzzard-torrents-confirm-delete = Remove “{ $name }” and permanently delete its downloaded files?
 wildbuzzard-torrents-invalid-file = Choose a file with the .torrent extension.
+wildbuzzard-torrents-file-invalid = This torrent file is invalid.
+wildbuzzard-torrents-file-too-large = Choose a torrent file that is 12 MiB or smaller.
+wildbuzzard-torrents-file-unreadable = WildBuzzard could not read this torrent file.
 wildbuzzard-torrents-added = Torrent added.
 wildbuzzard-torrents-settings-saved = Torrent settings saved.
