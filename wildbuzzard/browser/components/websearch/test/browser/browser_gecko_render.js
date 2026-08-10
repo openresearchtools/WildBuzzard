@@ -15,6 +15,7 @@ const FIXTURE_PATH =
   "/browser/wildbuzzard/browser/components/websearch/test/browser/file_gecko_render.sjs";
 const FIXTURE = `https://example.com${FIXTURE_PATH}`;
 const OTHER_FIXTURE = `https://example.org${FIXTURE_PATH}`;
+const COMPARATOR_CANCEL_BOUND_MS = 3000;
 let automationFixture;
 
 async function render(url, args = {}, signal = new AbortController().signal) {
@@ -84,24 +85,52 @@ add_setup(function setup_renderer() {
 
 add_setup(function setup_automation_fixture() {
   const server = new HttpServer();
-  const state = { active: 0, maxActive: 0 };
+  const pendingSlowRequests = new Set();
+  const state = {
+    active: 0,
+    fastRequests: 0,
+    maxActive: 0,
+    releaseHold: null,
+    releaseSlowRequests() {
+      for (const finish of [...pendingSlowRequests]) {
+        finish();
+      }
+    },
+  };
   server.registerPathHandler("/fast", (_request, response) => {
     state.active++;
+    state.fastRequests++;
     state.maxActive = Math.max(state.maxActive, state.active);
     response.setHeader("Content-Type", "text/html; charset=utf-8", false);
     response.write("<!doctype html><title>Fast</title><h1>Fast fixture</h1>");
     state.active--;
   });
+  server.registerPathHandler("/hold", (_request, response) => {
+    state.active++;
+    state.maxActive = Math.max(state.maxActive, state.active);
+    response.processAsync();
+    state.releaseHold = () => {
+      response.setHeader("Content-Type", "text/html; charset=utf-8", false);
+      response.write("<!doctype html><title>Held</title><h1>Held fixture</h1>");
+      response.finish();
+      state.active--;
+      state.releaseHold = null;
+    };
+  });
   server.registerPathHandler("/slow", (request, response) => {
     state.active++;
     state.maxActive = Math.max(state.maxActive, state.active);
     const delayMs = Math.min(
-      500,
+      10000,
       Math.max(1, Number(request.queryString.split("=", 2)[1]) || 150)
     );
     response.processAsync();
-    // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
-    setTimeout(() => {
+    let timeoutId;
+    const finish = () => {
+      if (!pendingSlowRequests.delete(finish)) {
+        return;
+      }
+      clearTimeout(timeoutId);
       try {
         response.setHeader("Content-Type", "text/html; charset=utf-8", false);
         response.write(
@@ -110,7 +139,10 @@ add_setup(function setup_automation_fixture() {
         response.finish();
       } catch {}
       state.active--;
-    }, delayMs);
+    };
+    pendingSlowRequests.add(finish);
+    // eslint-disable-next-line mozilla/no-arbitrary-setTimeout
+    timeoutId = setTimeout(finish, delayMs);
   });
   server.start(-1);
   automationFixture = {
@@ -119,7 +151,12 @@ add_setup(function setup_automation_fixture() {
     state,
   };
   registerCleanupFunction(
-    () => new Promise(resolve => automationFixture.server.stop(resolve))
+    () =>
+      new Promise(resolve => {
+        automationFixture.state.releaseHold?.();
+        automationFixture.state.releaseSlowRequests();
+        automationFixture.server.stop(resolve);
+      })
   );
 });
 
@@ -467,6 +504,47 @@ add_task(async function test_comparator_override_is_exclusive_and_bounded() {
   assertClean("exclusive fixture renders");
 });
 
+add_task(async function test_ordinary_render_waits_for_override_restoration() {
+  automationFixture.state.fastRequests = 0;
+  const options = {
+    _testAllowedHosts: [automationFixture.origin],
+    _testDiagnostics: true,
+    timeoutMs: 2000,
+  };
+  const exclusive = render(`${automationFixture.origin}/hold`, options);
+  await TestUtils.waitForCondition(
+    () => typeof automationFixture.state.releaseHold === "function",
+    "the exclusive fixture override starts"
+  );
+  let ordinarySettled = false;
+  const ordinary = render(`${automationFixture.origin}/fast`).then(result => {
+    ordinarySettled = true;
+    return result;
+  });
+  await TestUtils.waitForTick();
+  ok(!ordinarySettled, "the ordinary render remains queued");
+  is(
+    automationFixture.state.fastRequests,
+    0,
+    "the ordinary render cannot use the active fixture override"
+  );
+  automationFixture.state.releaseHold();
+  const exclusiveResult = await exclusive;
+  assertAutomationClean(exclusiveResult, "held exclusive fixture render");
+  const ordinaryResult = await ordinary;
+  ok(
+    ordinaryResult.pageError.includes("private") ||
+      ordinaryResult.pageError.includes("reserved"),
+    "the ordinary render is rejected after fixture policy restoration"
+  );
+  is(
+    automationFixture.state.fastRequests,
+    0,
+    "the blocked ordinary render never reaches the loopback fixture"
+  );
+  assertClean("ordinary render queued behind fixture override");
+});
+
 add_task(async function test_comparator_override_queue_cancellation() {
   const options = {
     _testAllowedHosts: [automationFixture.origin],
@@ -522,11 +600,11 @@ add_task(async function test_comparator_override_restores_after_timeout() {
 add_task(async function test_comparator_override_restores_after_cancel() {
   const controller = new AbortController();
   const pending = render(
-    `${automationFixture.origin}/slow?delay=250`,
+    `${automationFixture.origin}/slow?delay=5000`,
     {
       _testAllowedHosts: [automationFixture.origin],
       _testDiagnostics: true,
-      timeoutMs: 2000,
+      timeoutMs: 6000,
     },
     controller.signal
   );
@@ -534,10 +612,17 @@ add_task(async function test_comparator_override_restores_after_cancel() {
     () => automationFixture.state.active === 1,
     "the cancellable fixture request starts"
   );
+  const cancelledAt = ChromeUtils.now();
   controller.abort();
   const result = await pending;
+  Assert.less(
+    ChromeUtils.now() - cancelledAt,
+    COMPARATOR_CANCEL_BOUND_MS,
+    "fixture cancellation completes before the natural response"
+  );
   ok(result._testError.includes("aborted"), "fixture cancellation is reported");
   assertAutomationClean(result, "cancelled fixture render");
+  automationFixture.state.releaseSlowRequests();
   await TestUtils.waitForCondition(
     () => automationFixture.state.active === 0,
     "the cancelled fixture response finishes"
