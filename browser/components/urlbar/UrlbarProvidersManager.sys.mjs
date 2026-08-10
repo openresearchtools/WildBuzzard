@@ -921,7 +921,9 @@ export class Query {
       result.heuristic &&
       this.context.searchMode &&
       (!this.context.trimmedSearchString ||
-        (!this.context.searchMode.engineName && !result.autofill))
+        (!this.context.searchMode.engineName &&
+          !result.autofill &&
+          result.source != lazy.UrlbarUtils.RESULT_SOURCE.TORRENT))
     ) {
       return;
     }
@@ -1112,7 +1114,8 @@ function updateSourcesIfEmpty(context) {
         break;
       case lazy.UrlbarUtils.RESULT_SOURCE.TORRENT:
         if (
-          restrictTokenType === lazy.UrlbarShared.TOKEN_TYPE.RESTRICT_TORRENT
+          restrictTokenType === lazy.UrlbarShared.TOKEN_TYPE.RESTRICT_TORRENT ||
+          context.searchMode?.source === lazy.UrlbarUtils.RESULT_SOURCE.TORRENT
         ) {
           acceptedSources.push(source);
         }

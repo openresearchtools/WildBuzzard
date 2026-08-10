@@ -45,7 +45,6 @@ export class UrlbarProviderTorrentSearch extends UrlbarProvider {
             id: "urlbar-result-action-search-torrents",
           },
           url,
-          displayUrl: url,
           icon: "chrome://browser/skin/torrent.svg",
         },
       })

@@ -138,7 +138,7 @@ urlbar-search-mode-bookmarks = Bookmarks
 urlbar-search-mode-tabs = Tabs
 urlbar-search-mode-history = History
 urlbar-search-mode-actions = Actions
-urlbar-search-mode-torrent = Torrents
+urlbar-search-mode-torrent = Torrent
 
 ##
 
@@ -588,6 +588,11 @@ urlbar-placeholder-search-mode-other-tabs =
 urlbar-placeholder-search-mode-other-actions =
   .placeholder = Enter search terms
   .aria-label = Search actions
+
+# This placeholder is used when searching torrents.
+urlbar-placeholder-search-mode-other-torrent =
+  .placeholder = Enter torrent search terms
+  .aria-label = Search torrents
 
 # Variables
 #  $name (String): the name of the user's default search engine

@@ -17,6 +17,7 @@ const testRoot = PathUtils.join(
 );
 
 add_setup(async function isolate_torrent_runtime() {
+  UrlbarTestUtils.init(this);
   for (const name of environmentNames) {
     Services.env.set(name, PathUtils.join(testRoot, name.toLowerCase()));
   }
@@ -121,6 +122,10 @@ add_task(async function test_torrent_urlbar_mode_routes_query() {
   );
   EventUtils.synthesizeKey("KEY_Enter");
   await loaded;
-  await UrlbarTestUtils.exitSearchMode(window);
+  Assert.equal(
+    gURLBar.searchMode,
+    null,
+    "Navigation exits torrent search mode"
+  );
   await SpecialPowers.popPrefEnv();
 });
