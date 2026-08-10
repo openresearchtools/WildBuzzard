@@ -402,11 +402,19 @@ if [[ ! -f "${runtime_dir}/tools/yt-dlp/wildbuzzard-ytdlp-runtime.json" ||
   exit 1
 fi
 
-(
-  cd -- "${runtime_dir}/seed/browser-tools"
-  "${pi_web_checkout}/node_modules/.bin/tsc" --project tsconfig.json
-  "${bundled_node}" --experimental-strip-types --test test/*.test.ts
-) >"${run_root}/browser-tools-validation.log" 2>&1
+browser_tools_modules="${runtime_dir}/seed/browser-tools/node_modules"
+validate_browser_tools() {
+  local status=0
+  ln -s -- "${pi_web_checkout}/node_modules" "${browser_tools_modules}"
+  (
+    cd -- "${runtime_dir}/seed/browser-tools"
+    "${pi_web_checkout}/node_modules/.bin/tsc" --project tsconfig.json
+    "${bundled_node}" --experimental-strip-types --test test/*.test.ts
+  ) >"${run_root}/browser-tools-validation.log" 2>&1 || status=$?
+  unlink -- "${browser_tools_modules}"
+  return "${status}"
+}
+validate_browser_tools
 (
   cd -- "${runtime_dir}/seed/web-access"
   env "${npm_environment[@]}" PATH="${runtime_dir}/node/bin:/usr/bin:/bin" \

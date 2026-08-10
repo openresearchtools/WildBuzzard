@@ -314,6 +314,11 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
         self.assertIn("test-pi-web-runtime-lifecycle.mjs", source)
         self.assertIn("verify-pi-web-installed-tree.mjs", source)
         self.assertIn('--runtime "${runtime_dir}"', source)
+        self.assertIn(
+            'ln -s -- "${pi_web_checkout}/node_modules" "${browser_tools_modules}"',
+            source,
+        )
+        self.assertIn('unlink -- "${browser_tools_modules}"', source)
         self.assertIn("'export PI_TELEMETRY=0'", source)
         self.assertIn("'export PI_SKIP_VERSION_CHECK=1'", source)
 
