@@ -8,6 +8,7 @@ import test, { after, before } from "node:test";
 import { RESULT_TTL_MS, type QueryResponse } from "../contracts.ts";
 import {
   clearStoredSearches,
+  createStoredDocuments,
   createStoredSearch,
   getStoredSearch,
   hasStoredSearches,
@@ -16,6 +17,7 @@ import {
   storedSearchReference,
   storeSearch,
 } from "../storage.ts";
+import type { ExtractedContent } from "../extract.ts";
 import { closeStoredSearchDatabase } from "../database.ts";
 
 const databaseDirectory = mkdtempSync(
@@ -152,6 +154,57 @@ test("stored handles and restored references are isolated by Pi session", () => 
   );
   assert.equal(hasStoredSearches("session-b"), false);
   assert.equal(hasStoredSearches("session-a"), true);
+});
+
+test("stored GitHub, Gecko, and YouTube documents strip URL secrets", () => {
+  const provenances: ExtractedContent["provenance"][] = [
+    "github-clone",
+    "gecko",
+    "youtube-captions",
+  ];
+  const stored = createStoredDocuments(
+    provenances.map(provenance => ({
+      url: `https://user:password@example.test/source?q=${provenance}&access_token=source-secret#token=fragment-secret&section=content`,
+      finalUrl: `https://example.test/final?page=2&api_key=final-secret`,
+      title: "Fixture",
+      content: "Fixture content",
+      error: provenance === "github-clone" ? "Clone failed" : null,
+      mimeType: "text/plain",
+      status: provenance === "github-clone" ? 0 : 200,
+      provenance,
+      trust: "untrusted" as const,
+    })),
+    "session-a"
+  );
+  const serialized = JSON.stringify(stored.documents);
+  assert.doesNotMatch(
+    serialized,
+    /source-secret|fragment-secret|final-secret|user|password/
+  );
+  assert.match(serialized, /q=github-clone/);
+  assert.match(serialized, /page=2/);
+  assert.match(serialized, /section=content/);
+  const search = createStoredSearch(
+    [
+      {
+        ...response(),
+        query: "https://example.test/search?q=gecko&access_token=query-secret",
+        results: [
+          {
+            ...response().results[0],
+            url: "https://user:password@example.test/result?q=gecko&api_key=result-secret",
+          },
+        ],
+      },
+    ],
+    "session-a"
+  );
+  const serializedSearch = JSON.stringify(search.queries);
+  assert.doesNotMatch(
+    serializedSearch,
+    /query-secret|result-secret|user|password/
+  );
+  assert.match(serializedSearch, /q=gecko/);
 });
 
 test("storage failures do not expose local database paths", () => {

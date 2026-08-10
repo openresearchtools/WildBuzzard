@@ -2,11 +2,40 @@
 
 const SENSITIVE_KEY =
   /^(?:access[-_]?token|api[-_]?key|authorization|client[-_]?secret|cookie|cookies|headers?|pass(?:word|key)|proxy-authorization|refresh[-_]?token|secret|service[-_]?token|token)$/i;
+const SENSITIVE_URL_PARAMETER =
+  /^(?:access[-_]?token|api[-_]?key|apikey|auth|authorization|client[-_]?secret|key|passkey|password|refresh[-_]?token|secret|signature|sig|token)$/i;
 const LOCAL_PATH =
   /(^|[\s"'=(:])(?:\/(?:app|etc|home|mnt|opt|private|root|run|tmp|usr|var\/tmp)\/[^\s"'<>)]*|\/Users\/[^\s"'<>)]*|[A-Za-z]:\\[^\s"'<>)]*)/g;
 
 export function isSensitiveKey(value: string): boolean {
   return SENSITIVE_KEY.test(value);
+}
+
+export function sanitizePersistedUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return redactSensitiveText(value, 4_096);
+  }
+  url.username = "";
+  url.password = "";
+  for (const key of [...url.searchParams.keys()]) {
+    if (SENSITIVE_URL_PARAMETER.test(key)) {
+      url.searchParams.delete(key);
+    }
+  }
+  const fragment = url.hash.slice(1);
+  if (fragment.includes("=") || fragment.includes("&")) {
+    const parameters = new URLSearchParams(fragment);
+    for (const key of [...parameters.keys()]) {
+      if (SENSITIVE_URL_PARAMETER.test(key)) {
+        parameters.delete(key);
+      }
+    }
+    url.hash = parameters.toString();
+  }
+  return url.toString();
 }
 
 export function redactSensitiveText(value: string, maximum = 30_000): string {
@@ -18,7 +47,7 @@ export function redactSensitiveText(value: string, maximum = 30_000): string {
       match => `${match.split(/[:=]/, 1)[0]}: [redacted]`
     )
     .replace(
-      /([?&](?:access[-_]?token|api[-_]?key|auth(?:orization)?|client[-_]?secret|key|pass(?:word|key)|refresh[-_]?token|secret|signature|sig|token)=)[^&#\s]+/gi,
+      /([?&#](?:access[-_]?token|api[-_]?key|auth(?:orization)?|client[-_]?secret|key|pass(?:word|key)|refresh[-_]?token|secret|signature|sig|token)=)[^&#\s]+/gi,
       "$1[redacted]"
     )
     .replace(LOCAL_PATH, "$1[local-path-redacted]")

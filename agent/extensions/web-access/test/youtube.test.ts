@@ -121,13 +121,15 @@ printf '%s' '{"events":[{"tStartMs":1000,"dDurationMs":500,"segs":[{"utf8":"Fixt
   process.env.WILDBUZZARD_BUNDLED_NODE = process.execPath;
   try {
     const result = await extractYouTubeCaptions(
-      "https://youtu.be/dQw4w9WgXcQ",
+      "https://youtu.be/dQw4w9WgXcQ?access_token=secret#token=fragment-secret",
       undefined,
       ["en"]
     );
     assert.equal(result.error, null);
     assert.equal(result.available, true);
     assert.equal(result.captionKind, "manual");
+    assert.equal(result.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+    assert.doesNotMatch(JSON.stringify(result), /secret|fragment/);
     assert.match(result.content, /\[00:00:01\] Fixture caption/);
     await assert.rejects(
       extractYouTubeCaptions(
@@ -165,7 +167,7 @@ printf '%s' '{"events":[{"tStartMs":0,"dDurationMs":500,"segs":[{"utf8":"Automat
   process.env.WILDBUZZARD_BUNDLED_NODE = process.execPath;
   try {
     const result = await extractYouTubeCaptions(
-      "https://youtu.be/dQw4w9WgXcQ",
+      "https://youtu.be/dQw4w9WgXcQ?access_token=secret#token=fragment-secret",
       undefined,
       ["en"]
     );
@@ -208,6 +210,7 @@ test("caption transcript and helper errors are bounded and path-safe", async () 
     );
     assert.equal(result.available, false);
     assert.equal(result.error, "Caption extraction failed");
+    assert.equal(result.url, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
     assert.doesNotMatch(
       JSON.stringify(result),
       /private|secret|cookies\.sqlite/

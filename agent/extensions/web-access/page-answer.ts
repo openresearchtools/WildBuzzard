@@ -7,6 +7,7 @@ import {
   type Message,
   type Model,
 } from "@earendil-works/pi-ai/compat";
+import { sanitizePersistedUrl } from "./safe-output.ts";
 
 const OUTPUT_TOKENS = 2_000;
 const INPUT_CONTEXT_FRACTION = 0.6;
@@ -19,7 +20,9 @@ interface AnswerContext {
   scopedModels: readonly { model: Model<Api> }[];
   modelRegistry: {
     find(provider: string, modelId: string): Model<Api> | undefined;
-    getApiKeyAndHeaders(model: Model<Api>): Promise<
+    getApiKeyAndHeaders(
+      model: Model<Api>
+    ): Promise<
       | { ok: true; apiKey?: string; headers?: Record<string, string> }
       | { ok: false; error: string }
     >;
@@ -39,7 +42,10 @@ function parseModelSelector(value: string): { provider: string; id: string } {
   if (separator <= 0 || separator === value.length - 1) {
     throw new Error(`Invalid answerModel: ${value}. Use provider/model-id.`);
   }
-  return { provider: value.slice(0, separator), id: value.slice(separator + 1) };
+  return {
+    provider: value.slice(0, separator),
+    id: value.slice(separator + 1),
+  };
 }
 
 function resolveModel(context: AnswerContext, override?: string): Model<Api> {
@@ -51,11 +57,15 @@ function resolveModel(context: AnswerContext, override?: string): Model<Api> {
     : context.model;
   if (!model) {
     throw new Error(
-      override ? `Answer model not found: ${override}` : "No current Pi model is available"
+      override
+        ? `Answer model not found: ${override}`
+        : "No current Pi model is available"
     );
   }
   if (!model.input.includes("text")) {
-    throw new Error(`Answer model does not support text: ${model.provider}/${model.id}`);
+    throw new Error(
+      `Answer model does not support text: ${model.provider}/${model.id}`
+    );
   }
   if (
     context.scopedModels.length &&
@@ -95,7 +105,9 @@ export async function answerFromPage(
   const model = resolveModel(context, input.model);
   const auth = await context.modelRegistry.getApiKeyAndHeaders(model);
   if (!auth.ok) {
-    throw new Error(auth.error || `No authentication is available for the answer model`);
+    throw new Error(
+      auth.error || `No authentication is available for the answer model`
+    );
   }
   const contextTokens =
     model.contextWindow > 0 ? model.contextWindow : FALLBACK_CONTEXT_TOKENS;
@@ -109,6 +121,7 @@ export async function answerFromPage(
   const maximumInputChars = maximumInputTokens * CHARS_PER_TOKEN;
   const pageText = input.pageText.slice(0, maximumInputChars);
   const truncated = pageText.length < input.pageText.length;
+  const sourceUrl = sanitizePersistedUrl(input.sourceUrl);
   const message: Message = {
     role: "user",
     content: [
@@ -116,7 +129,7 @@ export async function answerFromPage(
         type: "text",
         text: [
           `Question: ${input.question}`,
-          `Source URL: ${input.sourceUrl}`,
+          `Source URL: ${sourceUrl}`,
           "",
           "<untrusted_page_content>",
           pageText,
@@ -140,7 +153,8 @@ export async function answerFromPage(
       maxTokens: OUTPUT_TOKENS,
     }
   );
-  if (response.stopReason === "aborted") throw new Error("Page answering was cancelled");
+  if (response.stopReason === "aborted")
+    throw new Error("Page answering was cancelled");
   if (response.stopReason === "error") {
     throw new Error(response.errorMessage || "Page answer model failed");
   }

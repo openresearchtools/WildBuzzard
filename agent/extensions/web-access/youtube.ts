@@ -549,7 +549,7 @@ export async function extractYouTubeCaptions(
         : null;
     const transcript = formatCaptionTranscript(cues);
     return {
-      url: rawUrl,
+      url: location.canonicalUrl,
       finalUrl: location.canonicalUrl,
       title,
       content: `# ${title}\n\nChannel: ${channel || "Unavailable"}\nDuration: ${
@@ -574,7 +574,7 @@ export async function extractYouTubeCaptions(
       error instanceof Error ? error.message : String(error)
     );
     return {
-      url: rawUrl,
+      url: location.canonicalUrl,
       finalUrl: location.canonicalUrl,
       title: "",
       content: "",
