@@ -241,6 +241,7 @@ git -C "${source_checkout}" sparse-checkout set \
   /wildbuzzard/scripts/compare-pi-web-runtime-builds.py \
   /wildbuzzard/scripts/runtime-archive-manifest.py \
   /wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
+  /wildbuzzard/scripts/validate-pi-web-runtime-archive.py \
   /wildbuzzard/scripts/verify-pi-web-installed-tree.mjs \
   /wildbuzzard/scripts/verify-pi-web-runtime-inputs.py
 git -C "${source_checkout}" checkout --detach "${source_commit}"

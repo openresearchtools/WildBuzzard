@@ -591,6 +591,14 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
                 "|\n  tar -xf", source.index('git -C "${source_checkout}" archive')
             )
         ]
+        sparse_checkout = source[
+            source.index(
+                'git -C "${source_checkout}" sparse-checkout set'
+            ) : source.index(
+                'git -C "${source_checkout}" checkout',
+                source.index('git -C "${source_checkout}" sparse-checkout set'),
+            )
+        ]
         build_controls = [
             "assemble-pi-web-runtime.mjs",
             "build-pi-web-runtime.sh",
@@ -604,6 +612,7 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
         for path in build_controls:
             self.assertIn(path, committed_inputs)
             self.assertIn(path, corresponding_source)
+            self.assertIn(path, sparse_checkout)
 
     def run_installed_tree_verifier(self, root):
         return subprocess.run(
