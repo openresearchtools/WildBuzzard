@@ -285,6 +285,14 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             archive, lock = self.create_pinned_runtime(Path(temporary))
             VALIDATE.validate(archive, lock)
 
+    def test_runtime_archive_accepts_bounded_large_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            archive, lock = self.create_pinned_runtime(
+                Path(temporary),
+                manifest_overrides={"buildPadding": "x" * (3 * 1024 * 1024)},
+            )
+            VALIDATE.validate(archive, lock)
+
     def test_bootstrap_archive_pin_always_blocks_packaging(self):
         with tempfile.TemporaryDirectory() as temporary:
             archive, lock_path = self.create_pinned_runtime(Path(temporary))

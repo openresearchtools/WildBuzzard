@@ -16,6 +16,7 @@ from pathlib import Path, PurePosixPath
 
 MANIFEST = "wildbuzzard-runtime.json"
 MAX_JSON_SIZE = 2 * 1024 * 1024
+MAX_MANIFEST_SIZE = 32 * 1024 * 1024
 MAX_INVENTORY_PACKAGES = 20_000
 MAX_PACKAGE_FILES = 20_000
 MAX_PACKAGE_SIZE = 256 * 1024 * 1024
@@ -95,9 +96,9 @@ def archive_bytes(archive, path, maximum_size=None):
     return archive.read(archive_entry(archive, path, maximum_size))
 
 
-def archive_json(archive, path, label):
+def archive_json(archive, path, label, maximum_size=MAX_JSON_SIZE):
     try:
-        return json.loads(archive_bytes(archive, path, MAX_JSON_SIZE))
+        return json.loads(archive_bytes(archive, path, maximum_size))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
         raise ValidationError(f"invalid {label}") from error
 
@@ -306,7 +307,9 @@ def validate_opened_archive(archive_file, lock_path: Path):
         load_archive_verifier().verify(archive_file)
         archive_file.seek(0)
         with zipfile.ZipFile(archive_file) as archive:
-            manifest = archive_json(archive, MANIFEST, "Pi Web runtime manifest")
+            manifest = archive_json(
+                archive, MANIFEST, "Pi Web runtime manifest", MAX_MANIFEST_SIZE
+            )
             expected = {
                 "component": "pi-web",
                 "dependencyLockSha256": pi_web["packageLockSha256"],
