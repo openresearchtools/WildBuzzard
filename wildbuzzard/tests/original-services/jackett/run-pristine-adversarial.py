@@ -1575,15 +1575,22 @@ def source_contract(source_root):
 
 
 def mini_result_store_contract(runtime):
-    source = runtime / "source/jackett/src/Jackett.Mini/ResultStore.cs"
+    source = (
+        runtime
+        / "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch"
+    )
     text = source.read_text(encoding="utf-8")
     if (
-        "DateTimeOffset.UtcNow.AddMinutes(10)" not in text
-        or "private void Prune()" not in text
+        "diff --git a/src/Jackett.Mini/ResultStore.cs b/src/Jackett.Mini/ResultStore.cs"
+        not in text
+        or "+            _results.Add(id, new StoredResult(searchId, indexer, release, DateTimeOffset.UtcNow.AddMinutes(10)));"
+        not in text
+        or "+    private void Prune()" not in text
     ):
         raise AssertionError("pinned Mini opaque-result expiry contract changed")
     return {
         "sourceSha256": sha256_file(source),
+        "sourcePath": "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch",
         "expiryMinutes": 10,
         "unknownAndExpiredStatus": 404,
     }

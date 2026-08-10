@@ -619,6 +619,26 @@ class PristineAdversarialTest(unittest.TestCase):
         self.assertNotIn("elapsedMs", repr(normalized))
         self.assertEqual(normalized["providers"], [{"id": "main", "state": "ok"}])
 
+    def test_mini_result_store_contract_uses_corresponding_source_patch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            patch = (
+                pathlib.Path(directory)
+                / "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch"
+            )
+            patch.parent.mkdir(parents=True)
+            patch.write_text(
+                "diff --git a/src/Jackett.Mini/ResultStore.cs b/src/Jackett.Mini/ResultStore.cs\n"
+                "+            _results.Add(id, new StoredResult(searchId, indexer, release, DateTimeOffset.UtcNow.AddMinutes(10)));\n"
+                "+    private void Prune()\n",
+                encoding="utf-8",
+            )
+            contract = MODULE.mini_result_store_contract(pathlib.Path(directory))
+            self.assertEqual(contract["expiryMinutes"], 10)
+            self.assertEqual(
+                contract["sourcePath"],
+                "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch",
+            )
+
     def test_process_group_cleanup_stops_children(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = pathlib.Path(directory) / "child.pid"
