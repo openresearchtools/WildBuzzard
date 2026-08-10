@@ -257,7 +257,8 @@ Every managed service uses a per-user launch lock and a mode-0600 connection
 record under `XDG_RUNTIME_DIR`. The record includes:
 
 - protocol and runtime versions;
-- loopback address or private socket path;
+- a private socket path for SearXNG or an owned loopback address for Jackett
+  Mini;
 - bearer/capability token where applicable;
 - PID and Linux process start time;
 - expected executable canonical path and digest;
@@ -270,10 +271,12 @@ existence is never sufficient. A stale PID, a reused PID, or an occupied port
 must not cause WildBuzzard to attach to or terminate another process. No code
 may discover or kill a service by process name.
 
-Port allocation uses a high loopback port selected under the launch lock and
-retries the complete spawn on bind failure. A port-zero patch may be carried
-inside the applicable third-party license boundary if the upstream server
-cannot safely report an ephemeral port.
+Jackett Mini port allocation uses a high loopback port selected under the
+launch lock and retries the complete spawn on bind failure. SearXNG exposes no
+shipping TCP listener: its backend and authenticated browser/agent gateway use
+mode-0600 Unix sockets inside a mode-0700 per-profile runtime directory. A
+port-zero patch may be carried inside the applicable third-party license
+boundary only for a service that intentionally retains loopback TCP.
 
 ### Shutdown and restart policy
 
@@ -310,7 +313,8 @@ disabled.
 
 The generated configuration must:
 
-- bind only to `127.0.0.1` and, if intentionally supported and tested, `::1`;
+- bind the SearXNG backend only to its owned private Unix socket and expose no
+  raw TCP listener;
 - set `debug: false`;
 - set `enable_metrics: false` and expose no metrics password or endpoint;
 - set `public_instance: false` and `limiter: false`;
@@ -329,11 +333,12 @@ documentation must state that fact. "No proprietary API dependency" means no
 hosted search SDK, account, key, or paid API requirement; it does not mean all
 queries remain on the local machine.
 
-Agent search uses `POST /search` with form-encoded `q`, `format=json`, and a
-supported `time_range`. Normal browser HTML search may use the product engine
-template. Domain constraints use both query-side `site:` hints and strict
-hostname post-filtering because upstream engines do not implement syntax
-uniformly.
+Agent search sends `POST /search` with form-encoded `q`, `format=json`, and a
+supported `time_range` through the authenticated private gateway socket.
+Normal browser HTML search uses the internal `moz-searxng://local/search`
+route; only the browser parent owns the gateway token and Unix-socket access.
+Domain constraints use both query-side `site:` hints and strict hostname
+post-filtering because upstream engines do not implement syntax uniformly.
 
 The current JSON response contains `query`, typed `results`, typed `answers`,
 `corrections`, `infoboxes`, `suggestions`, and `unresponsive_engines`.
@@ -349,10 +354,10 @@ New profiles advertise exactly two product engines:
 2. DuckDuckGo, available as an explicit alternative.
 
 Migrated profiles remove or hide obsolete application-provided engines but do
-not delete user-installed custom engines. The implementation must prove that
-SearchService can register or update the managed SearXNG template when its
-loopback port changes. If dynamic engine templates are not supportable, use a
-stable internal product search route; do not reserve a fragile fixed port.
+not delete user-installed custom engines. SearchService uses the stable exact
+template `moz-searxng://local/search`; service restarts and socket replacement
+must not mutate the engine template or expose a port, socket path, or token in
+history.
 
 If SearXNG is unavailable, show a local-service error, retry/repair actions,
 and an explicit "Search DuckDuckGo" action. Never silently forward the query
@@ -1271,8 +1276,8 @@ provided to an agent.
    licenses, dependency locks, SBOM format, and recorded fixtures.
 3. Provision exact pinned pristine SearXNG and Jackett services in rootless
    Podman or an equivalent OCI runtime and save the initial raw parity corpus.
-4. Prove dynamic SearXNG SearchService registration and normal/private default
-   behavior across a port change.
+4. Prove stable internal SearXNG SearchService registration and normal/private
+   default behavior across service and private-socket restarts.
 5. Prove isolated Gecko rendering and complete cleanup.
 6. Prove metadata-only magnet behavior with zero payload before commit.
 7. Prove Jackett Mini private bind, isolated data, random-port retry, health,
@@ -1448,8 +1453,9 @@ configuration surface while redacting secrets and volatile runtime values.
 - 30,000-character paging, offsets, TTL, and exact/case-insensitive/fuzzy
   passage lookup;
 - `includeContent` preview limits and full-content retrieval;
-- engine allowlist, version pin, `/healthz`, configuration verification,
-  crash/restart/backoff, concurrent clients, stale PID, and port collision;
+- engine allowlist, version pin, authenticated private health, configuration
+  verification, crash/restart/backoff, concurrent clients, stale PID, and
+  socket identity/tamper/collision handling;
 - new and migrated profile engine lists and normal/private defaults; and
 - network observation proving no removed hosted-provider module or credential
   is contacted or read.
@@ -1618,7 +1624,8 @@ remain mandatory. A regression in an existing transport blocks release.
 - browser close/reopen reuses only an identity-verified service;
 - stale PID and deliberately reused unrelated PID are never killed;
 - occupied default/system ports do not affect system services;
-- only intended loopback sockets exist and LAN/Tailscale connections fail;
+- only intended private Unix or loopback sockets exist and LAN/Tailscale
+  connections fail;
 - no updater request or autonomous runtime change occurs;
 - crash loops use bounded backoff and actionable status;
 - explicit stop/restart affects only the owned process;
