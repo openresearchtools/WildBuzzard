@@ -29,6 +29,7 @@ const state = {
     running: false,
   },
   draft: null,
+  draftReturnFocus: null,
   draftSelections: new Map(),
 };
 
@@ -250,7 +251,11 @@ function createSearchResultRow(result) {
     "published",
     "download",
   ]) {
-    const cell = document.createElement("td");
+    const cell = document.createElement(name === "name" ? "th" : "td");
+    if (name === "name") {
+      cell.scope = "row";
+      cell.id = `torrent-result-name-${result.resultId}`;
+    }
     cell.dataset.column = ["seeders", "leechers"].includes(name)
       ? "number"
       : name;
@@ -261,6 +266,7 @@ function createSearchResultRow(result) {
   download.type = "button";
   download.className = "secondary";
   download.dataset.prepareResult = result.resultId;
+  download.setAttribute("aria-describedby", cells.name.id);
   l10n(download, "wildbuzzard-torrents-result-download-button");
   cells.download.append(download);
   return { root, cells, download };
@@ -386,10 +392,14 @@ async function searchTorrents() {
 }
 
 function cancelSearch() {
+  const restoreFocus = document.activeElement === elements.searchCancel;
   state.search.generation++;
   TorrentDiscoveryManager.cancelSearch();
   setSearchRunning(false);
   setSearchStatus("wildbuzzard-torrents-search-cancelled");
+  if (restoreFocus) {
+    elements.searchQuery.focus();
+  }
 }
 
 function renderDraft() {
@@ -473,14 +483,16 @@ async function refreshDraft() {
   }
 }
 
-async function openDraft(draft) {
+async function openDraft(draft, returnFocus = document.activeElement) {
   clearTimeout(state.draftTimer);
   state.draft = draft;
+  state.draftReturnFocus = returnFocus;
   state.draftStartedAt = Date.now();
   state.draftSelections.clear();
   renderDraft();
   if (!elements.draftDialog.open) {
     elements.draftDialog.showModal();
+    elements.draftClose.focus();
   }
   if (draft.state === "metadata") {
     state.draftTimer = setTimeout(refreshDraft, 500);
@@ -490,10 +502,15 @@ async function openDraft(draft) {
 async function closeDraft(cancel = true) {
   clearTimeout(state.draftTimer);
   const id = state.draft?.draftId;
+  const returnFocus = state.draftReturnFocus;
   state.draft = null;
+  state.draftReturnFocus = null;
   state.draftSelections.clear();
   if (elements.draftDialog.open) {
     elements.draftDialog.close();
+  }
+  if (returnFocus?.isConnected) {
+    returnFocus.focus();
   }
   if (cancel && id) {
     await TorrentManager.cancelTorrentDraft(id).catch(() => {});
@@ -539,7 +556,7 @@ async function prepareSearchResult(resultId, trigger) {
         ? { magnet: resolution.magnet }
         : { torrent: resolution.torrent }
     );
-    await openDraft(draft);
+    await openDraft(draft, trigger);
   } catch (error) {
     showToast(error.message, true);
   } finally {
@@ -1112,6 +1129,7 @@ async function initialize() {
     searchResultsScroll: document.getElementById("torrent-results-scroll"),
     searchResultsEmpty: document.getElementById("torrent-results-empty"),
     draftDialog: document.getElementById("torrent-draft-dialog"),
+    draftClose: document.getElementById("torrent-draft-close"),
     draftSummary: document.getElementById("torrent-draft-summary"),
     draftStatus: document.getElementById("torrent-draft-status"),
     draftFiles: document.getElementById("torrent-draft-files"),
