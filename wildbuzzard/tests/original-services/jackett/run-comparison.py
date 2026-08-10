@@ -11,6 +11,7 @@ import http.client
 import http.cookies
 import http.server
 import json
+import os
 import pathlib
 import re
 import secrets
@@ -272,6 +273,56 @@ def response_cookie(response, name):
     return cookies[name].value
 
 
+def start_process(command, cwd, environment, log_path):
+    log = log_path.open("wb")
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=environment,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    return process, log
+
+
+def stop_process(process):
+    if process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+    return process.returncode
+
+
+def rootless_namespace_identity():
+    uid_map = pathlib.Path("/proc/self/uid_map").read_text(encoding="ascii").strip()
+    entries = [line.split() for line in uid_map.splitlines()]
+    if not entries or any(len(entry) != 3 for entry in entries):
+        raise RuntimeError("invalid user namespace identity")
+    if any(int(inside) == 0 and int(outside) == 0 for inside, outside, _length in entries):
+        raise RuntimeError("direct comparison requires a rootless user namespace")
+    return {
+        "uidMap": uid_map,
+        "gidMap": pathlib.Path("/proc/self/gid_map").read_text(encoding="ascii").strip(),
+        "userNamespace": os.readlink("/proc/self/ns/user"),
+        "networkNamespace": os.readlink("/proc/self/ns/net"),
+    }
+
+
+def process_identity(process):
+    stat_fields = pathlib.Path(f"/proc/{process.pid}/stat").read_text(encoding="ascii").split()
+    executable = pathlib.Path(os.readlink(f"/proc/{process.pid}/exe"))
+    return {
+        "pid": process.pid,
+        "linuxProcessStartTime": stat_fields[21],
+        "executable": str(executable),
+        "executableSha256": sha256_file(executable),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pristine-runtime", required=True, type=pathlib.Path)
@@ -279,6 +330,8 @@ def main():
     parser.add_argument("--mini-manifest", required=True, type=pathlib.Path)
     parser.add_argument("--artifact-root", required=True, type=pathlib.Path)
     parser.add_argument("--oci-runtime")
+    parser.add_argument("--direct-rootless", action="store_true")
+    parser.add_argument("--fixture-address", default="127.0.0.1")
     args = parser.parse_args()
 
     script_dir = pathlib.Path(__file__).resolve().parent
@@ -308,18 +361,22 @@ def main():
         directory.chmod(0o700)
 
     podman = ["podman"]
-    if args.oci_runtime:
-        podman += ["--runtime", str(pathlib.Path(args.oci_runtime).resolve(strict=True))]
-    rootless = run_command(podman + ["info", "--format", "{{.Host.Security.Rootless}}"], logs / "podman-info-rootless.log").stdout.decode().strip()
-    if rootless != "true":
-        raise RuntimeError("comparison requires rootless Podman")
-    run_command(podman + ["version", "--format", "json"], logs / "podman-version.json")
-    run_command(podman + ["image", "inspect", SDK_IMAGE], logs / "sdk-image-inspect.json")
+    if args.direct_rootless:
+        write_json(logs / "rootless-namespace.json", rootless_namespace_identity())
+        run_command(["ip", "-json", "address", "show"], logs / "network-namespace.json")
+    else:
+        if args.oci_runtime:
+            podman += ["--runtime", str(pathlib.Path(args.oci_runtime).resolve(strict=True))]
+        rootless = run_command(podman + ["info", "--format", "{{.Host.Security.Rootless}}"], logs / "podman-info-rootless.log").stdout.decode().strip()
+        if rootless != "true":
+            raise RuntimeError("comparison requires rootless Podman")
+        run_command(podman + ["version", "--format", "json"], logs / "podman-version.json")
+        run_command(podman + ["image", "inspect", SDK_IMAGE], logs / "sdk-image-inspect.json")
 
-    fixture_server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), FixtureHandler)
+    fixture_server = http.server.ThreadingHTTPServer((args.fixture_address, 0), FixtureHandler)
     fixture_server.requests = []
     fixture_port = fixture_server.server_address[1]
-    fixture_server.origin = f"http://127.0.0.1:{fixture_port}"
+    fixture_server.origin = f"http://{args.fixture_address}:{fixture_port}"
     fixture_thread = threading.Thread(target=fixture_server.serve_forever, daemon=True)
     fixture_thread.start()
 
@@ -348,34 +405,74 @@ def main():
     original_name = f"wildbuzzard-jackett-original-{suffix}"
     mini_name = f"wildbuzzard-jackett-mini-{suffix}"
     containers = [original_name, mini_name]
+    processes = {}
+    process_logs = {}
     mappings = []
     redactions = []
     cleanup = {"containers": {}, "ports": {}, "fixtureStopped": False, "dataRootsRemoved": {}}
     success = False
 
     try:
-        original_command = podman + [
-            "run", "-d", "--name", original_name, "--network", "host", "--userns=keep-id",
-            "-e", "HOME=/data", "-e", "LANG=C.UTF-8", "-e", "LC_ALL=C.UTF-8", "-e", "TZ=UTC",
-            "-v", f"{pristine_runtime}:/app:ro",
-            "-v", f"{pristine_data}:/data:Z",
-            "-v", f"{original_definitions}:/etc/xdg/cardigan/definitions:ro,Z",
-            SDK_IMAGE, "/app/jackett", "--ListenPrivate", "--Port", str(original_port),
-            "--PIDFile", "/data/jackett.pid", "--NoUpdates", "--NoRestart", "--DataFolder", "/data",
-        ]
-        mini_command = podman + [
-            "run", "-d", "--name", mini_name, "--network", "host", "--userns=keep-id",
-            "-e", "LANG=C.UTF-8", "-e", "LC_ALL=C.UTF-8", "-e", "TZ=UTC",
-            "-v", f"{mini_runtime}:/app:ro",
-            "-v", f"{mini_data}:/data:Z",
-            "-v", f"{mini_definition}:/app/Definitions/showrss.yml:ro,Z",
-            "-v", f"{test_catalog_path}:/app/catalog.json:ro,Z",
-            SDK_IMAGE, "/app/jackett-mini", "--ListenPrivate", "--Port", str(mini_port),
-            "--PIDFile", "/data/jackett.pid", "--NoUpdates", "--NoRestart", "--DataFolder", "/data",
-            "--CapabilityFile", "/data/capability",
-        ]
-        run_command(original_command, logs / "original-container-start.log")
-        run_command(mini_command, logs / "mini-container-start.log")
+        if args.direct_rootless:
+            original_xdg = overlays / "original-xdg/cardigann/definitions"
+            original_xdg.mkdir(parents=True, mode=0o700)
+            shutil.copy2(original_definition, original_xdg / original_definition.name)
+            mini_test_runtime = overlays / "mini-runtime"
+            shutil.copytree(mini_runtime, mini_test_runtime)
+            shutil.copy2(mini_definition, mini_test_runtime / "Definitions/showrss.yml")
+            shutil.copy2(test_catalog_path, mini_test_runtime / "catalog.json")
+            environment = {
+                "HOME": str(pristine_data),
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "TZ": "UTC",
+                "XDG_CONFIG_HOME": str(overlays / "original-xdg"),
+            }
+            mini_environment = {
+                "HOME": str(mini_data),
+                "LANG": "C.UTF-8",
+                "LC_ALL": "C.UTF-8",
+                "TZ": "UTC",
+            }
+            original_command = [
+                str(pristine_executable), "--ListenPrivate", "--Port", str(original_port),
+                "--PIDFile", str(pristine_data / "jackett.pid"), "--NoUpdates", "--NoRestart",
+                "--DataFolder", str(pristine_data),
+            ]
+            mini_command = [
+                str(mini_test_runtime / "jackett-mini"), "--ListenPrivate", "--Port", str(mini_port),
+                "--PIDFile", str(mini_data / "jackett.pid"), "--NoUpdates", "--NoRestart",
+                "--DataFolder", str(mini_data), "--CapabilityFile", str(capability_path),
+            ]
+            processes[original_name], process_logs[original_name] = start_process(
+                original_command, pristine_runtime, environment, logs / f"{original_name}.log"
+            )
+            processes[mini_name], process_logs[mini_name] = start_process(
+                mini_command, mini_test_runtime, mini_environment, logs / f"{mini_name}.log"
+            )
+        else:
+            original_command = podman + [
+                "run", "-d", "--name", original_name, "--network", "host", "--userns=keep-id",
+                "-e", "HOME=/data", "-e", "LANG=C.UTF-8", "-e", "LC_ALL=C.UTF-8", "-e", "TZ=UTC",
+                "-v", f"{pristine_runtime}:/app:ro",
+                "-v", f"{pristine_data}:/data:Z",
+                "-v", f"{original_definitions}:/etc/xdg/cardigan/definitions:ro,Z",
+                SDK_IMAGE, "/app/jackett", "--ListenPrivate", "--Port", str(original_port),
+                "--PIDFile", "/data/jackett.pid", "--NoUpdates", "--NoRestart", "--DataFolder", "/data",
+            ]
+            mini_command = podman + [
+                "run", "-d", "--name", mini_name, "--network", "host", "--userns=keep-id",
+                "-e", "LANG=C.UTF-8", "-e", "LC_ALL=C.UTF-8", "-e", "TZ=UTC",
+                "-v", f"{mini_runtime}:/app:ro",
+                "-v", f"{mini_data}:/data:Z",
+                "-v", f"{mini_definition}:/app/Definitions/showrss.yml:ro,Z",
+                "-v", f"{test_catalog_path}:/app/catalog.json:ro,Z",
+                SDK_IMAGE, "/app/jackett-mini", "--ListenPrivate", "--Port", str(mini_port),
+                "--PIDFile", "/data/jackett.pid", "--NoUpdates", "--NoRestart", "--DataFolder", "/data",
+                "--CapabilityFile", "/data/capability",
+            ]
+            run_command(original_command, logs / "original-container-start.log")
+            run_command(mini_command, logs / "mini-container-start.log")
         original_health = wait_for_health(original_port, "/health")
         mini_headers = {"Authorization": f"Bearer {capability}"}
         mini_health = wait_for_health(mini_port, "/v1/health", mini_headers)
@@ -556,8 +653,12 @@ def main():
         if excluded["status"] != 400:
             raise AssertionError("excluded source was queryable")
 
-        run_command(podman + ["inspect", original_name], logs / "original-container-inspect.json")
-        run_command(podman + ["inspect", mini_name], logs / "mini-container-inspect.json")
+        if args.direct_rootless:
+            write_json(logs / "original-process-identity.json", process_identity(processes[original_name]))
+            write_json(logs / "mini-process-identity.json", process_identity(processes[mini_name]))
+        else:
+            run_command(podman + ["inspect", original_name], logs / "original-container-inspect.json")
+            run_command(podman + ["inspect", mini_name], logs / "mini-container-inspect.json")
         run_command(["ss", "-ltnp", f"sport = :{original_port} or sport = :{mini_port}"], logs / "loopback-listeners.log")
         listener_text = (logs / "loopback-listeners.log").read_text(encoding="utf-8")
         if any(f"127.0.0.1:{port}" not in listener_text for port in (original_port, mini_port)):
@@ -577,6 +678,7 @@ def main():
             "sdkImage": SDK_IMAGE,
             "platform": "linux-x86_64-glibc",
             "rootless": True,
+            "executionMode": "direct-rootless-user-network-namespace" if args.direct_rootless else "rootless-podman",
             "ports": {"fixture": fixture_port, "pristine": original_port, "ported": mini_port},
             "runtimes": {
                 "pristineExecutableSha256": sha256_file(pristine_executable),
@@ -606,15 +708,25 @@ def main():
         raise
     finally:
         for name in containers:
-            run_command(podman + ["logs", name], logs / f"{name}.log", check=False)
-            stopped = run_command(podman + ["stop", "--time", "10", name], logs / f"{name}.stop.log", check=False)
-            inspected = run_command(podman + ["inspect", "--format", "{{.State.ExitCode}}", name], logs / f"{name}.exit-code.log", check=False)
-            removed = run_command(podman + ["rm", name], logs / f"{name}.remove.log", check=False)
-            cleanup["containers"][name] = {
-                "stopReturnCode": stopped.returncode,
-                "exitCode": inspected.stdout.decode("utf-8", errors="replace").strip(),
-                "removeReturnCode": removed.returncode,
-            }
+            if args.direct_rootless:
+                process = processes.get(name)
+                exit_code = stop_process(process) if process else None
+                if name in process_logs:
+                    process_logs[name].close()
+                cleanup["containers"][name] = {
+                    "execution": "direct-rootless-user-network-namespace",
+                    "exitCode": exit_code,
+                }
+            else:
+                run_command(podman + ["logs", name], logs / f"{name}.log", check=False)
+                stopped = run_command(podman + ["stop", "--time", "10", name], logs / f"{name}.stop.log", check=False)
+                inspected = run_command(podman + ["inspect", "--format", "{{.State.ExitCode}}", name], logs / f"{name}.exit-code.log", check=False)
+                removed = run_command(podman + ["rm", name], logs / f"{name}.remove.log", check=False)
+                cleanup["containers"][name] = {
+                    "stopReturnCode": stopped.returncode,
+                    "exitCode": inspected.stdout.decode("utf-8", errors="replace").strip(),
+                    "removeReturnCode": removed.returncode,
+                }
         fixture_server.shutdown()
         fixture_server.server_close()
         fixture_thread.join(timeout=5)
