@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 import argparse
+import datetime
 import hashlib
 import json
 import stat
@@ -103,6 +104,18 @@ def verify(archive_path):
             or any(path not in files for path in licenses)
         ):
             raise ValueError("invalid runtime source metadata")
+        if manifest.get("component") == "pi-web":
+            metadata_paths = [
+                manifest.get("buildInputs"),
+                manifest.get("runtimeDependencyInventory"),
+                manifest.get("sbom"),
+                manifest.get("spdxSbom"),
+            ]
+            if any(
+                not isinstance(path, str) or not safe_path(path) or path not in files
+                for path in metadata_paths
+            ):
+                raise ValueError("invalid Pi Web runtime metadata")
         expected = set(files) | {MANIFEST}
         actual = {entry.filename for entry in entries if not entry.is_dir()}
         if actual != expected:
@@ -119,6 +132,43 @@ def verify(archive_path):
                 raise ValueError(f"runtime executable mismatch: {entry.filename}")
 
 
+def archive(root, archive_path, source_date_epoch):
+    timestamp = datetime.datetime.fromtimestamp(
+        source_date_epoch, datetime.timezone.utc
+    )
+    if timestamp.year < 1980:
+        raise ValueError("source date epoch predates the ZIP format")
+    date_time = (
+        timestamp.year,
+        timestamp.month,
+        timestamp.day,
+        timestamp.hour,
+        timestamp.minute,
+        timestamp.second,
+    )
+    with zipfile.ZipFile(
+        archive_path,
+        "w",
+        compression=zipfile.ZIP_STORED,
+        strict_timestamps=True,
+    ) as output:
+        for path in sorted(root.rglob("*")):
+            relative = path.relative_to(root).as_posix()
+            info = path.lstat()
+            if stat.S_ISLNK(info.st_mode):
+                raise ValueError(f"symbolic link in runtime: {relative}")
+            if not stat.S_ISREG(info.st_mode):
+                if stat.S_ISDIR(info.st_mode):
+                    continue
+                raise ValueError(f"unsupported runtime entry: {relative}")
+            entry = zipfile.ZipInfo(relative, date_time=date_time)
+            entry.create_system = 3
+            entry.external_attr = (
+                stat.S_IFREG | (0o755 if info.st_mode & 0o111 else 0o644)
+            ) << 16
+            output.writestr(entry, path.read_bytes())
+
+
 def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -129,14 +179,20 @@ def main():
     verify_parser.add_argument("archive", type=Path)
     structure_parser = subparsers.add_parser("structure")
     structure_parser.add_argument("archive", type=Path)
+    archive_parser = subparsers.add_parser("archive")
+    archive_parser.add_argument("root", type=Path)
+    archive_parser.add_argument("archive", type=Path)
+    archive_parser.add_argument("source_date_epoch", type=int)
     args = parser.parse_args()
     try:
         if args.command == "build":
             build(args.root, args.metadata)
         elif args.command == "verify":
             verify(args.archive)
-        else:
+        elif args.command == "structure":
             structure(args.archive)
+        else:
+            archive(args.root, args.archive, args.source_date_epoch)
     except (
         OSError,
         ValueError,
