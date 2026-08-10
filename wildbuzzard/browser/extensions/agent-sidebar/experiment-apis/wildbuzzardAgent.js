@@ -56,11 +56,25 @@ function runtimeBundleId(archivePath) {
     } finally {
       stream.close();
     }
+    if (
+      manifest.schema !== 3 ||
+      !/^[a-f0-9]{40}$/.test(manifest.piWebCommit) ||
+      !/^[a-f0-9]{64}$/.test(manifest.browserToolsSha256) ||
+      !/^[a-f0-9]{64}$/.test(manifest.webAccessSha256) ||
+      !/^[a-f0-9]{64}$/.test(manifest.browserRunnerSha256) ||
+      !/^[a-f0-9]{64}$/.test(manifest.gitRuntimeSha256) ||
+      !/^[a-f0-9]{64}$/.test(manifest.ytdlpRuntimeSha256)
+    ) {
+      throw new Error("Invalid Pi Web runtime manifest");
+    }
     const id = [
       manifest.schema,
       manifest.piWebCommit,
       manifest.browserToolsSha256,
+      manifest.webAccessSha256,
       manifest.browserRunnerSha256,
+      manifest.gitRuntimeSha256,
+      manifest.ytdlpRuntimeSha256,
       manifest.nodeVersion,
       manifest.platform,
     ].join("-");
@@ -169,7 +183,7 @@ class PiWebManager {
     });
     await this.#publishBrowserControl();
     this.runtimeDirectory = await this.#extractRuntime();
-    await this.#installBrowserTools();
+    await this.#installAgentExtensions();
     await this.#writeConfig();
     await this.#ensureServices();
     const status = await this.refreshStatus();
@@ -259,6 +273,25 @@ class PiWebManager {
       PathUtils.join(destination, "bin", "pi-web"),
       PathUtils.join(destination, "bin", "pi-web-server"),
       PathUtils.join(destination, "bin", "pi-web-sessiond"),
+      PathUtils.join(destination, "tools", "git", "bin", "git"),
+      PathUtils.join(destination, "tools", "git", "bin", "git.bin"),
+      PathUtils.join(destination, "tools", "yt-dlp", "bin", "yt-dlp"),
+      PathUtils.join(
+        destination,
+        "tools",
+        "git",
+        "libexec",
+        "git-core",
+        "git-remote-http"
+      ),
+      PathUtils.join(
+        destination,
+        "tools",
+        "git",
+        "libexec",
+        "git-core",
+        "git-remote-https"
+      ),
       PathUtils.join(
         destination,
         "seed",
@@ -272,25 +305,27 @@ class PiWebManager {
     return destination;
   }
 
-  async #installBrowserTools() {
-    const source = PathUtils.join(
-      this.runtimeDirectory,
-      "seed",
-      "browser-tools"
-    );
+  async #installAgentExtensions() {
     const extensionsDirectory = PathUtils.join(this.piDirectory, "extensions");
-    const destination = PathUtils.join(extensionsDirectory, "browser-tools");
     await IOUtils.makeDirectory(extensionsDirectory, {
       createAncestors: true,
       ignoreExisting: true,
     });
-    await IOUtils.remove(destination, {
-      recursive: true,
-      ignoreAbsent: true,
-    });
-    await IOUtils.copy(source, destination, { recursive: true });
+    for (const name of ["browser-tools", "web-access"]) {
+      const source = PathUtils.join(this.runtimeDirectory, "seed", name);
+      const destination = PathUtils.join(extensionsDirectory, name);
+      await IOUtils.remove(destination, {
+        recursive: true,
+        ignoreAbsent: true,
+      });
+      await IOUtils.copy(source, destination, { recursive: true });
+    }
     await IOUtils.setPermissions(
-      PathUtils.join(destination, "wildbuzzard-browser-runner"),
+      PathUtils.join(
+        extensionsDirectory,
+        "browser-tools",
+        "wildbuzzard-browser-runner"
+      ),
       0o755
     );
   }
@@ -348,6 +383,26 @@ class PiWebManager {
         PI_CODING_AGENT_DIR: this.piDirectory,
         WILDBUZZARD_AGENT_LOCAL_ONLY: "1",
         WILDBUZZARD_BROWSER_CONTROL_FILE: this.connectionPath,
+        WILDBUZZARD_BUNDLED_GIT: PathUtils.join(
+          this.runtimeDirectory,
+          "tools",
+          "git",
+          "bin",
+          "git"
+        ),
+        WILDBUZZARD_BUNDLED_NODE: PathUtils.join(
+          this.runtimeDirectory,
+          "node",
+          "bin",
+          "node"
+        ),
+        WILDBUZZARD_YTDLP: PathUtils.join(
+          this.runtimeDirectory,
+          "tools",
+          "yt-dlp",
+          "bin",
+          "yt-dlp"
+        ),
         ...environment,
       },
     });

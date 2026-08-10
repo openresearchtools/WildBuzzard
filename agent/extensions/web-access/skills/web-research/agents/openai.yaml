@@ -1,0 +1,4 @@
+interface:
+  display_name: "Web Research"
+  short_description: "Search and inspect untrusted web sources"
+  default_prompt: "Use $web-research to find and verify current web sources."

@@ -40,3 +40,31 @@ version = "3.0.21"
 license = "MIT"
 path = "third_party/webtorrent"
 role = "embedded-torrent-engine"
+
+[pi_web_access]
+remote = "https://github.com/nicobailon/pi-web-access.git"
+ref = "692483ae782e41978fb2eba0eec70fd4056608c8"
+commit = "692483ae782e41978fb2eba0eec70fd4056608c8"
+version = "0.19.0"
+source_sha256 = "e2402cd912cec96afa074cd24f8d58388759c7ea2c759ff3209f110cb3d2355f"
+license = "MIT"
+path = "agent/extensions/web-access"
+role = "audited-agent-extension-port"
+
+[git_runtime]
+remote = "https://github.com/git/git.git"
+ref = "v2.55.0"
+commit = "e9019fcafe0040228b8631c30f97ae1adb61bcdc"
+version = "2.55.0"
+source_sha256 = "262c0e5f0f082c8c05e8192040a786ec0c8cafeeeaf8b7fa2a16c17be2deefa2"
+license = "GPL-2.0-only"
+role = "source-built-agent-github-helper"
+
+[yt_dlp]
+remote = "https://github.com/yt-dlp/yt-dlp.git"
+ref = "2026.07.04"
+commit = "fdec00e0bf530dc6c3cc7b1dd780e95d9ae460e9"
+version = "2026.07.04"
+source_sha256 = "27c51a76a68621313f678aa8b9c48ce39b895e0db79e06963e07c1b1662c4786"
+license = "Unlicense"
+role = "source-built-caption-helper"
