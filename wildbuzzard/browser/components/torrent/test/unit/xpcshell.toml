@@ -1,4 +1,7 @@
 [DEFAULT]
 firefox-appdir = "browser"
 
+["test_jackett_mini_runtime.js"]
+skip-if = ["os != 'linux'"]
+
 ["test_torrent_discovery_manager.js"]

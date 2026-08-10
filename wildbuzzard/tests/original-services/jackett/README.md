@@ -73,16 +73,18 @@ python3 wildbuzzard/tests/original-services/jackett/run-live-source-report.py \
 
 The gating deterministic scenarios cover health, caps/source status, indexer enumeration, Unicode search, adult-category filtering, peer-to-leecher conversion, duplicate BTIH collapse, public and private torrent resolution, upstream `apikey`/`passkey` behavior, product capability authentication, excluded sources, and removed dashboard/configuration/update/raw-Torznab routes. Live public-provider drift is intentionally outside this deterministic suite.
 
-## Pristine-only adversarial oracle
+## Adversarial side-by-side comparison
 
-The adversarial lane starts only the pinned, unmodified pristine Jackett executable and deterministic local fixture servers. It never starts or contacts Jackett Mini, the browser runtime, or the torrent runtime. Jackett is disposable test infrastructure here, not a product dependency. `/v1` entries in `request-mapping.json` are declarative mappings for a later side-by-side port run, not network requests made by this lane.
+The adversarial lane starts the pinned, unmodified pristine Jackett executable beside the actual pinned Jackett Mini runtime and deterministic local fixture servers. A test-only Mini overlay retains only two eligible fixture sources, and a second Mini process exercises simultaneous Firefox-profile isolation. Jackett remains disposable test infrastructure, not a product dependency. Every `/v1` entry in `request-mapping.json` records a request executed during the run.
 
-Use an already-built pristine runtime and its matching extracted source tree. This command performs no build:
+Use already-built pristine and Mini runtimes plus the matching extracted pristine source tree. This command performs no build:
 
 ```sh
 wildbuzzard/tests/original-services/jackett/run-pristine-adversarial-rootless.sh \
   --pristine-runtime /absolute/artifact/path/pristine-runtime \
   --pristine-source /absolute/artifact/path/Jackett-0cd8622b735922a909a128d8d6943bb8565a640f \
+  --mini-runtime /absolute/artifact/path/jackett-mini-runtime \
+  --mini-manifest /absolute/artifact/path/jackett-mini-runtime/jackett-mini-runtime.json \
   --artifact-root /absolute/artifact/path
 ```
 
@@ -90,7 +92,7 @@ The pin-specific snapshot covers `apikey` and `passkey`, Torznab codes 100, 201,
 
 The fault corpus includes malformed, deep, entity-bearing, and over-limit XML; a hanging provider and caller timeout; invalid TLS; a redirect and redirect loop; partial aggregate success; stale completion order; cache hit, bypass, and expiry; absent and contradictory peer-count handling; duplicate infohashes across providers; malicious text, category, and acquisition URL fields; all categories 6000, 6010 through 6090 including 6045; mixed and missing categories; an adult-provider result labelled only as 8000; and per-indexer custom categories above 100000.
 
-Each run retains redacted raw API transcripts, fixture request and response hashes, the original-to-port request map, full canonical observed and expected JSON, an empty canonical diff on success, process identity, loopback listener evidence, service logs, exit status, closed-port/data-root cleanup proof, and a zero-leak scan. API keys, passkeys, cookies, capabilities, raw acquisition paths, and synthetic secret sentinels are never retained in the evidence.
+Each run retains paired redacted raw API transcripts, fixture request and response hashes, exact Torznab-to-`/v1` request mappings, canonical pristine and Mini observations, normalized semantic/error diffs, the empty pinned-pristine snapshot diff, two-profile capability/result/data isolation, source-backed opaque-ID expiry, removed-route statuses, process identity, loopback listener evidence, service logs, exit status, kernel-key/no-orphan/closed-port/data-root cleanup proof, and separate secret/path leak scans. API keys, passkeys, cookies, capabilities, raw acquisition paths, input paths, and synthetic secret sentinels are never retained in the evidence.
 
 Run the bounded XML canonicalizer tests with:
 
