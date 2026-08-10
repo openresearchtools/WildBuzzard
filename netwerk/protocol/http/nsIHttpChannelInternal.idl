@@ -64,7 +64,7 @@ interface nsIHttpUpgradeListener : nsISupports
  * using any feature exposed by this interface, be aware that this interface
  * will change and you will be broken.  You have been warned.
  */
-[builtinclass, scriptable, uuid(e43b8146-744c-4f79-9779-a4e6d0f1edc1)]
+[builtinclass, scriptable, uuid(75e7d38e-d1a5-4982-9788-af8f4f5b32f8)]
 interface nsIHttpChannelInternal : nsISupports
 {
     /**
@@ -511,6 +511,12 @@ interface nsIHttpChannelInternal : nsISupports
      * This must be called from http-on-modify-request before the channel resumes.
      */
     [must_use] void setConnectionTargetIPAddress(in ACString address);
+
+    /**
+     * Connect only to the supplied IP literals, in order, while retaining the
+     * channel's origin hostname.
+     */
+    [must_use] void setConnectionTargetIPAddresses(in Array<ACString> addresses);
 
     /**
      * This attribute indicates if the channel was loaded via Proxy.

@@ -17,8 +17,29 @@ const FIXTURE = `https://example.com${FIXTURE_PATH}`;
 const OTHER_FIXTURE = `https://example.org${FIXTURE_PATH}`;
 const PINNED_HOST = "wildbuzzard-pinned.example";
 const REBIND_HOST = "wildbuzzard-rebind.example";
+const FALLBACK_HOST = "wildbuzzard-fallback.example";
+const OVERLAP_HOST = "wildbuzzard-overlap.example";
+const PRECONNECT_HOST = "wildbuzzard-preconnect.example";
+const ALT_USED_HOST = "wildbuzzard-alt-used.example";
+const TLS_PINNED_HOST = "wildbuzzard-tls-pinned.example";
 const COMPARATOR_CANCEL_BOUND_MS = 3000;
+const TEST_ALLOWED_HOSTS = Object.freeze([
+  "example.com",
+  "example.org",
+  "www.example.com",
+  "expired.example.com",
+]);
 let automationFixture;
+
+function setDefaultTestDNSAnswers() {
+  BrowserControl.setGeckoRenderTestDNSAnswers({
+    [PINNED_HOST]: ["127.0.0.1"],
+    [REBIND_HOST]: ["127.0.0.2"],
+    [FALLBACK_HOST]: ["127.0.0.2", "127.0.0.1"],
+    [OVERLAP_HOST]: ["127.0.0.1"],
+    [TLS_PINNED_HOST]: ["127.0.0.1"],
+  });
+}
 
 async function render(url, args = {}, signal = new AbortController().signal) {
   const result = await BrowserControl.dispatch(
@@ -64,28 +85,157 @@ function assertAutomationClean(result, message) {
   );
 }
 
+function createConnectionCounter() {
+  const server = Cc["@mozilla.org/network/server-socket;1"].createInstance(
+    Ci.nsIServerSocket
+  );
+  const stopped = Promise.withResolvers();
+  const state = { accepted: 0 };
+  server.init(-1, true, -1);
+  server.asyncListen({
+    onSocketAccepted(_server, transport) {
+      state.accepted++;
+      transport.close(Cr.NS_BINDING_ABORTED);
+    },
+    onStopListening() {
+      stopped.resolve();
+    },
+  });
+  return {
+    port: server.port,
+    state,
+    async stop() {
+      server.close();
+      await stopped.promise;
+    },
+  };
+}
+
+function createTLSServer() {
+  const certDB = Cc["@mozilla.org/security/x509certdb;1"].getService(
+    Ci.nsIX509CertDB
+  );
+  const cert = [...certDB.getCerts()].find(
+    candidate => candidate.commonName === "Mochitest client"
+  );
+  if (!cert) {
+    throw new Error("Mochitest TLS certificate is unavailable");
+  }
+  const server = Cc["@mozilla.org/network/tls-server-socket;1"].createInstance(
+    Ci.nsITLSServerSocket
+  );
+  const stopped = Promise.withResolvers();
+  const connections = new Set();
+  const state = { host: null };
+  server.init(-1, true, -1);
+  server.serverCert = cert;
+  server.setSessionTickets(false);
+  server.asyncListen({
+    onSocketAccepted(_server, transport) {
+      const input = transport.openInputStream(0, 0, 0);
+      const output = transport.openOutputStream(0, 0, 0);
+      const connection = { input, output, request: "", stopped: false };
+      connections.add(connection);
+      const close = () => {
+        if (connection.stopped) {
+          return;
+        }
+        connection.stopped = true;
+        connections.delete(connection);
+        try {
+          input.close();
+        } catch {}
+        try {
+          output.close();
+        } catch {}
+      };
+      const callback = {
+        onInputStreamReady(stream) {
+          if (connection.stopped) {
+            return;
+          }
+          let available;
+          try {
+            available = stream.available();
+          } catch {
+            close();
+            return;
+          }
+          connection.request += NetUtil.readInputStreamToString(
+            stream,
+            available
+          );
+          if (!connection.request.includes("\r\n\r\n")) {
+            input.asyncWait(callback, 0, 0, Services.tm.currentThread);
+            return;
+          }
+          state.host =
+            (/^Host:\s*(.+)$/im.exec(connection.request)?.[1] ?? "").trim() ||
+            null;
+          const body = "routed tls fixture";
+          const response = `HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: ${body.length}\r\nConnection: close\r\n\r\n${body}`;
+          output.write(response, response.length);
+          close();
+        },
+      };
+      const connectionInfo = transport.securityCallbacks.getInterface(
+        Ci.nsITLSServerConnectionInfo
+      );
+      connectionInfo.setSecurityObserver({
+        onHandshakeDone() {
+          input.asyncWait(callback, 0, 0, Services.tm.currentThread);
+        },
+      });
+    },
+    onStopListening() {
+      stopped.resolve();
+    },
+  });
+  return {
+    cert,
+    port: server.port,
+    state,
+    async stop() {
+      for (const connection of connections) {
+        connection.stopped = true;
+        try {
+          connection.input.close();
+        } catch {}
+        try {
+          connection.output.close();
+        } catch {}
+      }
+      connections.clear();
+      server.close();
+      await stopped.promise;
+    },
+  };
+}
+
 add_setup(function setup_renderer() {
   const wasStarted = BrowserControl.started;
   const dnsOverride = Cc[
     "@mozilla.org/network/native-dns-override;1"
   ].getService(Ci.nsINativeDNSResolverOverride);
   BrowserControl.start();
-  BrowserControl.setGeckoRenderTestAllowedHosts([
-    "example.com",
-    "example.org",
-    "www.example.com",
-    "expired.example.com",
-  ]);
-  BrowserControl.setGeckoRenderTestDNSAnswers({
-    [PINNED_HOST]: ["127.0.0.1"],
-    [REBIND_HOST]: ["127.0.0.2"],
-  });
+  BrowserControl.setGeckoRenderTestAllowedHosts(TEST_ALLOWED_HOSTS);
+  setDefaultTestDNSAnswers();
   dnsOverride.addIPOverride(PINNED_HOST, "127.0.0.2");
   dnsOverride.addIPOverride(REBIND_HOST, "127.0.0.1");
+  dnsOverride.addIPOverride(FALLBACK_HOST, "127.0.0.3");
+  dnsOverride.addIPOverride(OVERLAP_HOST, "127.0.0.2");
+  dnsOverride.addIPOverride(PRECONNECT_HOST, "127.0.0.1");
+  dnsOverride.addIPOverride(ALT_USED_HOST, "127.0.0.2");
+  dnsOverride.addIPOverride(TLS_PINNED_HOST, "127.0.0.2");
   Services.dns.clearCache(false);
   registerCleanupFunction(() => {
     dnsOverride.clearHostOverride(PINNED_HOST);
     dnsOverride.clearHostOverride(REBIND_HOST);
+    dnsOverride.clearHostOverride(FALLBACK_HOST);
+    dnsOverride.clearHostOverride(OVERLAP_HOST);
+    dnsOverride.clearHostOverride(PRECONNECT_HOST);
+    dnsOverride.clearHostOverride(ALT_USED_HOST);
+    dnsOverride.clearHostOverride(TLS_PINNED_HOST);
     Services.dns.clearCache(false);
     BrowserControl.setGeckoRenderTestAllowedHosts([]);
     BrowserControl.setGeckoRenderTestDNSAnswers({});
@@ -103,7 +253,11 @@ add_setup(function setup_automation_fixture() {
     fastRequests: 0,
     pinnedHost: null,
     pinnedRequests: 0,
+    pinnedAltUsed: null,
     privateRequests: 0,
+    overlapHeldRequests: 0,
+    overlapSecondRequests: 0,
+    releaseOverlap: null,
     maxActive: 0,
     releaseHold: null,
     releaseSlowRequests() {
@@ -128,8 +282,33 @@ add_setup(function setup_automation_fixture() {
   server.registerPathHandler("/pinned", (request, response) => {
     state.pinnedRequests++;
     state.pinnedHost = request.getHeader("Host");
+    state.pinnedAltUsed = request.hasHeader("Alt-Used")
+      ? request.getHeader("Alt-Used")
+      : null;
     response.setHeader("Content-Type", "text/plain; charset=utf-8", false);
     response.write("pinned fixture");
+  });
+  server.registerPathHandler("/overlap", (_request, response) => {
+    response.setHeader("Content-Type", "text/html; charset=utf-8", false);
+    response.write(`<!doctype html><title>overlap</title><p>overlap</p><script>
+      setTimeout(() => fetch("/overlap-held").catch(() => {}), 25);
+      setTimeout(() => fetch("/overlap-second").catch(() => {}), 1000);
+    </script>`);
+  });
+  server.registerPathHandler("/overlap-held", (_request, response) => {
+    state.overlapHeldRequests++;
+    response.processAsync();
+    state.releaseOverlap = () => {
+      response.setHeader("Content-Type", "text/plain; charset=utf-8", false);
+      response.write("held response");
+      response.finish();
+      state.releaseOverlap = null;
+    };
+  });
+  server.registerPathHandler("/overlap-second", (_request, response) => {
+    state.overlapSecondRequests++;
+    response.setHeader("Content-Type", "text/plain; charset=utf-8", false);
+    response.write("second response");
   });
   server.registerPathHandler("/hold", (_request, response) => {
     state.active++;
@@ -173,6 +352,9 @@ add_setup(function setup_automation_fixture() {
   server.start(-1);
   server.identity.add("http", PINNED_HOST, server.identity.primaryPort);
   server.identity.add("http", REBIND_HOST, server.identity.primaryPort);
+  server.identity.add("http", FALLBACK_HOST, server.identity.primaryPort);
+  server.identity.add("http", OVERLAP_HOST, server.identity.primaryPort);
+  server.identity.add("http", ALT_USED_HOST, server.identity.primaryPort);
   automationFixture = {
     origin: `http://127.0.0.1:${server.identity.primaryPort}`,
     server,
@@ -182,6 +364,7 @@ add_setup(function setup_automation_fixture() {
     () =>
       new Promise(resolve => {
         automationFixture.state.releaseHold?.();
+        automationFixture.state.releaseOverlap?.();
         automationFixture.state.releaseSlowRequests();
         automationFixture.server.stop(resolve);
       })
@@ -419,16 +602,249 @@ add_task(async function test_approved_fixture_address_is_pinned() {
   assertClean("approved fixture address pinning");
 });
 
+add_task(async function test_https_route_retains_origin_tls_identity() {
+  const tlsServer = createTLSServer();
+  const certOverrideService = Cc[
+    "@mozilla.org/security/certoverride;1"
+  ].getService(Ci.nsICertOverrideService);
+  certOverrideService.rememberValidityOverride(
+    TLS_PINNED_HOST,
+    tlsServer.port,
+    {},
+    tlsServer.cert,
+    true
+  );
+  try {
+    const result = await render(
+      `https://${TLS_PINNED_HOST}:${tlsServer.port}/`,
+      { timeoutMs: 3000 }
+    );
+    is(result.pageError, null, "the routed TLS handshake uses the origin name");
+    is(result.content, "routed tls fixture", "the HTTPS response is returned");
+    is(
+      tlsServer.state.host,
+      `${TLS_PINNED_HOST}:${tlsServer.port}`,
+      "the routed TLS request retains its origin Host header"
+    );
+  } finally {
+    certOverrideService.clearValidityOverride(
+      TLS_PINNED_HOST,
+      tlsServer.port,
+      {}
+    );
+    await tlsServer.stop();
+  }
+  assertClean("HTTPS routed origin identity");
+});
+
+add_task(async function test_approved_address_fallback_is_ordered() {
+  automationFixture.state.pinnedRequests = 0;
+  const result = await render(
+    `http://${FALLBACK_HOST}:${automationFixture.server.identity.primaryPort}/pinned`,
+    { timeoutMs: 3000 }
+  );
+  is(result.pageError, null, "the second approved address is retried");
+  is(result.content, "pinned fixture", "fallback response is returned");
+  is(
+    automationFixture.state.pinnedRequests,
+    1,
+    "the unapproved native DNS address is never used"
+  );
+  assertClean("approved address fallback");
+});
+
+add_task(async function test_renderer_routes_never_use_configured_proxy() {
+  const counter = createConnectionCounter();
+  const proxyService = Cc[
+    "@mozilla.org/network/protocol-proxy-service;1"
+  ].getService(Ci.nsIProtocolProxyService);
+  const filter = {
+    QueryInterface: ChromeUtils.generateQI(["nsIProtocolProxyChannelFilter"]),
+    applyFilter(_channel, _proxyInfo, callback) {
+      callback.onProxyFilterResult(
+        proxyService.newProxyInfo(
+          "http",
+          "127.0.0.1",
+          counter.port,
+          "",
+          "",
+          0,
+          0,
+          null
+        )
+      );
+    },
+  };
+  proxyService.registerChannelFilter(filter, 0);
+  try {
+    const result = await render(
+      `http://${PINNED_HOST}:${automationFixture.server.identity.primaryPort}/pinned`,
+      { timeoutMs: 2000 }
+    );
+    is(result.pageError, null, "the approved direct route loads");
+    is(counter.state.accepted, 0, "the configured proxy receives no socket");
+  } finally {
+    proxyService.unregisterChannelFilter(filter);
+    await counter.stop();
+  }
+  assertClean("renderer proxy exclusion");
+});
+
+add_task(async function test_renderer_preconnects_fail_closed() {
+  await SpecialPowers.pushPrefEnv({
+    set: [
+      ["network.early-hints.enabled", true],
+      ["network.early-hints.over-http-v1-1.enabled", true],
+      ["network.early-hints.preconnect.enabled", true],
+      ["network.http.debug-observations", true],
+    ],
+  });
+  const counter = createConnectionCounter();
+  const target = `https://${PRECONNECT_HOST}:${counter.port}/`;
+  const observations = [];
+  const observer = (_subject, _topic, data) => observations.push(data);
+  Services.obs.addObserver(observer, "speculative-connect-request");
+  try {
+    for (const mode of ["preconnect", "early-hint-preconnect"]) {
+      const result = await render(
+        `${FIXTURE}?mode=${mode}&target=${encodeURIComponent(target)}`,
+        { waitMs: 350 }
+      );
+      is(result.pageError, null, `${mode} page renders normally`);
+      is(
+        counter.state.accepted,
+        0,
+        `${mode} opens no speculative socket outside channel policy`
+      );
+    }
+  } finally {
+    Services.obs.removeObserver(observer, "speculative-connect-request");
+    await counter.stop();
+  }
+  ok(
+    observations.every(value => !value.includes(PRECONNECT_HOST)),
+    "renderer preconnects never reach the HTTP connection manager"
+  );
+  assertClean("renderer preconnect policy");
+});
+
+add_task(async function test_connection_override_clears_alt_used() {
+  automationFixture.state.pinnedAltUsed = null;
+  automationFixture.state.pinnedRequests = 0;
+  const uri = `http://${ALT_USED_HOST}:${automationFixture.server.identity.primaryPort}/pinned`;
+  const channel = NetUtil.newChannel({
+    uri,
+    loadUsingSystemPrincipal: true,
+  }).QueryInterface(Ci.nsIHttpChannel);
+  channel.loadFlags |=
+    Ci.nsIRequest.LOAD_BYPASS_CACHE | Ci.nsIRequest.INHIBIT_CACHING;
+  channel.setRequestHeader("Alt-Used", "stale-route.invalid:443", false);
+  const observer = subject => {
+    if (subject !== channel) {
+      return;
+    }
+    const internal = channel.QueryInterface(Ci.nsIHttpChannelInternal);
+    is(
+      channel.getRequestHeader("Alt-Used"),
+      "stale-route.invalid:443",
+      "the pre-existing alternate route header reached modify-request"
+    );
+    internal.setConnectionTargetIPAddress("127.0.0.1");
+    Assert.throws(
+      () => channel.getRequestHeader("Alt-Used"),
+      /NS_ERROR_NOT_AVAILABLE/,
+      "the explicit route removes Alt-Used"
+    );
+  };
+  Services.obs.addObserver(observer, "http-on-modify-request");
+  try {
+    await new Promise((resolve, reject) => {
+      channel.asyncOpen({
+        onStartRequest(request) {
+          if (!Components.isSuccessCode(request.status)) {
+            reject(new Error(`channel failed: ${request.status}`));
+          }
+        },
+        onDataAvailable(_request, stream, _offset, count) {
+          NetUtil.readInputStreamToString(stream, count);
+        },
+        onStopRequest(_request, status) {
+          if (Components.isSuccessCode(status)) {
+            resolve();
+          } else {
+            reject(new Error(`channel stopped: ${status}`));
+          }
+        },
+      });
+    });
+  } finally {
+    Services.obs.removeObserver(observer, "http-on-modify-request");
+  }
+  is(automationFixture.state.pinnedRequests, 1, "the explicit route loads");
+  is(
+    automationFixture.state.pinnedAltUsed,
+    null,
+    "the stale Alt-Used header is not sent to the pinned origin"
+  );
+});
+
+add_task(async function test_overlapping_dns_records_are_channel_bound() {
+  automationFixture.state.overlapHeldRequests = 0;
+  automationFixture.state.overlapSecondRequests = 0;
+  BrowserControl.setGeckoRenderTestDNSAnswers({
+    [OVERLAP_HOST]: ["127.0.0.1"],
+  });
+  let result;
+  try {
+    const renderPromise = render(
+      `http://${OVERLAP_HOST}:${automationFixture.server.identity.primaryPort}/overlap`,
+      { timeoutMs: 4000, waitMs: 1600 }
+    );
+    await TestUtils.waitForCondition(
+      () => automationFixture.state.overlapHeldRequests === 1,
+      "the first same-host request reaches its approved address"
+    );
+    const secondRoute = TestUtils.topicObserved(
+      "wildbuzzard-gecko-render-route",
+      (_subject, data) => {
+        const route = JSON.parse(data);
+        return (
+          route.host === OVERLAP_HOST &&
+          route.targets.length === 1 &&
+          route.targets[0] === "127.0.0.2"
+        );
+      }
+    );
+    BrowserControl.setGeckoRenderTestDNSAnswers({
+      [OVERLAP_HOST]: ["127.0.0.2"],
+    });
+    await secondRoute;
+    automationFixture.state.releaseOverlap();
+    result = await renderPromise;
+  } finally {
+    automationFixture.state.releaseOverlap?.();
+    setDefaultTestDNSAnswers();
+  }
+  is(
+    result.pageError,
+    null,
+    "the first channel retains its immutable approved target"
+  );
+  is(
+    automationFixture.state.overlapSecondRequests,
+    0,
+    "the later channel does not fall back to mutable native DNS"
+  );
+  assertClean("overlapping same-host DNS records");
+});
+
 add_task(async function test_test_dns_answers_require_ip_literals() {
   Assert.throws(
     () => BrowserControl.setGeckoRenderTestDNSAnswers({ invalid: ["host"] }),
     /IP literals/,
     "test DNS cannot install a hostname target"
   );
-  BrowserControl.setGeckoRenderTestDNSAnswers({
-    [PINNED_HOST]: ["127.0.0.1"],
-    [REBIND_HOST]: ["127.0.0.2"],
-  });
+  setDefaultTestDNSAnswers();
 });
 
 add_task(async function test_cross_origin_header_stripping() {

@@ -149,6 +149,8 @@ class nsHttpChannel final : public HttpBaseChannel,
   NS_IMETHOD GetIsAuthChannel(bool* aIsAuthChannel) override;
   NS_IMETHOD SetChannelIsForDownload(bool aChannelIsForDownload) override;
   NS_IMETHOD SetConnectionTargetIPAddress(const nsACString& aAddress) override;
+  NS_IMETHOD SetConnectionTargetIPAddresses(
+      const nsTArray<nsCString>& aAddresses) override;
   NS_IMETHOD GetNavigationStartTimeStamp(TimeStamp* aTimeStamp) override;
   NS_IMETHOD SetNavigationStartTimeStamp(TimeStamp aTimeStamp) override;
   NS_IMETHOD CancelByURLClassifier(nsresult aErrorCode) override;

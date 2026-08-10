@@ -12,6 +12,8 @@
 #include "nsIPrivateBrowsingChannel.h"
 #include "nsIInterfaceRequestor.h"
 #include "nsContentUtils.h"
+#include "mozilla/net/NeckoChannelParams.h"
+#include "nsHttpConnectionInfo.h"
 
 using namespace mozilla;
 
@@ -132,4 +134,37 @@ TEST(TestHttpChannel, PBAsyncOpen)
   MOZ_ALWAYS_TRUE(mozilla::SpinEventLoopUntil(
       "TEST(TestHttpChannel, PBAsyncOpen)"_ns,
       [&]() -> bool { return listener->mOnStop.isSome(); }));
+}
+
+TEST(TestHttpConnectionInfo, ExplicitAddressRouteRoundTrip)
+{
+  OriginAttributes attributes;
+  RefPtr<net::nsHttpConnectionInfo> original = new net::nsHttpConnectionInfo(
+      "origin.example"_ns, 443, ""_ns, ""_ns, nullptr, attributes, true);
+  nsTArray<nsCString> addresses;
+  addresses.AppendElement("2606:4700:4700::1111"_ns);
+  addresses.AppendElement("1.1.1.1"_ns);
+  RefPtr<net::nsHttpConnectionInfo> routed =
+      original->CloneAndRouteToIPAddresses(addresses, 443);
+
+  net::HttpConnectionInfoCloneArgs args;
+  net::nsHttpConnectionInfo::SerializeHttpConnectionInfo(routed, args);
+  RefPtr<net::nsHttpConnectionInfo> roundTrip =
+      net::nsHttpConnectionInfo::DeserializeHttpConnectionInfoCloneArgs(args);
+
+  ASSERT_TRUE(roundTrip);
+  EXPECT_TRUE(roundTrip->HashKey().Equals(routed->HashKey()));
+  EXPECT_TRUE(roundTrip->GetOrigin().Equals("origin.example"_ns));
+  EXPECT_TRUE(roundTrip->EndToEndSSL());
+  EXPECT_TRUE(roundTrip->FirstHopSSL());
+  EXPECT_TRUE(roundTrip->GetRoutedHost().Equals(addresses[0]));
+  ASSERT_EQ(roundTrip->GetRoutedIPAddresses().Length(), addresses.Length());
+  EXPECT_TRUE(roundTrip->GetRoutedIPAddresses()[0].Equals(addresses[0]));
+  EXPECT_TRUE(roundTrip->GetRoutedIPAddresses()[1].Equals(addresses[1]));
+
+  nsTArray<nsCString> differentAddresses(addresses.Clone());
+  differentAddresses[1] = "8.8.8.8"_ns;
+  RefPtr<net::nsHttpConnectionInfo> differentRoute =
+      original->CloneAndRouteToIPAddresses(differentAddresses, 443);
+  EXPECT_FALSE(differentRoute->HashKey().Equals(routed->HashKey()));
 }

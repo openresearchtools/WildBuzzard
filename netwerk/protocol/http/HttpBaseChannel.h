@@ -382,6 +382,8 @@ class HttpBaseChannel : public nsHashPropertyBag,
   virtual void SetConnectionInfo(
       mozilla::net::nsHttpConnectionInfo* aCI) override;
   NS_IMETHOD SetConnectionTargetIPAddress(const nsACString& aAddress) override;
+  NS_IMETHOD SetConnectionTargetIPAddresses(
+      const nsTArray<nsCString>& aAddresses) override;
 
   // nsISupportsPriority
   NS_IMETHOD GetPriority(int32_t* value) override;

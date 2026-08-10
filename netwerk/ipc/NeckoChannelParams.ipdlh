@@ -460,6 +460,7 @@ struct HttpConnectionInfoCloneArgs
   bool endToEndSSL;
   nsCString routedHost;
   int32_t routedPort;
+  nsCString[] routedIPAddresses;
   bool anonymous;
   bool aPrivate; // use prefix to avoid code generation error
   bool insecureScheme;

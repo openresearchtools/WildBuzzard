@@ -14,6 +14,7 @@
 #include "mozilla/AlreadyAddRefed.h"
 #include "ARefBase.h"
 #include "nsIRequest.h"
+#include "nsTArray.h"
 #include "mozilla/net/happy_eyeballs_glue.h"
 
 //-----------------------------------------------------------------------------
@@ -119,6 +120,8 @@ class nsHttpConnectionInfo final : public ARefBase {
   already_AddRefed<nsHttpConnectionInfo> Clone() const;
   already_AddRefed<nsHttpConnectionInfo> CloneAndRouteToIPAddress(
       const nsACString& aIPAddress, int32_t aPort) const;
+  already_AddRefed<nsHttpConnectionInfo> CloneAndRouteToIPAddresses(
+      const nsTArray<nsCString>& aIPAddresses, int32_t aPort) const;
   // This main prupose of this function is to clone this connection info, but
   // replace mRoutedHost with SvcDomainName in the given SVCB record. Note that
   // if SvcParamKeyPort and SvcParamKeyAlpn are presented in the SVCB record,
@@ -317,6 +320,9 @@ class nsHttpConnectionInfo final : public ARefBase {
 
   void SetEchConfig(const nsACString& aEchConfig) { mEchConfig = aEchConfig; }
   const nsCString& GetEchConfig() const { return mEchConfig; }
+  const nsTArray<nsCString>& GetRoutedIPAddresses() const {
+    return mRoutedIPAddresses;
+  }
 
   static uint64_t GenerateNewWebTransportId();
 
@@ -337,6 +343,7 @@ class nsHttpConnectionInfo final : public ARefBase {
   int32_t mOriginPort = 0;
   nsCString mRoutedHost;
   int32_t mRoutedPort;
+  nsTArray<nsCString> mRoutedIPAddresses;
 
   nsCString mHashKey;
   nsCString mUsername;

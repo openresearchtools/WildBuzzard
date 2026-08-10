@@ -42,9 +42,48 @@ function utf16LE(value) {
   return result;
 }
 
+function handleEarlyHintPreconnect(request, response, params) {
+  const target = params.get("target");
+  if (!target || /[\r\n]/.test(target)) {
+    response.setStatusLine(request.httpVersion, 400, "Bad Request");
+    return;
+  }
+  const body = "<!doctype html><title>early hint</title><p>done</p>";
+  response.seizePower();
+  response.write("HTTP/1.1 103 Early Hints\r\n");
+  response.write(`Link: <${target}>; rel=preconnect\r\n\r\n`);
+  response.write("HTTP/1.1 200 OK\r\n");
+  response.write("Content-Type: text/html; charset=utf-8\r\n");
+  response.write(`Content-Length: ${body.length}\r\n\r\n${body}`);
+  response.finish();
+}
+
+function handlePreconnect(request, response, params) {
+  const target = params.get("target");
+  if (!target) {
+    response.setStatusLine(request.httpVersion, 400, "Bad Request");
+    return;
+  }
+  response.setHeader("Cache-Control", "no-store", false);
+  response.setHeader("Content-Type", "text/html", false);
+  response.write(
+    `<!doctype html><title>preconnect</title><link rel="preconnect" href=${JSON.stringify(target)}><p>done</p>`
+  );
+}
+
+const SPECIAL_MODE_HANDLERS = new Map([
+  ["early-hint-preconnect", handleEarlyHintPreconnect],
+  ["preconnect", handlePreconnect],
+]);
+
 function handleRequest(request, response) {
   const params = new URLSearchParams(request.queryString);
   const mode = params.get("mode") || "html";
+  const specialModeHandler = SPECIAL_MODE_HANDLERS.get(mode);
+  if (specialModeHandler) {
+    specialModeHandler(request, response, params);
+    return;
+  }
   response.setHeader("Cache-Control", "no-store", false);
 
   if (mode === "redirect") {
