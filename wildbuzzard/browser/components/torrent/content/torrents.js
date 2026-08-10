@@ -402,12 +402,20 @@ function renderDraft() {
     size: formatOptionalBytes(draft.totalSize ?? null),
   });
   const ready = draft.state === "ready";
+  const waitingLong = !ready && Date.now() - state.draftStartedAt >= 20000;
   elements.draftFiles.disabled = !ready;
   elements.draftCommit.disabled = !ready;
+  elements.draftKeepWaiting.hidden = !waitingLong;
   if (!ready) {
+    if (draft.state === "error") {
+      elements.draftKeepWaiting.hidden = true;
+      elements.draftStatus.textContent = draft.error;
+      elements.draftFileList.replaceChildren();
+      return;
+    }
     l10n(
       elements.draftStatus,
-      Date.now() - state.draftStartedAt >= 20000
+      waitingLong
         ? "wildbuzzard-torrents-draft-still-fetching"
         : "wildbuzzard-torrents-draft-fetching"
     );
@@ -456,7 +464,7 @@ async function refreshDraft() {
     }
     state.draft = draft;
     renderDraft();
-    if (draft.state !== "ready") {
+    if (draft.state === "metadata") {
       state.draftTimer = setTimeout(refreshDraft, 500);
     }
   } catch (error) {
@@ -474,7 +482,7 @@ async function openDraft(draft) {
   if (!elements.draftDialog.open) {
     elements.draftDialog.showModal();
   }
-  if (draft.state !== "ready") {
+  if (draft.state === "metadata") {
     state.draftTimer = setTimeout(refreshDraft, 500);
   }
 }
@@ -982,10 +990,12 @@ async function refresh() {
 async function addSource(source) {
   const value = source.trim();
   if (!value) {
-    return;
+    return false;
   }
-  await TorrentManager.addFromURL(value);
+  const draft = await TorrentManager.createDraftFromURL(value);
   elements.source.value = "";
+  await openDraft(draft);
+  return false;
 }
 
 async function handleAction(action) {
@@ -1016,20 +1026,35 @@ async function handleAction(action) {
 }
 
 async function handleTorrentFile(file) {
-  return TorrentManager.addTorrentFile(file);
+  const draft = await TorrentManager.addTorrentFile(file);
+  await openDraft(draft);
+  return false;
 }
 
 async function chooseTorrentFile(trigger) {
-  return run(
-    async () =>
-      TorrentManager.chooseTorrentFile(
-        window.browsingContext,
-        await localized("wildbuzzard-torrents-picker-title"),
-        await localized("wildbuzzard-torrents-picker-filter")
-      ),
-    "wildbuzzard-torrents-added",
-    trigger
-  );
+  if (state.busy) {
+    return;
+  }
+  state.busy = true;
+  let opened = false;
+  try {
+    const draft = await TorrentManager.chooseTorrentFile(
+      window.browsingContext,
+      await localized("wildbuzzard-torrents-picker-title"),
+      await localized("wildbuzzard-torrents-picker-filter")
+    );
+    if (draft) {
+      await openDraft(draft);
+      opened = true;
+    }
+  } catch (error) {
+    showToast(await errorMessage(error), true);
+  } finally {
+    state.busy = false;
+    if (!opened) {
+      trigger.focus();
+    }
+  }
 }
 
 async function initializeTorrentSearch() {
@@ -1084,12 +1109,13 @@ async function initialize() {
     draftStatus: document.getElementById("torrent-draft-status"),
     draftFiles: document.getElementById("torrent-draft-files"),
     draftFileList: document.getElementById("torrent-draft-file-list"),
+    draftKeepWaiting: document.getElementById("torrent-draft-keep-waiting"),
     draftCommit: document.getElementById("torrent-draft-commit"),
   });
 
   document.getElementById("add-form").addEventListener("submit", event => {
     event.preventDefault();
-    run(() => addSource(elements.source.value), "wildbuzzard-torrents-added");
+    run(() => addSource(elements.source.value));
   });
   for (const trigger of document.querySelectorAll("[data-choose-torrent]")) {
     trigger.addEventListener("click", event => {
@@ -1184,6 +1210,12 @@ async function initialize() {
   document
     .getElementById("torrent-draft-cancel")
     .addEventListener("click", () => closeDraft(true));
+  elements.draftKeepWaiting.addEventListener("click", () => {
+    clearTimeout(state.draftTimer);
+    state.draftStartedAt = Date.now();
+    renderDraft();
+    refreshDraft();
+  });
   elements.draftCommit.addEventListener("click", commitDraft);
   elements.draftDialog.addEventListener("cancel", event => {
     event.preventDefault();
@@ -1203,10 +1235,7 @@ async function initialize() {
     });
   }
   dropTarget.addEventListener("drop", event => {
-    run(
-      () => handleTorrentFile(event.dataTransfer.files[0]),
-      "wildbuzzard-torrents-added"
-    );
+    run(() => handleTorrentFile(event.dataTransfer.files[0]));
   });
 
   initializeTorrentSearch();

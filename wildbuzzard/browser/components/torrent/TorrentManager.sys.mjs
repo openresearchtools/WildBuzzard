@@ -347,7 +347,12 @@ class TorrentManagerImpl {
         return;
       }
     }
-    await this.#run(["start", "--config", this.configPath]);
+    let startError = null;
+    try {
+      await this.#run(["start", "--config", this.configPath]);
+    } catch (error) {
+      startError = error;
+    }
     for (let attempt = 0; attempt < 40; attempt++) {
       connection = await IOUtils.readJSON(this.connectionPath).catch(
         () => null
@@ -368,7 +373,7 @@ class TorrentManagerImpl {
       }
       await new Promise(resolve => setTimeout(resolve, 250));
     }
-    throw new Error("Torrent service did not become ready");
+    throw startError || new Error("Torrent service did not become ready");
   }
 
   #request(method, path, body = null, connection = this.connection) {
@@ -438,6 +443,48 @@ class TorrentManagerImpl {
     return this.request("GET", "/v1/status");
   }
 
+  createTorrentDraft({ magnet, torrent }) {
+    if ((magnet === undefined) === (torrent === undefined)) {
+      throw new Error("Supply one magnet or one torrent payload");
+    }
+    if (magnet !== undefined) {
+      if (typeof magnet !== "string" || !magnet.startsWith("magnet:")) {
+        throw new Error("A magnet link is required");
+      }
+      return this.request("POST", "/v1/torrent-drafts", { magnet });
+    }
+    let payload = torrent;
+    if (torrent instanceof Uint8Array) {
+      if (!torrent.length || torrent.length > MAX_TORRENT_SIZE) {
+        throw new Error("Torrent metadata is invalid or too large");
+      }
+      payload = encodeBase64(torrent);
+    }
+    if (typeof payload !== "string" || !payload) {
+      throw new Error("Torrent metadata is required");
+    }
+    return this.request("POST", "/v1/torrent-drafts", { torrent: payload });
+  }
+
+  getTorrentDraft(id) {
+    return this.request("GET", `/v1/torrent-drafts/${encodeURIComponent(id)}`);
+  }
+
+  commitTorrentDraft(id, files) {
+    return this.request(
+      "POST",
+      `/v1/torrent-drafts/${encodeURIComponent(id)}/commit`,
+      files === undefined ? {} : { files }
+    );
+  }
+
+  cancelTorrentDraft(id) {
+    return this.request(
+      "DELETE",
+      `/v1/torrent-drafts/${encodeURIComponent(id)}`
+    );
+  }
+
   addMagnet(source, downloadPath) {
     if (!source?.startsWith("magnet:")) {
       throw new Error("A magnet link is required");
@@ -477,6 +524,22 @@ class TorrentManagerImpl {
       ),
       downloadPath
     );
+  }
+
+  async createDraftFromURL(source, principal, cookieJarSettings) {
+    if (source.startsWith("magnet:")) {
+      return this.createTorrentDraft({ magnet: source });
+    }
+    if (!/^https?:\/\//i.test(source)) {
+      throw new Error("Enter a magnet link or an HTTP(S) torrent URL");
+    }
+    return this.createTorrentDraft({
+      torrent: await requestBytes(
+        Services.io.newURI(source),
+        principal,
+        cookieJarSettings
+      ),
+    });
   }
 
   action(id, action, detail = {}) {
@@ -531,9 +594,9 @@ class TorrentManagerImpl {
     );
   }
 
-  async #addTorrentFileBytes(bytes) {
+  async #createTorrentFileDraft(bytes) {
     try {
-      return await this.addTorrentBytes(bytes);
+      return await this.createTorrentDraft({ torrent: bytes });
     } catch (error) {
       if (error.serviceUnavailable) {
         throw error;
@@ -555,7 +618,7 @@ class TorrentManagerImpl {
     if (bytes.length !== file.size) {
       throw torrentFileError("unreadable");
     }
-    return this.#addTorrentFileBytes(bytes);
+    return this.#createTorrentFileDraft(bytes);
   }
 
   async chooseTorrentFile(browsingContext, title, filterTitle) {
@@ -589,7 +652,7 @@ class TorrentManagerImpl {
     if (bytes.length !== stat.size) {
       throw torrentFileError("unreadable");
     }
-    return this.#addTorrentFileBytes(bytes);
+    return this.#createTorrentFileDraft(bytes);
   }
 
   async chooseDownloadDirectory(browsingContext) {

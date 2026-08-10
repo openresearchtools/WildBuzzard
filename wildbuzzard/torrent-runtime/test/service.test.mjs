@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import {
@@ -17,6 +17,7 @@ let root;
 let connection;
 let service;
 let seeder;
+let seededTorrent;
 let socks;
 let tracker;
 let seedPath;
@@ -125,6 +126,28 @@ async function request(path, options = {}) {
   return body;
 }
 
+async function requestFailure(path, options = {}) {
+  const response = await fetch(`http://127.0.0.1:${connection.port}${path}`, {
+    ...options,
+    headers: {
+      authorization: `Bearer ${connection.token}`,
+      "content-type": "application/json",
+      ...options.headers,
+    },
+  });
+  const body = await response.json();
+  assert.equal(response.ok, false);
+  return { status: response.status, body };
+}
+
+function createTorrentBytes(input, options = {}) {
+  return new Promise((resolve, reject) =>
+    createTorrent(input, options, (error, value) =>
+      error ? reject(error) : resolve(value)
+    )
+  );
+}
+
 before(async () => {
   root = await mkdtemp(join(tmpdir(), "wildbuzzard-torrent-test-"));
   seedPath = join(root, "seed.txt");
@@ -136,7 +159,7 @@ before(async () => {
     natUpnp: false,
     natPmp: false,
   });
-  const seeded = await new Promise(resolve =>
+  seededTorrent = await new Promise(resolve =>
     seeder.seed(seedPath, { private: true, announce: [] }, resolve)
   );
   const configPath = join(root, "config.json");
@@ -173,8 +196,9 @@ before(async () => {
       return null;
     }
   });
-  globalThis.testTorrent = Buffer.from(seeded.torrentFile).toString("base64");
-  globalThis.seeded = seeded;
+  globalThis.testTorrent = Buffer.from(seededTorrent.torrentFile).toString(
+    "base64"
+  );
   socks = socksServer();
   await new Promise(resolve => socks.listen(0, "127.0.0.1", resolve));
   tracker = createHttpServer((request, response) => {
@@ -206,15 +230,25 @@ after(async () => {
 });
 
 test("downloads, stops, resumes, and removes a local torrent", async () => {
-  const record = await request("/v1/torrents", {
+  const draft = await request("/v1/torrent-drafts", {
     method: "POST",
     body: JSON.stringify({ torrent: globalThis.testTorrent }),
+  });
+  assert.equal(draft.state, "ready");
+  assert.equal(draft.files.length, 1);
+  assert.equal(draft.precommitPayloadBytes, 0);
+  let status = await request("/v1/status");
+  assert.equal(status.torrents.length, 0);
+  assert.equal(status.draftCount, 1);
+  const record = await request(`/v1/torrent-drafts/${draft.draftId}/commit`, {
+    method: "POST",
+    body: JSON.stringify({ files: [0] }),
   });
   await request(`/v1/torrents/${record.id}/action`, {
     method: "POST",
     body: JSON.stringify({ action: "pause" }),
   });
-  let status = await request("/v1/status");
+  status = await request("/v1/status");
   assert.equal(status.torrents[0].state, "paused");
   assert.equal(status.torrents[0].numPeers, 0);
   await request(`/v1/torrents/${record.id}/action`, {
@@ -243,11 +277,106 @@ test("downloads, stops, resumes, and removes a local torrent", async () => {
   assert.equal(status.torrents[0].connections[0].transport, "TCP");
   assert.equal(status.torrents[0].connections[0].source, "manual");
   assert.equal(status.torrents[0].connections[0].route, "Direct");
+  assert.equal(status.torrents[0].private, true);
+  assert.deepEqual(status.torrents[0].discovery, {
+    private: true,
+    dht: false,
+    pex: false,
+  });
   await request(`/v1/torrents/${record.id}?deleteData=true`, {
     method: "DELETE",
   });
   status = await request("/v1/status");
   assert.equal(status.torrents.length, 0);
+});
+
+test("fetches magnet metadata without requesting payload pieces", async () => {
+  const magnet = `magnet:?xt=urn:btih:${seededTorrent.infoHash}&dn=Draft+fixture&x.pe=127.0.0.1:${seeder.torrentPort}`;
+  const created = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ magnet }),
+  });
+  const draft = await waitFor(async () => {
+    const value = await request(`/v1/torrent-drafts/${created.draftId}`);
+    if (value.state === "error") {
+      throw new Error(value.error);
+    }
+    return value.state === "ready" ? value : null;
+  });
+  assert.equal(draft.private, true);
+  assert.equal(draft.files.length, 1);
+  assert.equal(draft.precommitPayloadBytes, 0);
+  const status = await request("/v1/status");
+  assert.equal(status.torrents.length, 0);
+  await request(`/v1/torrent-drafts/${draft.draftId}`, { method: "DELETE" });
+  assert.equal((await request("/v1/status")).draftCount, 0);
+});
+
+test("commits exactly the selected files", async () => {
+  const directory = join(root, "selection-source");
+  await mkdir(directory);
+  await writeFile(join(directory, "first.txt"), "first file\n".repeat(2048));
+  await writeFile(join(directory, "second.txt"), "second file\n".repeat(2048));
+  const torrent = await createTorrentBytes(directory, {
+    private: true,
+    announce: [],
+  });
+  const draft = await request("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({ torrent: Buffer.from(torrent).toString("base64") }),
+  });
+  assert.equal(draft.files.length, 2);
+  assert.equal(draft.precommitPayloadBytes, 0);
+  const record = await request(`/v1/torrent-drafts/${draft.draftId}/commit`, {
+    method: "POST",
+    body: JSON.stringify({ files: [1] }),
+  });
+  const status = await waitFor(async () => {
+    const value = await request("/v1/status");
+    const item = value.torrents.find(candidate => candidate.id === record.id);
+    return item?.files.length === 2 ? item : null;
+  });
+  assert.deepEqual(
+    status.files.map(file => file.selected),
+    [false, true]
+  );
+  await request(`/v1/torrents/${record.id}?deleteData=true`, {
+    method: "DELETE",
+  });
+});
+
+test("rejects colliding and platform-reserved paths", async () => {
+  const collisionDirectory = join(root, "collision-source");
+  await mkdir(collisionDirectory);
+  await writeFile(join(collisionDirectory, "File.txt"), "one");
+  await writeFile(join(collisionDirectory, "file.txt"), "two");
+  const collision = await createTorrentBytes(collisionDirectory, {
+    private: true,
+    announce: [],
+  });
+  const collisionFailure = await requestFailure("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({
+      torrent: Buffer.from(collision).toString("base64"),
+    }),
+  });
+  assert.equal(collisionFailure.status, 400);
+  assert.match(collisionFailure.body.error, /colliding file paths/);
+
+  const reservedPath = join(root, "CON.txt");
+  await writeFile(reservedPath, "reserved");
+  const reserved = await createTorrentBytes(reservedPath, {
+    private: true,
+    announce: [],
+  });
+  const reservedFailure = await requestFailure("/v1/torrent-drafts", {
+    method: "POST",
+    body: JSON.stringify({
+      torrent: Buffer.from(reserved).toString("base64"),
+    }),
+  });
+  assert.equal(reservedFailure.status, 400);
+  assert.match(reservedFailure.body.error, /unsafe file path/);
 });
 
 test("routes TCP peers through SOCKS and disables direct-only transports", async () => {
@@ -311,7 +440,14 @@ test("routes TCP peers through SOCKS and disables direct-only transports", async
     socksTargets.some(target => target.port === seeder.torrentPort),
     true
   );
-  await waitFor(() => socksTargets.some(target => target.port === trackerPort));
+  await waitFor(() =>
+    socksTargets.some(target => target.port === trackerPort)
+  ).catch(async () => {
+    const finalStatus = await request("/v1/status");
+    throw new Error(
+      `Tracker did not use SOCKS: ${JSON.stringify({ socksTargets, trackerPort, torrent: finalStatus.torrents[0] })}`
+    );
+  });
   await waitFor(() => trackerRequests > 0);
   const magnet = new URL(
     "magnet:?xt=urn:btih:0123456789012345678901234567890123456789"

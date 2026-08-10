@@ -127,6 +127,15 @@ async function activate(browser, selector, key = null) {
   await TestUtils.waitForTick();
 }
 
+async function waitForDraftDialog(browser) {
+  await SpecialPowers.spawn(browser, [], async () => {
+    await ContentTaskUtils.waitForCondition(
+      () => content.document.getElementById("torrent-draft-dialog").open,
+      "The torrent metadata dialog opened"
+    );
+  });
+}
+
 add_task(async function test_torrent_file_picker_boundary() {
   const directory = await IOUtils.createUniqueDirectory(
     PathUtils.tempDir,
@@ -168,7 +177,9 @@ add_task(async function test_torrent_file_picker_boundary() {
   const originals = {
     initialize: TorrentManager.initialize,
     getStatus: TorrentManager.getStatus,
-    addTorrentBytes: TorrentManager.addTorrentBytes,
+    createTorrentDraft: TorrentManager.createTorrentDraft,
+    commitTorrentDraft: TorrentManager.commitTorrentDraft,
+    cancelTorrentDraft: TorrentManager.cancelTorrentDraft,
   };
   const hadConfig = Object.hasOwn(TorrentManager, "config");
   const originalConfig = TorrentManager.config;
@@ -176,20 +187,40 @@ add_task(async function test_torrent_file_picker_boundary() {
   let currentStatus = status();
   let statusRequests = 0;
   const additions = [];
+  const commits = [];
+  const cancellations = [];
   TorrentManager.initialize = async () => currentStatus;
   TorrentManager.getStatus = async () => {
     statusRequests++;
     return currentStatus;
   };
-  TorrentManager.addTorrentBytes = async (...args) => {
-    additions.push(args);
-    if (args[0][0] !== validBytes[0]) {
+  TorrentManager.createTorrentDraft = async ({ torrent }) => {
+    additions.push([torrent]);
+    if (torrent[0] !== validBytes[0]) {
       throw Object.assign(new Error("Invalid bencode"), {
         torrentFileError: "invalid",
       });
     }
+    const draftId = `fixture-draft-${additions.length}`;
+    return {
+      draftId,
+      state: "ready",
+      name: "Fixture torrent",
+      totalSize: 2,
+      files: [
+        { index: 0, name: "fixture.txt", path: "fixture.txt", length: 1 },
+        { index: 1, name: "optional.txt", path: "optional.txt", length: 1 },
+      ],
+    };
+  };
+  TorrentManager.commitTorrentDraft = async (...args) => {
+    commits.push(args);
     currentStatus = status([torrentRecord()]);
     return { id: "fixture-torrent" };
+  };
+  TorrentManager.cancelTorrentDraft = async id => {
+    cancellations.push(id);
+    return { ok: true };
   };
 
   const consoleErrors = [];
@@ -292,11 +323,17 @@ add_task(async function test_torrent_file_picker_boundary() {
       file: boundaryFile,
     });
     await activate(browser, "#choose-torrent");
-    await waitForToast(browser, "Torrent added.");
+    await waitForDraftDialog(browser);
     Assert.equal(
       additions[0][0].length,
       MAX_TORRENT_SIZE,
       "A file exactly at the byte limit is accepted"
+    );
+    await activate(browser, "#torrent-draft-cancel");
+    Assert.equal(
+      cancellations.length,
+      1,
+      "Cancelling removes the byte-limit draft"
     );
 
     pickerState.selections.push({
@@ -331,7 +368,7 @@ add_task(async function test_torrent_file_picker_boundary() {
       file: validFile,
     });
     await activate(browser, "#choose-torrent", "KEY_Enter");
-    await waitForToast(browser, "Torrent added.");
+    await waitForDraftDialog(browser);
     Assert.equal(
       additions.length,
       3,
@@ -347,17 +384,23 @@ add_task(async function test_torrent_file_picker_boundary() {
       Array.from(validBytes),
       "Only the selected torrent bytes are handed downstream"
     );
-    await SpecialPowers.spawn(browser, [], async () => {
-      await ContentTaskUtils.waitForCondition(
-        () => content.document.querySelector("input[data-file-index]")?.checked,
-        "The existing metadata view shows every fixture file selected"
-      );
-      Assert.equal(
-        content.document.activeElement.id,
-        "choose-torrent",
-        "Successful selection restores focus"
+    await SpecialPowers.spawn(browser, [], () => {
+      const selections = [
+        ...content.document.querySelectorAll("input[data-draft-file]"),
+      ];
+      Assert.ok(
+        selections.length === 2 && selections.every(input => input.checked),
+        "The metadata dialog defaults every file to selected"
       );
     });
+    await activate(browser, "input[data-draft-file='1']");
+    await activate(browser, "#torrent-draft-commit");
+    await waitForToast(browser, "Torrent download started.");
+    Assert.deepEqual(
+      commits[0],
+      ["fixture-draft-3", [0]],
+      "The explicit file subset crosses the privileged commit boundary"
+    );
 
     pickerState.selections.push({ result: Ci.nsIFilePicker.returnCancel });
     pickerState.selections.push({
@@ -366,7 +409,9 @@ add_task(async function test_torrent_file_picker_boundary() {
     });
     await activate(browser, "#choose-torrent");
     await activate(browser, "#choose-torrent");
-    await waitForToast(browser, "Torrent added.");
+    await waitForDraftDialog(browser);
+    await activate(browser, "#torrent-draft-commit");
+    await waitForToast(browser, "Torrent download started.");
     Assert.equal(additions.length, 4, "Choose/cancel/choose remains reusable");
 
     await SpecialPowers.spawn(browser, [], () => {
@@ -410,6 +455,8 @@ add_task(async function test_torrent_file_picker_boundary() {
       () => additions.length === 5,
       "Drag and drop uses the same validated byte path"
     );
+    await waitForDraftDialog(browser);
+    await activate(browser, "#torrent-draft-cancel");
 
     pickerState.selections.push({ result: Ci.nsIFilePicker.returnCancel });
     Assert.equal(

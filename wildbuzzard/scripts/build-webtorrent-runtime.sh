@@ -77,14 +77,31 @@ cp -a -- "${checkout_dir}/wildbuzzard/torrent-runtime/test" "${app_dir}/"
 cp -a -- "${checkout_dir}/wildbuzzard/torrent-runtime/vendor" "${app_dir}/"
 cp -- "${checkout_dir}/wildbuzzard/torrent-runtime/SECURITY.md" "${runtime_dir}/SECURITY.md"
 
+if [[ ! -f "${downloads_dir}/${node_archive}" ]]; then
+  curl --fail --location --output "${downloads_dir}/${node_archive}" "${node_url}"
+fi
+curl --fail --location --output "${run_root}/SHASUMS256.txt" "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt"
+expected_sha="$(awk -v archive="${node_archive}" '$2 == archive { print $1 }' "${run_root}/SHASUMS256.txt")"
+actual_sha="$(sha256sum "${downloads_dir}/${node_archive}" | awk '{ print $1 }')"
+if [[ -z "${expected_sha}" || "${expected_sha}" != "${actual_sha}" ]]; then
+  echo "Node.js archive checksum verification failed" >&2
+  exit 1
+fi
+tar -xJf "${downloads_dir}/${node_archive}" -C "${runtime_dir}"
+mv -- "${runtime_dir}/node-v${node_version}-linux-x64" "${runtime_dir}/node"
+bundled_node="${runtime_dir}/node/bin/node"
+bundled_npm_cli="${runtime_dir}/node/lib/node_modules/npm/bin/npm-cli.js"
+
 (
   cd -- "${app_dir}"
-  npm ci --ignore-scripts --omit=optional
+  PATH="${runtime_dir}/node/bin:${PATH}" \
+    "${bundled_node}" "${bundled_npm_cli}" ci --ignore-scripts --omit=optional
 ) >"${run_root}/npm-install.log" 2>&1
 
 (
   cd -- "${checkout_dir}/third_party/webtorrent"
-  npm pack --ignore-scripts --pack-destination "${run_root}"
+  PATH="${runtime_dir}/node/bin:${PATH}" \
+    "${bundled_node}" "${bundled_npm_cli}" pack --ignore-scripts --pack-destination "${run_root}"
 ) >"${run_root}/webtorrent-pack.log" 2>&1
 webtorrent_archive="$(find "${run_root}" -maxdepth 1 -type f -name 'webtorrent-*.tgz' -print -quit)"
 if [[ -z "${webtorrent_archive}" ]]; then
@@ -103,24 +120,37 @@ fi
 rm -rf -- "${utp_dir}/prebuilds" "${utp_dir}/build"
 (
   cd -- "${app_dir}"
-  npm_config_build_from_source=true npm rebuild utp-native
+  PATH="${runtime_dir}/node/bin:${PATH}" \
+    npm_config_nodedir="${runtime_dir}/node" \
+    npm_config_build_from_source=true \
+    "${bundled_node}" "${bundled_npm_cli}" rebuild utp-native
 ) >"${run_root}/utp-build.log" 2>&1
-if ! find "${utp_dir}/build" -type f -name '*.node' -print -quit | grep -q .; then
+utp_module="$(find "${utp_dir}/build" -type f -name '*.node' -print -quit)"
+if [[ -z "${utp_module}" ]]; then
   echo "The source-built µTP module was not produced" >&2
   exit 1
 fi
+if ldd "${utp_module}" | grep -Eq 'libnode|libuv'; then
+  echo "The µTP module linked against host Node.js or libuv" >&2
+  exit 1
+fi
+(
+  cd -- "${app_dir}"
+  "${bundled_node}" -e 'require("utp-native")'
+) >"${run_root}/utp-load-test.log" 2>&1
 rm -rf -- "${utp_dir}/build/Release/obj.target"
 
 (
   cd -- "${app_dir}"
-  node --test test/*.test.mjs
+  "${bundled_node}" --test test/*.test.mjs
 ) >"${run_root}/runtime-test.log" 2>&1
 
 (
   cd -- "${app_dir}"
-  npm audit --omit=dev --json
+  PATH="${runtime_dir}/node/bin:${PATH}" \
+    "${bundled_node}" "${bundled_npm_cli}" audit --omit=dev --json
 ) >"${run_root}/npm-audit.json" 2>/dev/null || true
-node - "${run_root}/npm-audit.json" <<'NODE'
+"${bundled_node}" - "${run_root}/npm-audit.json" <<'NODE'
 const fs = require("node:fs");
 const audit = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const vulnerabilities = Object.values(audit.vulnerabilities || {});
@@ -138,9 +168,11 @@ NODE
 
 (
   cd -- "${app_dir}"
-  npm prune --omit=dev --omit=optional --ignore-scripts
+  PATH="${runtime_dir}/node/bin:${PATH}" \
+    "${bundled_node}" "${bundled_npm_cli}" prune --omit=dev --omit=optional --ignore-scripts
 )
 rm -rf -- "${app_dir}/test"
+(cd -- "${app_dir}" && "${bundled_node}" -e 'require("utp-native")')
 while IFS= read -r -d '' prebuild_dir; do
   rm -rf -- "${prebuild_dir}"
 done < <(find "${app_dir}/node_modules" -type d -name prebuilds -print0)
@@ -165,19 +197,6 @@ if find "${app_dir}/node_modules" -type f -name '*.bare' -print -quit | grep -q 
   echo "Unexpected Bare native runtime artifact" >&2
   exit 1
 fi
-
-if [[ ! -f "${downloads_dir}/${node_archive}" ]]; then
-  curl --fail --location --output "${downloads_dir}/${node_archive}" "${node_url}"
-fi
-curl --fail --location --output "${run_root}/SHASUMS256.txt" "https://nodejs.org/dist/v${node_version}/SHASUMS256.txt"
-expected_sha="$(awk -v archive="${node_archive}" '$2 == archive { print $1 }' "${run_root}/SHASUMS256.txt")"
-actual_sha="$(sha256sum "${downloads_dir}/${node_archive}" | awk '{ print $1 }')"
-if [[ -z "${expected_sha}" || "${expected_sha}" != "${actual_sha}" ]]; then
-  echo "Node.js archive checksum verification failed" >&2
-  exit 1
-fi
-tar -xJf "${downloads_dir}/${node_archive}" -C "${runtime_dir}"
-mv -- "${runtime_dir}/node-v${node_version}-linux-x64" "${runtime_dir}/node"
 
 printf '%s\n' \
   '#!/bin/sh' \
@@ -205,7 +224,7 @@ printf '{\n  "schema": 1,\n  "wildbuzzardCommit": "%s",\n  "webTorrentVersion": 
 runtime_zip="${artifacts_dir}/wildbuzzard-torrent-runtime-linux-x64-${short_commit}.zip"
 (
   cd -- "${runtime_dir}"
-  zip -q -r "${runtime_zip}" .
+  zip -q -y -r "${runtime_zip}" .
 )
 sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
 
