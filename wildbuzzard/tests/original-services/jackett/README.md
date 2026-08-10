@@ -75,18 +75,37 @@ The gating deterministic scenarios cover health, caps/source status, indexer enu
 
 ## Adversarial side-by-side comparison
 
-The adversarial lane starts the pinned, unmodified pristine Jackett executable beside the actual pinned Jackett Mini runtime and deterministic local fixture servers. A test-only Mini overlay retains only two eligible fixture sources, and a second Mini process exercises simultaneous Firefox-profile isolation. Jackett remains disposable test infrastructure, not a product dependency. Every `/v1` entry in `request-mapping.json` records a request executed during the run.
+The adversarial lane starts the pinned, unmodified pristine Jackett executable beside a separately built, catalog-bound Mini fixture runtime. It never rewrites the shipping runtime. A second fixture process exercises simultaneous Firefox-profile isolation, while a production Mini process proves the exact active source set and rejects every excluded catalog ID. Jackett remains disposable test infrastructure, not a product dependency. Every `/v1` entry in `request-mapping.json` records a request executed during the run.
+
+Create and build the deterministic fixture package after the production runtime:
+
+```sh
+python3 wildbuzzard/tests/original-services/jackett/prepare-mini-fixture-package.py \
+  --shipping-catalog wildbuzzard/third_party/gpl2/jackett/provider-policy/catalog.json \
+  --template wildbuzzard/tests/original-services/jackett/fixtures/adversarial-indexer.yml.in \
+  --output /absolute/artifact/path/mini-fixture-package
+wildbuzzard/scripts/build-jackett-mini.sh \
+  --output /absolute/artifact/path/jackett-mini-fixture-runtime \
+  --test-fixture-package /absolute/artifact/path/mini-fixture-package \
+  --production-manifest /absolute/artifact/path/jackett-mini-runtime/jackett-mini-runtime.json
+```
 
 Use already-built pristine and Mini runtimes plus the matching extracted pristine source tree. This command performs no build:
 
 ```sh
 wildbuzzard/tests/original-services/jackett/run-pristine-adversarial-rootless.sh \
+  --oracle-image registry.example/oracle@sha256:REVIEWED_LINUX_AMD64_DIGEST \
   --pristine-runtime /absolute/artifact/path/pristine-runtime \
+  --pristine-build-record /absolute/artifact/path/pristine-build-logs/pristine-runtime-build-record.json \
   --pristine-source /absolute/artifact/path/Jackett-0cd8622b735922a909a128d8d6943bb8565a640f \
   --mini-runtime /absolute/artifact/path/jackett-mini-runtime \
   --mini-manifest /absolute/artifact/path/jackett-mini-runtime/jackett-mini-runtime.json \
+  --mini-fixture-runtime /absolute/artifact/path/jackett-mini-fixture-runtime \
+  --mini-fixture-manifest /absolute/artifact/path/jackett-mini-fixture-runtime/jackett-mini-runtime.json \
   --artifact-root /absolute/artifact/path
 ```
+
+The comparison runs inside a rootless OCI container on an internal network with read-only source/runtime mounts. It fails before launch until the pristine full-inventory pin and an exact Linux/amd64 oracle image digest are supplied. The runtime-backed manager test in `managed-services/jackett-mini/test/process.test.mjs` launches through the real manager, exits that launcher, reconnects from a fresh launcher, and requires the same PID, Linux process start time, instance ID, data-root ID, and executable digest.
 
 The pin-specific snapshot covers `apikey` and `passkey`, Torznab codes 100, 201, 203, and 900, HTTP 400/429 shapes and `Retry-After`, plus the source-level code-200 branch. At this pin, the public route requires `{indexerId}`, so omitting it returns HTTP 404 before the code-200 filter branch; the runner proves both the live route behavior and the exact pinned source contract. It also records the pinned unknown-indexer HTTP 500 behavior rather than silently normalizing it away.
 

@@ -6,4 +6,4 @@
 
 The local tracker returns ordinary magnet and torrent rows plus category-6000 rows. The runner compares pristine Torznab XML with Jackett Mini JSON after applying the documented product transformations.
 
-`adversarial-indexer.yml.in` and `pristine-adversarial-expected.json` drive the side-by-side adversarial comparison. They cover the pinned original service's error, transport, XML, category, cache, peer-count, duplicate, partial-result, and malicious-field behavior. The runner renders the same definition into a disposable two-source Mini runtime overlay; neither fixture enters a shipping runtime.
+`adversarial-indexer.yml.in` and `pristine-adversarial-expected.json` drive the side-by-side adversarial comparison. They cover the pinned original service's error, transport, XML, category, cache, peer-count, duplicate, partial-result, and malicious-field behavior. `prepare-mini-fixture-package.py` renders a two-source package that is compiled as a separately catalog-bound test runtime; the runner never rewrites the shipping runtime.

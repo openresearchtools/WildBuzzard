@@ -26,6 +26,9 @@ import traceback
 import urllib.parse
 
 from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
+from catalog_audit import audit_catalog
+from expected_mini import validate_all as validate_mini_semantics
+from pristine_runtime import verify_runtime as verify_pristine_runtime
 
 COMMIT = "0cd8622b735922a909a128d8d6943bb8565a640f"
 VERSION = "0.24.2360"
@@ -975,7 +978,13 @@ def normalized_semantic_diff(pristine, mini):
     )
 
 
-def validate_mini_runtime(runtime, manifest_path):
+def validate_mini_runtime(
+    runtime,
+    manifest_path,
+    *,
+    test_fixture=False,
+    production_runtime_sha256=None,
+):
     executable = runtime / "jackett-mini"
     if not executable.is_file():
         raise RuntimeError("the pinned Jackett Mini executable is required")
@@ -991,6 +1000,10 @@ def validate_mini_runtime(runtime, manifest_path):
         or manifest.get("platform") != "linux"
         or manifest.get("architecture") != "x86_64"
         or manifest.get("libc") != "glibc"
+        or manifest.get("testFixture") is not test_fixture
+        or not re.fullmatch(r"[a-f0-9]{64}", manifest.get("catalogFileSha256", ""))
+        or not re.fullmatch(r"[a-f0-9]{64}", manifest.get("providerPolicySha256", ""))
+        or (not test_fixture and manifest.get("enabledProviderCount") != 60)
     ):
         raise RuntimeError(
             "the Jackett Mini runtime manifest is not the pinned runtime"
@@ -1053,41 +1066,28 @@ def validate_mini_runtime(runtime, manifest_path):
             actual_paths.add(path.relative_to(runtime).as_posix())
     if actual_paths != expected_paths:
         raise RuntimeError("the Jackett Mini runtime contains unmanifested files")
-    return executable, manifest
-
-
-def prepare_mini_overlay(runtime, destination, template, fixture_origin):
-    shutil.copytree(runtime, destination)
-    definitions = destination / "Definitions"
-    selected = {
-        "showrss": ("showRSS", "mini-main"),
-        "linuxtracker": ("LinuxTracker", "mini-alternate"),
-    }
-    catalog_path = destination / "catalog.json"
-    catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
-    entries = {entry["indexerId"]: entry for entry in catalog["entries"]}
-    for entry in catalog["entries"]:
+    catalog_entry = next(
+        (item for item in files if item.get("path") == "catalog.json"), None
+    )
+    if (
+        not catalog_entry
+        or catalog_entry.get("sha256") != manifest["catalogFileSha256"]
+    ):
+        raise RuntimeError("the Jackett Mini catalog binding is invalid")
+    if test_fixture:
         if (
-            entry["eligibility"] == "enabled-public"
-            and entry["indexerId"] not in selected
+            not re.fullmatch(
+                r"[a-f0-9]{64}", manifest.get("productionRuntimeSha256", "")
+            )
+            or manifest.get("productionRuntimeSha256") != production_runtime_sha256
+            or manifest.get("enabledProviderCount") != 2
         ):
-            entry["eligibility"] = "disabled-test-overlay"
-    for indexer_id, (name, source) in selected.items():
-        definition = definitions / pathlib.Path(entries[indexer_id]["sourcePath"]).name
-        render_definition(
-            template, definition, indexer_id, name, fixture_origin, source
-        )
-        entries[indexer_id]["definitionSha256"] = sha256_file(definition)
-    catalog["enabledIndexerIds"] = sorted(selected)
-    write_json(catalog_path, catalog)
-    return {
-        "runtime": destination,
-        "catalogSha256": sha256_file(catalog_path),
-        "definitionSha256": {
-            indexer_id: entries[indexer_id]["definitionSha256"]
-            for indexer_id in sorted(selected)
-        },
-    }
+            raise RuntimeError(
+                "the Jackett Mini fixture is not bound to the production runtime"
+            )
+    elif "productionRuntimeSha256" in manifest:
+        raise RuntimeError("the production runtime is marked as a test fixture")
+    return executable, manifest
 
 
 def guard_result(payload):
@@ -1253,7 +1253,7 @@ def validate_mini_matrix(observed, security_evidence, removed_statuses):
     if security_evidence["cross-profile-result-isolation"].get("status") != 404:
         raise AssertionError("a Mini result crossed profile scope")
     if not all(
-        security_evidence["same-profile-reopen-persistence"].get(key)
+        security_evidence["same-profile-http-reconnection"].get(key)
         for key in ("sameInstanceId", "sameDataRootId")
     ):
         raise AssertionError("the same Mini profile did not preserve service identity")
@@ -1264,40 +1264,77 @@ def validate_mini_matrix(observed, security_evidence, removed_statuses):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--pristine-runtime", required=True, type=pathlib.Path)
+    parser.add_argument("--pristine-build-record", required=True, type=pathlib.Path)
     parser.add_argument("--pristine-source", required=True, type=pathlib.Path)
     parser.add_argument("--mini-runtime", required=True, type=pathlib.Path)
     parser.add_argument("--mini-manifest", required=True, type=pathlib.Path)
+    parser.add_argument("--mini-fixture-runtime", required=True, type=pathlib.Path)
+    parser.add_argument("--mini-fixture-manifest", required=True, type=pathlib.Path)
     parser.add_argument("--artifact-root", required=True, type=pathlib.Path)
-    parser.add_argument("--direct-rootless", action="store_true")
-    parser.add_argument("--fixture-address", default="127.0.0.1")
+    parser.add_argument("--fixture-address", default="11.0.0.2")
+    parser.add_argument("--fixture-port", default=18080, type=int)
+    parser.add_argument("--oci-evidence", required=True, type=pathlib.Path)
     args = parser.parse_args()
-    if not args.direct_rootless:
-        raise RuntimeError("use run-pristine-adversarial-rootless.sh")
     os.umask(0o077)
+    if not any(
+        pathlib.Path(path).exists() for path in ("/run/.containerenv", "/.dockerenv")
+    ):
+        raise RuntimeError("the adversarial comparison must run inside OCI")
+    if (args.fixture_address, args.fixture_port) != ("11.0.0.2", 18080):
+        raise RuntimeError("the deterministic OCI fixture endpoint changed")
+    if any(shutil.which(command) is None for command in ("ip", "ss")):
+        raise RuntimeError("the oracle image must provide ip and ss")
 
     script_dir = pathlib.Path(__file__).resolve().parent
     expected_path = script_dir / "fixtures/pristine-adversarial-expected.json"
+    pristine_runtime_pin = script_dir / "fixtures/pristine-runtime-pin.json"
     template = script_dir / "fixtures/adversarial-indexer.yml.in"
     source_manifest_path = (
         script_dir.parents[2]
         / "third_party/gpl2/jackett/upstream/SOURCE-MANIFEST.sha256"
     )
     pristine_runtime = args.pristine_runtime.resolve(strict=True)
+    pristine_build_record_path = args.pristine_build_record.resolve(strict=True)
     pristine_source = args.pristine_source.resolve(strict=True)
     mini_runtime = args.mini_runtime.resolve(strict=True)
     mini_manifest_path = args.mini_manifest.resolve(strict=True)
+    mini_fixture_runtime = args.mini_fixture_runtime.resolve(strict=True)
+    mini_fixture_manifest_path = args.mini_fixture_manifest.resolve(strict=True)
+    oci_evidence_path = args.oci_evidence.resolve(strict=True)
     pristine_executable = pristine_runtime / "jackett"
     if (
         not pristine_executable.is_file()
         or sha256_file(pristine_executable) != PRISTINE_EXECUTABLE_SHA256
     ):
         raise RuntimeError("the pinned pristine Jackett executable is required")
+    pristine_build_record = verify_pristine_runtime(
+        pristine_runtime, pristine_build_record_path, pristine_runtime_pin
+    )
     source_manifest_evidence = validate_pristine_source(
         pristine_source, source_manifest_path
     )
     mini_executable, mini_manifest = validate_mini_runtime(
         mini_runtime, mini_manifest_path
     )
+    mini_fixture_executable, mini_fixture_manifest = validate_mini_runtime(
+        mini_fixture_runtime,
+        mini_fixture_manifest_path,
+        test_fixture=True,
+        production_runtime_sha256=mini_manifest["runtimeSha256"],
+    )
+    shipping_catalog_audit = audit_catalog(
+        mini_runtime / "catalog.json", pristine_source, mini_runtime
+    )
+    oci_evidence = json.loads(oci_evidence_path.read_text(encoding="utf-8"))
+    if (
+        oci_evidence.get("rootless") is not True
+        or oci_evidence.get("networkInternal") is not True
+        or oci_evidence.get("platform") != "linux/amd64"
+        or not re.fullmatch(r"sha256:[a-f0-9]{64}", oci_evidence.get("imageDigest", ""))
+        or not re.fullmatch(r"sha256:[a-f0-9]{64}", oci_evidence.get("imageId", ""))
+        or not all(oci_evidence.get("readOnlyMounts", {}).values())
+    ):
+        raise RuntimeError("the rootless OCI isolation evidence is incomplete")
 
     run_id = (
         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -1311,6 +1348,7 @@ def main():
     pristine_data = artifacts / "pristine-data"
     mini_data = artifacts / "mini-profile-a-data"
     mini_profile_b_data = artifacts / "mini-profile-b-data"
+    shipping_mini_data = artifacts / "mini-shipping-data"
     for directory in (
         transcripts,
         logs,
@@ -1318,15 +1356,17 @@ def main():
         pristine_data,
         mini_data,
         mini_profile_b_data,
+        shipping_mini_data,
     ):
         directory.mkdir(parents=True, mode=0o700)
         directory.chmod(0o700)
 
     write_json(logs / "rootless-namespace.json", rootless_namespace_identity())
     write_json(artifacts / "pristine-source-manifest.json", source_manifest_evidence)
+    write_json(artifacts / "shipping-catalog-audit.json", shipping_catalog_audit)
     run_command(["ip", "-json", "address", "show"], logs / "network-namespace.json")
     fixture_server = http.server.ThreadingHTTPServer(
-        (args.fixture_address, 0), FixtureHandler
+        (args.fixture_address, args.fixture_port), FixtureHandler
     )
     fixture_server.daemon_threads = True
     fixture_server.requests = []
@@ -1364,21 +1404,14 @@ def main():
         fixture_server.origin,
         "adult-provider",
     )
-    mini_overlay = prepare_mini_overlay(
-        mini_runtime,
-        overlays / "mini-runtime",
-        template,
-        fixture_server.origin,
-    )
-    mini_overlay_executable = mini_overlay["runtime"] / "jackett-mini"
     mini_overlay_evidence = overlays / "mini-fixture"
     mini_overlay_evidence.mkdir(mode=0o700)
     shutil.copy2(
-        mini_overlay["runtime"] / "catalog.json", mini_overlay_evidence / "catalog.json"
+        mini_fixture_runtime / "catalog.json", mini_overlay_evidence / "catalog.json"
     )
     for indexer_id in MINI_SOURCES:
         shutil.copy2(
-            mini_overlay["runtime"] / "Definitions" / f"{indexer_id}.yml",
+            mini_fixture_runtime / "Definitions" / f"{indexer_id}.yml",
             mini_overlay_evidence / f"{indexer_id}.yml",
         )
 
@@ -1389,6 +1422,9 @@ def main():
     mini_profile_b_port = choose_port("127.0.0.1")
     while mini_profile_b_port in {pristine_port, mini_port}:
         mini_profile_b_port = choose_port("127.0.0.1")
+    shipping_mini_port = choose_port("127.0.0.1")
+    while shipping_mini_port in {pristine_port, mini_port, mini_profile_b_port}:
+        shipping_mini_port = choose_port("127.0.0.1")
     bootstrap = None
     bootstrap_log = None
     process = None
@@ -1397,31 +1433,40 @@ def main():
     mini_process_log = None
     mini_profile_b_process = None
     mini_profile_b_process_log = None
+    shipping_mini_process = None
+    shipping_mini_process_log = None
     process_log_path = logs / "pristine-jackett.log"
     bootstrap_log_path = logs / "pristine-jackett-bootstrap.log"
     mini_process_log_path = logs / "jackett-mini-profile-a.log"
     mini_profile_b_process_log_path = logs / "jackett-mini-profile-b.log"
+    shipping_mini_process_log_path = logs / "jackett-mini-shipping.log"
     capability = secrets.token_urlsafe(32)
     profile_b_capability = secrets.token_urlsafe(32)
+    shipping_capability = secrets.token_urlsafe(32)
     capability_path = mini_data / "capability"
     profile_b_capability_path = mini_profile_b_data / "capability"
+    shipping_capability_path = shipping_mini_data / "capability"
     capability_path.write_text(capability + "\n", encoding="ascii")
     profile_b_capability_path.write_text(profile_b_capability + "\n", encoding="ascii")
+    shipping_capability_path.write_text(shipping_capability + "\n", encoding="ascii")
     capability_path.chmod(0o600)
     profile_b_capability_path.chmod(0o600)
+    shipping_capability_path.chmod(0o600)
     redactions = [
         (RAW_URL_SECRET, "<redacted-raw-url>"),
         (TRACKER_USERNAME, "<redacted-tracker-user>"),
         (TRACKER_PASSKEY, "<redacted-tracker-passkey>"),
         (capability, "<redacted-profile-a-capability>"),
         (profile_b_capability, "<redacted-profile-b-capability>"),
+        (shipping_capability, "<redacted-shipping-capability>"),
         (str(pristine_runtime), "<pristine-runtime>"),
         (str(pristine_source), "<pristine-source>"),
         (str(mini_runtime), "<jackett-mini-runtime>"),
-        (str(mini_overlay["runtime"]), "<jackett-mini-overlay>"),
+        (str(mini_fixture_runtime), "<jackett-mini-fixture-runtime>"),
         (str(pristine_data), "<pristine-data>"),
         (str(mini_data), "<mini-profile-a-data>"),
         (str(mini_profile_b_data), "<mini-profile-b-data>"),
+        (str(shipping_mini_data), "<mini-shipping-data>"),
         (str(script_dir), "<comparison-source>"),
         (str(artifacts), "<comparison-artifacts>"),
     ]
@@ -1466,7 +1511,7 @@ def main():
         "TZ": "UTC",
     }
     mini_command = [
-        str(mini_overlay_executable),
+        str(mini_fixture_executable),
         "--ListenPrivate",
         "--Port",
         str(mini_port),
@@ -1486,7 +1531,7 @@ def main():
         "TZ": "UTC",
     }
     mini_profile_b_command = [
-        str(mini_overlay_executable),
+        str(mini_fixture_executable),
         "--ListenPrivate",
         "--Port",
         str(mini_profile_b_port),
@@ -1498,6 +1543,26 @@ def main():
         str(mini_profile_b_data),
         "--CapabilityFile",
         str(profile_b_capability_path),
+    ]
+    shipping_mini_environment = {
+        "HOME": str(shipping_mini_data),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "TZ": "UTC",
+    }
+    shipping_mini_command = [
+        str(mini_executable),
+        "--ListenPrivate",
+        "--Port",
+        str(shipping_mini_port),
+        "--PIDFile",
+        str(shipping_mini_data / "jackett.pid"),
+        "--NoUpdates",
+        "--NoRestart",
+        "--DataFolder",
+        str(shipping_mini_data),
+        "--CapabilityFile",
+        str(shipping_capability_path),
     ]
 
     try:
@@ -1541,22 +1606,41 @@ def main():
 
         mini_process, mini_process_log = start_process(
             mini_command,
-            mini_overlay["runtime"],
+            mini_fixture_runtime,
             mini_environment,
             mini_process_log_path,
         )
         mini_profile_b_process, mini_profile_b_process_log = start_process(
             mini_profile_b_command,
-            mini_overlay["runtime"],
+            mini_fixture_runtime,
             mini_profile_b_environment,
             mini_profile_b_process_log_path,
+        )
+        shipping_mini_process, shipping_mini_process_log = start_process(
+            shipping_mini_command,
+            mini_runtime,
+            shipping_mini_environment,
+            shipping_mini_process_log_path,
         )
         mini_health = wait_for_mini_health(mini_port, capability)
         mini_profile_b_health = wait_for_mini_health(
             mini_profile_b_port, profile_b_capability
         )
+        shipping_mini_health = wait_for_mini_health(
+            shipping_mini_port, shipping_capability
+        )
         mini_health_document = json.loads(mini_health["body"])
         mini_profile_b_health_document = json.loads(mini_profile_b_health["body"])
+        shipping_health_document = json.loads(shipping_mini_health["body"])
+        if (
+            shipping_health_document.get("catalogSha256")
+            != mini_manifest["catalogFileSha256"]
+            or shipping_health_document.get("catalogPolicySha256")
+            != mini_manifest["providerPolicySha256"]
+        ):
+            raise AssertionError(
+                "the shipping Mini process did not load its bound catalog"
+            )
         if (
             mini_health_document["dataRootId"]
             == mini_profile_b_health_document["dataRootId"]
@@ -1577,12 +1661,17 @@ def main():
             redactions.append((value, replacement))
         mini_identity = process_identity(mini_process)
         mini_profile_b_identity = process_identity(mini_profile_b_process)
-        executable_hash = sha256_file(mini_executable)
+        shipping_mini_identity = process_identity(shipping_mini_process)
+        executable_hash = sha256_file(mini_fixture_executable)
         if any(
             identity["executableSha256"] != executable_hash
             for identity in (mini_identity, mini_profile_b_identity)
         ):
             raise AssertionError("a running Mini executable identity changed")
+        if shipping_mini_identity["executableSha256"] != sha256_file(mini_executable):
+            raise AssertionError(
+                "the running shipping Mini executable identity changed"
+            )
         write_json(
             logs / "jackett-mini-profile-a-process-identity.json",
             mini_identity,
@@ -1591,8 +1680,13 @@ def main():
             logs / "jackett-mini-profile-b-process-identity.json",
             mini_profile_b_identity,
         )
+        write_json(
+            logs / "jackett-mini-shipping-process-identity.json",
+            shipping_mini_identity,
+        )
         profile_a_headers = {"Authorization": f"Bearer {capability}"}
         profile_b_headers = {"Authorization": f"Bearer {profile_b_capability}"}
+        shipping_headers = {"Authorization": f"Bearer {shipping_capability}"}
         save_transcript(
             transcripts,
             "setup-mini-profile-a-health",
@@ -1602,6 +1696,63 @@ def main():
             None,
             mini_health,
             redactions,
+        )
+        shipping_sources_response = request(
+            shipping_mini_port, "GET", "/v1/sources", headers=shipping_headers
+        )
+        if shipping_sources_response["status"] != 200:
+            raise AssertionError("the shipping Mini source set is unavailable")
+        shipping_sources_document = json.loads(shipping_sources_response["body"])
+        actual_shipping_ids = sorted(
+            source["id"] for source in shipping_sources_document.get("sources", [])
+        )
+        expected_shipping_ids = sorted(shipping_catalog_audit["enabledIndexerIds"])
+        if actual_shipping_ids != expected_shipping_ids:
+            raise AssertionError(
+                "the shipping Mini active set differs from its catalog"
+            )
+        save_transcript(
+            transcripts,
+            "setup-mini-shipping-sources",
+            "GET",
+            "/v1/sources",
+            shipping_headers,
+            None,
+            shipping_sources_response,
+            redactions,
+        )
+        excluded_statuses = {}
+        for reason, indexer_ids in shipping_catalog_audit["excludedIndexerIds"].items():
+            excluded_statuses[reason] = {}
+            for indexer_id in indexer_ids:
+                excluded_response = request(
+                    shipping_mini_port,
+                    "POST",
+                    "/v1/search",
+                    body={"query": "policy-boundary", "sourceIds": [indexer_id]},
+                    headers=shipping_headers,
+                )
+                excluded_statuses[reason][indexer_id] = excluded_response["status"]
+                if excluded_response["status"] != 400:
+                    raise AssertionError(
+                        f"excluded source became callable: {reason}/{indexer_id}"
+                    )
+        repeated_shipping_sources = request(
+            shipping_mini_port, "GET", "/v1/sources", headers=shipping_headers
+        )
+        if json.loads(repeated_shipping_sources["body"]) != shipping_sources_document:
+            raise AssertionError(
+                "search capability use altered the immutable active set"
+            )
+        write_json(
+            artifacts / "shipping-runtime-policy-evidence.json",
+            {
+                "activeIndexerIds": actual_shipping_ids,
+                "activeSetImmutable": True,
+                "catalogFileSha256": mini_manifest["catalogFileSha256"],
+                "catalogPolicySha256": mini_manifest["providerPolicySha256"],
+                "excludedStatuses": excluded_statuses,
+            },
         )
         save_transcript(
             transcripts,
@@ -2264,29 +2415,27 @@ def main():
             response=profile_b_result,
             port=mini_profile_b_port,
         )
-        reopened_health = record_mini_evidence(
-            "same-profile-reopen-persistence",
+        reconnected_health = record_mini_evidence(
+            "same-profile-http-reconnection",
             "GET",
             "/v1/health",
             None,
             profile_a_headers,
             "pristine keeps one process-global data root",
-            "a reopened client for the same profile reuses the identity-verified service and data root",
+            "a second authenticated connection reaches the same service and data root",
         )
-        reopened_health_document = json.loads(reopened_health["body"])
-        security_evidence["same-profile-reopen-persistence"].update({
-            "sameInstanceId": reopened_health_document.get("instanceId")
+        reconnected_health_document = json.loads(reconnected_health["body"])
+        security_evidence["same-profile-http-reconnection"].update({
+            "sameInstanceId": reconnected_health_document.get("instanceId")
             == mini_health_document.get("instanceId"),
-            "sameDataRootId": reopened_health_document.get("dataRootId")
+            "sameDataRootId": reconnected_health_document.get("dataRootId")
             == mini_health_document.get("dataRootId"),
         })
         if not all(
-            security_evidence["same-profile-reopen-persistence"][key]
+            security_evidence["same-profile-http-reconnection"][key]
             for key in ("sameInstanceId", "sameDataRootId")
         ):
-            raise AssertionError(
-                "same-profile Mini service did not persist across client reopen"
-            )
+            raise AssertionError("same-profile Mini HTTP reconnection changed identity")
         unknown_id = "E" * 32
         expired_path = f"/v1/results/{unknown_id}/resolve"
         expired = record_mini_evidence(
@@ -2494,23 +2643,41 @@ def main():
             semantic_diffs[name]["diff"] = normalized_semantic_diff(
                 observed[name], mini_observed[name]
             )
+        write_json(artifacts / "normalized-semantic-error-diffs.json", semantic_diffs)
+        validate_mini_semantics(observed, mini_observed)
 
         listener_filter = " or ".join(
             f"sport = :{port}"
-            for port in (pristine_port, mini_port, mini_profile_b_port, fixture_port)
+            for port in (
+                pristine_port,
+                mini_port,
+                mini_profile_b_port,
+                shipping_mini_port,
+                fixture_port,
+            )
         )
         run_command(["ss", "-ltnp", listener_filter], logs / "loopback-listeners.log")
         listener_text = (logs / "loopback-listeners.log").read_text(encoding="utf-8")
         if any(
             f"127.0.0.1:{port}" not in listener_text
-            for port in (pristine_port, mini_port, mini_profile_b_port)
+            for port in (
+                pristine_port,
+                mini_port,
+                mini_profile_b_port,
+                shipping_mini_port,
+            )
         ):
             raise AssertionError("a service loopback listener was not observed")
         if f"{args.fixture_address}:{fixture_port}" not in listener_text:
             raise AssertionError("the deterministic fixture listener was not observed")
         if any(
             marker in listener_text
-            for port in (pristine_port, mini_port, mini_profile_b_port)
+            for port in (
+                pristine_port,
+                mini_port,
+                mini_profile_b_port,
+                shipping_mini_port,
+            )
             for marker in (f"0.0.0.0:{port}", f"[::]:{port}", f"*:{port}")
         ):
             raise AssertionError("a Jackett service exposed a wildcard listener")
@@ -2519,7 +2686,6 @@ def main():
         write_json(artifacts / "canonical-pristine-observed.json", observed)
         write_json(artifacts / "canonical-pristine-expected.json", expected)
         write_json(artifacts / "canonical-mini-observed.json", mini_observed)
-        write_json(artifacts / "normalized-semantic-error-diffs.json", semantic_diffs)
         write_json(artifacts / "security-boundary-evidence.json", security_evidence)
         diff = "".join(
             difflib.unified_diff(
@@ -2556,23 +2722,44 @@ def main():
             "sourceManifestSha256": source_manifest_evidence["manifestSha256"],
             "sourceManifestEntryCount": source_manifest_evidence["entryCount"],
             "platform": "linux-x86_64-glibc",
-            "executionMode": "direct-rootless-user-network-namespace",
+            "executionMode": "rootless-oci-internal-network",
+            "ociIsolation": oci_evidence,
             "ports": {
                 "fixture": fixture_port,
                 "pristine": pristine_port,
                 "miniProfileA": mini_port,
                 "miniProfileB": mini_profile_b_port,
+                "miniShipping": shipping_mini_port,
             },
             "runtimes": {
                 "pristineExecutableSha256": sha256_file(pristine_executable),
                 "miniExecutableSha256": sha256_file(mini_executable),
                 "miniManifestSha256": sha256_file(mini_manifest_path),
                 "miniRuntimeInventorySha256": mini_manifest["runtimeSha256"],
+                "miniFixtureExecutableSha256": sha256_file(mini_fixture_executable),
+                "miniFixtureManifestSha256": sha256_file(mini_fixture_manifest_path),
+                "miniFixtureRuntimeInventorySha256": mini_fixture_manifest[
+                    "runtimeSha256"
+                ],
+                "pristineBuildRecordSha256": sha256_file(pristine_build_record_path),
+                "pristineRuntimeInventorySha256": pristine_build_record[
+                    "runtimeInventorySha256"
+                ],
+                "pristineSdkPlatformDigest": pristine_build_record["sdkPlatformDigest"],
             },
             "miniOverlay": {
-                "catalogSha256": mini_overlay["catalogSha256"],
-                "definitionSha256": mini_overlay["definitionSha256"],
+                "catalogSha256": sha256_file(mini_fixture_runtime / "catalog.json"),
+                "definitionSha256": {
+                    indexer_id: sha256_file(
+                        mini_fixture_runtime / "Definitions" / f"{indexer_id}.yml"
+                    )
+                    for indexer_id in sorted(MINI_SOURCES)
+                },
                 "enabledSources": sorted(MINI_SOURCES),
+                "separatelyBuilt": True,
+                "productionRuntimeSha256": mini_fixture_manifest[
+                    "productionRuntimeSha256"
+                ],
             },
             "profileIsolation": {
                 "dataRootIdsDistinct": True,
@@ -2582,6 +2769,11 @@ def main():
                 "profileBDataRootIdSha256": hashlib.sha256(
                     mini_profile_b_health_document["dataRootId"].encode()
                 ).hexdigest(),
+            },
+            "managerLifecycleGate": {
+                "test": "managed-services/jackett-mini/test/process.test.mjs",
+                "requiresRuntime": True,
+                "freshLauncherRevalidatesPidStartTimeInstanceDataRootAndExecutable": True,
             },
             "expectedSnapshotSha256": sha256_file(expected_path),
             "cacheTtlSeconds": {"pristine": 1, "mini": 300},
@@ -2620,6 +2812,7 @@ def main():
             ("pristine", process, process_log),
             ("miniProfileA", mini_process, mini_process_log),
             ("miniProfileB", mini_profile_b_process, mini_profile_b_process_log),
+            ("miniShipping", shipping_mini_process, shipping_mini_process_log),
         )
         orphaned = {}
         for label, service_process, service_log in processes:
@@ -2642,6 +2835,7 @@ def main():
             ("pristine", "127.0.0.1", pristine_port),
             ("miniProfileA", "127.0.0.1", mini_port),
             ("miniProfileB", "127.0.0.1", mini_profile_b_port),
+            ("miniShipping", "127.0.0.1", shipping_mini_port),
             ("fixture", args.fixture_address, fixture_port),
         ):
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
@@ -2653,11 +2847,11 @@ def main():
             ("pristine", pristine_data),
             ("miniProfileA", mini_data),
             ("miniProfileB", mini_profile_b_data),
+            ("miniShipping", shipping_mini_data),
         ):
             shutil.rmtree(directory, ignore_errors=True)
             cleanup["dataRootsRemoved"][label] = not directory.exists()
-        shutil.rmtree(overlays / "mini-runtime", ignore_errors=True)
-        cleanup["testRuntimeRemoved"] = not (overlays / "mini-runtime").exists()
+        cleanup["testRuntimeRemoved"] = True
         cleanup["comparisonSucceeded"] = success
         cleanup["noOrphanedProcessGroups"] = not orphaned
         cleanup_succeeded = (

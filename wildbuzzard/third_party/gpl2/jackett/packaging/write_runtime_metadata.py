@@ -8,7 +8,6 @@ import re
 import stat
 from pathlib import Path
 
-
 COMMIT = "0cd8622b735922a909a128d8d6943bb8565a640f"
 
 
@@ -83,6 +82,8 @@ def main():
     parser.add_argument("--license-inventory", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
     parser.add_argument("--sbom", type=Path, required=True)
+    parser.add_argument("--test-fixture", action="store_true")
+    parser.add_argument("--production-runtime-sha256")
     args = parser.parse_args()
     preliminary_files = runtime_files(args.runtime, (args.manifest, args.sbom))
     lock_digest, packages = lock_inventory_from_source(args.source)
@@ -219,8 +220,15 @@ def main():
         "updaterIncluded": False,
         "dashboardIncluded": False,
         "enabledProviderCount": len(catalog["enabledIndexerIds"]),
+        "testFixture": args.test_fixture,
         "files": files,
     }
+    if args.test_fixture:
+        if not re.fullmatch(r"[a-f0-9]{64}", args.production_runtime_sha256 or ""):
+            raise ValueError("a test fixture must bind the production runtime digest")
+        manifest["productionRuntimeSha256"] = args.production_runtime_sha256
+    elif args.production_runtime_sha256:
+        raise ValueError("a production runtime cannot bind another runtime")
     args.manifest.write_text(
         json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
     )

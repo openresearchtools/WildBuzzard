@@ -223,12 +223,15 @@ async function bundleInfo(archivePath) {
     const entry = zip.getEntry(MANIFEST);
     const stream = zip.getInputStream(MANIFEST);
     let manifest;
+    let manifestBytes;
     try {
-      manifest = JSON.parse(
-        NetUtil.readInputStreamToString(stream, entry.realSize, {
-          charset: "utf-8",
-        })
+      const manifestText = NetUtil.readInputStreamToString(
+        stream,
+        entry.realSize,
+        { charset: "utf-8" }
       );
+      manifestBytes = new TextEncoder().encode(manifestText);
+      manifest = JSON.parse(manifestText);
     } finally {
       stream.close();
     }
@@ -255,6 +258,7 @@ async function bundleInfo(archivePath) {
       manifest.executableName !== "jackett-mini" ||
       manifest.updaterIncluded !== false ||
       manifest.dashboardIncluded !== false ||
+      manifest.testFixture !== false ||
       !safeArchivePath(manifest.correspondingSource) ||
       !safeArchivePath(manifest.sbom) ||
       !Array.isArray(manifest.licenseLocations) ||
@@ -283,6 +287,7 @@ async function bundleInfo(archivePath) {
     if (
       !files.has(manifest.executableName) ||
       !executables.has(manifest.executableName) ||
+      files.get("catalog.json")?.sha256 !== manifest.catalogFileSha256 ||
       !files.has(manifest.sbom) ||
       manifest.licenseLocations.some(path => !files.has(path)) ||
       new Set(manifest.licenseLocations).size !==
@@ -335,6 +340,8 @@ async function bundleInfo(archivePath) {
       centralEntries,
       executables,
       files,
+      manifestSha256: hexDigest(manifestBytes),
+      manifestSize: manifestBytes.length,
       manifest,
     };
   } finally {
@@ -412,12 +419,63 @@ async function healthMatches(record) {
       body.instanceId === record.ownerInstanceId &&
       body.executablePath === record.executablePath &&
       body.executableSha256 === record.executableSha256 &&
-      body.dataRootId === record.dataRootId
+      body.dataRootId === record.dataRootId &&
+      body.catalogSha256 === record.catalogFileSha256 &&
+      body.catalogPolicySha256 === record.providerPolicySha256
     );
   } catch {
     return false;
   }
 }
+
+async function verifyExtractedRuntime(directory, bundle) {
+  const expected = new Map(bundle.files);
+  expected.set(MANIFEST, {
+    executable: false,
+    sha256: bundle.manifestSha256,
+    size: bundle.manifestSize,
+  });
+  const actual = new Set();
+  const pending = [directory];
+  while (pending.length) {
+    const parent = pending.pop();
+    for (const path of await IOUtils.getChildren(parent)) {
+      const relative = path.slice(directory.length + 1).replaceAll("\\", "/");
+      if (relative === ".extraction-complete") {
+        continue;
+      }
+      const file = new LocalFile(path);
+      if (file.isSymlink()) {
+        throw new Error(`Link in extracted Jackett Mini runtime: ${relative}`);
+      }
+      if (file.isDirectory()) {
+        pending.push(path);
+        continue;
+      }
+      if (!file.isFile() || actual.has(relative) || !expected.has(relative)) {
+        throw new Error(`Unexpected extracted Jackett Mini path: ${relative}`);
+      }
+      const metadata = expected.get(relative);
+      const info = await IOUtils.stat(path);
+      if (
+        info.size !== metadata.size ||
+        Boolean(file.permissions & 0o111) !== metadata.executable ||
+        (await fileDigest(path)) !== metadata.sha256
+      ) {
+        throw new Error(`Invalid extracted Jackett Mini file: ${relative}`);
+      }
+      actual.add(relative);
+    }
+  }
+  if (
+    actual.size !== expected.size ||
+    [...expected.keys()].some(path => !actual.has(path))
+  ) {
+    throw new Error("Incomplete extracted Jackett Mini runtime");
+  }
+}
+
+export const JackettMiniRuntimeTestUtils = { verifyExtractedRuntime };
 
 async function privateDirectory(path) {
   await IOUtils.makeDirectory(path, {
@@ -524,6 +582,7 @@ export class JackettMiniRuntime {
     this.rootDirectory = paths.rootDirectory;
     this.stateDirectory = paths.stateDirectory;
     this.bundleRoot = PathUtils.join(this.rootDirectory, "runtime");
+    this.archivesDirectory = PathUtils.join(this.bundleRoot, "archives");
     this.dataDirectory = PathUtils.join(this.rootDirectory, "data");
     this.connectionPath = PathUtils.join(
       this.stateDirectory,
@@ -560,6 +619,7 @@ export class JackettMiniRuntime {
     }
     await privateDirectory(this.rootDirectory);
     await privateDirectory(this.bundleRoot);
+    await privateDirectory(this.archivesDirectory);
     await privateDirectory(this.dataDirectory);
     await privateDirectory(this.stateDirectory);
     const release = await acquireLock(this.stateDirectory);
@@ -570,6 +630,8 @@ export class JackettMiniRuntime {
         runtime = await this.extractRuntime();
         const connection = await this.ensureProcess(runtime);
         await privateJSON(this.activeRuntimePath, {
+          archivePath: runtime.archivePath,
+          archiveSha256: runtime.archiveSha256,
           bundleId: runtime.bundleId,
           directory: runtime.directory,
           activatedAt: Date.now(),
@@ -598,6 +660,7 @@ export class JackettMiniRuntime {
       );
     }
     const bundle = await bundleInfo(archivePath);
+    bundle.archivePath = await this.retainArchive(archivePath, bundle);
     const destination = PathUtils.join(this.bundleRoot, bundle.bundleId);
     const marker = PathUtils.join(destination, ".extraction-complete");
     if (await IOUtils.exists(marker)) {
@@ -605,6 +668,7 @@ export class JackettMiniRuntime {
       if (value?.archiveSha256 !== bundle.archiveSha256) {
         throw new Error("Jackett Mini runtime activation marker is invalid");
       }
+      await verifyExtractedRuntime(destination, bundle);
       return this.runtimeFromBundle(destination, bundle);
     }
     if (await IOUtils.exists(destination)) {
@@ -670,7 +734,40 @@ export class JackettMiniRuntime {
     } finally {
       zip.close();
     }
+    await verifyExtractedRuntime(destination, bundle);
     return this.runtimeFromBundle(destination, bundle);
+  }
+
+  async retainArchive(source, bundle) {
+    const destination = PathUtils.join(
+      this.archivesDirectory,
+      `${bundle.archiveSha256}.zip`
+    );
+    if (await IOUtils.exists(destination)) {
+      const file = new LocalFile(destination);
+      if (
+        !file.isFile() ||
+        file.isSymlink() ||
+        file.permissions & 0o077 ||
+        (await fileDigest(destination)) !== bundle.archiveSha256
+      ) {
+        throw new Error("Retained Jackett Mini archive is invalid");
+      }
+      return destination;
+    }
+    const temporary = `${destination}.new-${randomToken(12)}`;
+    try {
+      await IOUtils.copy(source, temporary, { noOverwrite: true });
+      await IOUtils.setPermissions(temporary, 0o600);
+      if ((await fileDigest(temporary)) !== bundle.archiveSha256) {
+        throw new Error("Retained Jackett Mini archive digest mismatch");
+      }
+      await IOUtils.move(temporary, destination, { noOverwrite: true });
+    } catch (error) {
+      await IOUtils.remove(temporary, { ignoreAbsent: true });
+      throw error;
+    }
+    return destination;
   }
 
   async runtimeFromBundle(directory, bundle) {
@@ -679,10 +776,14 @@ export class JackettMiniRuntime {
       bundle.manifest.executableName
     );
     return {
+      archivePath: bundle.archivePath,
+      archiveSha256: bundle.archiveSha256,
       bundleId: bundle.bundleId,
+      catalogFileSha256: bundle.manifest.catalogFileSha256,
       directory,
       executablePath,
       executableSha256: bundle.files.get(bundle.manifest.executableName).sha256,
+      providerPolicySha256: bundle.manifest.providerPolicySha256,
       runtimeVersion: bundle.manifest.upstreamVersion,
     };
   }
@@ -691,7 +792,10 @@ export class JackettMiniRuntime {
     const active = await readPrivateJSON(this.activeRuntimePath);
     if (
       !active ||
+      !/^[a-f0-9]{64}$/.test(active.archiveSha256) ||
       !/^[0-9A-Za-z._-]+$/.test(active.bundleId) ||
+      active.archivePath !==
+        PathUtils.join(this.archivesDirectory, `${active.archiveSha256}.zip`) ||
       active.directory !== PathUtils.join(this.bundleRoot, active.bundleId) ||
       !(await IOUtils.exists(
         PathUtils.join(active.directory, ".extraction-complete")
@@ -703,21 +807,16 @@ export class JackettMiniRuntime {
   }
 
   async runtimeFromDirectory(active) {
-    const manifest = await IOUtils.readJSON(
-      PathUtils.join(active.directory, MANIFEST)
-    );
-    const executable = manifest.files.find(
-      file => file.path === manifest.executableName && file.executable
-    );
-    if (!executable) {
+    const bundle = await bundleInfo(active.archivePath);
+    bundle.archivePath = active.archivePath;
+    if (
+      bundle.archiveSha256 !== active.archiveSha256 ||
+      bundle.bundleId !== active.bundleId
+    ) {
       throw new Error("Previous Jackett Mini runtime is invalid");
     }
-    return {
-      ...active,
-      executablePath: PathUtils.join(active.directory, manifest.executableName),
-      executableSha256: executable.sha256,
-      runtimeVersion: manifest.upstreamVersion,
-    };
+    await verifyExtractedRuntime(active.directory, bundle);
+    return this.runtimeFromBundle(active.directory, bundle);
   }
 
   async ensureProcess(runtime) {
@@ -725,6 +824,8 @@ export class JackettMiniRuntime {
     if (
       existing?.executablePath === runtime.executablePath &&
       existing.executableSha256 === runtime.executableSha256 &&
+      existing.catalogFileSha256 === runtime.catalogFileSha256 &&
+      existing.providerPolicySha256 === runtime.providerPolicySha256 &&
       existing.dataRoot === this.dataDirectory &&
       (await processMatches(existing)) &&
       (await healthMatches(existing))
@@ -788,7 +889,9 @@ export class JackettMiniRuntime {
               response.body.protocolVersion === 1 &&
               response.body.runtimeVersion === runtime.runtimeVersion &&
               response.body.executablePath === runtime.executablePath &&
-              response.body.executableSha256 === runtime.executableSha256
+              response.body.executableSha256 === runtime.executableSha256 &&
+              response.body.catalogSha256 === runtime.catalogFileSha256 &&
+              response.body.catalogPolicySha256 === runtime.providerPolicySha256
             ) {
               health = response.body;
               break;
@@ -814,6 +917,8 @@ export class JackettMiniRuntime {
           linuxProcessStartTime: await processStartTime(process.pid),
           executablePath: runtime.executablePath,
           executableSha256: runtime.executableSha256,
+          catalogFileSha256: runtime.catalogFileSha256,
+          providerPolicySha256: runtime.providerPolicySha256,
           dataRoot: this.dataDirectory,
           dataRootId: health.dataRootId,
           ownerInstanceId: health.instanceId,

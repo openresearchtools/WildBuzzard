@@ -14,6 +14,6 @@ wildbuzzard/scripts/build-jackett-mini.sh \
   --log-dir /absolute/path/to/build-logs
 ```
 
-The build verifies all 963 pristine source files, applies `patches/series`, checks all 616 effective providers against their reviewed source hashes, stages only eligible YAML, performs a locked self-contained .NET 9 publish in rootless Podman, and rejects forbidden runtime paths. The deterministic ZIP contains its exact manifest, SPDX SBOM, license inventory, and complete corresponding-source package.
+The build verifies all 963 pristine source files, applies `patches/series`, checks all 616 effective providers against their reviewed source hashes, stages only eligible YAML, performs a locked self-contained .NET 9 publish in rootless Podman, and rejects forbidden runtime paths. A deterministic process-boundary gate also scans the non-GPL browser, agent, launcher, and torrent runtime for Jackett assembly/namespace references, CLR hosting, copied upstream surfaces, and direct GPL package paths. The deterministic ZIP contains its exact manifest, SPDX SBOM, license inventory, and complete corresponding-source package.
 
 Podman and the SDK image are build/test infrastructure. Neither is used by the shipped runtime. The runtime executable accepts the mandatory private launch flags documented in `BOUNDARY.md`; the capability is read from a mode-0600 file rather than a command-line value.

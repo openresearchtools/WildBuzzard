@@ -118,4 +118,8 @@ test -x "$output_dir/jackett"
 test -f "$output_dir/Content/index.html"
 test "$(find "$output_dir/Definitions" -maxdepth 1 -type f -name '*.yml' | wc -l)" -eq 549
 sha256sum "$output_dir/jackett" > "$log_dir/pristine-executable.sha256"
+python3 "$script_dir/write-pristine-runtime-record.py" \
+  --runtime "$output_dir" \
+  --output "$log_dir/pristine-runtime-build-record.json" \
+  --sdk-image-inspect "$log_dir/sdk-image-inspect.json"
 echo "$output_dir"

@@ -201,7 +201,9 @@ async function healthMatches(record) {
       health.instanceId === record.ownerInstanceId &&
       health.executablePath === record.executablePath &&
       health.executableSha256 === record.executableSha256 &&
-      health.dataRootId === record.dataRootId
+      health.dataRootId === record.dataRootId &&
+      health.catalogSha256 === record.catalogFileSha256 &&
+      health.catalogPolicySha256 === record.providerPolicySha256
     );
   } catch {
     return false;
@@ -245,7 +247,9 @@ async function waitForHealth(
         health.protocolVersion === 1 &&
         health.runtimeVersion === expected.runtimeVersion &&
         health.executablePath === expected.executablePath &&
-        health.executableSha256 === expected.executableSha256
+        health.executableSha256 === expected.executableSha256 &&
+        health.catalogSha256 === expected.catalogFileSha256 &&
+        health.catalogPolicySha256 === expected.providerPolicySha256
       ) {
         return health;
       }
@@ -273,6 +277,9 @@ async function loadManifest(manifestPath, runtimeDirectory) {
     manifest.executableName !== "jackett-mini" ||
     manifest.updaterIncluded !== false ||
     manifest.dashboardIncluded !== false ||
+    manifest.testFixture !== false ||
+    !/^[a-f0-9]{64}$/.test(manifest.catalogFileSha256) ||
+    !/^[a-f0-9]{64}$/.test(manifest.providerPolicySha256) ||
     !Array.isArray(manifest.files)
   ) {
     throw new Error("Jackett Mini runtime manifest is incompatible");
@@ -304,6 +311,11 @@ async function loadManifest(manifestPath, runtimeDirectory) {
   if (
     !files.some(entry =>
       entry.path.startsWith(`${manifest.correspondingSource}/`)
+    ) ||
+    !files.some(
+      entry =>
+        entry.path === "catalog.json" &&
+        entry.sha256 === manifest.catalogFileSha256
     ) ||
     !files.some(entry => entry.path === manifest.sbom) ||
     manifest.licenseLocations.some(
@@ -460,6 +472,8 @@ export async function ensureJackettMini({
           runtimeVersion: runtime.manifest.upstreamVersion,
           executablePath: runtime.executablePath,
           executableSha256: runtime.executableSha256,
+          catalogFileSha256: runtime.manifest.catalogFileSha256,
+          providerPolicySha256: runtime.manifest.providerPolicySha256,
         });
         const record = {
           schemaVersion: 1,
@@ -474,6 +488,8 @@ export async function ensureJackettMini({
           linuxProcessStartTime: await readProcessStartTime(child.pid),
           executablePath: runtime.executablePath,
           executableSha256: runtime.executableSha256,
+          catalogFileSha256: runtime.manifest.catalogFileSha256,
+          providerPolicySha256: runtime.manifest.providerPolicySha256,
           dataRoot: dataDirectory,
           dataRootId: health.dataRootId,
           ownerInstanceId: health.instanceId,

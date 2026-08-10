@@ -3,8 +3,24 @@
 
 "use strict";
 
-const { JackettMiniRuntime, jackettMiniProfileNamespace } =
-  ChromeUtils.importESModule("resource:///modules/JackettMiniRuntime.sys.mjs");
+const {
+  JackettMiniRuntime,
+  JackettMiniRuntimeTestUtils,
+  jackettMiniProfileNamespace,
+} = ChromeUtils.importESModule(
+  "resource:///modules/JackettMiniRuntime.sys.mjs"
+);
+
+function sha256(bytes) {
+  const hash = Cc["@mozilla.org/security/hash;1"].createInstance(
+    Ci.nsICryptoHash
+  );
+  hash.initWithString("sha256");
+  hash.update(bytes, bytes.length);
+  return Array.from(hash.finish(false), character =>
+    character.charCodeAt(0).toString(16).padStart(2, "0")
+  ).join("");
+}
 
 function childDirectory(parent, name) {
   const directory = parent.clone();
@@ -149,3 +165,77 @@ add_task(function test_profile_runtime_paths_isolate_capabilities_and_data() {
     );
   }
 });
+
+add_task(
+  async function test_extracted_runtime_revalidates_complete_inventory() {
+    const root = do_get_tempdir().clone();
+    root.append("jackett-mini-extracted-runtime");
+    root.createUnique(Ci.nsIFile.DIRECTORY_TYPE, 0o700);
+    registerCleanupFunction(() => root.remove(true));
+    const executable = PathUtils.join(root.path, "jackett-mini");
+    const catalog = PathUtils.join(root.path, "catalog.json");
+    const manifest = PathUtils.join(root.path, "jackett-mini-runtime.json");
+    const executableBytes = new TextEncoder().encode("runtime");
+    const catalogBytes = new TextEncoder().encode('{"immutable":true}\n');
+    const manifestBytes = new TextEncoder().encode('{"schemaVersion":1}\n');
+    await IOUtils.write(executable, executableBytes, { mode: "create" });
+    await IOUtils.setPermissions(executable, 0o755);
+    await IOUtils.write(catalog, catalogBytes, { mode: "create" });
+    await IOUtils.setPermissions(catalog, 0o644);
+    await IOUtils.write(manifest, manifestBytes, { mode: "create" });
+    await IOUtils.setPermissions(manifest, 0o644);
+    const bundle = {
+      files: new Map([
+        [
+          "jackett-mini",
+          {
+            executable: true,
+            sha256: sha256(executableBytes),
+            size: executableBytes.length,
+          },
+        ],
+        [
+          "catalog.json",
+          {
+            executable: false,
+            sha256: sha256(catalogBytes),
+            size: catalogBytes.length,
+          },
+        ],
+      ]),
+      manifestSha256: sha256(manifestBytes),
+      manifestSize: manifestBytes.length,
+    };
+
+    await JackettMiniRuntimeTestUtils.verifyExtractedRuntime(root.path, bundle);
+    await IOUtils.writeUTF8(catalog, "tampered", { mode: "overwrite" });
+    await Assert.rejects(
+      JackettMiniRuntimeTestUtils.verifyExtractedRuntime(root.path, bundle),
+      /Invalid extracted Jackett Mini file/,
+      "A changed catalog invalidates a reused runtime"
+    );
+    await IOUtils.write(catalog, catalogBytes, { mode: "overwrite" });
+    await IOUtils.writeUTF8(PathUtils.join(root.path, "extra.dll"), "extra", {
+      mode: "create",
+    });
+    await Assert.rejects(
+      JackettMiniRuntimeTestUtils.verifyExtractedRuntime(root.path, bundle),
+      /Unexpected extracted Jackett Mini path/,
+      "An unmanifested runtime file invalidates a reused runtime"
+    );
+    await IOUtils.remove(PathUtils.join(root.path, "extra.dll"));
+    await IOUtils.setPermissions(catalog, 0o755);
+    await Assert.rejects(
+      JackettMiniRuntimeTestUtils.verifyExtractedRuntime(root.path, bundle),
+      /Invalid extracted Jackett Mini file/,
+      "Changed executable permissions invalidate a reused runtime"
+    );
+    await IOUtils.setPermissions(catalog, 0o644);
+    await IOUtils.remove(catalog);
+    await Assert.rejects(
+      JackettMiniRuntimeTestUtils.verifyExtractedRuntime(root.path, bundle),
+      /Incomplete extracted Jackett Mini runtime/,
+      "A missing runtime file invalidates a reused runtime"
+    );
+  }
+);

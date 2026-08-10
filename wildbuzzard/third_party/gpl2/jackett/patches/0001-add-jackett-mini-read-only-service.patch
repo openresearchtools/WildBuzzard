@@ -942,7 +942,7 @@ new file mode 100644
 index 000000000..6f9f74157
 --- /dev/null
 +++ b/src/Jackett.Mini/CatalogPolicy.cs
-@@ -0,0 +1,76 @@
+@@ -0,0 +1,81 @@
 +using System.Security.Cryptography;
 +using System.Text.Json;
 +
@@ -974,6 +974,7 @@ index 000000000..6f9f74157
 +internal sealed class CatalogPolicy
 +{
 +    public const string Commit = "0cd8622b735922a909a128d8d6943bb8565a640f";
++    public const string ExpectedFileSha256 = "__WILDBUZZARD_CATALOG_SHA256__";
 +    public const string Version = "v0.24.2360";
 +    public CatalogDocument Document { get; }
 +    public IReadOnlyDictionary<string, CatalogEntry> Enabled { get; }
@@ -983,6 +984,10 @@ index 000000000..6f9f74157
 +    {
 +        var bytes = File.ReadAllBytes(path);
 +        FileSha256 = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
++        if (!CryptographicOperations.FixedTimeEquals(
++                Convert.FromHexString(ExpectedFileSha256),
++                Convert.FromHexString(FileSha256)))
++            throw new InvalidOperationException("Catalog digest differs from this executable");
 +        Document = JsonSerializer.Deserialize<CatalogDocument>(bytes, JsonDefaults.Options)
 +            ?? throw new InvalidOperationException("Catalog is empty");
 +        if (Document.SchemaVersion != 1 || Document.JackettVersion != Version || Document.JackettCommit != Commit)
@@ -1109,10 +1114,11 @@ new file mode 100644
 index 000000000..40ff4d8ba
 --- /dev/null
 +++ b/src/Jackett.Mini/DirectWebClient.cs
-@@ -0,0 +1,147 @@
+@@ -0,0 +1,166 @@
 +using System.Net;
 +using System.Net.Http.Headers;
 +using System.Text;
++using System.Xml;
 +using Jackett.Common.Models.Config;
 +using Jackett.Common.Services.Interfaces;
 +using Jackett.Common.Utils.Clients;
@@ -1124,7 +1130,7 @@ index 000000000..40ff4d8ba
 +
 +internal sealed class DirectWebClient : JackettWebClient, IDisposable
 +{
-+    private const int MaximumResponseBytes = 16 * 1024 * 1024;
++    private const int MaximumResponseBytes = 4 * 1024 * 1024;
 +    private readonly HttpClient _client;
 +    private TimeSpan _timeout = TimeSpan.FromSeconds(15);
 +
@@ -1182,10 +1188,28 @@ index 000000000..40ff4d8ba
 +            result.Headers[header.Key] = header.Value.ToArray();
 +        foreach (var header in response.Content.Headers)
 +            result.Headers[header.Key] = header.Value.ToArray();
++        if (response.Content.Headers.ContentType?.MediaType?.Contains("xml", StringComparison.OrdinalIgnoreCase) is true)
++            ValidateXml(result.ContentBytes);
 +        if (response.Headers.TryGetValues("Set-Cookie", out var cookies))
 +            result.Cookies = string.Join(" ", cookies.Select(cookie => cookie.Split(';', 2)[0] + ";"));
 +            return result;
 +        }
++    }
++
++    private static void ValidateXml(byte[] bytes)
++    {
++        var settings = new XmlReaderSettings
++        {
++            DtdProcessing = DtdProcessing.Prohibit,
++            MaxCharactersFromEntities = 0,
++            MaxCharactersInDocument = MaximumResponseBytes,
++            XmlResolver = null,
++        };
++        using var stream = new MemoryStream(bytes, writable: false);
++        using var reader = XmlReader.Create(stream, settings);
++        while (reader.Read())
++            if (reader.Depth > 64)
++                throw new InvalidOperationException("Provider XML exceeded the depth limit");
 +    }
 +
 +    private static HttpRequestMessage CreateRequest(JackettWebRequest webRequest, Uri uri, HttpMethod method, bool includeSensitive)
@@ -1340,8 +1364,9 @@ new file mode 100644
 index 000000000..792c7f857
 --- /dev/null
 +++ b/src/Jackett.Mini/DiscoveryService.cs
-@@ -0,0 +1,234 @@
+@@ -0,0 +1,235 @@
 +using System.Diagnostics;
++using System.Globalization;
 +using System.Security.Cryptography;
 +using System.Text;
 +using Jackett.Common.Indexers;
@@ -1565,7 +1590,7 @@ index 000000000..792c7f857
 +        var builder = new StringBuilder(Math.Min(value.Length, maximum));
 +        foreach (var character in value.Normalize(NormalizationForm.FormC))
 +        {
-+            if (!char.IsControl(character))
++            if (!char.IsControl(character) && char.GetUnicodeCategory(character) != UnicodeCategory.Format)
 +                builder.Append(character);
 +            if (builder.Length == maximum)
 +                break;
@@ -1921,7 +1946,7 @@ new file mode 100644
 index 000000000..2931d6a15
 --- /dev/null
 +++ b/src/Jackett.Mini/Program.cs
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,166 @@
 +using System.Diagnostics;
 +using System.Net;
 +using System.Security.Cryptography;
@@ -2022,12 +2047,14 @@ index 000000000..2931d6a15
 +        executableSha256,
 +        dataRootId,
 +        catalogSha256 = catalog.FileSha256,
++        catalogPolicySha256 = catalog.Document.PolicySha256,
 +    }));
 +    app.MapGet("/v1/version", () => Results.Json(new
 +    {
 +        protocolVersion = 1,
 +        runtimeVersion = CatalogPolicy.Version,
 +        commit = CatalogPolicy.Commit,
++        catalogSha256 = catalog.FileSha256,
 +        catalogPolicySha256 = catalog.Document.PolicySha256,
 +    }));
 +    app.MapGet("/v1/sources", (DiscoveryService discovery) => Results.Json(discovery.Sources()));

@@ -16,9 +16,11 @@ archive_path=
 object_dir=
 log_dir=
 keep_object=false
+test_fixture_package=
+production_manifest=
 
 usage() {
-  echo "usage: $0 --output DIR [--archive FILE] [--object-dir DIR] [--log-dir DIR] [--keep-object]" >&2
+  echo "usage: $0 --output DIR [--archive FILE] [--object-dir DIR] [--log-dir DIR] [--keep-object] [--test-fixture-package DIR --production-manifest FILE]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -43,6 +45,14 @@ while [[ $# -gt 0 ]]; do
     --keep-object)
       keep_object=true
       shift
+      ;;
+    --test-fixture-package)
+      test_fixture_package=${2:?}
+      shift 2
+      ;;
+    --production-manifest)
+      production_manifest=${2:?}
+      shift 2
       ;;
     *)
       usage
@@ -84,6 +94,22 @@ else
 fi
 mkdir -p -- "$log_dir"
 
+python3 "$wildbuzzard_dir/tests/original-services/jackett/boundary_scan.py" \
+  --root "$wildbuzzard_dir/browser" \
+  --root "$wildbuzzard_dir/../agent" \
+  --root "$wildbuzzard_dir/managed-services" \
+  --root "$wildbuzzard_dir/torrent-runtime" \
+  --output "$log_dir/process-boundary.json"
+
+if [[ -n "$test_fixture_package" || -n "$production_manifest" ]]; then
+  if [[ -z "$test_fixture_package" || -z "$production_manifest" ]]; then
+    echo "test fixture builds require both --test-fixture-package and --production-manifest" >&2
+    exit 2
+  fi
+  test_fixture_package=$(realpath -- "$test_fixture_package")
+  production_manifest=$(realpath -- "$production_manifest")
+fi
+
 cleanup() {
   if [[ "$keep_object" == false ]] && [[ "$object_dir" == "${TMPDIR:-/tmp}"/jackett-mini-build.* ]]; then
     rm -rf -- "$object_dir"
@@ -117,6 +143,37 @@ python3 "$package_dir/provider-policy/generate_catalog.py" \
   --check \
   --stage-definitions "$source_dir/src/Jackett.Mini/Definitions"
 cp -- "$package_dir/provider-policy/catalog.json" "$source_dir/src/Jackett.Mini/catalog.json"
+if [[ -n "$test_fixture_package" ]]; then
+  test -f "$test_fixture_package/catalog.json"
+  test -f "$test_fixture_package/fixture-binding.json"
+  test -d "$test_fixture_package/Definitions"
+  python3 - "$test_fixture_package/catalog.json" "$test_fixture_package/fixture-binding.json" "$production_manifest" <<'PY'
+import json
+import sys
+
+catalog = json.load(open(sys.argv[1], encoding="utf-8"))
+binding = json.load(open(sys.argv[2], encoding="utf-8"))
+manifest = json.load(open(sys.argv[3], encoding="utf-8"))
+if (
+    binding.get("schemaVersion") != 1
+    or binding.get("testFixture") is not True
+    or binding.get("fixtureOrigin") != "http://11.0.0.2:18080"
+    or catalog.get("enabledIndexerIds") != ["linuxtracker", "showrss"]
+    or [entry.get("indexerId") for entry in catalog.get("entries", [])]
+    != ["linuxtracker", "showrss"]
+    or binding.get("shippingPolicySha256") != manifest.get("providerPolicySha256")
+    or manifest.get("testFixture") is not False
+):
+    raise SystemExit("test fixture package is not bound to the production policy")
+PY
+  find "$source_dir/src/Jackett.Mini/Definitions" -mindepth 1 -maxdepth 1 -type f -delete
+  cp -- "$test_fixture_package"/Definitions/*.yml "$source_dir/src/Jackett.Mini/Definitions/"
+  cp -- "$test_fixture_package/catalog.json" "$source_dir/src/Jackett.Mini/catalog.json"
+fi
+runtime_catalog="$source_dir/src/Jackett.Mini/catalog.json"
+python3 "$package_dir/packaging/bind_catalog.py" \
+  --source "$source_dir/src/Jackett.Mini/CatalogPolicy.cs" \
+  --catalog "$runtime_catalog" > "$log_dir/catalog-binding.sha256"
 
 podman_args=()
 if [[ -n "${JACKETT_MINI_OCI_RUNTIME:-}" ]]; then
@@ -197,7 +254,7 @@ for forbidden in Content Jackett.Updater JackettConsole jackett_updater FlareSol
   fi
 done
 
-expected_yaml=$(python3 -c 'import json,sys; print(sum(e["eligibility"] == "enabled-public" and e["sourceKind"] == "cardigann-yaml" for e in json.load(open(sys.argv[1]))["entries"]))' "$package_dir/provider-policy/catalog.json")
+expected_yaml=$(python3 -c 'import json,sys; print(sum(e["eligibility"] == "enabled-public" and e["sourceKind"] == "cardigann-yaml" for e in json.load(open(sys.argv[1]))["entries"]))' "$runtime_catalog")
 actual_yaml=$(find "$object_dir/publish/Definitions" -maxdepth 1 -type f -name '*.yml' | wc -l)
 if [[ "$actual_yaml" -ne "$expected_yaml" ]]; then
   echo "published provider definition set is incomplete" >&2
@@ -208,19 +265,48 @@ cp -a -- "$object_dir/publish/." "$output_dir/"
 mkdir -p -- "$output_dir/source/jackett"
 cp -a -- "$package_dir/." "$output_dir/source/jackett/"
 cp -- "$script_dir/build-jackett-mini.sh" "$output_dir/source/jackett/build-jackett-mini.sh"
+if [[ -n "$test_fixture_package" ]]; then
+  mkdir -p -- "$output_dir/source/jackett/test-fixture-input"
+  cp -a -- "$test_fixture_package/." "$output_dir/source/jackett/test-fixture-input/"
+fi
 find "$output_dir" -type d -exec chmod 0755 -- {} +
 find "$output_dir" -type f -exec chmod 0644 -- {} +
 chmod 0755 -- "$output_dir/jackett-mini"
 find "$output_dir" -type f -exec touch -d "@$source_date_epoch" -- {} +
+metadata_args=()
+if [[ -n "$test_fixture_package" ]]; then
+  production_runtime_sha256=$(python3 - "$production_manifest" <<'PY'
+import json
+import sys
+
+manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+digest = manifest.get("runtimeSha256", "")
+if len(digest) != 64:
+    raise SystemExit("production runtime manifest has no valid inventory digest")
+print(digest)
+PY
+)
+  metadata_args+=(--test-fixture --production-runtime-sha256 "$production_runtime_sha256")
+fi
 python3 "$package_dir/packaging/write_runtime_metadata.py" \
   --runtime "$output_dir" \
-  --catalog "$package_dir/provider-policy/catalog.json" \
+  --catalog "$runtime_catalog" \
   --source "$source_dir" \
   --source-sha256 "$source_sha256" \
   --sdk-image "$sdk_image" \
   --license-inventory "$package_dir/packaging/nuget-licenses.json" \
   --manifest "$output_dir/jackett-mini-runtime.json" \
-  --sbom "$output_dir/jackett-mini.spdx.json"
+  --sbom "$output_dir/jackett-mini.spdx.json" \
+  "${metadata_args[@]}"
+
+python3 "$wildbuzzard_dir/tests/original-services/jackett/boundary_scan.py" \
+  --root "$wildbuzzard_dir/browser" \
+  --root "$wildbuzzard_dir/../agent" \
+  --root "$wildbuzzard_dir/managed-services" \
+  --root "$wildbuzzard_dir/torrent-runtime" \
+  --runtime "$output_dir" \
+  --catalog "$runtime_catalog" \
+  --output "$log_dir/runtime-boundary.json"
 
 if [[ -n "$archive_path" ]]; then
   python3 "$package_dir/packaging/create_runtime_zip.py" \

@@ -7,7 +7,20 @@
     "healthResponse": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["status", "protocolVersion", "runtimeVersion", "commit", "instanceId", "processId", "processStartTimeUtc", "executablePath", "executableSha256", "dataRootId", "catalogSha256"],
+      "required": [
+        "status",
+        "protocolVersion",
+        "runtimeVersion",
+        "commit",
+        "instanceId",
+        "processId",
+        "processStartTimeUtc",
+        "executablePath",
+        "executableSha256",
+        "dataRootId",
+        "catalogSha256",
+        "catalogPolicySha256"
+      ],
       "properties": {
         "status": { "const": "ok" },
         "protocolVersion": { "const": 1 },
@@ -19,17 +32,25 @@
         "executablePath": { "type": "string", "minLength": 1 },
         "executableSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "dataRootId": { "type": "string", "pattern": "^[a-f0-9]{32}$" },
-        "catalogSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        "catalogSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "catalogPolicySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
     "versionResponse": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["protocolVersion", "runtimeVersion", "commit", "catalogPolicySha256"],
+      "required": [
+        "protocolVersion",
+        "runtimeVersion",
+        "commit",
+        "catalogSha256",
+        "catalogPolicySha256"
+      ],
       "properties": {
         "protocolVersion": { "const": 1 },
         "runtimeVersion": { "const": "v0.24.2360" },
         "commit": { "const": "0cd8622b735922a909a128d8d6943bb8565a640f" },
+        "catalogSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
         "catalogPolicySha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
       }
     },
@@ -76,13 +97,26 @@
           "uniqueItems": true,
           "items": { "type": "string", "minLength": 1, "maxLength": 128 }
         },
-        "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 100 }
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200,
+          "default": 100
+        }
       }
     },
     "result": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["resultId", "providerId", "providerName", "name", "categoryIds", "access", "acquisition"],
+      "required": [
+        "resultId",
+        "providerId",
+        "providerName",
+        "name",
+        "categoryIds",
+        "access",
+        "acquisition"
+      ],
       "properties": {
         "resultId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{32}$" },
         "providerId": { "type": "string" },
@@ -94,7 +128,10 @@
         "publishedAt": { "type": ["string", "null"], "format": "date-time" },
         "categoryIds": {
           "type": "array",
-          "items": { "type": "integer", "not": { "minimum": 6000, "maximum": 6999 } }
+          "items": {
+            "type": "integer",
+            "not": { "minimum": 6000, "maximum": 6999 }
+          }
         },
         "access": { "const": "public" },
         "acquisition": { "enum": ["magnet", "torrent"] }
@@ -106,7 +143,9 @@
       "required": ["id", "state", "elapsedMs"],
       "properties": {
         "id": { "type": "string", "minLength": 1, "maxLength": 128 },
-        "state": { "enum": ["ok", "unavailable", "unsupported", "timeout", "error"] },
+        "state": {
+          "enum": ["ok", "unavailable", "unsupported", "timeout", "error"]
+        },
         "elapsedMs": { "type": "integer", "minimum": 0 }
       }
     },
@@ -117,8 +156,17 @@
       "properties": {
         "searchId": { "type": "string", "pattern": "^[A-Za-z0-9_-]{32}$" },
         "partial": { "type": "boolean" },
-        "providers": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/$defs/providerStatus" } },
-        "results": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/result" } }
+        "providers": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 100,
+          "items": { "$ref": "#/$defs/providerStatus" }
+        },
+        "results": {
+          "type": "array",
+          "maxItems": 200,
+          "items": { "$ref": "#/$defs/result" }
+        }
       }
     },
     "resolutionResponse": {
@@ -129,7 +177,10 @@
           "required": ["kind", "magnet", "torrentBase64", "torrentBytes"],
           "properties": {
             "kind": { "const": "magnet" },
-            "magnet": { "type": "string", "pattern": "^magnet:\\?xt=urn:btih:" },
+            "magnet": {
+              "type": "string",
+              "pattern": "^magnet:\\?xt=urn:btih:"
+            },
             "torrentBase64": { "type": "null" },
             "torrentBytes": { "type": "null" }
           }
@@ -142,7 +193,11 @@
             "kind": { "const": "torrent" },
             "magnet": { "type": "null" },
             "torrentBase64": { "type": "string", "contentEncoding": "base64" },
-            "torrentBytes": { "type": "integer", "minimum": 1, "maximum": 12582912 }
+            "torrentBytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12582912
+            }
           }
         }
       ]
@@ -152,7 +207,15 @@
       "additionalProperties": false,
       "required": ["error"],
       "properties": {
-        "error": { "enum": ["invalid-request", "not-found", "unknown-or-expired-result", "resolution-timeout", "resolution-failed"] }
+        "error": {
+          "enum": [
+            "invalid-request",
+            "not-found",
+            "unknown-or-expired-result",
+            "resolution-timeout",
+            "resolution-failed"
+          ]
+        }
       }
     }
   }

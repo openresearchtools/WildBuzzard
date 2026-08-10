@@ -26,20 +26,26 @@ import {
 
 const runtimeDirectory = process.env.JACKETT_MINI_TEST_RUNTIME;
 const runtimeManifestPath = process.env.JACKETT_MINI_TEST_MANIFEST;
+if (
+  process.env.WILDBUZZARD_REQUIRE_JACKETT_RUNTIME_TESTS === "1" &&
+  (!runtimeDirectory || !runtimeManifestPath)
+) {
+  throw new Error("the required Jackett Mini runtime test artifact is missing");
+}
 
 function ensureInFreshLauncher(options) {
   const modulePath = new URL("../process.mjs", import.meta.url).href;
   const program = `
     import { ensureJackettMini } from ${JSON.stringify(modulePath)};
     const record = await ensureJackettMini(JSON.parse(process.env.JACKETT_OPTIONS));
-    process.stdout.write(String(record.pid));
+    process.stdout.write(JSON.stringify(record));
   `;
   return new Promise((resolve, reject) => {
     execFile(
       process.execPath,
       ["--input-type=module", "--eval", program],
       { env: { ...process.env, JACKETT_OPTIONS: JSON.stringify(options) } },
-      (error, stdout) => (error ? reject(error) : resolve(Number(stdout)))
+      (error, stdout) => (error ? reject(error) : resolve(JSON.parse(stdout)))
     );
   });
 }
@@ -119,7 +125,15 @@ test(
       );
       assert.equal((await stat(record.capabilityPath)).mode & 0o777, 0o600);
       assert.equal((await ensureJackettMini(options)).pid, record.pid);
-      assert.equal(await ensureInFreshLauncher(options), record.pid);
+      const reopenedRecord = await ensureInFreshLauncher(options);
+      assert.equal(reopenedRecord.pid, record.pid);
+      assert.equal(
+        reopenedRecord.linuxProcessStartTime,
+        record.linuxProcessStartTime
+      );
+      assert.equal(reopenedRecord.ownerInstanceId, record.ownerInstanceId);
+      assert.equal(reopenedRecord.dataRootId, record.dataRootId);
+      assert.equal(reopenedRecord.executableSha256, record.executableSha256);
       assert.equal(
         (await inspectJackettMini({ runtimeStateDirectory })).pid,
         record.pid

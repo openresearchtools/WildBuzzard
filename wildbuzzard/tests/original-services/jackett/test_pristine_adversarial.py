@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
+import copy
 import hashlib
 import importlib.util
 import json
@@ -11,6 +12,7 @@ import time
 import unittest
 
 from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
+from expected_mini import SCENARIOS, expected_for, validate_all
 
 SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location(
@@ -142,20 +144,40 @@ class PristineAdversarialTest(unittest.TestCase):
                     json.loads(body)
                     self.assertEqual(headers["Content-Type"], "application/json")
 
+    def test_every_scenario_has_an_exact_reviewed_mini_transform(self):
+        self.assertEqual(set(self.expected), SCENARIOS)
+        mini = {
+            name: expected_for(name, value, self.expected)
+            for name, value in self.expected.items()
+        }
+        validate_all(self.expected, mini)
+        changed = copy.deepcopy(mini)
+        changed["redirect-once"]["items"][0]["title"] = "unreviewed"
+        with self.assertRaisesRegex(AssertionError, "unexplained Mini"):
+            validate_all(self.expected, changed)
+
     def test_mini_runtime_validation_covers_the_complete_inventory(self):
         with tempfile.TemporaryDirectory() as directory:
             runtime = pathlib.Path(directory) / "runtime"
             runtime.mkdir()
             executable = runtime / "jackett-mini"
+            catalog = runtime / "catalog.json"
             executable.write_bytes(b"pinned-mini")
             executable.chmod(0o755)
+            catalog.write_bytes(b"{}\n")
             entry = {
                 "path": "jackett-mini",
                 "sha256": MODULE.sha256_file(executable),
                 "size": executable.stat().st_size,
                 "executable": True,
             }
-            files = [entry]
+            catalog_entry = {
+                "path": "catalog.json",
+                "sha256": MODULE.sha256_file(catalog),
+                "size": catalog.stat().st_size,
+                "executable": False,
+            }
+            files = [catalog_entry, entry]
             manifest = {
                 "component": "jackett-mini",
                 "protocolVersion": 1,
@@ -165,6 +187,10 @@ class PristineAdversarialTest(unittest.TestCase):
                 "platform": "linux",
                 "architecture": "x86_64",
                 "libc": "glibc",
+                "testFixture": False,
+                "enabledProviderCount": 60,
+                "catalogFileSha256": catalog_entry["sha256"],
+                "providerPolicySha256": "b" * 64,
                 "runtimeSha256": hashlib.sha256(
                     json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
                 ).hexdigest(),
@@ -176,6 +202,64 @@ class PristineAdversarialTest(unittest.TestCase):
             (runtime / "unmanifested").write_bytes(b"unexpected")
             with self.assertRaisesRegex(RuntimeError, "unmanifested"):
                 MODULE.validate_mini_runtime(runtime, manifest_path)
+
+    def test_fixture_runtime_must_bind_the_production_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runtime = pathlib.Path(directory)
+            executable = runtime / "jackett-mini"
+            catalog = runtime / "catalog.json"
+            executable.write_bytes(b"fixture-mini")
+            executable.chmod(0o755)
+            catalog.write_bytes(b"{}\n")
+            files = [
+                {
+                    "path": "catalog.json",
+                    "sha256": MODULE.sha256_file(catalog),
+                    "size": catalog.stat().st_size,
+                    "executable": False,
+                },
+                {
+                    "path": "jackett-mini",
+                    "sha256": MODULE.sha256_file(executable),
+                    "size": executable.stat().st_size,
+                    "executable": True,
+                },
+            ]
+            production_digest = "a" * 64
+            manifest = {
+                "component": "jackett-mini",
+                "protocolVersion": 1,
+                "upstreamVersion": "v0.24.2360",
+                "upstreamCommit": MODULE.COMMIT,
+                "sourceSha256": MODULE.SOURCE_SHA256,
+                "platform": "linux",
+                "architecture": "x86_64",
+                "libc": "glibc",
+                "testFixture": True,
+                "enabledProviderCount": 2,
+                "catalogFileSha256": files[0]["sha256"],
+                "providerPolicySha256": "b" * 64,
+                "productionRuntimeSha256": production_digest,
+                "runtimeSha256": hashlib.sha256(
+                    json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest(),
+                "files": files,
+            }
+            manifest_path = runtime / "jackett-mini-runtime.json"
+            manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+            MODULE.validate_mini_runtime(
+                runtime,
+                manifest_path,
+                test_fixture=True,
+                production_runtime_sha256=production_digest,
+            )
+            with self.assertRaisesRegex(RuntimeError, "fixture"):
+                MODULE.validate_mini_runtime(
+                    runtime,
+                    manifest_path,
+                    test_fixture=True,
+                    production_runtime_sha256="b" * 64,
+                )
 
     def test_pristine_source_manifest_validates_listed_files_and_allows_outputs(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -341,6 +425,11 @@ class PristineAdversarialTest(unittest.TestCase):
         self.assertGreaterEqual(wrapper.count("/proc/key-users"), 2)
         self.assertIn('cmp -s -- "$comparison_key_check/before"', wrapper)
         self.assertIn("kernel-key-quota.json", wrapper)
+        self.assertNotIn("unshare ", wrapper)
+        self.assertIn("network create --internal", wrapper)
+        self.assertIn("--cap-drop=all", wrapper)
+        self.assertIn(":ro,Z", wrapper)
+        self.assertIn("@sha256:[0-9a-f]{64}", wrapper)
 
 
 if __name__ == "__main__":
