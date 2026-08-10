@@ -376,6 +376,14 @@ test("connection reader rejects invalid epoch timestamp ordering", t => {
   assert.throws(() => readSearchConnection(), /invalid/);
 });
 
+test("connection reader rejects fields outside the managed schema", t => {
+  installConnection(t, 30000, {
+    ...record(30000),
+    unexpected: true,
+  });
+  assert.throws(() => readSearchConnection(), /invalid/);
+});
+
 test("connection reader rejects a group-readable capability record", () => {
   const directory = mkdtempSync(join(tmpdir(), "wildbuzzard-search-mode-"));
   const connectionFile = join(directory, "connection.json");

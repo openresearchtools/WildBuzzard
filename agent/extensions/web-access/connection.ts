@@ -27,6 +27,23 @@ export interface SearchConnection {
   lastHealthAt: number;
 }
 
+const CONNECTION_FIELDS = new Set([
+  "address",
+  "createdAt",
+  "dataRootId",
+  "executablePath",
+  "executableSha256",
+  "lastHealthAt",
+  "ownerInstanceId",
+  "pid",
+  "port",
+  "processStartTime",
+  "protocolVersion",
+  "runtimeVersion",
+  "token",
+  "version",
+]);
+
 function connectionPath(): string {
   if (process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE) {
     return process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE;
@@ -56,18 +73,21 @@ function validateConnection(value: unknown): SearchConnection {
     throw new Error("WildBuzzard search connection record is invalid");
   }
   const record = value as Partial<SearchConnection>;
+  const fields = Object.keys(record);
   if (
+    fields.length !== CONNECTION_FIELDS.size ||
+    fields.some(field => !CONNECTION_FIELDS.has(field)) ||
     record.version !== 1 ||
     record.protocolVersion !== 1 ||
     record.address !== "127.0.0.1" ||
-    !Number.isInteger(record.port) ||
+    !Number.isSafeInteger(record.port) ||
     Number(record.port) < 1024 ||
     Number(record.port) > 65535 ||
     typeof record.token !== "string" ||
     record.token.length < 32 ||
     record.token.length > 512 ||
     !/^[A-Za-z0-9_-]+$/.test(record.token) ||
-    !Number.isInteger(record.pid) ||
+    !Number.isSafeInteger(record.pid) ||
     Number(record.pid) < 1 ||
     typeof record.processStartTime !== "string" ||
     !/^\d+$/.test(record.processStartTime) ||
