@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import unittest
 
@@ -14,6 +15,111 @@ SPEC.loader.exec_module(COMPARATOR)
 
 
 class FirecrawlComparatorTest(unittest.TestCase):
+    def test_base_images_pin_index_platform_and_config_digests(self) -> None:
+        digest_pattern = COMPARATOR.re.compile(r"sha256:[0-9a-f]{64}")
+        for image in COMPARATOR.BASE_IMAGES:
+            digests = {
+                image["indexDigest"],
+                image["platformDigest"],
+                image["configDigest"],
+            }
+            self.assertEqual(len(digests), 3)
+            self.assertTrue(all(digest_pattern.fullmatch(value) for value in digests))
+            descriptor = COMPARATOR.pinned_platform_descriptor(
+                {
+                    "manifests": [
+                        {
+                            "digest": image["platformDigest"],
+                            "platform": {"os": "linux", "architecture": "amd64"},
+                        }
+                    ]
+                },
+                image,
+            )
+            self.assertEqual(descriptor["digest"], image["platformDigest"])
+            identity = {
+                "id": image["configDigest"],
+                "digest": image["platformDigest"],
+                "os": "linux",
+                "architecture": "amd64",
+            }
+            COMPARATOR.validate_base_identity(image, identity)
+            with self.assertRaisesRegex(RuntimeError, "config digest"):
+                COMPARATOR.validate_base_identity(image, {**identity, "id": "wrong"})
+
+    def test_pristine_dockerfile_from_parser(self) -> None:
+        self.assertEqual(
+            COMPARATOR.dockerfile_from_references(
+                "FROM node:22-slim AS base\n"
+                "FROM --platform=linux/amd64 golang:1.24 AS build\n"
+                "FROM base AS runtime\n"
+            ),
+            ["node:22-slim", "golang:1.24", "base"],
+        )
+
+    def test_base_pull_orchestration_never_pulls_a_mutable_tag(self) -> None:
+        class Recorder:
+            def __init__(self) -> None:
+                self.commands = []
+
+            def run(self, _name, command):
+                self.commands.append(command)
+                if command[1:3] == ["manifest", "inspect"]:
+                    image = next(
+                        item
+                        for item in COMPARATOR.BASE_IMAGES
+                        if item["indexDigest"] in command[-1]
+                    )
+                    output = json.dumps({
+                        "manifests": [
+                            {
+                                "digest": image["platformDigest"],
+                                "platform": {
+                                    "os": "linux",
+                                    "architecture": "amd64",
+                                },
+                            }
+                        ]
+                    })
+                elif command[1:3] == ["image", "inspect"]:
+                    reference = command[-1]
+                    image = next(
+                        item
+                        for item in COMPARATOR.BASE_IMAGES
+                        if reference
+                        in {
+                            item["from"],
+                            COMPARATOR.base_tag_reference(item),
+                            COMPARATOR.base_platform_reference(item),
+                        }
+                    )
+                    output = json.dumps([
+                        {
+                            "Id": image["configDigest"],
+                            "Digest": image["platformDigest"],
+                            "RepoDigests": [],
+                            "Architecture": "amd64",
+                            "Os": "linux",
+                            "RootFS": {"Layers": []},
+                        }
+                    ])
+                else:
+                    output = ""
+                return COMPARATOR.subprocess.CompletedProcess(command, 0, output)
+
+        recorder = Recorder()
+        identities = COMPARATOR.pull_bases(recorder)
+        self.assertEqual(len(identities), 3)
+        pulls = [command for command in recorder.commands if command[1] == "pull"]
+        self.assertEqual(len(pulls), 3)
+        self.assertTrue(all("@sha256:" in command[-1] for command in pulls))
+        self.assertTrue(
+            all(
+                image["platformDigest"] in command[-1]
+                for image, command in zip(COMPARATOR.BASE_IMAGES, pulls)
+            )
+        )
+
     def test_reference_pin_distinguishes_tag_object_and_commit(self) -> None:
         self.assertEqual(COMPARATOR.FIRECRAWL_TAG, "v2.11.193")
         self.assertEqual(
@@ -57,6 +163,16 @@ class FirecrawlComparatorTest(unittest.TestCase):
         for value in ["0", "nan", "inf", "3601"]:
             with self.assertRaises(COMPARATOR.argparse.ArgumentTypeError):
                 COMPARATOR.bounded_timeout(value)
+
+    def test_cancellation_prompt_bound_precedes_natural_completion(self) -> None:
+        self.assertLess(
+            COMPARATOR.CANCELLATION_PROMPT_BOUND_MS,
+            COMPARATOR.CANCELLATION_FIXTURE_MS,
+        )
+        self.assertTrue(COMPARATOR.cancellation_prompt_passed(2999))
+        self.assertFalse(COMPARATOR.cancellation_prompt_passed(3000))
+        self.assertFalse(COMPARATOR.cancellation_prompt_passed(5000))
+        self.assertFalse(COMPARATOR.cancellation_prompt_passed(None))
 
     def test_fixture_url_normalization_is_narrow(self) -> None:
         self.assertEqual(

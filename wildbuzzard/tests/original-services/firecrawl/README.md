@@ -13,6 +13,14 @@ digests, built-image identities, commands, redacted HTTP transcripts, service
 logs, process and page cleanup checks, timings, mappings, normalized results,
 and teardown evidence in a required directory outside the checkout.
 
+The Node, Go, and Redis bases are fixed to `linux/amd64` OCI index, platform
+manifest, and image-config digests. Before building, the harness inspects each
+immutable index, verifies its platform descriptor, pulls only the immutable
+platform reference, verifies the local config and platform identity, and tags
+that content for the pristine Dockerfiles' literal `FROM` names. Those names
+are checked again after both `--pull=never` builds. The upstream Dockerfiles
+are never rewritten.
+
 Run the Firecrawl half while a fresh WildBuzzard build is unavailable:
 
 ```sh
@@ -47,6 +55,10 @@ targets, and at least 95 percent multiset visible-text token recall.
 The full gate also requires bounded Gecko failures for the stress corpus and
 cancels a live Gecko fixture request through the browser-control protocol
 before checking cleanup diagnostics and lock reuse.
+Both Firecrawl and Gecko cancellation probes use a five-second fixture but
+pass only when renderer and fixture activity clear in less than the fixed
+three-second prompt bound. Eventual cleanup is recorded separately and cannot
+turn a missed prompt bound into a pass.
 
 The cross-origin redirect case records Firecrawl's actual custom-header
 behavior while requiring WildBuzzard to strip the caller-supplied header at

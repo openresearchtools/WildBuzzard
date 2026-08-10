@@ -31,10 +31,31 @@ FIRECRAWL_REPOSITORY = "https://github.com/firecrawl/firecrawl.git"
 FIRECRAWL_TAG = "v2.11.193"
 FIRECRAWL_COMMIT = "448ef4bf815d8df798d1a676f0303285e54cabdb"
 FIRECRAWL_TAG_OBJECT = "f13353ea529b12b4f17aef76d1a01e6d90784850"
+BASE_PLATFORM = "linux/amd64"
+CANCELLATION_FIXTURE_MS = 5000
+CANCELLATION_PROMPT_BOUND_MS = 3000
 BASE_IMAGES = (
-    "docker.io/library/node:22-slim",
-    "docker.io/library/golang:1.24",
-    "docker.io/library/redis:alpine",
+    {
+        "from": "node:22-slim",
+        "repository": "docker.io/library/node",
+        "indexDigest": "sha256:d649c27dae7ba0137b3cef5dd75baa422c08dc3d9e3fc0c23dfb172dc3cc6436",
+        "platformDigest": "sha256:a17d50af28002a160548bd4225b3cfcb12c5efcb171f79e68758f2885fb1b066",
+        "configDigest": "sha256:fc8cd9deea7389d01d9a70cc83a5d09465c2050f2ae322d67300a9794433edad",
+    },
+    {
+        "from": "golang:1.24",
+        "repository": "docker.io/library/golang",
+        "indexDigest": "sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804",
+        "platformDigest": "sha256:46fdd02b6cbcd624a4087ea298e4c8505e5d400c4ee5181e4dd06e2297d647ae",
+        "configDigest": "sha256:00925efecb9c93b3208f48a9e8ae8b1d426be1fff78baf2fc9d394d198fe9fc8",
+    },
+    {
+        "from": "redis:alpine",
+        "repository": "docker.io/library/redis",
+        "indexDigest": "sha256:978f0e01593e65eed801f2402944efcd936d43b5027e4908a7897baf88ed6241",
+        "platformDigest": "sha256:a6a88248ad5b0c724b7f2b380b7d21f46097db158b2b077ef85bcb97f90aee3a",
+        "configDigest": "sha256:cc48e0fe25c0095fb69b711b6c110b3801e7b30189e14358a5f16d4a747c9ec0",
+    },
 )
 TOKEN_PATTERN = re.compile(r"[\w]+(?:['’-][\w]+)*", re.UNICODE)
 BEARER_PATTERN = re.compile(r"(?i)(authorization:\s*bearer\s+)[^\s\"']+")
@@ -289,6 +310,13 @@ def bounded_timeout(value: str) -> float:
     return result
 
 
+def cancellation_prompt_passed(duration_milliseconds: object) -> bool:
+    return (
+        isinstance(duration_milliseconds, (int, float))
+        and 0 <= duration_milliseconds < CANCELLATION_PROMPT_BOUND_MS
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts", required=True)
@@ -322,6 +350,37 @@ def verify_rootless_podman(recorder: Recorder) -> dict[str, object]:
     if info.stdout.strip() != "true":
         raise RuntimeError("Podman is not operating rootlessly")
     return json.loads(version.stdout)
+
+
+def dockerfile_from_references(value: str) -> list[str]:
+    references = []
+    for line in value.splitlines():
+        match = re.match(
+            r"^\s*FROM(?:\s+--platform=\S+)?\s+(\S+)(?:\s+AS\s+\S+)?\s*$",
+            line,
+            re.IGNORECASE,
+        )
+        if match:
+            references.append(match.group(1))
+    return references
+
+
+def verify_dockerfile_base_references(source: pathlib.Path) -> dict[str, list[str]]:
+    paths = {
+        "api": source / "apps" / "api" / "Dockerfile",
+        "playwright": source / "apps" / "playwright-service-ts" / "Dockerfile",
+    }
+    actual = {
+        name: dockerfile_from_references(path.read_text(encoding="utf-8"))
+        for name, path in paths.items()
+    }
+    expected = {
+        "api": ["node:22-slim", "golang:1.24", "base", "base"],
+        "playwright": ["node:22-slim"],
+    }
+    if actual != expected:
+        raise RuntimeError("Firecrawl Dockerfile base references changed")
+    return actual
 
 
 def prepare_source(
@@ -417,6 +476,7 @@ def prepare_source(
         ),
         "commit": FIRECRAWL_COMMIT,
         "tree": tree.stdout.strip(),
+        "dockerfileBaseReferences": verify_dockerfile_base_references(source),
         "dockerfiles": {
             "api": sha256_file(source / "apps" / "api" / "Dockerfile"),
             "playwright": sha256_file(
@@ -448,11 +508,106 @@ def inspect_image(recorder: Recorder, name: str, reference: str) -> dict[str, ob
     }
 
 
+def base_tag_reference(image: dict[str, str]) -> str:
+    tag = image["from"].split(":", 1)[1]
+    return f"{image['repository']}:{tag}"
+
+
+def base_platform_reference(image: dict[str, str]) -> str:
+    return f"{image['repository']}@{image['platformDigest']}"
+
+
+def pinned_platform_descriptor(
+    index: dict[str, object], image: dict[str, str]
+) -> dict[str, object]:
+    manifests = index.get("manifests")
+    if not isinstance(manifests, list):
+        raise RuntimeError("Pinned base index has no manifest list")
+    matches = []
+    for descriptor in manifests:
+        if not isinstance(descriptor, dict):
+            continue
+        platform_value = descriptor.get("platform")
+        if not isinstance(platform_value, dict):
+            continue
+        if (
+            platform_value.get("os") == "linux"
+            and platform_value.get("architecture") == "amd64"
+            and not platform_value.get("variant")
+        ):
+            matches.append(descriptor)
+    if len(matches) != 1 or matches[0].get("digest") != image["platformDigest"]:
+        raise RuntimeError("Pinned base index platform descriptor mismatch")
+    return matches[0]
+
+
+def validate_base_identity(image: dict[str, str], identity: dict[str, object]) -> None:
+    if identity.get("id") != image["configDigest"]:
+        raise RuntimeError("Pinned base config digest mismatch")
+    if identity.get("digest") != image["platformDigest"]:
+        raise RuntimeError("Pinned base platform digest mismatch")
+    if identity.get("os") != "linux" or identity.get("architecture") != "amd64":
+        raise RuntimeError("Pinned base platform identity mismatch")
+
+
 def pull_bases(recorder: Recorder) -> list[dict[str, object]]:
     identities = []
-    for index, reference in enumerate(BASE_IMAGES):
-        recorder.run(f"base-pull-{index}", ["podman", "pull", reference])
-        identities.append(inspect_image(recorder, f"base-inspect-{index}", reference))
+    for index, image in enumerate(BASE_IMAGES):
+        index_reference = f"{image['repository']}@{image['indexDigest']}"
+        platform_reference = base_platform_reference(image)
+        manifest_result = recorder.run(
+            f"base-index-{index}",
+            ["podman", "manifest", "inspect", index_reference],
+        )
+        descriptor = pinned_platform_descriptor(
+            json.loads(manifest_result.stdout), image
+        )
+        recorder.run(
+            f"base-pull-{index}",
+            [
+                "podman",
+                "pull",
+                "--platform",
+                BASE_PLATFORM,
+                platform_reference,
+            ],
+        )
+        pinned = inspect_image(
+            recorder, f"base-pinned-inspect-{index}", platform_reference
+        )
+        validate_base_identity(image, pinned)
+        tag_reference = base_tag_reference(image)
+        recorder.run(
+            f"base-tag-{index}", ["podman", "tag", str(pinned["id"]), tag_reference]
+        )
+        tagged = inspect_image(recorder, f"base-tagged-inspect-{index}", tag_reference)
+        literal = inspect_image(
+            recorder, f"base-literal-inspect-{index}", image["from"]
+        )
+        validate_base_identity(image, tagged)
+        validate_base_identity(image, literal)
+        identities.append({
+            "from": image["from"],
+            "platform": BASE_PLATFORM,
+            "indexDigest": image["indexDigest"],
+            "platformDescriptor": descriptor,
+            "platformDigest": image["platformDigest"],
+            "configDigest": image["configDigest"],
+            "pinned": pinned,
+            "tagged": tagged,
+            "literal": literal,
+        })
+    return identities
+
+
+def verify_tagged_bases(recorder: Recorder, phase: str) -> list[dict[str, object]]:
+    identities = []
+    for index, image in enumerate(BASE_IMAGES):
+        identity = inspect_image(
+            recorder, f"base-{phase}-inspect-{index}", image["from"]
+        )
+        validate_base_identity(image, identity)
+        identities.append(identity)
     return identities
 
 
@@ -490,7 +645,7 @@ def create_container(
 ) -> str:
     result = recorder.run(
         f"container-create-{name.rsplit('-', 1)[-1]}",
-        ["podman", "create", "--name", name, *arguments],
+        ["podman", "create", "--pull=never", "--name", name, *arguments],
     )
     identity = result.stdout.strip()
     if not identity:
@@ -1266,7 +1421,7 @@ def cancellation_probe(
     timeout: float,
 ) -> dict[str, object]:
     payload = firecrawl_payload(
-        "http://fixture:8080/slow?ms=5000",
+        f"http://fixture:8080/slow?ms={CANCELLATION_FIXTURE_MS}",
         {"waitFor": 100, "timeout": 10000},
     )
     body = json.dumps(payload, separators=(",", ":")).encode()
@@ -1282,7 +1437,6 @@ def cancellation_probe(
     baseline = renderer_processes(
         recorder, playwright_container, "cancellation-process-baseline"
     )
-    started = time.monotonic()
     write_bytes(artifacts / "cancellation.request.http", redactor.data(request))
     stream = socket.create_connection(("127.0.0.1", api_port), timeout=5)
     try:
@@ -1291,21 +1445,33 @@ def cancellation_probe(
             fixture_port, lambda value: value >= 1, min(timeout, 30)
         )
     finally:
+        cancelled_at = time.monotonic()
         stream.close()
-    deadline = time.monotonic() + min(timeout, 30)
+    deadline = cancelled_at + CANCELLATION_PROMPT_BOUND_MS / 1000
     health: dict[str, object] = {}
     active = 1
-    while time.monotonic() < deadline:
+    prompt_duration = None
+    while True:
         try:
-            health = playwright_health(playwright_port, 5)
-            active = fixture_activity(fixture_port, 5)
+            remaining = max(0.05, deadline - time.monotonic())
+            health = playwright_health_state(playwright_port, min(1, remaining))
+            active = fixture_activity(fixture_port, min(1, remaining))
             if health.get("activePages") == 0 and active == 0:
+                prompt_duration = round((time.monotonic() - cancelled_at) * 1000)
                 break
         except Exception:
             pass
-        time.sleep(0.2)
-    if health.get("activePages") != 0 or active != 0:
-        raise RuntimeError("Firecrawl cancellation did not release renderer state")
+        if time.monotonic() >= deadline:
+            break
+        time.sleep(0.05)
+    prompt_observation = {
+        "health": health,
+        "activeFixtureRequests": active,
+    }
+    active, eventual_peak = wait_fixture_activity(
+        fixture_port, lambda value: value == 0, min(timeout, 30)
+    )
+    eventual_duration = round((time.monotonic() - cancelled_at) * 1000)
     cleanup = wait_reference_cleanup(
         recorder,
         playwright_port,
@@ -1314,14 +1480,20 @@ def cancellation_probe(
         "cancellation",
         min(timeout, 30),
     )
-    return {
+    result = {
         "cancelledAfter": "fixture-request-observed",
-        "durationMilliseconds": round((time.monotonic() - started) * 1000),
-        "peakFixtureRequests": peak,
+        "fixtureDelayMilliseconds": CANCELLATION_FIXTURE_MS,
+        "promptBoundMilliseconds": CANCELLATION_PROMPT_BOUND_MS,
+        "promptDurationMilliseconds": prompt_duration,
+        "eventualDurationMilliseconds": eventual_duration,
+        "passed": cancellation_prompt_passed(prompt_duration),
+        "peakFixtureRequests": max(peak, eventual_peak),
         "activeFixtureRequests": active,
-        "health": health,
+        "promptObservation": prompt_observation,
         "cleanup": cleanup,
     }
+    write_json(artifacts / "reference-cancellation.normalized.json", result)
+    return result
 
 
 def gecko_cancellation_probe(
@@ -1332,7 +1504,7 @@ def gecko_cancellation_probe(
     timeout: float,
 ) -> dict[str, object]:
     args = {
-        "url": f"http://127.0.0.1:{fixture_port}/slow?ms=5000",
+        "url": (f"http://127.0.0.1:{fixture_port}/slow?ms={CANCELLATION_FIXTURE_MS}"),
         "waitMs": 100,
         "timeoutMs": 10000,
         "_testAllowedHosts": [f"http://127.0.0.1:{fixture_port}"],
@@ -1351,7 +1523,10 @@ def gecko_cancellation_probe(
         redactor.data(request_bytes + cancel_bytes),
     )
     wait_fixture_activity(fixture_port, lambda value: value == 0, min(timeout, 30))
-    started = time.monotonic()
+    details = None
+    response_bytes = None
+    prompt_errors = []
+    prompt_duration = None
     with socket.create_connection(
         ("127.0.0.1", int(connection["port"])), timeout=timeout
     ) as stream:
@@ -1359,18 +1534,43 @@ def gecko_cancellation_probe(
         _active, peak = wait_fixture_activity(
             fixture_port, lambda value: value >= 1, min(timeout, 30)
         )
+        cancelled_at = time.monotonic()
+        deadline = cancelled_at + CANCELLATION_PROMPT_BOUND_MS / 1000
         stream.sendall(cancel_bytes)
-        details, response_bytes = receive_gecko(stream, request_id, timeout)
-    write_bytes(
-        artifacts / "gecko-cancellation.response.jsonl",
-        redactor.data(response_bytes + b"\n"),
-    )
-    if "aborted" not in str(details.get("_testError", "")):
-        raise RuntimeError("Gecko cancellation did not report caller abort")
-    assert_gecko_cleanup(details)
-    active, observed_peak = wait_fixture_activity(
+        try:
+            details, response_bytes = receive_gecko(
+                stream, request_id, max(0.05, deadline - time.monotonic())
+            )
+        except Exception as error:
+            prompt_errors.append(f"response: {type(error).__name__}: {error}")
+        if details is not None:
+            if "aborted" not in str(details.get("_testError", "")):
+                prompt_errors.append("Gecko did not report caller abort")
+            try:
+                assert_gecko_cleanup(details)
+            except Exception as error:
+                prompt_errors.append(f"diagnostics: {type(error).__name__}: {error}")
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("prompt deadline elapsed before fixture cleanup")
+            active, prompt_peak = wait_fixture_activity(
+                fixture_port, lambda value: value == 0, remaining
+            )
+            prompt_duration = round((time.monotonic() - cancelled_at) * 1000)
+        except Exception as error:
+            active = fixture_activity(fixture_port, min(1, timeout))
+            prompt_peak = active
+            prompt_errors.append(f"fixture: {type(error).__name__}: {error}")
+    if response_bytes is not None:
+        write_bytes(
+            artifacts / "gecko-cancellation.response.jsonl",
+            redactor.data(response_bytes + b"\n"),
+        )
+    active, eventual_peak = wait_fixture_activity(
         fixture_port, lambda value: value == 0, min(timeout, 30)
     )
+    eventual_duration = round((time.monotonic() - cancelled_at) * 1000)
     followup, _request, _response = call_gecko(
         connection,
         {
@@ -1385,14 +1585,22 @@ def gecko_cancellation_probe(
     assert_gecko_cleanup(followup)
     if followup.get("pageError") is not None:
         raise RuntimeError("Gecko override lock was unusable after cancellation")
-    return {
+    passed = not prompt_errors and cancellation_prompt_passed(prompt_duration)
+    result = {
         "cancelledAfter": "fixture-request-observed",
-        "durationMilliseconds": round((time.monotonic() - started) * 1000),
-        "peakFixtureRequests": max(peak, observed_peak),
+        "fixtureDelayMilliseconds": CANCELLATION_FIXTURE_MS,
+        "promptBoundMilliseconds": CANCELLATION_PROMPT_BOUND_MS,
+        "promptDurationMilliseconds": prompt_duration,
+        "eventualDurationMilliseconds": eventual_duration,
+        "passed": passed,
+        "promptErrors": prompt_errors,
+        "peakFixtureRequests": max(peak, prompt_peak, eventual_peak),
         "activeFixtureRequests": active,
-        "cleanup": details["_testDiagnostics"],
+        "cleanup": details.get("_testDiagnostics") if details else None,
         "followupCleanup": followup["_testDiagnostics"],
     }
+    write_json(artifacts / "gecko-cancellation.normalized.json", result)
+    return result
 
 
 def concurrent_probe(
@@ -1481,6 +1689,8 @@ def main() -> int:
                 "podman",
                 "build",
                 "--pull=never",
+                "--platform",
+                BASE_PLATFORM,
                 "--rm=true",
                 "--force-rm=true",
                 "--build-arg",
@@ -1499,6 +1709,8 @@ def main() -> int:
                 "podman",
                 "build",
                 "--pull=never",
+                "--platform",
+                BASE_PLATFORM,
                 "--rm=true",
                 "--force-rm=true",
                 "--tag",
@@ -1515,6 +1727,10 @@ def main() -> int:
                 recorder, "playwright-image-inspect", playwright_image
             ),
         }
+        for identity in summary["builtImages"].values():
+            if identity.get("os") != "linux" or identity.get("architecture") != "amd64":
+                raise RuntimeError("Built reference image platform mismatch")
+        summary["baseImagesAfterBuild"] = verify_tagged_bases(recorder, "after-build")
         if recorder.run(
             "source-status-after-build",
             ["git", "status", "--porcelain=v1", "--untracked-files=all"],
@@ -1567,7 +1783,7 @@ def main() -> int:
                 "--read-only",
                 "--tmpfs",
                 "/data:rw,noexec,nosuid,nodev,size=64m",
-                BASE_IMAGES[2],
+                base_platform_reference(BASE_IMAGES[2]),
                 "redis-server",
                 "--bind",
                 "0.0.0.0",
@@ -1685,6 +1901,8 @@ def main() -> int:
                 ).encode()
             ),
             "fixtureSha256": sha256_file(HERE / "fixture-server.mjs"),
+            "basePlatform": BASE_PLATFORM,
+            "dockerfileSourcesPristine": True,
             "allPublishedPortsLoopbackOnly": True,
             "containerNetworkInternal": True,
         }
@@ -1712,7 +1930,7 @@ def main() -> int:
             connection,
         )
         summary["scenarios"] = results
-        summary["cancellation"] = cancellation_probe(
+        cancellation = cancellation_probe(
             artifacts,
             redactor,
             recorder,
@@ -1722,14 +1940,17 @@ def main() -> int:
             names["playwright"],
             args.timeout,
         )
+        summary["cancellation"] = cancellation
+        gecko_cancellation = None
         if connection:
-            summary["geckoCancellation"] = gecko_cancellation_probe(
+            gecko_cancellation = gecko_cancellation_probe(
                 artifacts,
                 redactor,
                 connection,
                 fixture_port,
                 args.timeout,
             )
+            summary["geckoCancellation"] = gecko_cancellation
         concurrency = concurrent_probe(
             recorder,
             api_port,
@@ -1738,11 +1959,15 @@ def main() -> int:
             args.timeout,
         )
         summary["concurrency"] = concurrency
-        reference_passed = all(item["referencePassed"] for item in results) and bool(
-            concurrency["passed"]
+        reference_passed = (
+            all(item["referencePassed"] for item in results)
+            and bool(cancellation["passed"])
+            and bool(concurrency["passed"])
         )
         if connection:
-            gecko_passed = all(item.get("geckoPassed") is True for item in results)
+            gecko_passed = all(
+                item.get("geckoPassed") is True for item in results
+            ) and bool(gecko_cancellation and gecko_cancellation["passed"])
             summary["outcome"] = (
                 "passed" if reference_passed and gecko_passed else "parity-failure"
             )
