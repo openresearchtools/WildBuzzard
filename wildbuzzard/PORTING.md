@@ -75,3 +75,7 @@ Each port must pass:
 - clean-profile network observation;
 - functional content-blocking tests with first-party breakage controls;
 - a reproducible Linux build with generated-file changes committed.
+
+## Active port specifications
+
+- [Native web search, Gecko extraction, and torrent discovery](WEB-SEARCH-TORRENT-PORT-SPEC.md)

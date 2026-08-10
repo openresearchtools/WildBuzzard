@@ -31,3 +31,10 @@ file-level licenses and notices remain in force; see
 
 Linux builds and blocker tests run from a clean external checkout; see
 [`BUILDING-LINUX.md`](BUILDING-LINUX.md).
+
+The implementation specification for bundled SearXNG search, native Gecko web
+extraction, the Pi web-access port, isolated Jackett discovery, and native
+torrent search is in
+[`WEB-SEARCH-TORRENT-PORT-SPEC.md`](WEB-SEARCH-TORRENT-PORT-SPEC.md).
+Its compact harness objective is in
+[`WEB-SEARCH-TORRENT-GOAL.md`](WEB-SEARCH-TORRENT-GOAL.md).
