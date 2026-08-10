@@ -30,6 +30,7 @@ class ShippingContractTests(unittest.TestCase):
             script,
         )
         self.assertIn('"$RUST_PREFIX/bin/cargo" vendor --locked vendor', script)
+        self.assertIn('RUSTC="$RUST_PREFIX/bin/rustc"', script)
 
     def test_shipping_execution_has_no_oci_tool(self) -> None:
         paths = (

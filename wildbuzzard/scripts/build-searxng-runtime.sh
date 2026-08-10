@@ -235,6 +235,8 @@ if [[ ! -f "$CARGO_VENDOR_ARCHIVE" ]]; then
   (
     cd -- "$GRANIAN_VENDOR_SOURCE"
     umask 0002
+    PATH="$RUST_PREFIX/bin:/usr/bin:/bin" \
+    RUSTC="$RUST_PREFIX/bin/rustc" \
     CARGO_HOME="$WORK_DIR/cargo-vendor-home" \
     CARGO_NET_GIT_FETCH_WITH_CLI=false \
     "$RUST_PREFIX/bin/cargo" vendor --locked vendor \
