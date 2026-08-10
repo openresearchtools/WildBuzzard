@@ -48,8 +48,16 @@ SOURCE_MANIFEST_SHA256 = (
     "7ce151e9e59943d4411bc2347cbfb6a7a5fb29c636ca2692b521f1f2dc086187"
 )
 PRISTINE_EXECUTABLE_SHA256 = (
-    "b8bb98aa78d9942563e303c12f511c040c7a16a8a08a8c9f02c982c61b9850c1"
+    "b436e2c80c90df9f94c6537edb797790eedabf38094800f2d60e66d4f3879904"
 )
+PRISTINE_OCI_IMAGE = (
+    "mcr.microsoft.com/dotnet/sdk@"
+    "sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164"
+)
+PRISTINE_OCI_PLATFORM = "linux/amd64"
+PRISTINE_OCI_RUN_LABEL = "org.wildbuzzard.jackett-oracle-run"
+FIXTURE_ADDRESS = "127.0.0.1"
+FIXTURE_PORT = 18080
 MAX_RESPONSE_BYTES = 16 * 1024 * 1024
 MINI_MAX_XML_NODES = 50_000
 MINI_MAX_XML_DEPTH = 64
@@ -225,38 +233,53 @@ def local_name(tag):
     return tag.rsplit("}", 1)[-1]
 
 
-def rootless_namespace_identity():
-    uid_map = pathlib.Path("/proc/self/uid_map").read_text(encoding="ascii").strip()
-    entries = [line.split() for line in uid_map.splitlines()]
-    if not entries or any(len(entry) != 3 for entry in entries):
-        raise RuntimeError("invalid user namespace identity")
-    if any(
-        int(inside) == 0 and int(outside) == 0 for inside, outside, _length in entries
-    ):
-        raise RuntimeError("the pristine oracle requires a rootless user namespace")
+def namespace_identity(pid="self"):
     return {
-        "uidMap": uid_map,
-        "gidMap": pathlib
-        .Path("/proc/self/gid_map")
-        .read_text(encoding="ascii")
-        .strip(),
-        "userNamespace": os.readlink("/proc/self/ns/user"),
-        "networkNamespace": os.readlink("/proc/self/ns/net"),
+        name: os.readlink(f"/proc/{pid}/ns/{name}")
+        for name in ("mnt", "net", "pid", "user")
+    }
+
+
+def host_execution_identity():
+    return {
+        "containerMarkersPresent": any(
+            pathlib.Path(path).exists()
+            for path in ("/run/.containerenv", "/.dockerenv")
+        ),
+        "effectiveGid": os.getegid(),
+        "effectiveUid": os.geteuid(),
+        "namespaces": namespace_identity(),
+        "pid": os.getpid(),
+    }
+
+
+def process_identity_from_pid(pid):
+    stat_value = pathlib.Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+    stat_fields = stat_value[stat_value.rfind(")") + 2 :].split()
+    executable_link = pathlib.Path(f"/proc/{pid}/exe")
+    children_path = pathlib.Path(f"/proc/{pid}/task/{pid}/children")
+    return {
+        "pid": pid,
+        "linuxProcessStartTime": stat_fields[19],
+        "executable": os.readlink(executable_link),
+        "executableSha256": sha256_file(executable_link),
+        "children": children_path.read_text(encoding="ascii").split(),
+        "namespaces": namespace_identity(pid),
     }
 
 
 def process_identity(process):
-    stat_value = pathlib.Path(f"/proc/{process.pid}/stat").read_text(encoding="ascii")
-    stat_fields = stat_value[stat_value.rfind(")") + 2 :].split()
-    executable = pathlib.Path(os.readlink(f"/proc/{process.pid}/exe"))
-    children_path = pathlib.Path(f"/proc/{process.pid}/task/{process.pid}/children")
-    return {
-        "pid": process.pid,
-        "linuxProcessStartTime": stat_fields[19],
-        "executable": str(executable),
-        "executableSha256": sha256_file(executable),
-        "children": children_path.read_text(encoding="ascii").split(),
-    }
+    return process_identity_from_pid(process.pid)
+
+
+def direct_host_process_identity(process, expected_sha256, host_identity):
+    identity = process_identity(process)
+    if identity["executableSha256"] != expected_sha256:
+        raise AssertionError("the direct host executable identity changed")
+    if identity["namespaces"] != host_identity["namespaces"]:
+        raise AssertionError("a direct host process crossed an execution namespace")
+    identity["executionBoundary"] = "direct-host-process"
+    return identity
 
 
 def process_group_members(process):
@@ -327,6 +350,302 @@ def stop_process(process):
     return process.returncode
 
 
+def podman_base_command(oci_runtime=None):
+    podman = shutil.which("podman")
+    if podman is None:
+        raise RuntimeError("rootless Podman is required for the pristine oracle")
+    command = [podman]
+    if oci_runtime:
+        runtime = pathlib.Path(oci_runtime).resolve(strict=True)
+        if not runtime.is_file() or not os.access(runtime, os.X_OK):
+            raise RuntimeError("the selected OCI runtime is not executable")
+        command.extend(("--runtime", str(runtime)))
+    return command
+
+
+def command_json(command):
+    completed = run_command(command)
+    try:
+        return json.loads(completed.stdout)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError("command returned invalid JSON") from error
+
+
+def prepare_pristine_oci(podman, image):
+    if image != PRISTINE_OCI_IMAGE:
+        raise RuntimeError(
+            "the pristine oracle image is not the reviewed Microsoft pin"
+        )
+    rootless = run_command(
+        [*podman, "info", "--format", "{{.Host.Security.Rootless}}"]
+    ).stdout.decode("ascii", errors="strict").strip()
+    if rootless != "true":
+        raise RuntimeError("the pristine oracle requires rootless Podman")
+    run_command([*podman, "pull", image])
+    inspected = command_json([*podman, "image", "inspect", image])
+    if not isinstance(inspected, list) or len(inspected) != 1:
+        raise RuntimeError("the pristine oracle image inspection is invalid")
+    document = inspected[0]
+    image_id = document.get("Id") or document.get("ID")
+    if isinstance(image_id, str) and re.fullmatch(r"[0-9a-f]{64}", image_id):
+        image_id = f"sha256:{image_id}"
+    platform = f"{document.get('Os')}/{document.get('Architecture')}"
+    if (
+        platform != PRISTINE_OCI_PLATFORM
+        or not isinstance(image_id, str)
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+    ):
+        raise RuntimeError("the pristine oracle image identity is invalid")
+    return {
+        "image": image,
+        "imageDigest": image.rsplit("@", 1)[1],
+        "imageId": image_id,
+        "platform": platform,
+        "rootless": True,
+    }
+
+
+def pristine_container_command(
+    podman,
+    container_name,
+    run_token,
+    image,
+    pristine_runtime,
+    pristine_source,
+    overlays,
+    pristine_data,
+    pristine_port,
+):
+    return [
+        *podman,
+        "run",
+        "--name",
+        container_name,
+        "--label",
+        f"{PRISTINE_OCI_RUN_LABEL}={run_token}",
+        "--network",
+        "host",
+        "--read-only",
+        "--userns=keep-id",
+        "--cap-drop=all",
+        "--security-opt=no-new-privileges",
+        "--security-opt=label=disable",
+        "--pids-limit=512",
+        "--tmpfs",
+        "/tmp:rw,noexec,nosuid,nodev,size=1g",
+        "-e",
+        "HOME=/data",
+        "-e",
+        "LANG=C.UTF-8",
+        "-e",
+        "LC_ALL=C.UTF-8",
+        "-e",
+        "TZ=UTC",
+        "-e",
+        "XDG_CONFIG_HOME=/inputs/overlays/xdg",
+        "-v",
+        f"{pristine_runtime}:/inputs/pristine-runtime:ro",
+        "-v",
+        f"{pristine_source}:/inputs/pristine-source:ro",
+        "-v",
+        f"{overlays}:/inputs/overlays:ro",
+        "-v",
+        f"{pristine_data}:/data:rw",
+        "--entrypoint",
+        "/inputs/pristine-runtime/jackett",
+        image,
+        "--ListenPrivate",
+        "--Port",
+        str(pristine_port),
+        "--PIDFile",
+        "/data/jackett.pid",
+        "--NoUpdates",
+        "--NoRestart",
+        "--DataFolder",
+        "/data",
+    ]
+
+
+def container_exists(podman, container_name):
+    completed = run_command(
+        [*podman, "container", "exists", container_name], check=False
+    )
+    if completed.returncode not in (0, 1):
+        raise RuntimeError("Podman could not query the pristine oracle container")
+    return completed.returncode == 0
+
+
+def start_pristine_container(command, podman, container_name, log_path):
+    if container_exists(podman, container_name):
+        raise RuntimeError("the pristine oracle container name is already in use")
+    log = log_path.open("wb")
+    process = subprocess.Popen(
+        command,
+        stdout=log,
+        stderr=subprocess.STDOUT,
+        start_new_session=True,
+    )
+    return process, log
+
+
+def inspect_pristine_container(
+    podman,
+    container_name,
+    run_token,
+    image,
+    pristine_runtime,
+    pristine_source,
+    overlays,
+    pristine_data,
+    host_identity,
+):
+    inspected = command_json([*podman, "container", "inspect", container_name])
+    if not isinstance(inspected, list) or len(inspected) != 1:
+        raise RuntimeError("the pristine oracle container inspection is invalid")
+    document = inspected[0]
+    state = document.get("State", {})
+    host_config = document.get("HostConfig", {})
+    config = document.get("Config", {})
+    annotations = host_config.get("Annotations", {})
+    security_options = set(host_config.get("SecurityOpt", []))
+    dropped_capabilities = set(host_config.get("CapDrop", []))
+    expected_dropped_capabilities = {
+        "CAP_CHOWN",
+        "CAP_DAC_OVERRIDE",
+        "CAP_FOWNER",
+        "CAP_FSETID",
+        "CAP_KILL",
+        "CAP_NET_BIND_SERVICE",
+        "CAP_SETFCAP",
+        "CAP_SETGID",
+        "CAP_SETPCAP",
+        "CAP_SETUID",
+        "CAP_SYS_CHROOT",
+    }
+    container_id = document.get("Id") or document.get("ID")
+    if isinstance(container_id, str):
+        container_id = container_id.removeprefix("sha256:")
+    image_id = document.get("Image")
+    if isinstance(image_id, str) and re.fullmatch(r"[0-9a-f]{64}", image_id):
+        image_id = f"sha256:{image_id}"
+    entrypoint = config.get("Entrypoint")
+    if isinstance(entrypoint, list):
+        entrypoint = entrypoint[0] if len(entrypoint) == 1 else None
+    network_mode = host_config.get("NetworkMode")
+    read_only_root = host_config.get("ReadonlyRootfs")
+    if read_only_root is None:
+        read_only_root = host_config.get("ReadOnlyRootfs")
+    if (
+        not isinstance(container_id, str)
+        or not re.fullmatch(r"[0-9a-f]{64}", container_id)
+        or document.get("ImageName") != image
+        or not isinstance(image_id, str)
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+        or state.get("Running") is not True
+        or not isinstance(state.get("Pid"), int)
+        or state["Pid"] <= 0
+        or network_mode != "host"
+        or read_only_root is not True
+        or entrypoint != "/inputs/pristine-runtime/jackett"
+        or config.get("Labels", {}).get(PRISTINE_OCI_RUN_LABEL) != run_token
+        or host_config.get("Privileged") is not False
+        or host_config.get("PidsLimit") != 512
+        or host_config.get("CapAdd") != []
+        or not expected_dropped_capabilities.issubset(dropped_capabilities)
+        or security_options != {"label=disable", "no-new-privileges"}
+        or annotations.get("io.podman.annotations.userns") != "keep-id"
+        or annotations.get("io.podman.annotations.pids-limit") != "512"
+        or config.get("User") != f"{os.geteuid()}:{os.getegid()}"
+        or not {"noexec", "nosuid", "nodev"}.issubset(
+            set(host_config.get("Tmpfs", {}).get("/tmp", "").split(","))
+        )
+    ):
+        raise RuntimeError("the pristine oracle container boundary is invalid")
+    mounts = {
+        mount.get("Destination"): mount
+        for mount in document.get("Mounts", [])
+        if isinstance(mount, dict)
+    }
+    expected_mounts = {
+        "/inputs/pristine-runtime": (str(pristine_runtime), False),
+        "/inputs/pristine-source": (str(pristine_source), False),
+        "/inputs/overlays": (str(overlays), False),
+        "/data": (str(pristine_data), True),
+    }
+    for destination, (source, writable) in expected_mounts.items():
+        mount = mounts.get(destination)
+        if (
+            mount is None
+            or pathlib.Path(mount.get("Source", "")).resolve() != pathlib.Path(source)
+            or mount.get("RW") is not writable
+        ):
+            raise RuntimeError("the pristine oracle mount boundary is invalid")
+    process = process_identity_from_pid(state["Pid"])
+    if process["executableSha256"] != PRISTINE_EXECUTABLE_SHA256:
+        raise RuntimeError("the running pristine release executable is not pinned")
+    if any(
+        process["namespaces"][name] == host_identity["namespaces"][name]
+        for name in ("mnt", "user")
+    ):
+        raise RuntimeError("the pristine release did not enter its OCI namespaces")
+    process["executionBoundary"] = "rootless-oci-process"
+    return {
+        "containerId": container_id,
+        "containerName": container_name,
+        "entrypoint": entrypoint,
+        "image": image,
+        "imageId": image_id,
+        "networkMode": network_mode,
+        "process": process,
+        "readOnlyRootFilesystem": read_only_root,
+        "readOnlyMounts": [
+            "/inputs/overlays",
+            "/inputs/pristine-runtime",
+            "/inputs/pristine-source",
+        ],
+        "security": {
+            "allDefaultCapabilitiesDropped": True,
+            "noNewPrivileges": True,
+            "pidsLimit": 512,
+            "userNamespace": "keep-id",
+        },
+        "writableMounts": ["/data"],
+    }
+
+
+def stop_pristine_container(podman, container_name, run_token, process):
+    stopped = None
+    removed = False
+    if container_exists(podman, container_name):
+        inspected = command_json([*podman, "container", "inspect", container_name])
+        labels = (
+            inspected[0].get("Config", {}).get("Labels", {})
+            if isinstance(inspected, list) and len(inspected) == 1
+            else {}
+        )
+        if labels.get(PRISTINE_OCI_RUN_LABEL) != run_token:
+            raise RuntimeError(
+                "refusing to remove a container not owned by this oracle run"
+            )
+        stopped = run_command(
+            [*podman, "stop", "--time", "10", container_name], check=False
+        ).returncode
+        run_command([*podman, "rm", "-f", container_name], check=False)
+        removed = not container_exists(podman, container_name)
+    else:
+        removed = True
+    if process is not None:
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            stop_process(process)
+    return {
+        "podmanClientExitCode": None if process is None else process.returncode,
+        "removeSucceeded": removed,
+        "stopExitCode": stopped,
+    }
+
+
 def request(port, method, path, body=None, headers=None, timeout=20):
     headers = dict(headers or {})
     if body is not None and not isinstance(body, bytes):
@@ -363,10 +682,14 @@ def request(port, method, path, body=None, headers=None, timeout=20):
         connection.close()
 
 
-def wait_for_health(port, timeout=20):
+def wait_for_health(port, timeout=20, process=None):
     deadline = time.monotonic() + timeout
     last = None
     while time.monotonic() < deadline:
+        if process is not None and process.poll() is not None:
+            raise RuntimeError(
+                f"pristine Jackett exited before becoming healthy: {process.returncode}"
+            )
         try:
             response = request(port, "GET", "/health", timeout=1)
             if response["status"] == 200:
@@ -1410,19 +1733,36 @@ def main():
     parser.add_argument("--mini-fixture-runtime", required=True, type=pathlib.Path)
     parser.add_argument("--mini-fixture-manifest", required=True, type=pathlib.Path)
     parser.add_argument("--artifact-root", required=True, type=pathlib.Path)
-    parser.add_argument("--fixture-address", default="11.0.0.2")
-    parser.add_argument("--fixture-port", default=18080, type=int)
-    parser.add_argument("--oci-evidence", required=True, type=pathlib.Path)
+    parser.add_argument("--fixture-address", default=FIXTURE_ADDRESS)
+    parser.add_argument("--fixture-port", default=FIXTURE_PORT, type=int)
+    parser.add_argument("--oracle-image", required=True)
+    parser.add_argument("--container-name", required=True)
+    parser.add_argument("--run-token", required=True)
+    parser.add_argument("--oci-runtime")
     args = parser.parse_args()
     os.umask(0o077)
-    if not any(
-        pathlib.Path(path).exists() for path in ("/run/.containerenv", "/.dockerenv")
+    if os.geteuid() == 0:
+        raise RuntimeError("the adversarial comparison must run unprivileged")
+    if (args.fixture_address, args.fixture_port) != (
+        FIXTURE_ADDRESS,
+        FIXTURE_PORT,
     ):
-        raise RuntimeError("the adversarial comparison must run inside OCI")
-    if (args.fixture_address, args.fixture_port) != ("11.0.0.2", 18080):
-        raise RuntimeError("the deterministic OCI fixture endpoint changed")
+        raise RuntimeError("the deterministic host fixture endpoint changed")
+    if not re.fullmatch(
+        r"wildbuzzard-jackett-pristine-[A-Za-z0-9_.-]{1,80}",
+        args.container_name,
+    ):
+        raise RuntimeError("the pristine oracle container name is invalid")
+    if not re.fullmatch(r"[0-9a-f]{32}", args.run_token):
+        raise RuntimeError("the pristine oracle run token is invalid")
     if any(shutil.which(command) is None for command in ("ip", "ss")):
-        raise RuntimeError("the oracle image must provide ip and ss")
+        raise RuntimeError("the host comparator requires ip and ss")
+
+    host_identity = host_execution_identity()
+    podman = podman_base_command(args.oci_runtime)
+    oci_evidence = prepare_pristine_oci(podman, args.oracle_image)
+    if container_exists(podman, args.container_name):
+        raise RuntimeError("the pristine oracle container already exists")
 
     script_dir = pathlib.Path(__file__).resolve().parent
     expected_path = script_dir / "fixtures/pristine-adversarial-expected.json"
@@ -1439,7 +1779,6 @@ def main():
     mini_manifest_path = args.mini_manifest.resolve(strict=True)
     mini_fixture_runtime = args.mini_fixture_runtime.resolve(strict=True)
     mini_fixture_manifest_path = args.mini_fixture_manifest.resolve(strict=True)
-    oci_evidence_path = args.oci_evidence.resolve(strict=True)
     pristine_executable = pristine_runtime / "jackett"
     if (
         not pristine_executable.is_file()
@@ -1464,16 +1803,6 @@ def main():
     shipping_catalog_audit = audit_catalog(
         mini_runtime / "catalog.json", pristine_source, mini_runtime
     )
-    oci_evidence = json.loads(oci_evidence_path.read_text(encoding="utf-8"))
-    if (
-        oci_evidence.get("rootless") is not True
-        or oci_evidence.get("networkInternal") is not True
-        or oci_evidence.get("platform") != "linux/amd64"
-        or not re.fullmatch(r"sha256:[a-f0-9]{64}", oci_evidence.get("imageDigest", ""))
-        or not re.fullmatch(r"sha256:[a-f0-9]{64}", oci_evidence.get("imageId", ""))
-        or not all(oci_evidence.get("readOnlyMounts", {}).values())
-    ):
-        raise RuntimeError("the rootless OCI isolation evidence is incomplete")
 
     run_id = (
         datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -1500,7 +1829,7 @@ def main():
         directory.mkdir(parents=True, mode=0o700)
         directory.chmod(0o700)
 
-    write_json(logs / "rootless-namespace.json", rootless_namespace_identity())
+    write_json(logs / "host-execution-identity.json", host_identity)
     write_json(artifacts / "pristine-source-manifest.json", source_manifest_evidence)
     write_json(artifacts / "shipping-catalog-audit.json", shipping_catalog_audit)
     run_command(["ip", "-json", "address", "show"], logs / "network-namespace.json")
@@ -1610,11 +1939,20 @@ def main():
         (str(artifacts), "<comparison-artifacts>"),
     ]
     cleanup = {
+        "containers": {},
         "ports": {},
         "processes": {},
         "fixtureStopped": False,
         "dataRootsRemoved": {},
     }
+    oci_evidence.update({
+        "comparisonExecution": "direct-host-python",
+        "containerName": args.container_name,
+        "networkMode": "host",
+        "runTokenSha256": hashlib.sha256(args.run_token.encode()).hexdigest(),
+        "schemaVersion": 1,
+        "shippingRuntimeContainerDependency": False,
+    })
     success = False
     observed = {}
     pristine_raw = {}
@@ -1623,26 +1961,19 @@ def main():
     semantic_diffs = {}
     security_evidence = {}
     mappings = []
+    host_process_evidence = {}
 
-    environment = {
-        "HOME": str(pristine_data),
-        "LANG": "C.UTF-8",
-        "LC_ALL": "C.UTF-8",
-        "TZ": "UTC",
-        "XDG_CONFIG_HOME": str(overlays / "xdg"),
-    }
-    command = [
-        str(pristine_executable),
-        "--ListenPrivate",
-        "--Port",
-        str(pristine_port),
-        "--PIDFile",
-        str(pristine_data / "jackett.pid"),
-        "--NoUpdates",
-        "--NoRestart",
-        "--DataFolder",
-        str(pristine_data),
-    ]
+    command = pristine_container_command(
+        podman,
+        args.container_name,
+        args.run_token,
+        args.oracle_image,
+        pristine_runtime,
+        pristine_source,
+        overlays,
+        pristine_data,
+        pristine_port,
+    )
     mini_environment = {
         "HOME": str(mini_data),
         "LANG": "C.UTF-8",
@@ -1705,12 +2036,31 @@ def main():
     ]
 
     try:
-        bootstrap, bootstrap_log = start_process(
-            command, pristine_runtime, environment, bootstrap_log_path
+        bootstrap, bootstrap_log = start_pristine_container(
+            command,
+            podman,
+            args.container_name,
+            bootstrap_log_path,
         )
-        wait_for_health(pristine_port)
-        cleanup["processes"]["bootstrapIdentity"] = process_identity(bootstrap)
-        cleanup["processes"]["bootstrapExitCode"] = stop_process(bootstrap)
+        wait_for_health(pristine_port, process=bootstrap)
+        bootstrap_identity = inspect_pristine_container(
+            podman,
+            args.container_name,
+            args.run_token,
+            args.oracle_image,
+            pristine_runtime,
+            pristine_source,
+            overlays,
+            pristine_data,
+            host_identity,
+        )
+        if bootstrap_identity["imageId"] != oci_evidence["imageId"]:
+            raise RuntimeError("the pristine bootstrap image identity changed")
+        oci_evidence["bootstrap"] = bootstrap_identity
+        cleanup["containers"]["bootstrap"] = stop_pristine_container(
+            podman, args.container_name, args.run_token, bootstrap
+        )
+        bootstrap = None
         bootstrap_log.close()
 
         server_config_path = pristine_data / "ServerConfig.json"
@@ -1724,13 +2074,27 @@ def main():
         api_key = server_config["APIKey"]
         redactions.append((api_key, "<redacted-api-key>"))
 
-        process, process_log = start_process(
-            command, pristine_runtime, environment, process_log_path
+        process, process_log = start_pristine_container(
+            command,
+            podman,
+            args.container_name,
+            process_log_path,
         )
-        health = wait_for_health(pristine_port)
-        pristine_identity = process_identity(process)
-        if pristine_identity["executableSha256"] != PRISTINE_EXECUTABLE_SHA256:
-            raise AssertionError("the running pristine executable identity changed")
+        health = wait_for_health(pristine_port, process=process)
+        pristine_identity = inspect_pristine_container(
+            podman,
+            args.container_name,
+            args.run_token,
+            args.oracle_image,
+            pristine_runtime,
+            pristine_source,
+            overlays,
+            pristine_data,
+            host_identity,
+        )
+        if pristine_identity["imageId"] != oci_evidence["imageId"]:
+            raise RuntimeError("the pristine service image identity changed")
+        oci_evidence["service"] = pristine_identity
         write_json(logs / "pristine-process-identity.json", pristine_identity)
         save_transcript(
             transcripts,
@@ -1798,19 +2162,24 @@ def main():
             ),
         ):
             redactions.append((value, replacement))
-        mini_identity = process_identity(mini_process)
-        mini_profile_b_identity = process_identity(mini_profile_b_process)
-        shipping_mini_identity = process_identity(shipping_mini_process)
         executable_hash = sha256_file(mini_fixture_executable)
-        if any(
-            identity["executableSha256"] != executable_hash
-            for identity in (mini_identity, mini_profile_b_identity)
-        ):
-            raise AssertionError("a running Mini executable identity changed")
-        if shipping_mini_identity["executableSha256"] != sha256_file(mini_executable):
-            raise AssertionError(
-                "the running shipping Mini executable identity changed"
-            )
+        mini_identity = direct_host_process_identity(
+            mini_process, executable_hash, host_identity
+        )
+        mini_profile_b_identity = direct_host_process_identity(
+            mini_profile_b_process, executable_hash, host_identity
+        )
+        shipping_mini_identity = direct_host_process_identity(
+            shipping_mini_process, sha256_file(mini_executable), host_identity
+        )
+        host_process_evidence = {
+            "comparator": host_identity,
+            "miniFixtureProfileA": mini_identity,
+            "miniFixtureProfileB": mini_profile_b_identity,
+            "miniShipping": shipping_mini_identity,
+            "shippingRuntimeContainerDependency": False,
+        }
+        write_json(artifacts / "host-process-boundary.json", host_process_evidence)
         write_json(
             logs / "jackett-mini-profile-a-process-identity.json",
             mini_identity,
@@ -3026,7 +3395,8 @@ def main():
             "sourceManifestSha256": source_manifest_evidence["manifestSha256"],
             "sourceManifestEntryCount": source_manifest_evidence["entryCount"],
             "platform": "linux-x86_64-glibc",
-            "executionMode": "rootless-oci-internal-network",
+            "executionMode": "direct-host-comparator-pristine-only-rootless-oci",
+            "hostProcessBoundary": host_process_evidence,
             "ociIsolation": oci_evidence,
             "ports": {
                 "fixture": fixture_port,
@@ -3049,7 +3419,15 @@ def main():
                 "pristineRuntimeInventorySha256": pristine_build_record[
                     "runtimeInventorySha256"
                 ],
-                "pristineSdkPlatformDigest": pristine_build_record["sdkPlatformDigest"],
+                "pristineReleaseArchiveSha256": pristine_build_record[
+                    "releaseArchiveSha256"
+                ],
+                "pristineReleaseExecutableSha256": pristine_build_record[
+                    "releaseExecutableSha256"
+                ],
+                "pristineReleasePreparationMode": pristine_build_record[
+                    "preparationMode"
+                ],
             },
             "miniOverlay": {
                 "catalogSha256": sha256_file(mini_fixture_runtime / "catalog.json"),
@@ -3098,7 +3476,11 @@ def main():
                 "jackett-mini-v0.24.2360",
                 "deterministic-local-fixture",
             ],
-            "prohibitedImplementations": ["browser-runtime", "torrent-runtime"],
+            "prohibitedImplementations": [
+                "browser-runtime",
+                "containerized-jackett-mini",
+                "torrent-runtime",
+            ],
         }
         write_json(artifacts / "run-metadata.json", metadata)
         if diff:
@@ -3108,12 +3490,23 @@ def main():
         (artifacts / "failure.txt").write_text(traceback.format_exc(), encoding="utf-8")
         raise
     finally:
-        if bootstrap and bootstrap.poll() is None:
-            cleanup["processes"]["bootstrapExitCode"] = stop_process(bootstrap)
+        if bootstrap:
+            cleanup["containers"]["bootstrapFinalizer"] = stop_pristine_container(
+                podman, args.container_name, args.run_token, bootstrap
+            )
         if bootstrap_log and not bootstrap_log.closed:
             bootstrap_log.close()
+        if process:
+            cleanup["containers"]["service"] = stop_pristine_container(
+                podman, args.container_name, args.run_token, process
+            )
+        elif container_exists(podman, args.container_name):
+            cleanup["containers"]["serviceFinalizer"] = stop_pristine_container(
+                podman, args.container_name, args.run_token, None
+            )
+        if process_log:
+            process_log.close()
         processes = (
-            ("pristine", process, process_log),
             ("miniProfileA", mini_process, mini_process_log),
             ("miniProfileB", mini_profile_b_process, mini_profile_b_process_log),
             ("miniShipping", shipping_mini_process, shipping_mini_process_log),
@@ -3156,6 +3549,9 @@ def main():
             shutil.rmtree(directory, ignore_errors=True)
             cleanup["dataRootsRemoved"][label] = not directory.exists()
         cleanup["testRuntimeRemoved"] = True
+        cleanup["pristineContainerAbsent"] = not container_exists(
+            podman, args.container_name
+        )
         cleanup["comparisonSucceeded"] = success
         cleanup["noOrphanedProcessGroups"] = not orphaned
         cleanup_succeeded = (
@@ -3163,6 +3559,11 @@ def main():
             and set(cleanup["ports"].values()) == {"closed"}
             and all(cleanup["dataRootsRemoved"].values())
             and cleanup["testRuntimeRemoved"]
+            and cleanup["pristineContainerAbsent"]
+            and all(
+                result["removeSucceeded"]
+                for result in cleanup["containers"].values()
+            )
             and not orphaned
         )
         cleanup["cleanupSucceeded"] = cleanup_succeeded

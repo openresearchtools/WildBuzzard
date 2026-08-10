@@ -9,6 +9,7 @@ if [[ $(id -u) -eq 0 ]]; then
 fi
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+pinned_oracle_image=mcr.microsoft.com/dotnet/sdk@sha256:6e6542a43b6bf3c5ecfa80dd33c79c9fd09d58f95f4ebacd14fa056275b25164
 oracle_image=
 pristine_runtime=
 pristine_build_record=
@@ -20,7 +21,7 @@ mini_fixture_manifest=
 artifact_root=
 
 usage() {
-  echo "usage: $0 --oracle-image IMAGE@sha256:DIGEST --pristine-runtime DIR --pristine-build-record FILE --pristine-source DIR --mini-runtime DIR --mini-manifest FILE --mini-fixture-runtime DIR --mini-fixture-manifest FILE --artifact-root DIR" >&2
+  echo "usage: $0 --oracle-image $pinned_oracle_image --pristine-runtime DIR --pristine-build-record FILE --pristine-source DIR --mini-runtime DIR --mini-manifest FILE --mini-fixture-runtime DIR --mini-fixture-manifest FILE --artifact-root DIR" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -38,7 +39,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-if [[ ! "$oracle_image" =~ @sha256:[0-9a-f]{64}$ ]] || [[ -z "$pristine_runtime" || -z "$pristine_build_record" || -z "$pristine_source" || -z "$mini_runtime" || -z "$mini_manifest" || -z "$mini_fixture_runtime" || -z "$mini_fixture_manifest" || -z "$artifact_root" ]]; then
+if [[ "$oracle_image" != "$pinned_oracle_image" ]] || [[ -z "$pristine_runtime" || -z "$pristine_build_record" || -z "$pristine_source" || -z "$mini_runtime" || -z "$mini_manifest" || -z "$mini_fixture_runtime" || -z "$mini_fixture_manifest" || -z "$artifact_root" ]]; then
   usage
   exit 2
 fi
@@ -54,107 +55,55 @@ artifact_root=$(realpath -m -- "$artifact_root")
 mkdir -p -- "$artifact_root"
 
 podman_args=()
+python_oci_args=()
 if [[ -n "${JACKETT_ORACLE_OCI_RUNTIME:-}" ]]; then
-  podman_args+=(--runtime "$JACKETT_ORACLE_OCI_RUNTIME")
+  oci_runtime=$(realpath -- "$JACKETT_ORACLE_OCI_RUNTIME")
+  if [[ ! -x "$oci_runtime" ]]; then
+    echo "the selected OCI runtime is not executable" >&2
+    exit 1
+  fi
+  podman_args+=(--runtime "$oci_runtime")
+  python_oci_args+=(--oci-runtime "$oci_runtime")
 fi
 if [[ $(podman "${podman_args[@]}" info --format '{{.Host.Security.Rootless}}') != true ]]; then
-  echo "the comparison requires rootless Podman" >&2
+  echo "the pristine oracle requires rootless Podman" >&2
   exit 1
 fi
 
-podman "${podman_args[@]}" pull "$oracle_image" >/dev/null
-platform=$(podman "${podman_args[@]}" image inspect "$oracle_image" --format '{{.Os}}/{{.Architecture}}')
-oracle_image_id=$(podman "${podman_args[@]}" image inspect "$oracle_image" --format '{{.Id}}')
-if [[ "$platform" != linux/amd64 || ! "$oracle_image_id" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-  echo "the pinned oracle image identity must be available for linux/amd64" >&2
-  exit 1
-fi
-
+run_token=$(python3 -c 'import secrets; print(secrets.token_hex(16))')
+container_name="wildbuzzard-jackett-pristine-$run_token"
 comparison_key_check=$(mktemp -d)
-network_name="wildbuzzard-jackett-oracle-$$-${RANDOM}"
-container_name="wildbuzzard-jackett-oracle-$$-${RANDOM}"
 cleanup() {
-  podman "${podman_args[@]}" rm -f "$container_name" >/dev/null 2>&1 || true
-  podman "${podman_args[@]}" network rm -f "$network_name" >/dev/null 2>&1 || true
-  rm -rf -- "$comparison_key_check"
+  if podman "${podman_args[@]}" container exists "$container_name"; then
+    owner=$(podman "${podman_args[@]}" container inspect \
+      --format '{{ index .Config.Labels "org.wildbuzzard.jackett-oracle-run" }}' \
+      "$container_name" 2>/dev/null || true)
+    if [[ "$owner" == "$run_token" ]]; then
+      podman "${podman_args[@]}" rm -f "$container_name" >/dev/null 2>&1 || true
+    fi
+  fi
+  find "$comparison_key_check" -depth -delete >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 comparison_uid=$(id -u)
 awk -v uid="$comparison_uid" '$1 == uid ":" { print }' /proc/key-users > "$comparison_key_check/before"
-podman "${podman_args[@]}" network create --internal \
-  --subnet 11.0.0.0/24 --gateway 11.0.0.1 "$network_name" >/dev/null
-network_internal=$(podman "${podman_args[@]}" network inspect "$network_name" --format '{{.Internal}}')
-if [[ "$network_internal" != true ]]; then
-  echo "the comparison network is not internal" >&2
-  exit 1
-fi
-image_digest=${oracle_image##*@}
-python3 - "$comparison_key_check/oci-evidence.json" "$oracle_image" "$image_digest" "$oracle_image_id" "$platform" <<'PY'
-import json
-import sys
-
-destination, image, digest, image_id, platform = sys.argv[1:]
-document = {
-    "schemaVersion": 1,
-    "rootless": True,
-    "image": image,
-    "imageDigest": digest,
-    "imageId": image_id,
-    "platform": platform,
-    "networkInternal": True,
-    "readOnlyMounts": {
-        name: True
-        for name in (
-            "comparisonSource",
-            "pristineRuntime",
-            "pristineBuildRecord",
-            "pristineSource",
-            "miniRuntime",
-            "miniManifest",
-            "miniFixtureRuntime",
-            "miniFixtureManifest",
-        )
-    },
-}
-with open(destination, "x", encoding="utf-8") as stream:
-    json.dump(document, stream, indent=2, sort_keys=True)
-    stream.write("\n")
-PY
-
 set +e
-comparison_output=$(podman "${podman_args[@]}" run --rm --name "$container_name" \
-  --network "$network_name" \
-  --ip 11.0.0.2 \
-  --userns=keep-id \
-  --cap-drop=all \
-  --security-opt=no-new-privileges \
-  --pids-limit=512 \
-  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=1g \
-  -e PYTHONDONTWRITEBYTECODE=1 \
-  -v "$script_dir:/oracle:ro,Z" \
-  -v "$pristine_runtime:/inputs/pristine-runtime:ro,Z" \
-  -v "$pristine_build_record:/inputs/pristine-build-record.json:ro,Z" \
-  -v "$pristine_source:/inputs/pristine-source:ro,Z" \
-  -v "$mini_runtime:/inputs/mini-runtime:ro,Z" \
-  -v "$mini_manifest:/inputs/mini-manifest.json:ro,Z" \
-  -v "$mini_fixture_runtime:/inputs/mini-fixture-runtime:ro,Z" \
-  -v "$mini_fixture_manifest:/inputs/mini-fixture-manifest.json:ro,Z" \
-  -v "$comparison_key_check/oci-evidence.json:/inputs/oci-evidence.json:ro,Z" \
-  -v "$artifact_root:/artifacts:rw,Z" \
-  "$oracle_image" \
-  python3 /oracle/run-pristine-adversarial.py \
-    --pristine-runtime /inputs/pristine-runtime \
-    --pristine-build-record /inputs/pristine-build-record.json \
-    --pristine-source /inputs/pristine-source \
-    --mini-runtime /inputs/mini-runtime \
-    --mini-manifest /inputs/mini-manifest.json \
-    --mini-fixture-runtime /inputs/mini-fixture-runtime \
-    --mini-fixture-manifest /inputs/mini-fixture-manifest.json \
-    --oci-evidence /inputs/oci-evidence.json \
-    --fixture-address 11.0.0.2 \
-    --fixture-port 18080 \
-    --artifact-root /artifacts)
+comparison_output=$(python3 "$script_dir/run-pristine-adversarial.py" \
+  --pristine-runtime "$pristine_runtime" \
+  --pristine-build-record "$pristine_build_record" \
+  --pristine-source "$pristine_source" \
+  --mini-runtime "$mini_runtime" \
+  --mini-manifest "$mini_manifest" \
+  --mini-fixture-runtime "$mini_fixture_runtime" \
+  --mini-fixture-manifest "$mini_fixture_manifest" \
+  --oracle-image "$oracle_image" \
+  --container-name "$container_name" \
+  --run-token "$run_token" \
+  --fixture-address 127.0.0.1 \
+  --fixture-port 18080 \
+  --artifact-root "$artifact_root" \
+  "${python_oci_args[@]}")
 comparison_status=$?
 set -e
 printf '%s\n' "$comparison_output"
@@ -164,24 +113,30 @@ comparison_unchanged=true
 if ! cmp -s -- "$comparison_key_check/before" "$comparison_key_check/after"; then
   comparison_unchanged=false
 fi
-artifact_container_path=$(printf '%s\n' "$comparison_output" | sed -n '$p')
-artifact_name=${artifact_container_path##*/}
-if [[ "$artifact_container_path" == /artifacts/adversarial-comparison-* && -d "$artifact_root/$artifact_name" ]]; then
-  python3 - "$artifact_root/$artifact_name/kernel-key-quota.json" "$comparison_key_check/before" "$comparison_key_check/after" "$comparison_unchanged" <<'PY'
+container_absent=true
+if podman "${podman_args[@]}" container exists "$container_name"; then
+  container_absent=false
+fi
+artifact_path=$(printf '%s\n' "$comparison_output" | sed -n '$p')
+case "$artifact_path" in
+  "$artifact_root"/adversarial-comparison-*)
+    if [[ -d "$artifact_path" ]]; then
+      python3 - "$artifact_path/kernel-key-quota.json" "$comparison_key_check/before" "$comparison_key_check/after" "$comparison_unchanged" "$container_absent" <<'PY'
 import hashlib
 import json
 import pathlib
 import sys
 
-destination, before_path, after_path, unchanged = sys.argv[1:]
+destination, before_path, after_path, unchanged, container_absent = sys.argv[1:]
 before = pathlib.Path(before_path).read_bytes()
 after = pathlib.Path(after_path).read_bytes()
 pathlib.Path(destination).write_text(
     json.dumps(
         {
-            "schemaVersion": 1,
-            "beforeSha256": hashlib.sha256(before).hexdigest(),
             "afterSha256": hashlib.sha256(after).hexdigest(),
+            "beforeSha256": hashlib.sha256(before).hexdigest(),
+            "pristineContainerAbsent": container_absent == "true",
+            "schemaVersion": 1,
             "unchanged": unchanged == "true",
         },
         indent=2,
@@ -191,9 +146,15 @@ pathlib.Path(destination).write_text(
     encoding="utf-8",
 )
 PY
-fi
+    fi
+    ;;
+esac
 if [[ "$comparison_unchanged" != true ]]; then
   echo "the OCI comparison changed the current user's kernel key quota" >&2
+  exit 1
+fi
+if [[ "$container_absent" != true ]]; then
+  echo "the pristine oracle container survived comparison cleanup" >&2
   exit 1
 fi
 exit "$comparison_status"

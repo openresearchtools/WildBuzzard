@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 
 from canonicalize import MAX_XML_BYTES, TorznabError, parse_torznab, parse_xml
 from expected_mini import (
@@ -662,10 +663,165 @@ class PristineAdversarialTest(unittest.TestCase):
         self.assertIn('cmp -s -- "$comparison_key_check/before"', wrapper)
         self.assertIn("kernel-key-quota.json", wrapper)
         self.assertNotIn("unshare ", wrapper)
-        self.assertIn("network create --internal", wrapper)
-        self.assertIn("--cap-drop=all", wrapper)
-        self.assertIn(":ro,Z", wrapper)
-        self.assertIn("@sha256:[0-9a-f]{64}", wrapper)
+        self.assertNotIn("network create", wrapper)
+        self.assertIn("run-pristine-adversarial.py", wrapper)
+        self.assertIn("--fixture-address 127.0.0.1", wrapper)
+        self.assertIn("container exists", wrapper)
+        self.assertIn('rm -f "$container_name"', wrapper)
+        self.assertIn(MODULE.PRISTINE_OCI_IMAGE, wrapper)
+
+    def test_only_pristine_release_command_uses_oci(self):
+        command = MODULE.pristine_container_command(
+            ["/usr/bin/podman"],
+            "wildbuzzard-jackett-pristine-test",
+            "a" * 32,
+            MODULE.PRISTINE_OCI_IMAGE,
+            pathlib.Path("/host/pristine-runtime"),
+            pathlib.Path("/host/pristine-source"),
+            pathlib.Path("/host/overlays"),
+            pathlib.Path("/host/pristine-data"),
+            19001,
+        )
+        rendered = " ".join(map(str, command))
+        self.assertIn("--network host", rendered)
+        self.assertIn("--read-only", command)
+        self.assertIn("--cap-drop=all", command)
+        self.assertIn("/host/pristine-runtime:/inputs/pristine-runtime:ro", command)
+        self.assertIn("/host/pristine-source:/inputs/pristine-source:ro", command)
+        self.assertIn("/host/overlays:/inputs/overlays:ro", command)
+        self.assertIn("/host/pristine-data:/data:rw", command)
+        self.assertIn("/inputs/pristine-runtime/jackett", command)
+        self.assertNotIn("mini", rendered.lower())
+
+    def test_mini_process_identity_is_direct_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            process, log = MODULE.start_process(
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                pathlib.Path(directory),
+                dict(os.environ),
+                pathlib.Path(directory) / "mini.log",
+            )
+            try:
+                identity = MODULE.direct_host_process_identity(
+                    process,
+                    MODULE.sha256_file(pathlib.Path(sys.executable)),
+                    MODULE.host_execution_identity(),
+                )
+                self.assertEqual(identity["executionBoundary"], "direct-host-process")
+                self.assertEqual(identity["pid"], process.pid)
+            finally:
+                MODULE.stop_process(process)
+                log.close()
+
+    def test_unreviewed_oracle_image_is_rejected_before_podman(self):
+        with self.assertRaisesRegex(RuntimeError, "reviewed Microsoft pin"):
+            MODULE.prepare_pristine_oci(
+                ["podman"], "example.invalid/oracle@sha256:" + "a" * 64
+            )
+
+    def test_pristine_container_inspection_enforces_mount_boundary(self):
+        runtime = pathlib.Path("/host/pristine-runtime")
+        source = pathlib.Path("/host/pristine-source")
+        overlays = pathlib.Path("/host/overlays")
+        data = pathlib.Path("/host/pristine-data")
+        document = {
+            "Config": {
+                "Entrypoint": ["/inputs/pristine-runtime/jackett"],
+                "Labels": {MODULE.PRISTINE_OCI_RUN_LABEL: "a" * 32},
+                "User": f"{os.geteuid()}:{os.getegid()}",
+            },
+            "HostConfig": {
+                "Annotations": {
+                    "io.podman.annotations.pids-limit": "512",
+                    "io.podman.annotations.userns": "keep-id",
+                },
+                "CapAdd": [],
+                "CapDrop": [
+                    "CAP_CHOWN",
+                    "CAP_DAC_OVERRIDE",
+                    "CAP_FOWNER",
+                    "CAP_FSETID",
+                    "CAP_KILL",
+                    "CAP_NET_BIND_SERVICE",
+                    "CAP_SETFCAP",
+                    "CAP_SETGID",
+                    "CAP_SETPCAP",
+                    "CAP_SETUID",
+                    "CAP_SYS_CHROOT",
+                ],
+                "NetworkMode": "host",
+                "PidsLimit": 512,
+                "Privileged": False,
+                "ReadonlyRootfs": True,
+                "SecurityOpt": ["no-new-privileges", "label=disable"],
+                "Tmpfs": {"/tmp": "rw,noexec,nosuid,nodev,size=1g"},
+            },
+            "Id": "c" * 64,
+            "Image": "sha256:" + "d" * 64,
+            "ImageName": MODULE.PRISTINE_OCI_IMAGE,
+            "Mounts": [
+                {"Destination": destination, "RW": writable, "Source": str(path)}
+                for destination, writable, path in (
+                    ("/inputs/pristine-runtime", False, runtime),
+                    ("/inputs/pristine-source", False, source),
+                    ("/inputs/overlays", False, overlays),
+                    ("/data", True, data),
+                )
+            ],
+            "State": {"Pid": 1234, "Running": True},
+        }
+        process_identity = {
+            "executableSha256": MODULE.PRISTINE_EXECUTABLE_SHA256,
+            "namespaces": {
+                "mnt": "mnt:[2]",
+                "net": "net:[1]",
+                "pid": "pid:[2]",
+                "user": "user:[2]",
+            },
+        }
+        host_identity = {
+            "namespaces": {
+                "mnt": "mnt:[1]",
+                "net": "net:[1]",
+                "pid": "pid:[1]",
+                "user": "user:[1]",
+            }
+        }
+
+        with (
+            mock.patch.object(MODULE, "command_json", return_value=[document]),
+            mock.patch.object(
+                MODULE, "process_identity_from_pid", return_value=process_identity
+            ),
+        ):
+            evidence = MODULE.inspect_pristine_container(
+                ["podman"],
+                "wildbuzzard-jackett-pristine-test",
+                "a" * 32,
+                MODULE.PRISTINE_OCI_IMAGE,
+                runtime,
+                source,
+                overlays,
+                data,
+                host_identity,
+            )
+            self.assertEqual(
+                evidence["process"]["executionBoundary"], "rootless-oci-process"
+            )
+
+            document["Mounts"][0]["RW"] = True
+            with self.assertRaisesRegex(RuntimeError, "mount boundary"):
+                MODULE.inspect_pristine_container(
+                    ["podman"],
+                    "wildbuzzard-jackett-pristine-test",
+                    "a" * 32,
+                    MODULE.PRISTINE_OCI_IMAGE,
+                    runtime,
+                    source,
+                    overlays,
+                    data,
+                    host_identity,
+                )
 
 
 if __name__ == "__main__":
