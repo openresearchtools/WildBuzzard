@@ -908,10 +908,16 @@ def fixture_xml(origin, source, query, generation=0):
         absent = fixture_item(
             origin, source, "Peers absent", seeders=None, leechers=None
         )
-        contradictory = fixture_item(
-            origin, source, "Negative leechers normalized", seeders="10", leechers="-7"
+        bounded = fixture_item(
+            origin,
+            source,
+            "Zero leechers preserved"
+            if source.startswith("mini-")
+            else "Negative leechers normalized",
+            seeders="10",
+            leechers="0" if source.startswith("mini-") else "-7",
         )
-        return (prefix + absent + contradictory + suffix).encode()
+        return (prefix + absent + bounded + suffix).encode()
     if query == "duplicates":
         item = fixture_item(
             origin,
@@ -1593,6 +1599,29 @@ def mini_result_store_contract(runtime):
         "sourcePath": "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch",
         "expiryMinutes": 10,
         "unknownAndExpiredStatus": 404,
+    }
+
+
+def mini_peer_contract(runtime):
+    source = (
+        runtime
+        / "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch"
+    )
+    text = source.read_text(encoding="utf-8")
+    if (
+        "+                long? leechers = release.Peers.HasValue && release.Seeders.HasValue"
+        not in text
+        or "+                    ? Math.Max(0, release.Peers.Value - release.Seeders.Value)"
+        not in text
+        or "+                    : null;" not in text
+    ):
+        raise AssertionError("pinned Mini peer normalization contract changed")
+    return {
+        "sourceSha256": sha256_file(source),
+        "sourcePath": "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch",
+        "totalPeersMinusSeeders": True,
+        "lowerBound": 0,
+        "unavailableValue": None,
     }
 
 
@@ -3281,11 +3310,12 @@ def main():
         mini_contradictory = next(
             item
             for item in mini_peer_items
-            if item["title"] == "Negative leechers normalized"
+            if item["title"] == "Zero leechers preserved"
         )
         mini_observed["contradictory-peer-client-guard"] = {
             "seeders": mini_contradictory["seeders"],
             "normalizedLeechers": mini_contradictory["normalizedLeechers"],
+            "sourceContract": mini_peer_contract(mini_runtime),
         }
         semantic_diffs["contradictory-peer-client-guard"] = {
             "pristine": observed["contradictory-peer-client-guard"],
@@ -3294,7 +3324,7 @@ def main():
                 observed["contradictory-peer-client-guard"],
                 mini_observed["contradictory-peer-client-guard"],
             ),
-            "normalization": "both consumers clamp contradictory total peers below seeders to zero leechers",
+            "normalization": "the raw Torznab guard clamps contradictory total peers; Mini preserves zero and pins the same lower-bound source contract",
         }
         mappings.append({
             "scenario": "contradictory-peer-client-guard",
@@ -3305,7 +3335,7 @@ def main():
                 "pristine": pristine_raw["peer-counts"]["status"],
                 "mini": mini_raw["peer-counts"]["status"],
             },
-            "normalization": "derive max(0, peers - seeders)",
+            "normalization": "raw Torznab derives max(0, peers - seeders); Mini preserves zero and verifies its pinned derivation contract",
             "executedSideBySide": True,
         })
 

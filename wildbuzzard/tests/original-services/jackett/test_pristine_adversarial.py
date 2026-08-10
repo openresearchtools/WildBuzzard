@@ -639,6 +639,24 @@ class PristineAdversarialTest(unittest.TestCase):
                 "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch",
             )
 
+    def test_mini_peer_contract_uses_corresponding_source_patch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            patch = (
+                pathlib.Path(directory)
+                / "source/jackett/patches/0001-add-jackett-mini-read-only-service.patch"
+            )
+            patch.parent.mkdir(parents=True)
+            patch.write_text(
+                "+                long? leechers = release.Peers.HasValue && release.Seeders.HasValue\n"
+                "+                    ? Math.Max(0, release.Peers.Value - release.Seeders.Value)\n"
+                "+                    : null;\n",
+                encoding="utf-8",
+            )
+            contract = MODULE.mini_peer_contract(pathlib.Path(directory))
+            self.assertTrue(contract["totalPeersMinusSeeders"])
+            self.assertEqual(contract["lowerBound"], 0)
+            self.assertIsNone(contract["unavailableValue"])
+
     def test_process_group_cleanup_stops_children(self):
         with tempfile.TemporaryDirectory() as directory:
             child_path = pathlib.Path(directory) / "child.pid"
