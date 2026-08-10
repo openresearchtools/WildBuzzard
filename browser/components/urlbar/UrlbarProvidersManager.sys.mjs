@@ -158,6 +158,12 @@ var localProviderModules = [
     supportedSAPs: ["smartbar", "urlbar"],
   },
   {
+    name: "UrlbarProviderTorrentSearch",
+    module:
+      "moz-src:///browser/components/urlbar/UrlbarProviderTorrentSearch.sys.mjs",
+    supportedSAPs: ["urlbar"],
+  },
+  {
     name: "UrlbarProviderRestrictKeywords",
     module:
       "moz-src:///browser/components/urlbar/UrlbarProviderRestrictKeywords.sys.mjs",
@@ -1044,6 +1050,7 @@ function updateSourcesIfEmpty(context) {
             lazy.UrlbarShared.TOKEN_TYPE.RESTRICT_TITLE,
             lazy.UrlbarShared.TOKEN_TYPE.RESTRICT_URL,
             lazy.UrlbarShared.TOKEN_TYPE.RESTRICT_ACTION,
+            lazy.UrlbarShared.TOKEN_TYPE.RESTRICT_TORRENT,
           ].includes(t.type)
         );
 
@@ -1100,6 +1107,13 @@ function updateSourcesIfEmpty(context) {
         break;
       case lazy.UrlbarUtils.RESULT_SOURCE.OTHER_NETWORK:
         if (!context.isPrivate && !restrictTokenType) {
+          acceptedSources.push(source);
+        }
+        break;
+      case lazy.UrlbarUtils.RESULT_SOURCE.TORRENT:
+        if (
+          restrictTokenType === lazy.UrlbarShared.TOKEN_TYPE.RESTRICT_TORRENT
+        ) {
           acceptedSources.push(source);
         }
         break;

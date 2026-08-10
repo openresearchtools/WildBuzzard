@@ -8,6 +8,9 @@ const environmentNames = [
 const originalEnvironment = new Map(
   environmentNames.map(name => [name, Services.env.get(name)])
 );
+const { UrlbarTestUtils } = ChromeUtils.importESModule(
+  "resource://testing-common/UrlbarTestUtils.sys.mjs"
+);
 const testRoot = PathUtils.join(
   PathUtils.tempDir,
   `wildbuzzard-torrent-${Services.appinfo.processID}-${Date.now()}`
@@ -79,4 +82,45 @@ add_task(async function test_magnet_redirects_to_torrent_client() {
     `Magnet navigation opens the native torrent client: ${tab.linkedBrowser.currentURI.spec}`
   );
   BrowserTestUtils.removeTab(tab);
+});
+
+add_task(async function test_torrent_urlbar_mode_routes_query() {
+  await SpecialPowers.pushPrefEnv({
+    set: [["browser.urlbar.searchRestrictKeywords.featureGate", true]],
+  });
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "@torrent ",
+  });
+  await UrlbarTestUtils.assertSearchMode(window, {
+    source: UrlbarUtils.RESULT_SOURCE.TORRENT,
+    entry: "typed",
+    restrictType: "keyword",
+  });
+
+  await UrlbarTestUtils.promiseAutocompleteResultPopup({
+    window,
+    value: "linux iso",
+  });
+  const details = await UrlbarTestUtils.getDetailsOfResultAt(window, 0);
+  Assert.equal(
+    details.result.providerName,
+    "UrlbarProviderTorrentSearch",
+    "The native torrent provider owns the heuristic result"
+  );
+  Assert.equal(
+    details.result.payload.url,
+    "about:torrents?search=linux%20iso",
+    "The query is encoded for the native torrent surface"
+  );
+
+  const loaded = BrowserTestUtils.browserLoaded(
+    gBrowser.selectedBrowser,
+    false,
+    "about:torrents?search=linux%20iso"
+  );
+  EventUtils.synthesizeKey("KEY_Enter");
+  await loaded;
+  await UrlbarTestUtils.exitSearchMode(window);
+  await SpecialPowers.popPrefEnv();
 });

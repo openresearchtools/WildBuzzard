@@ -5,6 +5,9 @@
 const { TorrentManager } = ChromeUtils.importESModule(
   "resource:///modules/TorrentManager.sys.mjs"
 );
+const { TorrentDiscoveryManager } = ChromeUtils.importESModule(
+  "resource:///modules/TorrentDiscoveryManager.sys.mjs"
+);
 
 const state = {
   status: null,
@@ -15,6 +18,18 @@ const state = {
   listOrder: "",
   details: null,
   capabilities: "",
+  search: {
+    sources: [],
+    response: null,
+    rows: new Map(),
+    order: "",
+    sort: "seeders",
+    direction: "descending",
+    generation: 0,
+    running: false,
+  },
+  draft: null,
+  draftSelections: new Map(),
 };
 
 const elements = {};
@@ -51,6 +66,19 @@ function formatETA(milliseconds) {
     return `${minutes}m`;
   }
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function formatOptionalBytes(value) {
+  return value === null ? "—" : formatBytes(value);
+}
+
+function formatPublished(value) {
+  if (!value) {
+    return "—";
+  }
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+  }).format(new Date(value));
 }
 
 function l10n(element, id, args) {
@@ -111,6 +139,403 @@ async function run(task, successId, focusTarget = null) {
   } finally {
     state.busy = false;
     focusTarget?.focus();
+  }
+}
+
+function selectedSourceIds() {
+  const selected = [...elements.searchSourceList.querySelectorAll("input")]
+    .filter(input => input.checked)
+    .map(input => input.value);
+  return selected.length === state.search.sources.length ? undefined : selected;
+}
+
+function updateSourceSummary() {
+  const selected = selectedSourceIds();
+  if (selected === undefined) {
+    l10n(
+      elements.searchSources.querySelector("summary"),
+      "wildbuzzard-torrents-search-all-sources"
+    );
+    return;
+  }
+  l10n(
+    elements.searchSources.querySelector("summary"),
+    "wildbuzzard-torrents-search-selected-sources",
+    { count: selected.length }
+  );
+}
+
+function renderSources() {
+  const rows = state.search.sources.map(source => {
+    const label = document.createElement("label");
+    label.className = "source-option";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = source.id;
+    checkbox.checked = true;
+    const name = document.createElement("span");
+    name.textContent = source.name;
+    name.title = source.name;
+    const status = document.createElement("output");
+    l10n(status, `wildbuzzard-torrents-source-state-${source.state}`);
+    label.append(checkbox, name, status);
+    return label;
+  });
+  elements.searchSourceList.replaceChildren(...rows);
+  updateSourceSummary();
+}
+
+function compareSearchValues(left, right, field, direction) {
+  const leftValue = left[field];
+  const rightValue = right[field];
+  if (leftValue === null && rightValue === null) {
+    return 0;
+  }
+  if (leftValue === null) {
+    return 1;
+  }
+  if (rightValue === null) {
+    return -1;
+  }
+  let compared;
+  if (typeof leftValue === "string") {
+    compared = leftValue.localeCompare(rightValue, undefined, {
+      sensitivity: "base",
+      numeric: true,
+    });
+  } else {
+    compared = leftValue - rightValue;
+  }
+  return direction === "ascending" ? compared : -compared;
+}
+
+function sortedSearchResults() {
+  const { sort, direction } = state.search;
+  return [...(state.search.response?.results || [])].sort((left, right) => {
+    const primary = compareSearchValues(left, right, sort, direction);
+    if (primary) {
+      return primary;
+    }
+    return (
+      left.providerId.localeCompare(right.providerId) ||
+      left.name.localeCompare(right.name, undefined, { sensitivity: "base" }) ||
+      left.resultId.localeCompare(right.resultId)
+    );
+  });
+}
+
+function updateSortHeaders() {
+  for (const header of elements.searchResults.querySelectorAll(
+    "th[data-sort-column]"
+  )) {
+    if (header.dataset.sortColumn === state.search.sort) {
+      header.setAttribute("aria-sort", state.search.direction);
+    } else {
+      header.removeAttribute("aria-sort");
+    }
+  }
+}
+
+function createSearchResultRow(result) {
+  const root = document.createElement("tr");
+  root.dataset.resultId = result.resultId;
+  const cells = {};
+  for (const name of [
+    "name",
+    "size",
+    "seeders",
+    "leechers",
+    "source",
+    "category",
+    "published",
+    "download",
+  ]) {
+    const cell = document.createElement("td");
+    cell.dataset.column = ["seeders", "leechers"].includes(name)
+      ? "number"
+      : name;
+    root.append(cell);
+    cells[name] = cell;
+  }
+  const download = document.createElement("button");
+  download.type = "button";
+  download.className = "secondary";
+  download.dataset.prepareResult = result.resultId;
+  l10n(download, "wildbuzzard-torrents-result-download-button");
+  cells.download.append(download);
+  return { root, cells, download };
+}
+
+function renderSearchResults() {
+  const results = sortedSearchResults();
+  const ids = new Set(results.map(result => result.resultId));
+  for (const [id, row] of state.search.rows) {
+    if (!ids.has(id)) {
+      row.root.remove();
+      state.search.rows.delete(id);
+    }
+  }
+  const ordered = results.map(result => {
+    let row = state.search.rows.get(result.resultId);
+    if (!row) {
+      row = createSearchResultRow(result);
+      state.search.rows.set(result.resultId, row);
+    }
+    row.cells.name.textContent = result.name;
+    row.cells.size.textContent = formatOptionalBytes(result.sizeBytes);
+    row.cells.seeders.textContent = result.seeders ?? "—";
+    row.cells.leechers.textContent = result.leechers ?? "—";
+    row.cells.source.textContent = result.providerName;
+    row.cells.category.textContent = result.categoryIds.join(", ") || "—";
+    row.cells.published.textContent = formatPublished(result.publishedAt);
+    row.download.disabled = state.search.running;
+    return row.root;
+  });
+  const order = results.map(result => result.resultId).join("\n");
+  if (order !== state.search.order) {
+    elements.searchResultsBody.append(...ordered);
+    state.search.order = order;
+  }
+  elements.searchResultsScroll.hidden = results.length === 0;
+  elements.searchResultsEmpty.hidden =
+    !state.search.response || results.length !== 0;
+  updateSortHeaders();
+}
+
+function renderProviderStatus() {
+  elements.providerStatus.replaceChildren(
+    ...(state.search.response?.providers || []).map(provider => {
+      const item = document.createElement("li");
+      item.dataset.state = provider.state;
+      const name = document.createElement("span");
+      name.textContent = provider.id;
+      const separator = document.createTextNode(": ");
+      const status = document.createElement("span");
+      l10n(status, `wildbuzzard-torrents-provider-state-${provider.state}`);
+      item.append(name, separator, status);
+      return item;
+    })
+  );
+}
+
+async function setSearchStatus(id, args) {
+  elements.searchStatus.textContent = await localized(id, args);
+}
+
+function setSearchRunning(running) {
+  state.search.running = running;
+  elements.searchForm.setAttribute("aria-busy", String(running));
+  elements.searchSubmit.disabled = running;
+  elements.searchCancel.hidden = !running;
+  for (const trigger of elements.searchResultsBody.querySelectorAll("button")) {
+    trigger.disabled = running;
+  }
+}
+
+async function searchTorrents() {
+  const query = elements.searchQuery.value.trim();
+  if (!query) {
+    return;
+  }
+  const sourceIds = selectedSourceIds();
+  if (sourceIds?.length === 0) {
+    showToast(await localized("wildbuzzard-torrents-search-sources"), true);
+    elements.searchSources.open = true;
+    return;
+  }
+  const generation = ++state.search.generation;
+  setSearchRunning(true);
+  await setSearchStatus("wildbuzzard-torrents-search-starting");
+  try {
+    const response = await TorrentDiscoveryManager.search({
+      query,
+      sourceIds,
+      isPrivate: window.docShell.usePrivateBrowsing,
+    });
+    if (generation !== state.search.generation) {
+      return;
+    }
+    state.search.response = response;
+    renderProviderStatus();
+    renderSearchResults();
+    await setSearchStatus(
+      response.partial
+        ? "wildbuzzard-torrents-search-partial"
+        : "wildbuzzard-torrents-search-complete",
+      {
+        count: response.results.length,
+        providers: response.providers.length,
+      }
+    );
+  } catch (error) {
+    if (generation !== state.search.generation) {
+      return;
+    }
+    if (error.cancelled) {
+      await setSearchStatus("wildbuzzard-torrents-search-cancelled");
+    } else {
+      elements.searchStatus.textContent = error.message;
+      showToast(error.message, true);
+    }
+  } finally {
+    if (generation === state.search.generation) {
+      setSearchRunning(false);
+      renderSearchResults();
+    }
+  }
+}
+
+function cancelSearch() {
+  state.search.generation++;
+  TorrentDiscoveryManager.cancelSearch();
+  setSearchRunning(false);
+  setSearchStatus("wildbuzzard-torrents-search-cancelled");
+}
+
+function renderDraft() {
+  const draft = state.draft;
+  if (!draft) {
+    return;
+  }
+  l10n(elements.draftSummary, "wildbuzzard-torrents-draft-summary", {
+    name: draft.name || "Torrent",
+    size: formatOptionalBytes(draft.totalSize ?? null),
+  });
+  const ready = draft.state === "ready";
+  elements.draftFiles.disabled = !ready;
+  elements.draftCommit.disabled = !ready;
+  if (!ready) {
+    l10n(
+      elements.draftStatus,
+      Date.now() - state.draftStartedAt >= 20000
+        ? "wildbuzzard-torrents-draft-still-fetching"
+        : "wildbuzzard-torrents-draft-fetching"
+    );
+    elements.draftFileList.replaceChildren();
+    return;
+  }
+  elements.draftStatus.textContent = "";
+  const files = draft.files || [];
+  const rows = files.map(file => {
+    if (!state.draftSelections.has(file.index)) {
+      state.draftSelections.set(file.index, true);
+    }
+    const label = document.createElement("label");
+    label.className = "draft-file-row";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.dataset.draftFile = file.index;
+    checkbox.checked = state.draftSelections.get(file.index);
+    const name = document.createElement("span");
+    name.textContent = file.path;
+    const size = document.createElement("output");
+    size.textContent = formatBytes(file.length);
+    label.append(checkbox, name, size);
+    return label;
+  });
+  elements.draftFileList.replaceChildren(...rows);
+  const selected = [...state.draftSelections.values()].filter(Boolean).length;
+  elements.draftCommit.disabled = selected === 0;
+  l10n(
+    elements.draftCommit,
+    selected === files.length
+      ? "wildbuzzard-torrents-draft-download-all"
+      : "wildbuzzard-torrents-draft-download-selected"
+  );
+}
+
+async function refreshDraft() {
+  const id = state.draft?.draftId;
+  if (!id) {
+    return;
+  }
+  try {
+    const draft = await TorrentManager.getTorrentDraft(id);
+    if (state.draft?.draftId !== id) {
+      return;
+    }
+    state.draft = draft;
+    renderDraft();
+    if (draft.state !== "ready") {
+      state.draftTimer = setTimeout(refreshDraft, 500);
+    }
+  } catch (error) {
+    showToast(error.message, true);
+    await closeDraft(true);
+  }
+}
+
+async function openDraft(draft) {
+  clearTimeout(state.draftTimer);
+  state.draft = draft;
+  state.draftStartedAt = Date.now();
+  state.draftSelections.clear();
+  renderDraft();
+  if (!elements.draftDialog.open) {
+    elements.draftDialog.showModal();
+  }
+  if (draft.state !== "ready") {
+    state.draftTimer = setTimeout(refreshDraft, 500);
+  }
+}
+
+async function closeDraft(cancel = true) {
+  clearTimeout(state.draftTimer);
+  const id = state.draft?.draftId;
+  state.draft = null;
+  state.draftSelections.clear();
+  if (elements.draftDialog.open) {
+    elements.draftDialog.close();
+  }
+  if (cancel && id) {
+    await TorrentManager.cancelTorrentDraft(id).catch(() => {});
+  }
+}
+
+async function commitDraft() {
+  const draft = state.draft;
+  if (!draft || draft.state !== "ready") {
+    return;
+  }
+  const files = draft.files || [];
+  const selected = files
+    .filter(file => state.draftSelections.get(file.index))
+    .map(file => file.index);
+  elements.draftCommit.disabled = true;
+  try {
+    await TorrentManager.commitTorrentDraft(
+      draft.draftId,
+      selected.length === files.length ? undefined : selected
+    );
+    await closeDraft(false);
+    showToast(await localized("wildbuzzard-torrents-draft-committed"));
+    await refresh();
+  } catch (error) {
+    elements.draftCommit.disabled = false;
+    showToast(error.message, true);
+  }
+}
+
+async function prepareSearchResult(resultId, trigger) {
+  const result = state.search.response?.results.find(
+    item => item.resultId === resultId
+  );
+  if (!result) {
+    return;
+  }
+  trigger.disabled = true;
+  try {
+    const resolution = await TorrentDiscoveryManager.resolve(result.resultId);
+    const draft = await TorrentManager.createTorrentDraft(
+      resolution.kind === "magnet"
+        ? { magnet: resolution.magnet }
+        : { torrent: resolution.torrent }
+    );
+    await openDraft(draft);
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    trigger.disabled = false;
   }
 }
 
@@ -607,6 +1032,24 @@ async function chooseTorrentFile(trigger) {
   );
 }
 
+async function initializeTorrentSearch() {
+  try {
+    const response = await TorrentDiscoveryManager.getSources();
+    state.search.sources = response.sources;
+    renderSources();
+    const query = new URL(location.href).searchParams.get("search");
+    if (query) {
+      elements.searchQuery.value = query;
+      await searchTorrents();
+    }
+  } catch (error) {
+    elements.searchForm.hidden = false;
+    elements.searchSubmit.disabled = true;
+    elements.searchSources.hidden = true;
+    elements.searchStatus.textContent = error.message;
+  }
+}
+
 async function initialize() {
   Object.assign(elements, {
     capabilities: document.getElementById("engine-capabilities"),
@@ -624,6 +1067,24 @@ async function initialize() {
     torEnabled: document.getElementById("tor-enabled"),
     torNotice: document.getElementById("tor-notice"),
     toast: document.getElementById("toast"),
+    searchSources: document.getElementById("search-sources"),
+    searchSourceList: document.getElementById("search-source-list"),
+    searchForm: document.getElementById("search-form"),
+    searchQuery: document.getElementById("torrent-search-query"),
+    searchSubmit: document.getElementById("torrent-search-submit"),
+    searchCancel: document.getElementById("torrent-search-cancel"),
+    searchStatus: document.getElementById("torrent-search-status"),
+    providerStatus: document.getElementById("torrent-provider-status"),
+    searchResults: document.getElementById("torrent-results"),
+    searchResultsBody: document.getElementById("torrent-results-body"),
+    searchResultsScroll: document.getElementById("torrent-results-scroll"),
+    searchResultsEmpty: document.getElementById("torrent-results-empty"),
+    draftDialog: document.getElementById("torrent-draft-dialog"),
+    draftSummary: document.getElementById("torrent-draft-summary"),
+    draftStatus: document.getElementById("torrent-draft-status"),
+    draftFiles: document.getElementById("torrent-draft-files"),
+    draftFileList: document.getElementById("torrent-draft-file-list"),
+    draftCommit: document.getElementById("torrent-draft-commit"),
   });
 
   document.getElementById("add-form").addEventListener("submit", event => {
@@ -678,6 +1139,56 @@ async function initialize() {
       "wildbuzzard-torrents-settings-saved"
     );
   });
+  elements.searchForm.addEventListener("submit", event => {
+    event.preventDefault();
+    searchTorrents();
+  });
+  elements.searchCancel.addEventListener("click", cancelSearch);
+  elements.searchSourceList.addEventListener("change", updateSourceSummary);
+  elements.searchResults
+    .querySelector("thead")
+    .addEventListener("click", event => {
+      const sort = event.target.closest("button[data-sort]")?.dataset.sort;
+      if (!sort) {
+        return;
+      }
+      if (state.search.sort === sort) {
+        state.search.direction =
+          state.search.direction === "ascending" ? "descending" : "ascending";
+      } else {
+        state.search.sort = sort;
+        state.search.direction = sort === "name" ? "ascending" : "descending";
+      }
+      renderSearchResults();
+    });
+  elements.searchResultsBody.addEventListener("click", event => {
+    const trigger = event.target.closest("button[data-prepare-result]");
+    if (trigger) {
+      prepareSearchResult(trigger.dataset.prepareResult, trigger);
+    }
+  });
+  elements.draftFileList.addEventListener("change", event => {
+    const checkbox = event.target.closest("input[data-draft-file]");
+    if (!checkbox) {
+      return;
+    }
+    state.draftSelections.set(
+      Number(checkbox.dataset.draftFile),
+      checkbox.checked
+    );
+    renderDraft();
+  });
+  document
+    .getElementById("torrent-draft-close")
+    .addEventListener("click", () => closeDraft(true));
+  document
+    .getElementById("torrent-draft-cancel")
+    .addEventListener("click", () => closeDraft(true));
+  elements.draftCommit.addEventListener("click", commitDraft);
+  elements.draftDialog.addEventListener("cancel", event => {
+    event.preventDefault();
+    closeDraft(true);
+  });
   const dropTarget = document.getElementById("drop-target");
   for (const type of ["dragenter", "dragover"]) {
     dropTarget.addEventListener(type, event => {
@@ -698,6 +1209,7 @@ async function initialize() {
     );
   });
 
+  initializeTorrentSearch();
   try {
     await TorrentManager.initialize();
     const source = new URL(location.href).searchParams.get("add");

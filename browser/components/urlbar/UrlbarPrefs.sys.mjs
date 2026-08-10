@@ -479,6 +479,7 @@ const PREF_URLBAR_DEFAULTS = /** @type {PreferenceDefinition[]} */ ([
   ["shortcuts.tabs", true],
   ["shortcuts.history", true],
   ["shortcuts.actions", true],
+  ["shortcuts.torrent", true],
 
   // Boolean to determine if the providers defined in `exposureResults`
   // should be displayed in search results. This can be set by a

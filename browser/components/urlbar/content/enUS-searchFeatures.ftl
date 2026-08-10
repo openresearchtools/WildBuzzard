@@ -204,6 +204,7 @@ urlbar-search-mode-bookmarks-en = Bookmarks
 urlbar-search-mode-tabs-en = Tabs
 urlbar-search-mode-history-en = History
 urlbar-search-mode-actions-en = Actions
+urlbar-search-mode-torrent-en = Torrents
 
 ## These strings are used for Yelp realtime suggestions in the urlbar.
 ## Yelp realtime suggestions shows shops, places information etc nearby.

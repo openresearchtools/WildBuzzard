@@ -662,6 +662,7 @@ pref("browser.urlbar.showSearchTerms.enabled", true);
 pref("browser.urlbar.shortcuts.bookmarks", true);
 pref("browser.urlbar.shortcuts.tabs", true);
 pref("browser.urlbar.shortcuts.history", true);
+pref("browser.urlbar.shortcuts.torrent", true);
 
 // When we send events to Urlbar extensions, we wait this amount of time in
 // milliseconds for them to respond before timing out.

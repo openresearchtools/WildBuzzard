@@ -122,7 +122,7 @@ export var UrlbarTokenizer = {
     return (
       token &&
       token.type >= UrlbarShared.TOKEN_TYPE.RESTRICT_HISTORY &&
-      token.type <= UrlbarShared.TOKEN_TYPE.RESTRICT_URL
+      token.type <= UrlbarShared.TOKEN_TYPE.RESTRICT_TORRENT
     );
   },
 };

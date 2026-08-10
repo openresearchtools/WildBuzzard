@@ -80,6 +80,133 @@
         </div>
       </section>
 
+      <section class="search-card" aria-labelledby="search-heading">
+        <div class="section-heading">
+          <div>
+            <h2
+              id="search-heading"
+              data-l10n-id="wildbuzzard-torrents-search-heading"
+            ></h2>
+            <p data-l10n-id="wildbuzzard-torrents-search-description"></p>
+          </div>
+          <details id="search-sources" class="source-picker">
+            <summary
+              data-l10n-id="wildbuzzard-torrents-search-all-sources"
+            ></summary>
+            <fieldset>
+              <legend
+                data-l10n-id="wildbuzzard-torrents-search-sources"
+              ></legend>
+              <div id="search-source-list"></div>
+            </fieldset>
+          </details>
+        </div>
+        <form id="search-form" class="search-form">
+          <label
+            for="torrent-search-query"
+            data-l10n-id="wildbuzzard-torrents-search-label"
+          ></label>
+          <div class="input-row">
+            <input
+              id="torrent-search-query"
+              type="search"
+              maxlength="256"
+              required="required"
+              spellcheck="false"
+              data-l10n-id="wildbuzzard-torrents-search-input"
+            />
+            <button
+              id="torrent-search-submit"
+              type="submit"
+              class="primary"
+              data-l10n-id="wildbuzzard-torrents-search-button"
+            ></button>
+            <button
+              id="torrent-search-cancel"
+              type="button"
+              class="secondary"
+              hidden="hidden"
+              data-l10n-id="wildbuzzard-torrents-search-cancel"
+            ></button>
+          </div>
+        </form>
+        <p
+          class="search-disclosure"
+          role="note"
+          data-l10n-id="wildbuzzard-torrents-search-disclosure"
+        ></p>
+        <div
+          id="torrent-search-status"
+          class="search-status"
+          role="status"
+          aria-live="polite"
+        ></div>
+        <ul id="torrent-provider-status" class="provider-status"></ul>
+        <div id="torrent-results-scroll" class="results-scroll" hidden="hidden">
+          <table id="torrent-results" class="results-table">
+            <thead>
+              <tr>
+                <th scope="col" data-sort-column="name">
+                  <button
+                    type="button"
+                    data-sort="name"
+                    data-l10n-id="wildbuzzard-torrents-result-title"
+                  ></button>
+                </th>
+                <th scope="col" data-sort-column="sizeBytes">
+                  <button
+                    type="button"
+                    data-sort="sizeBytes"
+                    data-l10n-id="wildbuzzard-torrents-result-size"
+                  ></button>
+                </th>
+                <th
+                  scope="col"
+                  data-sort-column="seeders"
+                  aria-sort="descending"
+                >
+                  <button
+                    type="button"
+                    data-sort="seeders"
+                    data-l10n-id="wildbuzzard-torrents-result-seeders"
+                  ></button>
+                </th>
+                <th scope="col" data-sort-column="leechers">
+                  <button
+                    type="button"
+                    data-sort="leechers"
+                    data-l10n-id="wildbuzzard-torrents-result-leechers"
+                  ></button>
+                </th>
+                <th
+                  scope="col"
+                  data-l10n-id="wildbuzzard-torrents-result-source"
+                ></th>
+                <th
+                  scope="col"
+                  data-l10n-id="wildbuzzard-torrents-result-category"
+                ></th>
+                <th
+                  scope="col"
+                  data-l10n-id="wildbuzzard-torrents-result-published"
+                ></th>
+                <th
+                  scope="col"
+                  data-l10n-id="wildbuzzard-torrents-result-download"
+                ></th>
+              </tr>
+            </thead>
+            <tbody id="torrent-results-body"></tbody>
+          </table>
+        </div>
+        <p
+          id="torrent-results-empty"
+          class="results-empty"
+          hidden="hidden"
+          data-l10n-id="wildbuzzard-torrents-search-empty"
+        ></p>
+      </section>
+
       <section
         id="summary"
         class="summary-grid"
@@ -171,6 +298,52 @@
         </form>
       </section>
     </main>
+
+    <dialog id="torrent-draft-dialog" class="draft-dialog">
+      <div class="draft-dialog-header">
+        <div>
+          <p
+            class="eyebrow"
+            data-l10n-id="wildbuzzard-torrents-draft-product"
+          ></p>
+          <h2
+            id="torrent-draft-heading"
+            data-l10n-id="wildbuzzard-torrents-draft-heading"
+          ></h2>
+        </div>
+        <button
+          id="torrent-draft-close"
+          type="button"
+          class="close-button"
+          data-l10n-id="wildbuzzard-torrents-draft-close"
+        ></button>
+      </div>
+      <p id="torrent-draft-summary" class="draft-summary"></p>
+      <div
+        id="torrent-draft-status"
+        class="draft-status"
+        role="status"
+        aria-live="polite"
+      ></div>
+      <fieldset id="torrent-draft-files">
+        <legend data-l10n-id="wildbuzzard-torrents-draft-files"></legend>
+        <div id="torrent-draft-file-list" class="draft-file-list"></div>
+      </fieldset>
+      <div class="dialog-actions">
+        <button
+          id="torrent-draft-cancel"
+          type="button"
+          class="secondary"
+          data-l10n-id="wildbuzzard-torrents-draft-cancel"
+        ></button>
+        <button
+          id="torrent-draft-commit"
+          type="button"
+          class="primary"
+          data-l10n-id="wildbuzzard-torrents-draft-download-all"
+        ></button>
+      </div>
+    </dialog>
 
     <div id="toast" role="status" aria-live="polite" hidden="hidden"></div>
   </body>
