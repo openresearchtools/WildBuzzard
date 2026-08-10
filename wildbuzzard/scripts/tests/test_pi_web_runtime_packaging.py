@@ -48,9 +48,9 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
                 "licenseSha256": "e" * 64,
             },
             "piPackages": {
-                "@earendil-works/pi-agent-core": "0.83.0",
-                "@earendil-works/pi-ai": "0.83.0",
-                "@earendil-works/pi-coding-agent": "0.83.0",
+                "@earendil-works/pi-agent-core": "0.84.1",
+                "@earendil-works/pi-ai": "0.84.1",
+                "@earendil-works/pi-coding-agent": "0.84.1",
             },
             "node": {
                 "version": "22.23.2",

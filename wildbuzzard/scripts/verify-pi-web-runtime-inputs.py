@@ -66,9 +66,9 @@ def load_lock(path):
     ):
         fail("invalid Node archive pin")
     expected_pi = {
-        "@earendil-works/pi-agent-core": "0.83.0",
-        "@earendil-works/pi-ai": "0.83.0",
-        "@earendil-works/pi-coding-agent": "0.83.0",
+        "@earendil-works/pi-agent-core": "0.84.1",
+        "@earendil-works/pi-ai": "0.84.1",
+        "@earendil-works/pi-coding-agent": "0.84.1",
     }
     if lock["piPackages"] != expected_pi:
         fail("invalid Pi package pins")
