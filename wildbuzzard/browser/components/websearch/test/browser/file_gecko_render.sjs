@@ -33,6 +33,15 @@ function pdfFixture() {
   return pdf;
 }
 
+function utf16LE(value) {
+  let result = "\xff\xfe";
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    result += String.fromCharCode(code & 0xff, code >> 8);
+  }
+  return result;
+}
+
 function handleRequest(request, response) {
   const params = new URLSearchParams(request.queryString);
   const mode = params.get("mode") || "html";
@@ -41,6 +50,18 @@ function handleRequest(request, response) {
   if (mode === "redirect") {
     response.setStatusLine(request.httpVersion, 302, "Found");
     response.setHeader("Location", params.get("target"), false);
+    return;
+  }
+  if (mode === "redirect-chain") {
+    const hops = Number(params.get("hops") || 0);
+    response.setStatusLine(request.httpVersion, 302, "Found");
+    response.setHeader(
+      "Location",
+      hops > 0
+        ? `${request.path}?mode=redirect-chain&hops=${hops - 1}`
+        : `${request.path}?mode=text`,
+      false
+    );
     return;
   }
   if (mode === "slow") {
@@ -69,6 +90,31 @@ function handleRequest(request, response) {
   if (mode === "text") {
     response.setHeader("Content-Type", "text/plain; charset=utf-8", false);
     response.write("plain response body");
+    return;
+  }
+  if (mode === "xml") {
+    response.setHeader("Content-Type", "application/xml; charset=utf-8", false);
+    response.write(
+      '<?xml version="1.0"?><urlset><url><loc>https://example.com/a?x=1&amp;y=2</loc></url></urlset>'
+    );
+    return;
+  }
+  if (mode === "xml-utf16") {
+    response.setHeader("Content-Type", "text/xml", false);
+    response.write(
+      utf16LE(
+        '<?xml version="1.0" encoding="UTF-16"?><root><value>encoded</value></root>'
+      )
+    );
+    return;
+  }
+  if (mode === "gzip-sitemap") {
+    response.setHeader("Content-Type", "application/gzip", false);
+    response.write(
+      atob(
+        "H4sIAAAAAAACA7Oxr8jNUShLLSrOzM+zVTLUM1Cyt7MpLcopTi0B03Y2OfnJdhklJQXFVvr6qRWJuQU5qXrJ+bn6aUX5ubrpVZkFNvogJTb6YNX6UL0AKvgQ4lkAAAA="
+      )
+    );
     return;
   }
   if (mode === "pdf") {
@@ -107,6 +153,13 @@ function handleRequest(request, response) {
     </script>`);
     return;
   }
+  if (mode === "same-origin-iframe") {
+    response.setHeader("Content-Type", "text/html", false);
+    response.write(
+      `<!doctype html><title>outer document</title><h1>Outer document</h1><iframe src="${request.path}?mode=text"></iframe>`
+    );
+    return;
+  }
   if (mode === "private-subresource") {
     response.setHeader("Content-Type", "text/html", false);
     const privateUrl = "http://127.0.0.1/private-resource";
@@ -119,6 +172,21 @@ function handleRequest(request, response) {
     }[kind];
     response.write(
       `<!doctype html><title>subresource</title>${resource ?? ""}`
+    );
+    return;
+  }
+  if (mode === "public-subresource") {
+    response.setHeader("Content-Type", "text/html", false);
+    const publicUrl = `https://example.org${request.path}?mode=text`;
+    const kind = params.get("kind") || "image";
+    const resource = {
+      fetch: `<script>fetch(${JSON.stringify(publicUrl)}).catch(() => {})</script>`,
+      iframe: `<iframe src=${JSON.stringify(publicUrl)}></iframe>`,
+      image: `<img src=${JSON.stringify(publicUrl)}>`,
+      script: `<script src=${JSON.stringify(publicUrl)}></script>`,
+    }[kind];
+    response.write(
+      `<!doctype html><title>public subresource</title>${resource ?? ""}`
     );
     return;
   }

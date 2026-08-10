@@ -7,7 +7,12 @@ export interface GeckoRenderOptions {
   timeoutMs?: number;
   headers?: Record<string, string>;
   blockDomains?: string[];
+  allowedOrigins?: string[];
+  allowSubdomains?: boolean;
   waitForSelector?: string;
+  javascript?: boolean;
+  maxBytes?: number;
+  maxRedirects?: number;
 }
 
 export interface GeckoRenderResult {
@@ -16,7 +21,12 @@ export interface GeckoRenderResult {
   pageError: string | null;
   contentType: string;
   finalUrl: string;
+  redirectCount: number;
+  decodedBytes: number;
 }
+
+export const MAX_GECKO_RENDER_BYTES = 32 * 1024 * 1024;
+export const MAX_GECKO_RENDER_REDIRECTS = 10;
 
 function validateResult(value: unknown): GeckoRenderResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -29,9 +39,19 @@ function validateResult(value: unknown): GeckoRenderResult {
     !Number.isInteger(result.pageStatusCode) ||
     Number(result.pageStatusCode) < 0 ||
     Number(result.pageStatusCode) > 999 ||
-    (result.pageError !== null && typeof result.pageError !== "string") ||
+    (result.pageError !== null &&
+      (typeof result.pageError !== "string" ||
+        result.pageError.length > 1_000)) ||
     typeof result.contentType !== "string" ||
-    typeof result.finalUrl !== "string"
+    result.contentType.length > 512 ||
+    typeof result.finalUrl !== "string" ||
+    result.finalUrl.length > 8_192 ||
+    !Number.isInteger(result.redirectCount) ||
+    Number(result.redirectCount) < 0 ||
+    Number(result.redirectCount) > MAX_GECKO_RENDER_REDIRECTS ||
+    !Number.isInteger(result.decodedBytes) ||
+    Number(result.decodedBytes) < 0 ||
+    Number(result.decodedBytes) > MAX_GECKO_RENDER_BYTES
   ) {
     throw new Error("Gecko renderer returned an invalid response");
   }
@@ -41,7 +61,11 @@ function validateResult(value: unknown): GeckoRenderResult {
   } catch {
     throw new Error("Gecko renderer returned an invalid final URL");
   }
-  if (finalUrl.protocol !== "http:" && finalUrl.protocol !== "https:") {
+  if (
+    (finalUrl.protocol !== "http:" && finalUrl.protocol !== "https:") ||
+    finalUrl.username ||
+    finalUrl.password
+  ) {
     throw new Error("Gecko renderer returned an unsafe final URL");
   }
   return result as GeckoRenderResult;

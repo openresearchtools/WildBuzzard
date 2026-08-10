@@ -76,12 +76,52 @@ add_task(async function test_javascript_dom_status_and_final_url() {
     "content type is returned"
   );
   is(result.finalUrl, `${FIXTURE}?mode=html`, "final URL is returned");
+  Assert.greater(result.decodedBytes, 0, "decoded response bytes are returned");
   ok(result.content.includes("Static heading"), "static DOM is serialized");
   ok(
     result.content.includes("JavaScript mutated DOM"),
     "JavaScript-mutated DOM is serialized"
   );
   assertClean("successful HTML render");
+});
+
+add_task(async function test_static_mode_does_not_execute_page_javascript() {
+  const result = await render(`${FIXTURE}?mode=html`, { javascript: false });
+  is(result.pageError, null, "static Gecko load succeeds");
+  ok(result.content.includes("Static heading"), "static HTML is serialized");
+  ok(!result.content.includes('id="ready"'), "page JavaScript did not run");
+  assertClean("static render");
+});
+
+add_task(async function test_xml_encoding_gzip_and_redirect_contract() {
+  let result = await render(`${FIXTURE}?mode=xml`);
+  is(result.pageStatusCode, 200, "XML status is returned");
+  is(result.contentType, "application/xml; charset=utf-8", "XML type is kept");
+  ok(result.content.includes("<urlset>"), "original XML markup is returned");
+  ok(result.content.includes("&amp;"), "XML entities remain serialized");
+
+  result = await render(`${FIXTURE}?mode=xml-utf16`);
+  is(result.contentType, "text/xml", "text XML variant is accepted");
+  ok(
+    result.content.includes("<value>encoded</value>"),
+    "UTF-16 XML is decoded"
+  );
+
+  result = await render(`${FIXTURE}?mode=gzip-sitemap`);
+  is(result.contentType, "application/gzip", "gzip type is retained");
+  ok(
+    result.content.startsWith("data:application/gzip;base64,"),
+    "gzip bytes use the bounded binary envelope"
+  );
+  const gzip = atob(result.content.split(",", 2)[1]);
+  is(gzip.charCodeAt(0), 0x1f, "gzip magic byte one is preserved");
+  is(gzip.charCodeAt(1), 0x8b, "gzip magic byte two is preserved");
+
+  result = await render(`${FIXTURE}?mode=redirect-chain&hops=2`);
+  is(result.redirectCount, 3, "the complete redirect chain is counted");
+  is(result.finalUrl, `${FIXTURE}?mode=text`, "redirect final URL is exact");
+  is(result.content, "plain response body", "redirect target body is returned");
+  assertClean("XML, gzip, and redirect renders");
 });
 
 add_task(async function test_status_and_original_text_bodies() {
@@ -104,6 +144,15 @@ add_task(async function test_status_and_original_text_bodies() {
   is(result.pageStatusCode, 204, "204 status is retained");
   is(result.content, "", "204 has an empty body");
   is(result.contentType, "", "204 has no content type");
+
+  result = await render(`${FIXTURE}?mode=same-origin-iframe`);
+  is(result.redirectCount, 0, "iframe loads are not counted as redirects");
+  is(
+    result.finalUrl,
+    `${FIXTURE}?mode=same-origin-iframe`,
+    "iframe responses do not replace the top-level final URL"
+  );
+  ok(result.content.includes("Outer document"), "the top document is returned");
   assertClean("status and content-type renders");
 });
 
@@ -164,6 +213,17 @@ add_task(async function test_redirect_subresource_and_domain_policy() {
     );
   }
 
+  for (const kind of ["iframe", "image", "script", "fetch"]) {
+    result = await render(`${FIXTURE}?mode=public-subresource&kind=${kind}`, {
+      allowedOrigins: ["https://example.com"],
+      waitMs: 50,
+    });
+    ok(
+      result.pageError.includes("outside the allowed scope"),
+      `out-of-scope public ${kind} aborts the render`
+    );
+  }
+
   result = await render(`${FIXTURE}?mode=html`, {
     blockDomains: ["ample.com"],
   });
@@ -217,6 +277,26 @@ add_task(async function test_cross_origin_header_stripping() {
   is(result.finalUrl, target, "cross-origin redirect is followed");
   ok(result.content.includes("absent"), "custom header is stripped");
   ok(!result.content.includes("renderer-secret"), "custom value did not leak");
+
+  result = await render(
+    `${FIXTURE}?mode=redirect&target=${encodeURIComponent(target)}`,
+    { allowedOrigins: ["https://example.com"] }
+  );
+  ok(
+    result.pageError.includes("outside the allowed scope"),
+    "cross-origin redirect is blocked before an out-of-scope request"
+  );
+
+  const subdomainTarget = `https://www.example.com${FIXTURE_PATH}?mode=text`;
+  result = await render(
+    `${FIXTURE}?mode=redirect&target=${encodeURIComponent(subdomainTarget)}`,
+    {
+      allowedOrigins: ["https://example.com"],
+      allowSubdomains: true,
+    }
+  );
+  is(result.finalUrl, subdomainTarget, "opt-in subdomain redirect is allowed");
+  is(result.pageError, null, "subdomain target renders successfully");
   assertClean("header stripping");
 });
 
@@ -258,6 +338,16 @@ add_task(async function test_invalid_tls_timeout_abort_and_limits() {
     result.pageError.includes("serialized output"),
     "oversized serialized DOM is rejected"
   );
+
+  result = await render(`${FIXTURE}?mode=text`, { maxBytes: 8 });
+  ok(result.pageError.includes("response"), "caller byte budget is enforced");
+  Assert.lessOrEqual(result.decodedBytes, 8, "reported bytes stay in budget");
+
+  result = await render(`${FIXTURE}?mode=redirect-chain&hops=1`, {
+    maxRedirects: 0,
+  });
+  ok(result.pageError.includes("redirect"), "caller redirect cap is enforced");
+  is(result.redirectCount, 0, "reported redirects stay within the caller cap");
   assertClean("TLS, timeout, abort, and DOM limits");
 });
 
