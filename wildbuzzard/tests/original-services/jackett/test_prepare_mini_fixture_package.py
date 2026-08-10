@@ -62,6 +62,16 @@ class PrepareMiniFixturePackageTest(unittest.TestCase):
                 sorted(path.name for path in (output / "Definitions").iterdir()),
                 ["linuxtracker.yml", "showrss.yml"],
             )
+            self.assertIn(
+                "source: mini-main",
+                (output / "Definitions/showrss.yml").read_text(encoding="utf-8"),
+            )
+            self.assertIn(
+                "source: mini-alternate",
+                (output / "Definitions/linuxtracker.yml").read_text(
+                    encoding="utf-8"
+                ),
+            )
 
 
 if __name__ == "__main__":

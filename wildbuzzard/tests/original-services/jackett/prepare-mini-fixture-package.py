@@ -7,8 +7,8 @@ import json
 import pathlib
 
 SOURCES = {
-    "showrss": ("showRSS", "main"),
-    "linuxtracker": ("LinuxTracker", "alternate"),
+    "showrss": ("showRSS", "mini-main"),
+    "linuxtracker": ("LinuxTracker", "mini-alternate"),
 }
 
 
