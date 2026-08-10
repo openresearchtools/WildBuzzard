@@ -127,6 +127,7 @@ if [[ "$(podman "${podman_args[@]}" info --format '{{.Host.Security.Rootless}}')
   exit 1
 fi
 podman "${podman_args[@]}" pull "$sdk_image" > "$log_dir/sdk-pull.log" 2>&1
+podman "${podman_args[@]}" image inspect "$sdk_image" > "$log_dir/sdk-image-inspect.json"
 
 mkdir -p -- "$object_dir/nuget" "$object_dir/dotnet-home" "$object_dir/publish"
 podman "${podman_args[@]}" run --rm --userns=keep-id \

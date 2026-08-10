@@ -14,8 +14,10 @@ output_dir=
 object_dir=
 log_dir=
 
+oci_runtime=${JACKETT_COMPARISON_OCI_RUNTIME:-}
+
 usage() {
-  echo "usage: $0 --output DIR --object-dir DIR --log-dir DIR" >&2
+  echo "usage: $0 --output DIR --object-dir DIR --log-dir DIR [--oci-runtime PATH]" >&2
 }
 
 while [[ $# -gt 0 ]]; do
@@ -30,6 +32,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --log-dir)
       log_dir=${2:?}
+      shift 2
+      ;;
+    --oci-runtime)
+      oci_runtime=${2:?}
       shift 2
       ;;
     *)
@@ -64,14 +70,20 @@ source_dir="$object_dir/$source_directory_name"
 (cd "$source_dir" && sha256sum --check "$package_dir/upstream/SOURCE-MANIFEST.sha256") > "$log_dir/source-manifest.log" 2>&1
 
 podman_args=()
-if [[ -n "${JACKETT_COMPARISON_OCI_RUNTIME:-}" ]]; then
-  podman_args+=(--runtime "$JACKETT_COMPARISON_OCI_RUNTIME")
+if [[ -n "$oci_runtime" ]]; then
+  oci_runtime=$(realpath -- "$oci_runtime")
+  if [[ ! -x "$oci_runtime" ]]; then
+    echo "OCI runtime must be executable: $oci_runtime" >&2
+    exit 1
+  fi
+  podman_args+=(--runtime "$oci_runtime")
 fi
 if [[ "$(podman "${podman_args[@]}" info --format '{{.Host.Security.Rootless}}')" != "true" ]]; then
   echo "the pristine Jackett build requires rootless Podman" >&2
   exit 1
 fi
 podman "${podman_args[@]}" pull "$sdk_image" > "$log_dir/sdk-pull.log" 2>&1
+podman "${podman_args[@]}" image inspect "$sdk_image" > "$log_dir/sdk-image-inspect.json"
 
 mkdir -p -- "$object_dir/nuget" "$object_dir/dotnet-home" "$object_dir/publish"
 podman "${podman_args[@]}" run --rm --userns=keep-id \
