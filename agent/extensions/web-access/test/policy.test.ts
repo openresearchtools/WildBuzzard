@@ -61,3 +61,11 @@ test("Pi runtime bundles, validates, and attributes the web-access extension", (
   assert.match(buildScript, /seed\/web-access\/LICENSE\.pi-web-access/);
   assert.match(buildScript, /seed\/web-access\/UPSTREAM\.toml/);
 });
+
+test("credential-bearing documents do not receive durable response handles", () => {
+  const source = readFileSync(join(root, "index.ts"), "utf8");
+  assert.match(source, /hasSensitiveUrlCredentials\(document\.url\)/);
+  assert.match(source, /hasSensitiveUrlCredentials\(document\.finalUrl\)/);
+  assert.match(source, /persistence:\s*"suppressed-sensitive-url"/);
+  assert.match(source, /responseId:\s*null/);
+});

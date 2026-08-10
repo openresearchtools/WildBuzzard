@@ -3,12 +3,38 @@
 const SENSITIVE_KEY =
   /^(?:access[-_]?token|api[-_]?key|authorization|client[-_]?secret|cookie|cookies|headers?|pass(?:word|key)|proxy-authorization|refresh[-_]?token|secret|service[-_]?token|token)$/i;
 const SENSITIVE_URL_PARAMETER =
-  /^(?:access[-_]?token|api[-_]?key|apikey|auth|authorization|client[-_]?secret|key|passkey|password|refresh[-_]?token|secret|signature|sig|token)$/i;
+  /^(?:access[-_]?token|api[-_]?key|apikey|auth|authorization|client[-_]?secret|credential|key|key[-_]?pair[-_]?id|passkey|password|refresh[-_]?token|secret|signature|sig|token|x[-_](?:amz|goog)[-_](?:credential|security[-_]?token|signature))$/i;
 const LOCAL_PATH =
   /(^|[\s"'=(:])(?:\/(?:app|etc|home|mnt|opt|private|root|run|tmp|usr|var\/tmp)\/[^\s"'<>)]*|\/Users\/[^\s"'<>)]*|[A-Za-z]:\\[^\s"'<>)]*)/g;
 
 export function isSensitiveKey(value: string): boolean {
   return SENSITIVE_KEY.test(value);
+}
+
+export function hasSensitiveUrlCredentials(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return /(?:\/\/[^/\s:@]+:[^@\s/]+@|[?&#](?:access[-_]?token|api[-_]?key|apikey|auth|authorization|client[-_]?secret|credential|key|key[-_]?pair[-_]?id|passkey|password|refresh[-_]?token|secret|signature|sig|token|x[-_](?:amz|goog)[-_](?:credential|security[-_]?token|signature))=)/i.test(
+      value
+    );
+  }
+  if (url.username || url.password) {
+    return true;
+  }
+  if (
+    [...url.searchParams.keys()].some(key => SENSITIVE_URL_PARAMETER.test(key))
+  ) {
+    return true;
+  }
+  const fragment = url.hash.slice(1);
+  return (
+    (fragment.includes("=") || fragment.includes("&")) &&
+    [...new URLSearchParams(fragment).keys()].some(key =>
+      SENSITIVE_URL_PARAMETER.test(key)
+    )
+  );
 }
 
 export function sanitizePersistedUrl(value: string): string {
