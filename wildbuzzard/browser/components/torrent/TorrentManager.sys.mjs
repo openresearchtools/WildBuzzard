@@ -340,6 +340,96 @@ async function processMatches(pid, startTime) {
   }
 }
 
+function validExtractionLockOwner(owner) {
+  return Boolean(
+    Number.isInteger(owner?.pid) &&
+    owner.pid > 0 &&
+    /^\d+$/.test(String(owner.pidStartTime)) &&
+    /^\{[0-9a-f-]{36}\}$/i.test(owner.nonce || "") &&
+    Number.isFinite(owner.createdAt) &&
+    owner.createdAt > 0
+  );
+}
+
+async function acquireRuntimeExtractionLock(
+  bundleRoot,
+  bundleId,
+  beforePublish = null
+) {
+  const path = PathUtils.join(bundleRoot, `.${bundleId}.lock`);
+  for (let attempt = 0; attempt < 400; attempt++) {
+    const owner = {
+      pid: Services.appinfo.processID,
+      pidStartTime: parsePidStartTime(
+        await IOUtils.readUTF8("/proc/self/stat")
+      ),
+      nonce: Services.uuid.generateUUID().toString(),
+      createdAt: Date.now(),
+    };
+    const temporary = PathUtils.join(
+      bundleRoot,
+      `.${bundleId}.${owner.pid}.${owner.nonce.replace(/[{}]/g, "")}.pending`
+    );
+    await IOUtils.writeJSON(temporary, owner, {
+      tmpPath: `${temporary}.tmp`,
+    });
+    await IOUtils.setPermissions(temporary, 0o600);
+    try {
+      await beforePublish?.(owner, temporary, path);
+      await IOUtils.move(temporary, path, { noOverwrite: true });
+      return { owner, path };
+    } catch (error) {
+      await IOUtils.remove(temporary, { ignoreAbsent: true });
+      if (!(await IOUtils.exists(path))) {
+        throw error;
+      }
+    }
+    const [existing, info] = await Promise.all([
+      IOUtils.readJSON(path).catch(() => null),
+      IOUtils.stat(path).catch(() => null),
+    ]);
+    if (!info) {
+      continue;
+    }
+    const validOwner = validExtractionLockOwner(existing);
+    const active =
+      validOwner && (await processMatches(existing.pid, existing.pidStartTime));
+    const publishedAt = Math.max(
+      info.lastModified,
+      validOwner ? existing.createdAt : 0
+    );
+    if (!active && Date.now() - publishedAt >= RUNTIME_LOCK_STALE_MS) {
+      const [current, currentInfo] = await Promise.all([
+        IOUtils.readJSON(path).catch(() => null),
+        IOUtils.stat(path).catch(() => null),
+      ]);
+      const unchanged = validOwner
+        ? validExtractionLockOwner(current) && current.nonce === existing.nonce
+        : !validExtractionLockOwner(current) &&
+          currentInfo?.size === info.size &&
+          currentInfo?.lastModified === info.lastModified;
+      if (unchanged) {
+        await IOUtils.remove(path, { ignoreAbsent: true });
+      }
+      continue;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error("Timed out waiting for torrent runtime extraction");
+}
+
+async function releaseRuntimeExtractionLock(lock) {
+  const current = await IOUtils.readJSON(lock.path).catch(() => null);
+  if (validExtractionLockOwner(current) && current.nonce === lock.owner.nonce) {
+    await IOUtils.remove(lock.path, { ignoreAbsent: true });
+  }
+}
+
+export const TorrentRuntimeLockTestUtils = Object.freeze({
+  acquire: acquireRuntimeExtractionLock,
+  release: releaseRuntimeExtractionLock,
+});
+
 function encodeBase64(bytes) {
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
@@ -471,12 +561,7 @@ class TorrentManagerImpl {
       );
     }
     const bundle = await runtimeBundleInfo(archivePath);
-    let destination = PathUtils.join(this.bundleRoot, bundle.bundleId);
-    if (await IOUtils.exists(destination)) {
-      const destinationFile = new LocalFile(destination);
-      destinationFile.normalize();
-      destination = destinationFile.path;
-    }
+    const destination = PathUtils.join(this.bundleRoot, bundle.bundleId);
     if (await this.#verifyRuntimeDirectory(destination, bundle)) {
       return destination;
     }
@@ -494,8 +579,13 @@ class TorrentManagerImpl {
         return destination;
       }
       await this.#stopServiceUsingRuntime(destination);
+      const destinationFile = new LocalFile(destination);
+      const removeRecursively =
+        destinationFile.exists() &&
+        destinationFile.isDirectory() &&
+        !destinationFile.isSymlink();
       await IOUtils.remove(destination, {
-        recursive: true,
+        recursive: removeRecursively,
         ignoreAbsent: true,
       });
       await IOUtils.remove(staging, { recursive: true, ignoreAbsent: true });
@@ -559,6 +649,10 @@ class TorrentManagerImpl {
 
   async #verifyRuntimeDirectory(directory, bundle) {
     try {
+      const root = new LocalFile(directory);
+      if (!root.exists() || !root.isDirectory() || root.isSymlink()) {
+        return false;
+      }
       const marker = await IOUtils.readJSON(
         PathUtils.join(directory, ".extraction-complete")
       );
@@ -651,58 +745,24 @@ class TorrentManagerImpl {
   }
 
   async #acquireExtractionLock(bundleId) {
-    const path = PathUtils.join(this.bundleRoot, `.${bundleId}.lock`);
-    for (let attempt = 0; attempt < 400; attempt++) {
-      const owner = {
-        pid: Services.appinfo.processID,
-        pidStartTime: parsePidStartTime(
-          await IOUtils.readUTF8("/proc/self/stat")
-        ),
-        nonce: Services.uuid.generateUUID().toString(),
-        createdAt: Date.now(),
-      };
-      const file = new LocalFile(path);
-      try {
-        file.create(Ci.nsIFile.NORMAL_FILE_TYPE, 0o600);
-        await IOUtils.writeJSON(path, owner);
-        return { owner, path };
-      } catch (error) {
-        if (!(await IOUtils.exists(path))) {
-          throw error;
-        }
-      }
-      const existing = await IOUtils.readJSON(path).catch(() => null);
-      const active = await processMatches(
-        existing?.pid,
-        existing?.pidStartTime
-      );
-      if (
-        !active &&
-        Date.now() - Number(existing?.createdAt || 0) >= RUNTIME_LOCK_STALE_MS
-      ) {
-        const current = await IOUtils.readJSON(path).catch(() => null);
-        if (current?.nonce === existing?.nonce) {
-          await IOUtils.remove(path, { ignoreAbsent: true });
-        }
-        continue;
-      }
-      await new Promise(resolve => setTimeout(resolve, 100));
-    }
-    throw new Error("Timed out waiting for torrent runtime extraction");
+    return acquireRuntimeExtractionLock(this.bundleRoot, bundleId);
   }
 
   async #releaseExtractionLock(lock) {
-    const current = await IOUtils.readJSON(lock.path).catch(() => null);
-    if (current?.nonce === lock.owner.nonce) {
-      await IOUtils.remove(lock.path, { ignoreAbsent: true });
-    }
+    return releaseRuntimeExtractionLock(lock);
   }
 
   async #stopServiceUsingRuntime(directory) {
+    const runtime = new LocalFile(directory);
+    let expectedDirectory = directory;
+    if (runtime.exists() && runtime.isDirectory() && !runtime.isSymlink()) {
+      runtime.normalize();
+      expectedDirectory = runtime.path;
+    }
     const connection = await IOUtils.readJSON(this.connectionPath).catch(
       () => null
     );
-    if (!connection || connection.runtimeDirectory !== directory) {
+    if (!connection || connection.runtimeDirectory !== expectedDirectory) {
       return;
     }
     if (!(await processMatches(connection.pid, connection.pidStartTime))) {
@@ -716,7 +776,7 @@ class TorrentManagerImpl {
     }
     const dataRoot = new LocalFile(this.config.dataDirectory);
     dataRoot.normalize();
-    const executable = PathUtils.join(directory, "node", "bin", "node");
+    const executable = PathUtils.join(expectedDirectory, "node", "bin", "node");
     const trusted =
       connection.ownerInstance === this.config.ownerInstance &&
       connection.dataRoot === dataRoot.path &&
@@ -1125,7 +1185,11 @@ class TorrentManagerImpl {
     }
     await this.initialize();
     if (this.config.torEnabled) {
-      return this.request("POST", "/v1/torrents", { source, downloadPath });
+      return this.request("POST", "/v1/torrents", {
+        source,
+        downloadPath,
+        route: "tor",
+      });
     }
     return this.addTorrentBytes(
       await requestBytes(
@@ -1143,6 +1207,13 @@ class TorrentManagerImpl {
     }
     if (!/^https?:\/\//i.test(source)) {
       throw new Error("Enter a magnet link or an HTTP(S) torrent URL");
+    }
+    await this.initialize();
+    if (this.config.torEnabled) {
+      return this.request("POST", "/v1/torrent-drafts", {
+        source,
+        route: "tor",
+      });
     }
     return this.createTorrentDraft({
       torrent: await requestBytes(

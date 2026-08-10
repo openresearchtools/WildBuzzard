@@ -156,7 +156,7 @@ rm -rf -- "${utp_dir}/build/Release/obj.target"
 
 (
   cd -- "${app_dir}"
-  "${bundled_node}" --test test/*.test.mjs
+  "${bundled_node}" --test --test-concurrency=1 test/*.test.mjs
 ) >"${run_root}/runtime-test.log" 2>&1
 
 (

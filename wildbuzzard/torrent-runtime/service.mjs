@@ -10,25 +10,20 @@ import {
 import { createReadStream } from "node:fs";
 import {
   chmod,
+  link,
+  lstat,
   mkdir,
-  open,
   readFile,
   realpath,
   rename,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises";
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { homedir } from "node:os";
-import {
-  basename,
-  dirname,
-  isAbsolute,
-  join,
-  normalize,
-  resolve,
-} from "node:path";
+import { dirname, isAbsolute, join, normalize, resolve } from "node:path";
 import process from "node:process";
 import peerIdParser from "bittorrent-peerid";
 import nodeFetch from "node-fetch";
@@ -53,6 +48,68 @@ const API_RATE_PER_SECOND = 30;
 const MAX_API_CONCURRENCY = 16;
 const MAX_MUTATION_CONCURRENCY = 4;
 const LOCK_STALE_MS = 30000;
+const UNSAFE_MAGNET_PARAMETERS = new Set(["as", "ws", "xs"]);
+const SAFE_ERROR_PATTERNS = [
+  /^A torrent service already owns this connection path$/,
+  /^A magnet link is required$/,
+  /^An active torrent and peer address are required$/,
+  /^An unverified live process owns the torrent connection path$/,
+  /^Invalid magnet link$/,
+  /^Invalid or oversized torrent metadata$/,
+  /^Invalid torrent service configuration$/,
+  /^Invalid torrent file selection$/,
+  /^Invalid torrent metadata$/,
+  /^Invalid torrent source URL$/,
+  /^Only magnet and HTTP\(S\) torrent sources are supported$/,
+  /^Request body is too large$/,
+  /^Supply exactly one magnet, URL, or torrent payload$/,
+  /^Supply one magnet or one torrent payload$/,
+  /^Supply one magnet\/URL or one torrent payload$/,
+  /^Tor mode requires a valid local SOCKS proxy$/,
+  /^Torrent contains an unsafe file path$/,
+  /^Torrent contains colliding file paths$/,
+  /^Torrent draft expired$/,
+  /^Torrent draft not found$/,
+  /^Torrent download path is unsafe$/,
+  /^Torrent metadata is not ready$/,
+  /^Torrent metadata is too large$/,
+  /^Torrent not found$/,
+  /^Torrent payload arrived before the draft was committed(?: \(\d+ bytes\))?$/,
+  /^Torrent request exceeded redirect limit$/,
+  /^Torrent request failed \(\d{3}\)$/,
+  /^Torrent request redirected to an unsafe protocol$/,
+  /^Torrent request timed out$/,
+  /^Torrent source route changed$/,
+  /^Torrent source route is required$/,
+  /^Torrent service request timed out$/,
+  /^Torrent service did not become ready$/,
+  /^Torrent service is already starting or running$/,
+  /^Torrent source must be re-added$/,
+  /^Timed out waiting for the torrent service lock$/,
+  /^Unknown torrent action$/,
+];
+
+function safeErrorMessage(error, fallback = "Torrent operation failed") {
+  const message = String(error?.message || error || "");
+  return message.length <= 200 &&
+    SAFE_ERROR_PATTERNS.some(pattern => pattern.test(message))
+    ? message
+    : fallback;
+}
+
+function publicTracker(value) {
+  if (/^(?:HTTP|HTTPS|UDP|WS|WSS) tracker$/.test(value || "")) {
+    return value;
+  }
+  try {
+    const url = new URL(value);
+    return ["http:", "https:", "udp:", "ws:", "wss:"].includes(url.protocol)
+      ? `${url.protocol.slice(0, -1).toUpperCase()} tracker`
+      : "Tracker";
+  } catch {
+    return "Tracker";
+  }
+}
 
 function argument(name, fallback = "") {
   const index = process.argv.indexOf(name);
@@ -152,33 +209,66 @@ async function removeIfUnchanged(path, expected) {
   return true;
 }
 
+function validLockOwner(owner) {
+  return Boolean(
+    Number.isInteger(owner?.pid) &&
+    owner.pid > 0 &&
+    /^\d+$/.test(String(owner.pidStartTime)) &&
+    /^[0-9a-f]{32}$/.test(owner.nonce || "") &&
+    Number.isFinite(owner.createdAt) &&
+    owner.createdAt > 0
+  );
+}
+
 async function acquireLock(path, { wait = true } = {}) {
   await mkdir(dirname(path), { recursive: true });
-  for (let attempt = 0; attempt < (wait ? 200 : 2); attempt++) {
+  for (let attempt = 0; attempt < (wait ? 400 : 2); attempt++) {
     const owner = {
       pid: process.pid,
       pidStartTime: await pidStartTime(process.pid),
       nonce: randomBytes(16).toString("hex"),
       createdAt: Date.now(),
     };
+    const temporary = `${path}.${owner.pid}.${owner.nonce}.pending`;
+    await writeJSON(temporary, owner);
     try {
-      const handle = await open(path, "wx", 0o600);
-      await handle.writeFile(`${JSON.stringify(owner)}\n`);
-      await handle.sync();
-      return { handle, owner, path };
+      await link(temporary, path);
+      await rm(temporary, { force: true });
+      return { owner, path };
     } catch (error) {
+      await rm(temporary, { force: true });
       if (error.code !== "EEXIST") {
         throw error;
       }
     }
-    const existing = await readJSON(path, null);
-    const active = await processIdentityMatches(
-      existing?.pid,
-      existing?.pidStartTime
+    const [existing, info] = await Promise.all([
+      readJSON(path, null),
+      stat(path).catch(() => null),
+    ]);
+    if (!info) {
+      continue;
+    }
+    const validOwner = validLockOwner(existing);
+    const active =
+      validOwner &&
+      (await processIdentityMatches(existing.pid, existing.pidStartTime));
+    const publishedAt = Math.max(
+      info.mtimeMs,
+      validOwner ? existing.createdAt : 0
     );
-    const age = Date.now() - Number(existing?.createdAt || 0);
-    if (!active && age >= LOCK_STALE_MS) {
-      await removeIfUnchanged(path, existing || {}).catch(() => {});
+    if (!active && Date.now() - publishedAt >= LOCK_STALE_MS) {
+      const [current, currentInfo] = await Promise.all([
+        readJSON(path, null),
+        stat(path).catch(() => null),
+      ]);
+      const unchanged = validOwner
+        ? validLockOwner(current) && current.nonce === existing.nonce
+        : !validLockOwner(current) &&
+          currentInfo?.size === info.size &&
+          currentInfo?.mtimeMs === info.mtimeMs;
+      if (unchanged) {
+        await rm(path, { force: true });
+      }
       continue;
     }
     if (!wait) {
@@ -193,19 +283,44 @@ async function releaseLock(lock) {
   if (!lock) {
     return;
   }
-  await lock.handle.close().catch(() => {});
   const current = await readJSON(lock.path, null);
-  if (current?.nonce === lock.owner.nonce) {
+  if (validLockOwner(current) && current.nonce === lock.owner.nonce) {
     await rm(lock.path, { force: true });
   }
 }
 
-function magnetName(source) {
-  try {
-    return new URL(source).searchParams.get("dn") || "Magnet download";
-  } catch {
-    return "Magnet download";
+function isMagnetSource(source) {
+  return typeof source === "string" && /^magnet:/i.test(source);
+}
+
+function validatedTorrentURL(value) {
+  if (typeof value !== "string" || !value || value.length > 65536) {
+    throw new Error("Invalid torrent source URL");
   }
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("Invalid torrent source URL");
+  }
+  if (
+    !["http:", "https:"].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new Error("Invalid torrent source URL");
+  }
+  return url;
+}
+
+function agentForRoute(route, torEnabled, torAgent) {
+  if (!["direct", "tor"].includes(route)) {
+    throw new Error("Torrent source route is required");
+  }
+  if ((route === "tor") !== torEnabled || (route === "tor" && !torAgent)) {
+    throw new Error("Torrent source route changed");
+  }
+  return route === "tor" ? torAgent : undefined;
 }
 
 function safeFilePath(path) {
@@ -376,6 +491,48 @@ async function validatedTorrentMetadata(bytes) {
   return parsed;
 }
 
+async function lstatIfPresent(path) {
+  try {
+    return await lstat(path);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function validateDownloadPaths(destination, files) {
+  const root = resolve(destination);
+  const rootInfo = await lstatIfPresent(root);
+  if (
+    !rootInfo?.isDirectory() ||
+    rootInfo.isSymbolicLink() ||
+    (await realpath(root)) !== root
+  ) {
+    throw new Error("Torrent download path is unsafe");
+  }
+  for (let fileIndex = 0; fileIndex < files.length; fileIndex++) {
+    canonicalTorrentPath(files[fileIndex].path);
+    const parts = files[fileIndex].path.normalize("NFC").split(/[\\/]/);
+    let current = root;
+    for (let partIndex = 0; partIndex < parts.length; partIndex++) {
+      current = join(current, parts[partIndex]);
+      const info = await lstatIfPresent(current);
+      if (!info) {
+        break;
+      }
+      if (
+        info.isSymbolicLink() ||
+        (partIndex < parts.length - 1 && !info.isDirectory()) ||
+        (partIndex === parts.length - 1 && !info.isFile())
+      ) {
+        throw new Error("Torrent download path is unsafe");
+      }
+    }
+  }
+}
+
 function decodeTorrentPayload(value) {
   if (
     typeof value !== "string" ||
@@ -394,7 +551,26 @@ function decodeTorrentPayload(value) {
   return bytes;
 }
 
-async function validatedMagnet(value, omitted = new Set()) {
+function validMagnetPeer(value) {
+  if (/[\s/?#@%&]/.test(value)) {
+    return false;
+  }
+  try {
+    const peer = new URL(`tcp://${value}`);
+    const port = Number(peer.port);
+    return (
+      Boolean(peer.hostname) &&
+      Number.isInteger(port) &&
+      port >= 1 &&
+      port <= 65535 &&
+      !peer.pathname
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function validatedMagnet(value) {
   if (typeof value !== "string" || value.length > 65536) {
     throw new Error("Invalid magnet link");
   }
@@ -411,9 +587,12 @@ async function validatedMagnet(value, omitted = new Set()) {
   for (const [rawName, decodedValue] of url.searchParams) {
     const name = rawName.toLowerCase();
     if (
-      omitted.has(name) ||
+      UNSAFE_MAGNET_PARAMETERS.has(name) ||
       !/^[a-z0-9.]{1,16}$/.test(name) ||
-      decodedValue.length > 8192
+      decodedValue.length > 8192 ||
+      (name === "xt" &&
+        !/^urn:btih:(?:[0-9a-f]{40}|[a-z2-7]{32})$/i.test(decodedValue)) ||
+      (name === "x.pe" && !validMagnetPeer(decodedValue))
     ) {
       continue;
     }
@@ -432,7 +611,7 @@ async function validatedMagnet(value, omitted = new Set()) {
   if (!/^[0-9a-f]{40}$/.test(parsed.infoHash)) {
     throw new Error("Invalid magnet link");
   }
-  return normalized;
+  return { source: normalized, infoHash: parsed.infoHash };
 }
 
 function publicDraft(draft) {
@@ -507,7 +686,13 @@ function connectionsFor(record, torEnabled) {
 }
 
 function publicRecord(record, includeConnections = true, torEnabled = false) {
-  const { runtime, metainfoPath, validatedMetadata, ...result } = record;
+  const runtime = record.runtime;
+  const result = { ...record };
+  delete result.runtime;
+  delete result.metainfoPath;
+  delete result.source;
+  delete result.validatedMetadata;
+  result.trackers = (record.trackers || []).map(publicTracker);
   result.connections = includeConnections
     ? connectionsFor(record, torEnabled)
     : [];
@@ -537,8 +722,10 @@ function torCredentials() {
 
 function requestThroughAgent(url, agent, redirects = 0) {
   return new Promise((resolveRequest, reject) => {
-    const parsed = new URL(url);
-    if (!["http:", "https:"].includes(parsed.protocol)) {
+    let parsed;
+    try {
+      parsed = validatedTorrentURL(url);
+    } catch {
       reject(new Error("Torrent request redirected to an unsafe protocol"));
       return;
     }
@@ -550,16 +737,28 @@ function requestThroughAgent(url, agent, redirects = 0) {
           response.statusCode >= 300 &&
           response.statusCode < 400 &&
           response.headers.location &&
-          redirects < 5
+          redirects >= 5
         ) {
           response.resume();
-          resolveRequest(
-            requestThroughAgent(
-              new URL(response.headers.location, parsed).href,
-              agent,
-              redirects + 1
-            )
-          );
+          reject(new Error("Torrent request exceeded redirect limit"));
+          return;
+        }
+        if (
+          response.statusCode >= 300 &&
+          response.statusCode < 400 &&
+          response.headers.location
+        ) {
+          response.resume();
+          let redirect;
+          try {
+            redirect = new URL(response.headers.location, parsed).href;
+          } catch {
+            reject(
+              new Error("Torrent request redirected to an unsafe protocol")
+            );
+            return;
+          }
+          resolveRequest(requestThroughAgent(redirect, agent, redirects + 1));
           return;
         }
         if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -625,8 +824,39 @@ class TorrentEngine {
     Object.assign(this.settings, saved.settings || {});
     this.settings.torEnabled = Boolean(this.config.torEnabled);
     for (const item of saved.records || []) {
+      let source = item.source;
+      let sourceError = null;
+      let infoHash = item.infoHash;
+      let name = item.name;
+      if (isMagnetSource(source)) {
+        try {
+          const magnet = await validatedMagnet(source);
+          source = `magnet:?xt=urn:btih:${magnet.infoHash}`;
+          infoHash = magnet.infoHash;
+          name = "Magnet download";
+        } catch (error) {
+          source = null;
+          sourceError = safeErrorMessage(error);
+        }
+      } else if (/^https?:\/\//i.test(source || "")) {
+        source = null;
+        sourceError = "Torrent source must be re-added";
+        name = "Torrent";
+      } else if (!source && !item.metainfoPath) {
+        if (/^[0-9a-f]{40}$/.test(infoHash || "") && item.private !== true) {
+          source = `magnet:?xt=urn:btih:${infoHash}`;
+        } else {
+          sourceError = "Torrent source must be re-added";
+        }
+      }
       const record = {
         ...item,
+        infoHash,
+        name,
+        source,
+        error:
+          sourceError || (item.error ? safeErrorMessage(item.error) : null),
+        warning: item.warning ? safeErrorMessage(item.warning) : null,
         runtime: null,
         downloadSpeed: 0,
         uploadSpeed: 0,
@@ -640,6 +870,9 @@ class TorrentEngine {
       ) {
         record.state = "queued";
       }
+      if (sourceError) {
+        record.state = "error";
+      }
       this.records.set(record.id, record);
     }
     this.client = this.createClient();
@@ -647,7 +880,7 @@ class TorrentEngine {
     this.timer.unref();
     this.draftTimer = setInterval(() => {
       this.cleanupExpiredDrafts().catch(error => {
-        this.lastError = error.message;
+        this.lastError = safeErrorMessage(error);
       });
     }, 1000);
     this.draftTimer.unref();
@@ -699,7 +932,7 @@ class TorrentEngine {
     }
     const client = new WebTorrent(options);
     client.on("error", error => {
-      this.lastError = error.message;
+      this.lastError = safeErrorMessage(error);
     });
     return client;
   }
@@ -710,6 +943,9 @@ class TorrentEngine {
       settings: this.settings,
       records: [...this.records.values()].map(record => {
         const value = publicRecord(record, false, this.settings.torEnabled);
+        value.source = null;
+        value.metainfoPath = record.metainfoPath;
+        value.validatedMetadata = record.validatedMetadata;
         value.downloadSpeed = 0;
         value.uploadSpeed = 0;
         value.numPeers = 0;
@@ -779,7 +1015,7 @@ class TorrentEngine {
         changed = true;
         if (!this.settings.seedCompleted) {
           this.stopRuntime(record).catch(error => {
-            record.error = error.message;
+            record.error = safeErrorMessage(error);
           });
         }
       }
@@ -816,7 +1052,7 @@ class TorrentEngine {
       return;
     }
     draft.state = "error";
-    draft.error = error.message || String(error);
+    draft.error = safeErrorMessage(error);
     await this.cleanupDraftRuntime(draft);
   }
 
@@ -894,15 +1130,18 @@ class TorrentEngine {
     });
   }
 
-  async createDraft({ magnet, torrent }) {
-    if ((magnet === undefined) === (torrent === undefined)) {
-      throw new Error("Supply one magnet or one torrent payload");
+  async createDraft({ magnet, source, torrent, route }) {
+    if (
+      [magnet, source, torrent].filter(value => value !== undefined).length !==
+      1
+    ) {
+      throw new Error("Supply exactly one magnet, URL, or torrent payload");
     }
     const draftId = randomUUID();
     const draft = {
       draftId,
       state: "metadata",
-      name: magnet ? magnetName(magnet) : "Torrent",
+      name: magnet ? "Magnet download" : "Torrent",
       totalSize: null,
       files: [],
       private: false,
@@ -919,14 +1158,17 @@ class TorrentEngine {
     try {
       if (torrent !== undefined) {
         await this.populateDraft(draft, decodeTorrentPayload(torrent));
-      } else {
-        const omitted = this.settings.torEnabled
-          ? new Set(["as", "ws", "xs"])
-          : new Set();
-        await this.startMagnetDraft(
-          draft,
-          await validatedMagnet(magnet, omitted)
+      } else if (source !== undefined) {
+        const url = validatedTorrentURL(source).href;
+        const agent = agentForRoute(
+          route,
+          this.settings.torEnabled,
+          this.torAgent
         );
+        await this.populateDraft(draft, await requestThroughAgent(url, agent));
+      } else {
+        const validated = await validatedMagnet(magnet);
+        await this.startMagnetDraft(draft, validated.source);
       }
       return publicDraft(draft);
     } catch (error) {
@@ -945,7 +1187,7 @@ class TorrentEngine {
       this.drafts.delete(id);
       draft.state = "expired";
       this.cleanupDraftRuntime(draft).catch(error => {
-        this.lastError = error.message;
+        this.lastError = safeErrorMessage(error);
       });
       throw new Error("Torrent draft expired");
     }
@@ -990,6 +1232,7 @@ class TorrentEngine {
     if (
       selection !== undefined &&
       (!Array.isArray(files) ||
+        !selection.length ||
         new Set(selection).size !== selection.length ||
         selection.some(
           index =>
@@ -1011,30 +1254,49 @@ class TorrentEngine {
     }
   }
 
-  async add({ source, torrent, downloadPath, files }) {
+  async add({ source, torrent, downloadPath, files, route }) {
     if ((!source && !torrent) || (source && torrent)) {
       throw new Error("Supply one magnet/URL or one torrent payload");
     }
-    if (source && !/^(magnet:|https?:\/\/)/i.test(source)) {
-      throw new Error("Only magnet and HTTP(S) torrent sources are supported");
-    }
-    if (source?.startsWith("magnet:")) {
-      source = await validatedMagnet(source);
+    let magnetInfoHash = null;
+    if (isMagnetSource(source)) {
+      const magnet = await validatedMagnet(source);
+      source = magnet.source;
+      magnetInfoHash = magnet.infoHash;
+    } else if (source) {
+      try {
+        source = validatedTorrentURL(source).href;
+      } catch {
+        throw new Error(
+          "Only magnet and HTTP(S) torrent sources are supported"
+        );
+      }
     }
     const id = randomUUID();
     let metainfoPath = null;
     let parsed = null;
+    let torrentBytes = null;
     if (torrent) {
-      const bytes = decodeTorrentPayload(torrent);
-      parsed = await validatedTorrentMetadata(bytes);
+      torrentBytes = decodeTorrentPayload(torrent);
+    } else if (/^https?:\/\//i.test(source)) {
+      const agent = agentForRoute(
+        route,
+        this.settings.torEnabled,
+        this.torAgent
+      );
+      torrentBytes = await requestThroughAgent(source, agent);
+      source = null;
+    }
+    if (torrentBytes) {
+      parsed = await validatedTorrentMetadata(torrentBytes);
       metainfoPath = join(this.metainfoDirectory, `${id}.torrent`);
-      await writeFile(metainfoPath, bytes, { mode: 0o600 });
     }
     let selectedFiles;
     if (files !== undefined) {
       if (
         !parsed ||
         !Array.isArray(files) ||
+        !files.length ||
         new Set(files).size !== files.length ||
         files.some(
           index =>
@@ -1051,22 +1313,24 @@ class TorrentEngine {
       downloadPath || this.settings.downloadDirectory
     );
     await mkdir(destination, { recursive: true });
+    await validateDownloadPaths(destination, parsed?.files || []);
+    if (torrentBytes) {
+      await writeFile(metainfoPath, torrentBytes, { mode: 0o600 });
+    }
     const record = {
       id,
       source: source || null,
       metainfoPath,
       name:
         parsed?.name ||
-        (source?.startsWith("magnet:")
-          ? magnetName(source)
-          : basename(source || "Torrent")),
+        (isMagnetSource(source) ? "Magnet download" : "Torrent"),
       downloadPath: destination,
       state: "queued",
       forceStart: false,
       priority: 0,
       addedAt: Date.now(),
       completedAt: null,
-      infoHash: null,
+      infoHash: magnetInfoHash,
       length: parsed?.length || 0,
       downloaded: 0,
       uploaded: 0,
@@ -1108,11 +1372,11 @@ class TorrentEngine {
     if (record.metainfoPath) {
       return readFile(record.metainfoPath);
     }
-    if (this.settings.torEnabled && record.source.startsWith("magnet:")) {
-      return validatedMagnet(record.source, new Set(["as", "ws", "xs"]));
+    if (isMagnetSource(record.source)) {
+      return (await validatedMagnet(record.source)).source;
     }
-    if (this.settings.torEnabled && /^https?:\/\//i.test(record.source)) {
-      return requestThroughAgent(record.source, this.torAgent);
+    if (/^https?:\/\//i.test(record.source || "")) {
+      throw new Error("Torrent source must be re-added");
     }
     return record.source;
   }
@@ -1123,12 +1387,29 @@ class TorrentEngine {
     }
     record.state = "metadata";
     record.error = null;
+    const existingSelection = record.fileSelection?.length
+      ? new Set(
+          record.fileSelection
+            .map((selection, index) =>
+              selection.selected !== false ? index : -1
+            )
+            .filter(index => index !== -1)
+        )
+      : undefined;
+    if (existingSelection && !existingSelection.size) {
+      throw new Error("Invalid torrent file selection");
+    }
+    await validateDownloadPaths(record.downloadPath, record.files || []);
     const input = await this.inputFor(record);
-    const torrent = this.client.add(input, {
+    const torrentOptions = {
       path: record.downloadPath,
       deselect: true,
       destroyStoreOnDestroy: false,
-    });
+    };
+    if (typeof record.private === "boolean") {
+      torrentOptions.private = record.private;
+    }
+    const torrent = this.client.add(input, torrentOptions);
     record.runtime = torrent;
     torrent.on("infoHash", () => {
       record.infoHash = torrent.infoHash;
@@ -1137,16 +1418,38 @@ class TorrentEngine {
     torrent.on("ready", () => {
       Promise.resolve()
         .then(async () => {
-          if (!record.validatedMetadata) {
-            const parsed = await validatedTorrentMetadata(
-              Buffer.from(torrent.torrentFile)
-            );
+          let torrentFile = null;
+          if (!record.validatedMetadata || !record.metainfoPath) {
+            torrentFile = Buffer.from(torrent.torrentFile);
+            const parsed = await validatedTorrentMetadata(torrentFile);
             record.private = Boolean(parsed.private);
             record.validatedMetadata = true;
           }
           record.name = torrent.name || record.name;
           record.length = torrent.length;
           record.trackers = [...torrent.announce];
+          const selectedFiles = record.fileSelection?.length
+            ? new Set(
+                record.fileSelection
+                  .map((selection, index) =>
+                    selection.selected !== false ? index : -1
+                  )
+                  .filter(index => index !== -1)
+              )
+            : undefined;
+          if (selectedFiles && !selectedFiles.size) {
+            throw new Error("Invalid torrent file selection");
+          }
+          await validateDownloadPaths(record.downloadPath, torrent.files);
+          if (!record.metainfoPath) {
+            const metainfoPath = join(
+              this.metainfoDirectory,
+              `${record.id}.torrent`
+            );
+            await writeFile(metainfoPath, torrentFile, { mode: 0o600 });
+            record.metainfoPath = metainfoPath;
+            record.source = null;
+          }
           record.state = torrent.done ? "seeding" : "downloading";
           record.fileSelection ||= [];
           torrent.files.forEach((file, index) => {
@@ -1163,16 +1466,16 @@ class TorrentEngine {
           await this.persist();
         })
         .catch(error => {
-          record.error = error.message;
+          record.error = safeErrorMessage(error);
           record.state = "error";
           this.stopRuntime(record).catch(() => {});
         });
     });
     torrent.on("warning", error => {
-      record.warning = error.message;
+      record.warning = safeErrorMessage(error);
     });
     torrent.on("error", error => {
-      record.error = error.message;
+      record.error = safeErrorMessage(error);
       record.state = "error";
       record.runtime = null;
       this.persist().catch(() => {});
@@ -1229,7 +1532,7 @@ class TorrentEngine {
       try {
         await this.startRuntime(record);
       } catch (error) {
-        record.error = error.message;
+        record.error = safeErrorMessage(error);
         record.state = "error";
       }
     }
@@ -1373,6 +1676,9 @@ class TorrentEngine {
     const record = this.records.get(id);
     if (!record) {
       throw new Error("Torrent not found");
+    }
+    if (deleteData) {
+      await validateDownloadPaths(record.downloadPath, record.files || []);
     }
     await this.stopRuntime(record, deleteData);
     if (deleteData && record.files.length) {
@@ -1601,7 +1907,7 @@ async function serve(configPath) {
       send(response, 200, { ok: true });
       setImmediate(() => {
         shutdown().catch(error => {
-          console.error(error);
+          console.error(safeErrorMessage(error, "Torrent service failure"));
           process.exit(1);
         });
       });
@@ -1645,7 +1951,7 @@ async function serve(configPath) {
       request.destroy(new Error("Torrent service request timed out"))
     );
     Promise.resolve(handleRequest(request, response))
-      .catch(error => send(response, 400, { error: error.message }))
+      .catch(error => send(response, 400, { error: safeErrorMessage(error) }))
       .finally(() => {
         inFlight--;
         if (isMutation) {
@@ -1658,7 +1964,7 @@ async function serve(configPath) {
   server.requestTimeout = 15000;
   server.on("clientError", (_error, socket) => socket.destroy());
   server.on("error", error => {
-    console.error(error);
+    console.error(safeErrorMessage(error, "Torrent service failure"));
     process.exitCode = 1;
   });
   try {
@@ -1707,7 +2013,7 @@ async function serve(configPath) {
 
   const handleSignal = () => {
     shutdown().catch(error => {
-      console.error(error);
+      console.error(safeErrorMessage(error, "Torrent service failure"));
       process.exit(1);
     });
   };
@@ -1798,26 +2104,32 @@ async function start(configPath) {
   }
 }
 
-const command = process.argv[2] || "serve";
-const configPath = resolve(
-  argument(
-    "--config",
-    join(homedir(), ".config", "wildbuzzard", "torrent", "config.json")
-  )
-);
-
-if (command === "start") {
-  await start(configPath);
-} else if (command === "status") {
-  const config = await readJSON(configPath, null);
-  process.exitCode =
-    config &&
-    config.connectionPath &&
-    (await health(config.connectionPath, await staticServiceIdentity(config)))
-      ? 0
-      : 1;
-} else if (command === "serve") {
-  await serve(configPath);
-} else {
-  throw new Error(`Unknown command: ${command}`);
+async function main() {
+  const command = process.argv[2] || "serve";
+  const configPath = resolve(
+    argument(
+      "--config",
+      join(homedir(), ".config", "wildbuzzard", "torrent", "config.json")
+    )
+  );
+  if (command === "start") {
+    await start(configPath);
+  } else if (command === "status") {
+    const config = await readJSON(configPath, null);
+    process.exitCode =
+      config &&
+      config.connectionPath &&
+      (await health(config.connectionPath, await staticServiceIdentity(config)))
+        ? 0
+        : 1;
+  } else if (command === "serve") {
+    await serve(configPath);
+  } else {
+    throw new Error(`Unknown command: ${command}`);
+  }
 }
+
+await main().catch(error => {
+  console.error(safeErrorMessage(error, "Torrent service failure"));
+  process.exitCode = 1;
+});

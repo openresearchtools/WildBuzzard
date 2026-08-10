@@ -27,6 +27,7 @@ test("detached launcher exits successfully while the service stays healthy", asy
       dataDirectory: join(root, "data"),
       downloadDirectory: join(root, "downloads"),
       connectionPath,
+      ownerInstance: "launcher-test-owner-0000001",
       dht: false,
       lsd: false,
       natPmp: false,
@@ -66,13 +67,17 @@ test("detached launcher exits successfully while the service stays healthy", asy
     method: "POST",
     headers: { authorization: `Bearer ${connection.token}` },
   });
+  let stopped = false;
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
-      await readFile(connectionPath);
+      process.kill(connection.pid, 0);
       await new Promise(resolve => setTimeout(resolve, 50));
     } catch {
+      stopped = true;
       break;
     }
   }
+  assert.equal(stopped, true, "The detached service did not remain orphaned");
+  await assert.rejects(readFile(connectionPath));
   await rm(root, { recursive: true, force: true });
 });
