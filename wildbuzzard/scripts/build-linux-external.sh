@@ -165,6 +165,11 @@ case "${action}" in
       echo "${action} requires --searxng-runtime and --searxng-source" >&2
       exit 2
     fi
+    if [[ -z "${pi_web_runtime}" || -z "${torrent_runtime}" || \
+      -z "${jackett_mini_runtime}" || -z "${arti_binary}" ]]; then
+      echo "${action} requires --pi-web-runtime, --torrent-runtime, --jackett-mini-runtime, and --arti-binary" >&2
+      exit 2
+    fi
     ;;
 esac
 

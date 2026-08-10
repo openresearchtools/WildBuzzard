@@ -64,6 +64,59 @@ def release_archive_without_searxng(root: pathlib.Path, name: str) -> pathlib.Pa
     return package
 
 
+def host_native_release_archive(
+    root: pathlib.Path, name: str, missing: tuple[str, ...] = ()
+) -> pathlib.Path:
+    release = root / "release" / "wildbuzzard"
+    release.mkdir(parents=True)
+    browser = release / "wildbuzzard"
+    browser.write_text("#!/bin/sh\n", encoding="utf-8")
+    browser.chmod(0o755)
+    (release / "application.ini").write_text("Version=1.0\n", encoding="utf-8")
+    files = (
+        "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
+        "runtime/torrent/wildbuzzard-torrent-runtime.zip",
+        "runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip",
+        "runtime/search/wildbuzzard-searxng-runtime.zip",
+        "runtime/tor/arti",
+        "runtime/tor/arti.toml",
+        "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
+        "notices/source/searxng-release.cdx.json",
+    )
+    for relative in files:
+        if relative in missing:
+            continue
+        path = release / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"test\n")
+        if relative == "runtime/tor/arti":
+            path.chmod(0o755)
+    package = root / name
+    package.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(package, "w:gz") as archive:
+        archive.add(release, arcname="wildbuzzard")
+    return package
+
+
+def fake_packaging_tools(root: pathlib.Path) -> tuple[pathlib.Path, dict[str, str]]:
+    fake_bin = root / "tools with spaces Ω"
+    fake_bin.mkdir(parents=True)
+    python = fake_bin / "python3"
+    python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    python.chmod(0o755)
+    appimagetool = fake_bin / "appimagetool"
+    appimagetool.write_text(
+        "#!/bin/sh\n"
+        'printf "%s\\n" "$APPIMAGE_EXTRACT_AND_RUN" "$ARCH" "$1" "$2" > "$TEST_MARKER"\n'
+        ': > "$2"\n',
+        encoding="utf-8",
+    )
+    appimagetool.chmod(0o755)
+    environment = os.environ.copy()
+    environment["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+    return appimagetool, environment
+
+
 class ShippingContractTests(unittest.TestCase):
     def test_cargo_vendor_archive_is_external(self) -> None:
         archive = SOURCE_ROOT / "granian-2.7.9-cargo-vendor.tar.xz"
@@ -139,6 +192,10 @@ class ShippingContractTests(unittest.TestCase):
             package_manifest,
         )
         self.assertIn(
+            "@BINPATH@/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip",
+            package_manifest,
+        )
+        self.assertIn(
             "@BINPATH@/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
             package_manifest,
         )
@@ -147,6 +204,8 @@ class ShippingContractTests(unittest.TestCase):
             package_manifest,
         )
         self.assertIn("validate-searxng-runtime-archive.py", appimage)
+        self.assertIn("validate-pi-web-runtime-archive.py", appimage)
+        self.assertIn("pi-web-runtime-lock.json", appimage)
         self.assertIn("validate-searxng-runtime-archive.py", debian)
         self.assertIn(
             "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
@@ -157,6 +216,14 @@ class ShippingContractTests(unittest.TestCase):
             debian,
         )
         self.assertIn('"${searxng_runtime}"', appimage)
+        for runtime_path in (
+            "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
+            "runtime/torrent/wildbuzzard-torrent-runtime.zip",
+            "runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip",
+            "runtime/tor/arti",
+            "runtime/tor/arti.toml",
+        ):
+            self.assertIn(runtime_path, appimage)
         self.assertIn(
             "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587",
             appimage_validator,
@@ -214,6 +281,40 @@ class ShippingContractTests(unittest.TestCase):
                     result.stderr,
                 )
 
+    def test_release_actions_require_all_host_native_runtimes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            searxng_runtime = root / "runtime.zip"
+            searxng_source = root / "source.tar.xz"
+            searxng_runtime.write_bytes(b"invalid")
+            searxng_source.write_bytes(b"invalid")
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            python = fake_bin / "python3"
+            python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            python.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard" / "scripts" / "build-linux-external.sh",
+                    "--action",
+                    "appimage",
+                    "--build-root",
+                    root / "build",
+                    "--searxng-runtime",
+                    searxng_runtime,
+                    "--searxng-source",
+                    searxng_source,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("requires --pi-web-runtime", result.stderr)
+
     def test_appimage_rejects_a_release_without_searxng(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = pathlib.Path(temporary)
@@ -243,6 +344,79 @@ class ShippingContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("missing a required SearXNG", result.stderr)
             self.assertFalse(marker.exists())
+
+    def test_appimage_requires_every_host_native_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            missing = "runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip"
+            package = host_native_release_archive(
+                root, "wildbuzzard.tar.gz", missing=(missing,)
+            )
+            appimagetool, environment = fake_packaging_tools(root)
+            marker = root / "appimagetool-ran"
+            environment["TEST_MARKER"] = str(marker)
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh",
+                    "--dist-dir",
+                    root,
+                    "--output-dir",
+                    root / "output",
+                    "--appimagetool",
+                    appimagetool,
+                    "--package",
+                    package,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(
+                f"missing required host-native runtime: {missing}", result.stderr
+            )
+            self.assertFalse(marker.exists())
+
+    def test_appimage_handles_spaces_unicode_and_extract_and_run(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            package = host_native_release_archive(
+                root, "distribution path Ω/wildbuzzard release Ω.tar.gz"
+            )
+            output = root / "output path Ω"
+            appimagetool, environment = fake_packaging_tools(root)
+            marker = root / "appimagetool arguments"
+            environment["TEST_MARKER"] = str(marker)
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh",
+                    "--dist-dir",
+                    package.parent,
+                    "--output-dir",
+                    output,
+                    "--appimagetool",
+                    appimagetool,
+                    "--package",
+                    package,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            appimage = output / "WildBuzzard-1.0-x86_64.AppImage"
+            self.assertTrue(appimage.exists())
+            self.assertEqual(
+                marker.read_text(encoding="utf-8").splitlines(),
+                [
+                    "1",
+                    "x86_64",
+                    str(output / "appimage-staging" / "WildBuzzard.AppDir"),
+                    str(appimage),
+                ],
+            )
 
     def test_debian_rejects_an_invalid_runtime_before_packaging(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

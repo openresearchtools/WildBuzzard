@@ -176,6 +176,9 @@
 #ifdef WILDBUZZARD_TORRENT_RUNTIME
 @BINPATH@/runtime/torrent/wildbuzzard-torrent-runtime.zip
 #endif
+#ifdef WILDBUZZARD_JACKETT_MINI_RUNTIME
+@BINPATH@/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip
+#endif
 #ifdef WILDBUZZARD_SEARXNG_RUNTIME
 @BINPATH@/runtime/search/wildbuzzard-searxng-runtime.zip
 @BINPATH@/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz

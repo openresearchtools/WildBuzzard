@@ -25,8 +25,11 @@ wildbuzzard-builds/
 From the WildBuzzard repository:
 
 ```bash
-./wildbuzzard/scripts/build-linux-external.sh --action all
+./wildbuzzard/scripts/build-linux-external.sh --action build
 ```
+
+The `package`, `appimage`, and `all` actions are release gates and require the
+Pi Web, torrent, Jackett Mini, SearXNG, and Arti host-native runtime artifacts.
 
 Useful variants:
 
@@ -41,6 +44,8 @@ Useful variants:
 ./wildbuzzard/scripts/build-linux-external.sh \
   --working-tree \
   --pi-web-runtime /absolute/path/to/wildbuzzard-pi-web-runtime-linux-x64.zip \
+  --torrent-runtime /absolute/path/to/wildbuzzard-torrent-runtime-linux-x64.zip \
+  --jackett-mini-runtime /absolute/path/to/wildbuzzard-jackett-mini-runtime.zip \
   --searxng-runtime /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.zip \
   --searxng-source /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz \
   --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
