@@ -520,6 +520,61 @@ function validateRenderHeaders(value) {
   return headers;
 }
 
+function validateRenderOrigins(value) {
+  if (value === undefined) {
+    return new Set();
+  }
+  if (!Array.isArray(value) || value.length > 64) {
+    throw new Error(
+      "gecko_render: allowedOrigins must contain at most 64 origins"
+    );
+  }
+  return new Set(
+    value.map(origin => {
+      const uri = geckoRenderURI(origin);
+      if (uri.spec !== `${uri.prePath}/`) {
+        throw new Error("gecko_render: allowedOrigins entries must be origins");
+      }
+      return uri.prePath;
+    })
+  );
+}
+
+function renderOriginAllowed(options, uri) {
+  if (!options.allowedOrigins.size || options.allowedOrigins.has(uri.prePath)) {
+    return true;
+  }
+  if (!options.allowSubdomains) {
+    return false;
+  }
+  for (const origin of options.allowedOrigins) {
+    const allowed = geckoRenderURI(origin);
+    if (
+      uri.scheme === allowed.scheme &&
+      uri.port === allowed.port &&
+      uri.host.endsWith(`.${allowed.host}`)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function renderIntegerOption(value, fallback, minimum, maximum, name) {
+  const result = value ?? fallback;
+  if (
+    typeof result !== "number" ||
+    !Number.isInteger(result) ||
+    result < minimum ||
+    result > maximum
+  ) {
+    throw new Error(
+      `gecko_render: ${name} must be an integer from ${minimum} through ${maximum}`
+    );
+  }
+  return result;
+}
+
 function validateGeckoRenderArgs(args) {
   const uri = geckoRenderURI(args.url);
   const timeout = args.timeoutMs ?? DEFAULT_RENDER_TIMEOUT_MS;
@@ -562,12 +617,40 @@ function validateGeckoRenderArgs(args) {
       "gecko_render: blockDomains must contain at most 64 domains"
     );
   }
+  if (args.javascript !== undefined && typeof args.javascript !== "boolean") {
+    throw new Error("gecko_render: javascript must be a boolean");
+  }
+  if (
+    args.allowSubdomains !== undefined &&
+    typeof args.allowSubdomains !== "boolean"
+  ) {
+    throw new Error("gecko_render: allowSubdomains must be a boolean");
+  }
+  const maxBytes = renderIntegerOption(
+    args.maxBytes,
+    MAX_RENDER_TOTAL_BYTES,
+    1,
+    MAX_RENDER_TOTAL_BYTES,
+    "maxBytes"
+  );
+  const maxRedirects = renderIntegerOption(
+    args.maxRedirects,
+    MAX_RENDER_REDIRECTS,
+    0,
+    MAX_RENDER_REDIRECTS,
+    "maxRedirects"
+  );
   return {
     uri,
     timeout,
     wait,
+    maxBytes,
+    maxRedirects,
     selector: args.waitForSelector ?? null,
+    javascript: args.javascript ?? true,
+    allowSubdomains: args.allowSubdomains ?? false,
     headers: validateRenderHeaders(args.headers),
+    allowedOrigins: validateRenderOrigins(args.allowedOrigins),
     blockDomains: new Set((args.blockDomains ?? []).map(normalizeBlockDomain)),
   };
 }
@@ -895,8 +978,9 @@ class RenderBoundedListener {
       this.bytes > 1024 * 1024 &&
       this.bytes / this.contentLength > 100;
     if (
-      this.bytes > MAX_RENDER_RESOURCE_BYTES ||
-      this.job.decodedBytes > MAX_RENDER_TOTAL_BYTES ||
+      this.bytes >
+        Math.min(MAX_RENDER_RESOURCE_BYTES, this.job.options.maxBytes) ||
+      this.job.decodedBytes > this.job.options.maxBytes ||
       excessiveRatio
     ) {
       this.controller.failJob(
@@ -1176,6 +1260,14 @@ class GeckoRenderController {
           pageError: job?.fatalError?.message ?? errorMessage(error),
           contentType: "",
           finalUrl: job?.browsingContext?.currentURI?.spec ?? options.uri.spec,
+          redirectCount: Math.min(
+            options.maxRedirects,
+            Math.max(0, (job?.redirects ?? 1) - 1)
+          ),
+          decodedBytes: Math.min(
+            options.maxBytes,
+            Math.max(0, job?.decodedBytes ?? 0)
+          ),
         };
       }
     } finally {
@@ -1326,6 +1418,7 @@ class GeckoRenderController {
       Ci.nsIRequest.INHIBIT_PERSISTENT_CACHING |
       Ci.nsIRequest.LOAD_ANONYMOUS |
       Ci.nsIChannel.LOAD_BYPASS_SERVICE_WORKER;
+    browser.docShell.allowJavascript = job.options.javascript;
     job.browsingContext = browser.browsingContext;
   }
 
@@ -1439,25 +1532,30 @@ class GeckoRenderController {
       }
     } catch {}
     if (/^application\/pdf(?:;|$)/i.test(response?.contentType ?? "")) {
-      const bytes = await this.#capturedBodyBytes(job, finalUrl);
-      if (!bytes) {
-        throw new Error("response-body-unavailable: PDF body was not captured");
-      }
-      const base64Length = 4 * Math.ceil(bytes.byteLength / 3);
-      if (RENDER_PDF_PREFIX.length + base64Length > MAX_RENDER_OUTPUT_BYTES) {
-        throw new Error("resource-limit: serialized output limit exceeded");
-      }
-      return {
-        content: `${RENDER_PDF_PREFIX}${this.#base64Bytes(bytes)}`,
-        pageStatusCode: response.status ?? 0,
-        pageError: response.error ?? null,
-        contentType: response.contentType,
+      return this.#binaryResult(
+        job,
+        response,
         finalUrl,
-      };
+        RENDER_PDF_PREFIX,
+        "PDF"
+      );
+    }
+    const gzipSitemap = this.#isGzipSitemap(
+      response?.contentType ?? "",
+      finalUrl
+    );
+    if (gzipSitemap) {
+      return this.#binaryResult(
+        job,
+        response,
+        finalUrl,
+        "data:application/gzip;base64,",
+        "gzip sitemap"
+      );
     }
     const actor = await this.#actorForJob(job);
     const snapshot = await actor.sendQuery("geckoRenderSnapshot", {
-      maxBytes: MAX_RENDER_OUTPUT_BYTES,
+      maxBytes: Math.min(MAX_RENDER_OUTPUT_BYTES, job.options.maxBytes),
       maxNodes: MAX_RENDER_DOM_NODES,
     });
     if (snapshot.error) {
@@ -1467,27 +1565,63 @@ class GeckoRenderController {
       response?.status === 204
         ? response.contentType
         : response?.contentType || snapshot.contentType || "";
-    let content = "";
-    if (response?.status === 204) {
-      content = "";
-    } else if (
-      /^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType)
+    const content = await this.#snapshotContent(
+      job,
+      response,
+      finalUrl,
+      contentType,
+      snapshot
+    );
+    return this.#boundedResult(job, response, finalUrl, contentType, content);
+  }
+
+  async #binaryResult(job, response, finalUrl, prefix, label) {
+    const bytes = await this.#capturedBodyBytes(job, finalUrl);
+    if (!bytes) {
+      throw new Error(
+        `response-body-unavailable: ${label} body was not captured`
+      );
+    }
+    if (
+      prefix.length + 4 * Math.ceil(bytes.byteLength / 3) >
+      Math.min(MAX_RENDER_OUTPUT_BYTES, job.options.maxBytes)
     ) {
-      content = snapshot.html;
-    } else if (
-      /^(?:text\/plain|application\/(?:[a-z0-9.+-]*\+)?json)(?:;|$)/i.test(
+      throw new Error("resource-limit: serialized output limit exceeded");
+    }
+    return this.#boundedResult(
+      job,
+      response,
+      finalUrl,
+      response.contentType,
+      `${prefix}${this.#base64Bytes(bytes)}`
+    );
+  }
+
+  async #snapshotContent(job, response, finalUrl, contentType, snapshot) {
+    if (response?.status === 204) {
+      return "";
+    }
+    if (/^(?:text\/html|application\/xhtml\+xml)(?:;|$)/i.test(contentType)) {
+      return snapshot.html;
+    }
+    if (
+      /^(?:text\/[a-z0-9.+-]+|application\/(?:[a-z0-9.+-]*\+)?(?:json|xml))(?:;|$)/i.test(
         contentType
       )
     ) {
-      content =
+      return (
         (await this.#capturedBodyText(job, finalUrl, contentType)) ??
         this.#responseBodyText(response?.body) ??
-        snapshot.text;
-    } else {
-      throw new Error(`unsupported-content-type: ${contentType || "unknown"}`);
+        snapshot.text
+      );
     }
+    throw new Error(`unsupported-content-type: ${contentType || "unknown"}`);
+  }
+
+  #boundedResult(job, response, finalUrl, contentType, content) {
     if (
-      new TextEncoder().encode(content).byteLength > MAX_RENDER_OUTPUT_BYTES
+      new TextEncoder().encode(content).byteLength >
+      Math.min(MAX_RENDER_OUTPUT_BYTES, job.options.maxBytes)
     ) {
       throw new Error("resource-limit: serialized output limit exceeded");
     }
@@ -1497,7 +1631,24 @@ class GeckoRenderController {
       pageError: response?.error ?? null,
       contentType,
       finalUrl,
+      redirectCount: Math.max(0, job.redirects - 1),
+      decodedBytes: Math.min(job.options.maxBytes, job.decodedBytes),
     };
+  }
+
+  #isGzipSitemap(contentType, url) {
+    if (/^application\/(?:x-)?gzip(?:;|$)/i.test(contentType)) {
+      return true;
+    }
+    if (!/^application\/octet-stream(?:;|$)/i.test(contentType)) {
+      return false;
+    }
+    try {
+      const path = Services.io.newURI(url).QueryInterface(Ci.nsIURL).filePath;
+      return path.toLowerCase().endsWith(".xml.gz");
+    } catch {
+      return false;
+    }
   }
 
   #responseBodyText(body) {
@@ -1534,13 +1685,40 @@ class GeckoRenderController {
     if (!bytes) {
       return null;
     }
-    const charset =
+    let charset =
       /(?:^|;)\s*charset\s*=\s*["']?([^;"'\s]+)/i.exec(contentType)?.[1] ??
-      "utf-8";
+      null;
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+      charset = "utf-16le";
+    } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+      charset = "utf-16be";
+    } else if (
+      bytes[0] === 0x00 &&
+      bytes[1] === 0x3c &&
+      bytes[2] === 0x00 &&
+      bytes[3] === 0x3f
+    ) {
+      charset = "utf-16be";
+    } else if (
+      bytes[0] === 0x3c &&
+      bytes[1] === 0x00 &&
+      bytes[2] === 0x3f &&
+      bytes[3] === 0x00
+    ) {
+      charset = "utf-16le";
+    }
+    if (!charset && /(?:^|\/)xml(?:;|$)|\+xml(?:;|$)/i.test(contentType)) {
+      const declaration = String.fromCharCode(...bytes.slice(0, 256));
+      charset = /<\?xml[^>]*\bencoding\s*=\s*["']([^"']+)["']/i.exec(
+        declaration
+      )?.[1];
+    }
     try {
-      return new TextDecoder(charset).decode(bytes);
-    } catch {
-      return new TextDecoder().decode(bytes);
+      return new TextDecoder(charset ?? "utf-8", { fatal: true }).decode(bytes);
+    } catch (error) {
+      throw new Error(
+        `decode-error: response body is not valid ${charset ?? "UTF-8"} (${errorMessage(error)})`
+      );
     }
   }
 
@@ -1595,7 +1773,7 @@ class GeckoRenderController {
     const context = Number.isInteger(contextId)
       ? BrowsingContext.get(contextId)
       : null;
-    return (context?.top?.id ?? contextId) === job.browsingContext?.id;
+    return (context?.id ?? contextId) === job.browsingContext?.id;
   }
 
   #onModifyRequest(job, channel) {
@@ -1613,6 +1791,12 @@ class GeckoRenderController {
     try {
       uri = geckoRenderURI(channel.URI.spec);
       this.#checkBlockedDomain(job, uri.host);
+      if (
+        job.options.allowedOrigins.size &&
+        !renderOriginAllowed(job.options, uri)
+      ) {
+        throw new Error(`origin ${uri.prePath} is outside the allowed scope`);
+      }
     } catch (error) {
       this.failJob(job, `ssrf-blocked: ${errorMessage(error)}`);
       channel.cancel(Cr.NS_ERROR_PORT_ACCESS_NOT_ALLOWED);
@@ -1636,7 +1820,7 @@ class GeckoRenderController {
     }
     if (this.#isMainDocumentChannel(job, channel)) {
       job.redirects++;
-      if (job.redirects > MAX_RENDER_REDIRECTS + 1) {
+      if (job.redirects > job.options.maxRedirects + 1) {
         this.failJob(job, "resource-limit: redirect count exceeded");
         channel.cancel(Cr.NS_ERROR_REDIRECT_LOOP);
         return;
@@ -1775,7 +1959,9 @@ class GeckoRenderController {
     try {
       contentLength = Number(channel.getResponseHeader("content-length"));
     } catch {}
-    if (contentLength > MAX_RENDER_RESOURCE_BYTES) {
+    if (
+      contentLength > Math.min(MAX_RENDER_RESOURCE_BYTES, job.options.maxBytes)
+    ) {
       this.failJob(job, "resource-limit: response content-length exceeded");
       channel.cancel(Cr.NS_ERROR_FILE_TOO_BIG);
       return;
@@ -1835,7 +2021,7 @@ class GeckoRenderController {
       return false;
     }
     const context = channel.loadInfo.browsingContext;
-    return context?.top?.id === job.browsingContext?.id;
+    return context?.id === job.browsingContext?.id;
   }
 
   #isTestAllowedHost(host) {
@@ -2015,7 +2201,7 @@ class GeckoRenderController {
     );
     try {
       Services.clearData.deleteDataFromOriginAttributesPattern(
-        { userContextId: job.userContextId },
+        { privateBrowsingId: 1, userContextId: job.userContextId },
         done.resolve
       );
       return await done.promise;

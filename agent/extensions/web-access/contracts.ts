@@ -76,9 +76,10 @@ function normalizeDomain(value: string): string | null {
     return null;
   }
   try {
-    const parsed = new URL(
-      input.includes("://") ? input : `https://${input}`
-    );
+    const parsed = new URL(input.includes("://") ? input : `https://${input}`);
+    if (parsed.username || parsed.password) {
+      return null;
+    }
     input = parsed.hostname.toLowerCase();
   } catch {
     return null;
@@ -94,7 +95,7 @@ function normalizeDomain(value: string): string | null {
 }
 
 export function normalizeDomainFilters(values: string[] = []): DomainFilters {
-  if (values.length > 32) {
+  if (!Array.isArray(values) || values.length > 32) {
     throw new Error("domainFilter accepts at most 32 domains");
   }
   const filters: DomainFilters = { included: [], excluded: [] };
@@ -146,6 +147,18 @@ export function normalizeSearchInput(
     throw new Error(`numResults must be an integer from 1 to ${MAX_RESULTS}`);
   }
   if (
+    input.includeContent !== undefined &&
+    typeof input.includeContent !== "boolean"
+  ) {
+    throw new Error("includeContent must be a boolean");
+  }
+  if (
+    input.recencyFilter !== undefined &&
+    !["day", "week", "month", "year"].includes(input.recencyFilter)
+  ) {
+    throw new Error("recencyFilter must be day, week, month, or year");
+  }
+  if (
     input.provider !== undefined &&
     !["auto", "searxng"].includes(input.provider)
   ) {
@@ -165,7 +178,10 @@ export function normalizeSearchInput(
   };
 }
 
-export function buildSearchQuery(query: string, filters: DomainFilters): string {
+export function buildSearchQuery(
+  query: string,
+  filters: DomainFilters
+): string {
   const parts = [query];
   if (filters.included.length === 1) {
     parts.push(`site:${filters.included[0]}`);
@@ -188,7 +204,11 @@ export function matchesDomainFilters(
   } catch {
     return false;
   }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password
+  ) {
     return false;
   }
   const hostname = url.hostname.toLowerCase();

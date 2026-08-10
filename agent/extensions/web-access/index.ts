@@ -6,7 +6,7 @@ import pLimit from "p-limit";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normalizeSearchInput, type WebSearchInput } from "./contracts.ts";
-import { searchSearXNG } from "./searxng.ts";
+import { searchSearXBatch } from "./searxng.ts";
 import {
   fetchWithGecko,
   normalizeFetchInput,
@@ -84,13 +84,7 @@ async function executeSearch(
   type: "search" | "research" = "search"
 ) {
   const input = normalizeSearchInput(params);
-  const queries = [];
-  for (const query of input.queries) {
-    if (signal?.aborted) {
-      throw new Error("Web search was cancelled");
-    }
-    queries.push(await searchSearXNG(query, input, signal));
-  }
+  const queries = await searchSearXBatch(input.queries, input, signal);
   const stored = createStoredSearch(queries, type);
   storeSearch(stored);
   pi.appendEntry("wildbuzzard-web-search", stored);

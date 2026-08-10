@@ -112,9 +112,19 @@ add_task(function test_url_and_header_validation() {
     waitMs: 100,
     timeoutMs: 1000,
     waitForSelector: "main",
+    javascript: false,
+    allowSubdomains: true,
+    maxBytes: 1024,
+    maxRedirects: 2,
+    allowedOrigins: ["https://example.com"],
   });
   Assert.equal(options.headers.get("accept"), "text/html");
   Assert.ok(options.blockDomains.has("blocked.example"));
+  Assert.equal(options.javascript, false);
+  Assert.equal(options.allowSubdomains, true);
+  Assert.equal(options.maxBytes, 1024);
+  Assert.equal(options.maxRedirects, 2);
+  Assert.ok(options.allowedOrigins.has("https://example.com"));
   for (const name of [
     "Host",
     "Connection",
@@ -155,4 +165,62 @@ add_task(function test_url_and_header_validation() {
       "numeric render options require JSON numbers"
     );
   }
+  Assert.throws(
+    () =>
+      GeckoRenderPolicy.validateGeckoRenderArgs({
+        url: "https://example.com/",
+        javascript: "false",
+      }),
+    /must be a boolean/,
+    "JavaScript mode requires a JSON boolean"
+  );
+  for (const maxBytes of [0, 32 * 1024 * 1024 + 1, "1024"]) {
+    Assert.throws(
+      () =>
+        GeckoRenderPolicy.validateGeckoRenderArgs({
+          url: "https://example.com/",
+          maxBytes,
+        }),
+      /must be an integer/,
+      "response byte budgets are bounded integers"
+    );
+  }
+  for (const maxRedirects of [-1, 11, "2"]) {
+    Assert.throws(
+      () =>
+        GeckoRenderPolicy.validateGeckoRenderArgs({
+          url: "https://example.com/",
+          maxRedirects,
+        }),
+      /must be an integer/,
+      "redirect budgets are bounded integers"
+    );
+  }
+  Assert.throws(
+    () =>
+      GeckoRenderPolicy.validateGeckoRenderArgs({
+        url: "https://example.com/",
+        allowSubdomains: "true",
+      }),
+    /must be a boolean/,
+    "subdomain scope requires a JSON boolean"
+  );
+  Assert.throws(
+    () =>
+      GeckoRenderPolicy.validateGeckoRenderArgs({
+        url: "https://example.com/",
+        allowedOrigins: ["https://example.com/path"],
+      }),
+    /must be origins/,
+    "allowed origins cannot include a path"
+  );
+  Assert.throws(
+    () =>
+      GeckoRenderPolicy.validateGeckoRenderArgs({
+        url: "https://example.com/",
+        allowedOrigins: null,
+      }),
+    /allowedOrigins/,
+    "a null origin scope cannot disable enforcement"
+  );
 });

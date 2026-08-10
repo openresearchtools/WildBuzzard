@@ -8,14 +8,13 @@ import {
   appendDeclaredWebLinks,
   discoverDeclaredWebLinks,
 } from "./declared-web-links.ts";
-import {
-  renderWithGecko,
-  type GeckoRenderOptions,
-} from "./gecko-client.ts";
+import { renderWithGecko, type GeckoRenderOptions } from "./gecko-client.ts";
 import { extractPdfDataUrl } from "./pdf-extract.ts";
 import { extractRSCContent } from "./rsc-extract.ts";
 
 export type FetchMode = "readable" | "raw" | "answer";
+
+export const EXTRACTED_NETWORK_BYTES = Symbol("extractedNetworkBytes");
 
 export interface FetchInput {
   url?: string;
@@ -36,6 +35,8 @@ export interface ExtractedContent {
   error: string | null;
   mimeType: string;
   status: number;
+  redirectCount?: number;
+  [EXTRACTED_NETWORK_BYTES]?: number;
   provenance: "gecko" | "github-clone" | "youtube-captions" | "pdf";
 }
 
@@ -69,7 +70,9 @@ function normalizeUrls(input: FetchInput): string[] {
       url.username ||
       url.password
     ) {
-      throw new Error(`URL ${index + 1} must be an HTTP(S) URL without userinfo`);
+      throw new Error(
+        `URL ${index + 1} must be an HTTP(S) URL without userinfo`
+      );
     }
     return url.toString();
   });
@@ -88,6 +91,23 @@ export function normalizeFetchInput(input: FetchInput): {
   const mode = input.mode ?? "readable";
   if (!["readable", "raw", "answer"].includes(mode)) {
     throw new Error("mode must be readable, raw, or answer");
+  }
+  if (input.forceClone !== undefined && typeof input.forceClone !== "boolean") {
+    throw new Error("forceClone must be a boolean");
+  }
+  for (const [name, value, limit] of [
+    ["prompt", input.prompt, 4_000],
+    ["answerModel", input.answerModel, 300],
+    ["timestamp", input.timestamp, 100],
+  ] as const) {
+    if (
+      value !== undefined &&
+      (typeof value !== "string" || value.length > limit)
+    ) {
+      throw new Error(
+        `${name} must be a string of at most ${limit} characters`
+      );
+    }
   }
   if (
     input.frames !== undefined &&
@@ -143,10 +163,7 @@ export function readableHTML(
 ): { title: string; content: string } {
   const { document } = parseHTML(html);
   const documentTitle = document.title?.trim().slice(0, 500) ?? "";
-  const links = discoverDeclaredWebLinks(
-    document as unknown as Document,
-    url
-  );
+  const links = discoverDeclaredWebLinks(document as unknown as Document, url);
   const rsc = extractRSCContent(html);
   if (rsc) {
     return {
@@ -159,7 +176,9 @@ export function readableHTML(
   if (!article || typeof article.content !== "string") {
     const body = document.body?.textContent?.replace(/\s+/g, " ").trim() ?? "";
     if (!body) {
-      throw new Error("Could not extract readable content from the rendered page");
+      throw new Error(
+        "Could not extract readable content from the rendered page"
+      );
     }
     return {
       title: documentTitle || new URL(url).hostname,
@@ -167,7 +186,10 @@ export function readableHTML(
     };
   }
   return {
-    title: article.title?.trim().slice(0, 500) || documentTitle || new URL(url).hostname,
+    title:
+      article.title?.trim().slice(0, 500) ||
+      documentTitle ||
+      new URL(url).hostname,
     content: appendDeclaredWebLinks(
       turndown.turndown(article.content),
       links
@@ -200,6 +222,8 @@ export async function fetchWithGecko(
         error: rendered.pageError.slice(0, 1_000),
         mimeType: rendered.contentType,
         status: rendered.pageStatusCode,
+        redirectCount: rendered.redirectCount,
+        [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
       };
     }
@@ -213,6 +237,8 @@ export async function fetchWithGecko(
         error: null,
         mimeType,
         status: rendered.pageStatusCode,
+        redirectCount: rendered.redirectCount,
+        [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
       };
     }
@@ -225,6 +251,8 @@ export async function fetchWithGecko(
         error: null,
         mimeType,
         status: rendered.pageStatusCode,
+        redirectCount: rendered.redirectCount,
+        [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
       };
     }
@@ -233,11 +261,17 @@ export async function fetchWithGecko(
       return {
         url,
         finalUrl: rendered.finalUrl,
-        title: new URL(rendered.finalUrl).pathname.split("/").pop() || "PDF document",
+        title:
+          new URL(rendered.finalUrl).pathname.split("/").pop() ||
+          "PDF document",
         content: extracted.content,
-        error: extracted.content ? null : "The PDF contains no extractable text",
+        error: extracted.content
+          ? null
+          : "The PDF contains no extractable text",
         mimeType,
         status: rendered.pageStatusCode,
+        redirectCount: rendered.redirectCount,
+        [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "pdf",
       };
     }
@@ -256,6 +290,8 @@ export async function fetchWithGecko(
         error: null,
         mimeType,
         status: rendered.pageStatusCode,
+        redirectCount: rendered.redirectCount,
+        [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
         provenance: "gecko",
       };
     }
@@ -267,17 +303,26 @@ export async function fetchWithGecko(
       error: `Unsupported rendered content type: ${mimeType || "unknown"}`,
       mimeType,
       status: rendered.pageStatusCode,
+      redirectCount: rendered.redirectCount,
+      [EXTRACTED_NETWORK_BYTES]: rendered.decodedBytes,
       provenance: "gecko",
     };
   } catch (error) {
+    if (signal?.aborted) {
+      throw signal.reason instanceof Error
+        ? signal.reason
+        : new Error("Web content fetch was cancelled");
+    }
     return {
       url,
       finalUrl: url,
       title: "",
       content: "",
-      error: error instanceof Error ? error.message.slice(0, 1_000) : String(error),
+      error:
+        error instanceof Error ? error.message.slice(0, 1_000) : String(error),
       mimeType: "",
       status: 0,
+      redirectCount: 0,
       provenance: "gecko",
     };
   }
