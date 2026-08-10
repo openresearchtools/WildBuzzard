@@ -8,6 +8,7 @@ import {
   TorrentCommitParameters,
   TorrentPrepareParameters,
   TorrentSearchParameters,
+  restoreTorrentWorkflow,
   torrentToolsForPrompt,
 } from "../torrent-contracts.ts";
 
@@ -23,6 +24,23 @@ test("torrent tools activate only for torrent intent", () => {
   assert.deepEqual(
     torrentToolsForPrompt("Inspect this magnet link before downloading"),
     TORRENT_TOOL_NAMES
+  );
+  assert.deepEqual(
+    torrentToolsForPrompt("Yes, download the selected files", true),
+    TORRENT_TOOL_NAMES
+  );
+  assert.equal(
+    restoreTorrentWorkflow([
+      { customType: "wildbuzzard-torrent-workflow", data: { active: true } },
+    ]),
+    true
+  );
+  assert.equal(
+    restoreTorrentWorkflow([
+      { customType: "wildbuzzard-torrent-workflow", data: { active: true } },
+      { customType: "wildbuzzard-torrent-workflow", data: { active: false } },
+    ]),
+    false
   );
 });
 

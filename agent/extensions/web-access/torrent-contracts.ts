@@ -10,6 +10,7 @@ export const TORRENT_TOOL_NAMES = [
   "torrent_commit",
   "torrent_cancel",
 ] as const;
+export const TORRENT_WORKFLOW_ENTRY = "wildbuzzard-torrent-workflow";
 
 const TORRENT_INTENT =
   /(?:\b(?:torrent|bittorrent|magnet|seeders?|leechers?|peer-to-peer)\b|\.torrent\b)/i;
@@ -88,6 +89,27 @@ export const TorrentCommitParameters = Type.Object(
   { additionalProperties: false }
 );
 
-export function torrentToolsForPrompt(prompt: string): string[] {
-  return TORRENT_INTENT.test(prompt) ? [...TORRENT_TOOL_NAMES] : [];
+export function torrentToolsForPrompt(
+  prompt: string,
+  workflowActive = false
+): string[] {
+  return workflowActive || TORRENT_INTENT.test(prompt)
+    ? [...TORRENT_TOOL_NAMES]
+    : [];
+}
+
+export function restoreTorrentWorkflow(
+  branch: Array<{ customType?: string; data?: unknown }>
+): boolean {
+  let active = false;
+  for (const entry of branch) {
+    if (entry.customType !== TORRENT_WORKFLOW_ENTRY) {
+      continue;
+    }
+    active =
+      typeof entry.data === "object" &&
+      entry.data !== null &&
+      (entry.data as { active?: unknown }).active === true;
+  }
+  return active;
 }

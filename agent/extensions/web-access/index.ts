@@ -26,7 +26,9 @@ import {
 } from "./storage.ts";
 import { registerTorrentTools } from "./torrent.ts";
 import {
+  restoreTorrentWorkflow,
   TORRENT_TOOL_NAMES,
+  TORRENT_WORKFLOW_ENTRY,
   torrentToolsForPrompt,
 } from "./torrent-contracts.ts";
 
@@ -110,6 +112,7 @@ async function executeSearch(
 
 export default function webAccess(pi: ExtensionAPI) {
   const extensionDirectory = dirname(fileURLToPath(import.meta.url));
+  let torrentWorkflowActive = false;
   pi.on("resources_discover", async () => ({
     skillPaths: [join(extensionDirectory, "skills")],
   }));
@@ -124,11 +127,19 @@ export default function webAccess(pi: ExtensionAPI) {
     if (ACTIVATION_PATTERN.test(prompt)) {
       active.push(...WEB_TOOL_NAMES);
     }
-    active.push(...torrentToolsForPrompt(prompt));
+    const torrentTools = torrentToolsForPrompt(prompt, torrentWorkflowActive);
+    if (torrentTools.length && !torrentWorkflowActive) {
+      torrentWorkflowActive = true;
+      pi.appendEntry(TORRENT_WORKFLOW_ENTRY, { active: true });
+    }
+    active.push(...torrentTools);
     pi.setActiveTools(active);
   };
   pi.on("session_start", (_event, context) => {
     restoreSearches(context.sessionManager.getBranch());
+    torrentWorkflowActive = restoreTorrentWorkflow(
+      context.sessionManager.getBranch()
+    );
     activate("");
   });
   pi.on("before_agent_start", (event, context) => {
@@ -136,7 +147,11 @@ export default function webAccess(pi: ExtensionAPI) {
     activate(event.prompt);
   });
 
-  registerTorrentTools(pi);
+  registerTorrentTools(pi, undefined, () => {
+    torrentWorkflowActive = false;
+    pi.appendEntry(TORRENT_WORKFLOW_ENTRY, { active: false });
+    activate("");
+  });
 
   pi.registerTool(
     defineTool({

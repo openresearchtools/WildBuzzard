@@ -23,7 +23,8 @@ type BrowserCall = (
 
 export function registerTorrentTools(
   pi: ExtensionAPI,
-  browserCall: BrowserCall = callBrowserTool
+  browserCall: BrowserCall = callBrowserTool,
+  onWorkflowEnd: () => void = () => {}
 ) {
   const execute = async (
     tool: string,
@@ -103,7 +104,9 @@ export function registerTorrentTools(
       parameters: TorrentCommitParameters,
       executionMode: "sequential",
       async execute(_id, params, signal, _update, context) {
-        return execute("torrent_commit", params, signal, context);
+        const result = await execute("torrent_commit", params, signal, context);
+        onWorkflowEnd();
+        return result;
       },
     })
   );
@@ -117,7 +120,9 @@ export function registerTorrentTools(
       parameters: TorrentDraftParameters,
       executionMode: "sequential",
       async execute(_id, params, signal, _update, context) {
-        return execute("torrent_cancel", params, signal, context);
+        const result = await execute("torrent_cancel", params, signal, context);
+        onWorkflowEnd();
+        return result;
       },
     })
   );
