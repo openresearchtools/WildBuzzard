@@ -22,9 +22,6 @@ const { NetUtil } = ChromeUtils.importESModule(
 const { BrowserControl } = ChromeUtils.importESModule(
   "chrome://remote/content/wildbuzzard/BrowserControl.sys.mjs"
 );
-const { SearXNGRuntime } = ChromeUtils.importESModule(
-  "resource:///modules/SearXNGRuntime.sys.mjs"
-);
 const { CryptoUtils } = ChromeUtils.importESModule(
   "resource://services-crypto/utils.sys.mjs"
 );
@@ -419,9 +416,6 @@ class PiWebManager {
   async #initialize() {
     if (AppConstants.platform !== "linux") {
       throw new Error("The bundled Pi Web runtime currently supports Linux");
-    }
-    if (SearXNGRuntime.isAvailable()) {
-      await SearXNGRuntime.initialize();
     }
     for (const path of [
       this.rootDirectory,

@@ -638,13 +638,13 @@ class ShippingContractTests(unittest.TestCase):
             )
 
     def test_agent_search_uses_only_the_browser_control_capability(self) -> None:
-        supervisor = (
+        manager = (
             CHECKOUT
             / "wildbuzzard"
             / "browser"
             / "components"
             / "websearch"
-            / "SearXNGRuntime.sys.mjs"
+            / "SearXNGManager.sys.mjs"
         ).read_text(encoding="utf-8")
         agent = (
             CHECKOUT
@@ -658,11 +658,10 @@ class ShippingContractTests(unittest.TestCase):
         web_access = (
             CHECKOUT / "agent" / "extensions" / "web-access" / "searxng.ts"
         ).read_text(encoding="utf-8")
-        self.assertIn('request.setRequestHeader("Authorization"', supervisor)
-        self.assertIn('command,\n        "--data-root"', supervisor)
-        self.assertNotIn('runLifecycle(runtime, "stop")', supervisor)
-        self.assertNotIn('runLifecycle(runtime, "restart")', supervisor)
-        self.assertIn("get correspondingSourcePath()", supervisor)
+        self.assertIn("requestSearXNGUDS", manager)
+        self.assertIn('common.push(\n        "--cache-dir"', manager)
+        self.assertNotIn("127.0.0.1", manager)
+        self.assertNotIn("SearXNGRuntime", agent)
         self.assertIn("WILDBUZZARD_BROWSER_CONTROL_FILE", agent)
         self.assertIn('await call(\n      "native_search"', web_access)
         self.assertNotIn("requestSearchService", web_access)
