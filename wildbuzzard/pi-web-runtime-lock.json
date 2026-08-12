@@ -25,9 +25,9 @@
     "sha256": "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307"
   },
   "runtimeArchive": {
-    "bootstrapBlocked": true,
-    "sourceCommit": "0000000000000000000000000000000000000000",
-    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+    "bootstrapBlocked": false,
+    "sourceCommit": "96104844f44d12076d874442d875fdda602cc961",
+    "sha256": "d25b97bb593499764210d2e10928839b5cc94ca5567b8fc3de0d4dfac29be654"
   },
   "runtimePayload": {
     "bin/pi": {
