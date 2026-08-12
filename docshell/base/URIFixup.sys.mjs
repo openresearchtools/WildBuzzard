@@ -93,10 +93,8 @@ function isWildBuzzardInternalSearch(engine, uri) {
   return (
     AppConstants.MOZ_APP_BASENAME === "WildBuzzard" &&
     engine.id === "searxng" &&
-    uri.scheme === "moz-searxng" &&
-    uri.host === "local" &&
-    uri.port === -1 &&
-    uri.filePath === "/search"
+    uri.scheme === "about" &&
+    /^about:searxng\?q=[^&#]*$/.test(uri.spec)
   );
 }
 
