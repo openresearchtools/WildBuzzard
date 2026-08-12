@@ -25,7 +25,7 @@
         "name": "SearXNG",
         "urls": {
           "search": {
-            "base": "http://127.0.0.1:0/search",
+            "base": "moz-searxng://local/search",
             "searchTermParamName": "q"
           }
         }

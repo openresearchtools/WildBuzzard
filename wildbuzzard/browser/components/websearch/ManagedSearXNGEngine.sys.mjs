@@ -22,19 +22,13 @@ const reloadObserver = {
   },
 };
 
-export function managedSearXNGSearchTemplate(address, port) {
-  if (address !== "127.0.0.1") {
-    throw new TypeError("Managed SearXNG must use the IPv4 loopback address");
-  }
-  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
-    throw new TypeError("Managed SearXNG port is invalid");
-  }
-  return `http://${address}:${port}/search`;
+export function managedSearXNGSearchTemplate() {
+  return "moz-searxng://local/search";
 }
 
-export async function synchronizeManagedSearXNGEngine({ address, port }) {
-  const template = managedSearXNGSearchTemplate(address, port);
-  endpoint = { address, port };
+export async function synchronizeManagedSearXNGEngine() {
+  const template = managedSearXNGSearchTemplate();
+  endpoint = true;
   await lazy.SearchService.init();
   if (!observingReloads) {
     Services.obs.addObserver(

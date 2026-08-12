@@ -9,7 +9,7 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   ExperimentAPI: "resource://nimbus/ExperimentAPI.sys.mjs",
   PrivateTab: "resource:///modules/PrivateTab.sys.mjs",
-  SearXNGRuntime: "resource:///modules/SearXNGRuntime.sys.mjs",
+  SearXNGManager: "resource:///modules/SearXNGManager.sys.mjs",
   StatusBar: "resource:///modules/StatusBar.sys.mjs",
   StyleSheetUtils: "resource:///modules/StyleSheetUtils.sys.mjs",
   TabFeatures: "resource:///modules/TabFeatures.sys.mjs",
@@ -90,8 +90,8 @@ export const WildBuzzardGlue = {
     lazy.TabFeatures.init();
     lazy.TabGrouping.init();
     lazy.UICustomizations.init();
-    if (lazy.SearXNGRuntime.isAvailable()) {
-      lazy.SearXNGRuntime.initialize().catch(error =>
+    if (lazy.SearXNGManager.isAvailable()) {
+      lazy.SearXNGManager.initialize().catch(error =>
         console.error("Managed SearXNG startup failed", error)
       );
     }

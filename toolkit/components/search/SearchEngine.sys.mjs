@@ -9,6 +9,7 @@
  */
 
 import { XPCOMUtils } from "resource://gre/modules/XPCOMUtils.sys.mjs";
+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 
 const lazy = XPCOMUtils.declareLazy({
   SearchSettings: "moz-src:///toolkit/components/search/SearchSettings.sys.mjs",
@@ -63,6 +64,18 @@ var OS_UNSUPPORTED_PARAMS = [
 // An array of attributes that are saved in the engines `_metaData` object.
 // Attributes not in this array are considered as system attributes.
 const USER_ATTRIBUTES = ["alias", "order", "hideOneOffButton"];
+
+export function isWildBuzzardInternalSearchTemplate(
+  type,
+  template,
+  appBaseName = String(AppConstants.MOZ_APP_BASENAME)
+) {
+  return (
+    appBaseName === "WildBuzzard" &&
+    type === lazy.SearchUtils.URL_TYPE.SEARCH &&
+    template === "moz-searxng://local/search"
+  );
+}
 
 /**
  * Truncates big blobs of (data-)URIs to console-friendly sizes
@@ -283,6 +296,12 @@ export class EngineURL {
     switch (templateURI.scheme) {
       case "http":
       case "https":
+        this.template = template;
+        break;
+      case "moz-searxng":
+        if (!isWildBuzzardInternalSearchTemplate(type, template)) {
+          throw new Error("template uses an invalid internal search URI");
+        }
         this.template = template;
         break;
       default:
