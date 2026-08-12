@@ -160,6 +160,13 @@ async function privateDirectory(path) {
 }
 
 async function readBoundedText(path, maximum) {
+  if (path.startsWith("/proc/")) {
+    const bytes = await IOUtils.read(path, { maxBytes: maximum + 1 });
+    if (bytes.length < 1 || bytes.length > maximum) {
+      throw new Error("SearXNG identity file exceeds its limit");
+    }
+    return new TextDecoder().decode(bytes);
+  }
   const info = await IOUtils.stat(path);
   if (info.size < 1 || info.size > maximum) {
     throw new Error("SearXNG identity file exceeds its limit");
@@ -595,7 +602,7 @@ export class SearXNGManagerImpl {
   async prepareDirectories() {
     for (const path of [
       this.paths.rootDirectory,
-      PathUtils.dirname(this.paths.artifactInstallDirectory),
+      PathUtils.parent(this.paths.artifactInstallDirectory),
       this.paths.cacheDirectory,
       this.paths.stateDirectory,
     ]) {

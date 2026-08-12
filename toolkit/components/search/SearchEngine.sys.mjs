@@ -73,7 +73,7 @@ export function isWildBuzzardInternalSearchTemplate(
   return (
     appBaseName === "WildBuzzard" &&
     type === lazy.SearchUtils.URL_TYPE.SEARCH &&
-    template === "moz-searxng://local/search"
+    template === "about:searxng"
   );
 }
 
@@ -298,7 +298,7 @@ export class EngineURL {
       case "https":
         this.template = template;
         break;
-      case "moz-searxng":
+      case "about":
         if (!isWildBuzzardInternalSearchTemplate(type, template)) {
           throw new Error("template uses an invalid internal search URI");
         }
@@ -308,7 +308,7 @@ export class EngineURL {
         throw new Error("template uses an invalid scheme");
     }
 
-    this.templateHost = templateURI.host;
+    this.templateHost = templateURI.scheme === "about" ? "" : templateURI.host;
 
     // It's possible that the search term parameter
     // is part of the template.

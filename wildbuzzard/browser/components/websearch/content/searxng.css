@@ -1,0 +1,117 @@
+/* SPDX-License-Identifier: AGPL-3.0-or-later */
+
+:root {
+  --search-page-max-inline-size: calc(3 * var(--size-layout-xlarge));
+
+  color-scheme: light dark;
+  font: menu;
+  background: var(--background-color-canvas);
+  color: var(--text-color);
+}
+
+body {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: var(--search-page-max-inline-size);
+  margin: 0 auto;
+  padding: var(--space-xxlarge);
+  padding-block-end: calc(2 * var(--space-xxlarge));
+}
+
+header {
+  margin-block-end: var(--space-xxlarge);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-small);
+  color: var(--color-accent-primary);
+  font-size: var(--font-size-small);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: var(--font-size-heading-xlarge);
+}
+
+.subtitle {
+  margin: var(--space-small) 0 0;
+  color: var(--text-color-deemphasized);
+}
+
+#search-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: var(--space-small);
+}
+
+#search-query {
+  min-width: 0;
+  padding-inline: var(--space-medium);
+}
+
+#search-status {
+  min-height: var(--size-item-medium);
+  margin-block: var(--space-large);
+  color: var(--text-color-deemphasized);
+}
+
+#answers {
+  margin-block-end: var(--space-large);
+  padding: var(--card-padding);
+  border: var(--card-border);
+  border-radius: var(--card-border-radius);
+  background: var(--card-background-color);
+}
+
+#search-results {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.result {
+  padding: var(--space-large) var(--space-xsmall);
+  border-block-end: var(--card-border);
+}
+
+.result-title {
+  font-size: var(--font-size-large);
+  font-weight: var(--font-weight-semibold);
+  text-decoration: none;
+}
+
+.result-url {
+  overflow: hidden;
+  margin-block: var(--space-xsmall);
+  color: var(--text-color-deemphasized);
+  font-size: var(--font-size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-content {
+  margin: 0;
+  line-height: 1.5;
+}
+
+#next-page {
+  margin-block-start: var(--space-xlarge);
+}
+
+@media (max-width: 600px) {
+  body {
+    padding: var(--space-large);
+    padding-block-end: calc(2 * var(--space-xxlarge));
+  }
+
+  #search-form {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  #search-cancel {
+    grid-column: 1 / -1;
+  }
+}

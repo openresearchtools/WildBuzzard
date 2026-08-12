@@ -23,7 +23,7 @@ const reloadObserver = {
 };
 
 export function managedSearXNGSearchTemplate() {
-  return "moz-searxng://local/search";
+  return "about:searxng";
 }
 
 export async function synchronizeManagedSearXNGEngine() {

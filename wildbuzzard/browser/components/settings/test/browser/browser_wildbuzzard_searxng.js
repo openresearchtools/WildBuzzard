@@ -24,8 +24,8 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
   ok(duckDuckGo, "DuckDuckGo is application-provided");
   is(
     searxng.getSubmission("unavailable").uri.scheme,
-    "moz-searxng",
-    "The pre-start template uses the private browser protocol"
+    "https",
+    "The pre-start template is valid in shared Firefox search data"
   );
   Assert.deepEqual(
     (await SearchService.getAppProvidedEngines()).map(engine => engine.id),
@@ -72,17 +72,17 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
   await synchronizeManagedSearXNGEngine();
   is(
     managedSearXNGSearchTemplate(),
-    "moz-searxng://local/search",
-    "The managed engine uses the private browser protocol"
+    "about:searxng",
+    "The managed engine uses the internal search page"
   );
   is(
     searxng.getSubmission("café 東京").uri.spec,
-    "moz-searxng://local/search?q=caf%C3%A9+%E6%9D%B1%E4%BA%AC",
+    "about:searxng?q=caf%C3%A9+%E6%9D%B1%E4%BA%AC",
     "The managed engine never exposes a loopback port"
   );
   is(
     Services.uriFixup.keywordToURI("café 東京", false).preferredURI.spec,
-    "moz-searxng://local/search?q=caf%C3%A9+%E6%9D%B1%E4%BA%AC",
+    "about:searxng?q=caf%C3%A9+%E6%9D%B1%E4%BA%AC",
     "Address-bar searches accept only the product's internal engine URI"
   );
   is(await SearchService.getDefault(), searxng, "Migration selects SearXNG");
@@ -98,9 +98,7 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
     "engines-reloaded"
   );
   await TestUtils.waitForCondition(
-    () =>
-      searxng.getSubmission("reload").uri.spec ===
-      "moz-searxng://local/search?q=reload",
+    () => searxng.getSubmission("reload").uri.spec === "about:searxng?q=reload",
     "The managed template is restored after SearchService reloads"
   );
 
@@ -108,8 +106,8 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
   await synchronizeManagedSearXNGEngine();
   is(
     searxng.getSubmission("port change").uri.spec,
-    "moz-searxng://local/search?q=port+change",
-    "A restart retains the private browser protocol"
+    "about:searxng?q=port+change",
+    "A restart retains the internal search page"
   );
   is(
     await SearchService.getDefault(),
@@ -119,7 +117,7 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
 
   is(
     searxng.getURLOfType(SearchUtils.URL_TYPE.SEARCH).template,
-    "moz-searxng://local/search",
+    "about:searxng",
     "The application engine cannot be redirected to a TCP endpoint"
   );
 });

@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+browser.jar:
+    content/browser/searxng/searxng.css   (content/searxng.css)
+    content/browser/searxng/searxng.js    (content/searxng.js)
+    content/browser/searxng/searxng.xhtml (content/searxng.xhtml)

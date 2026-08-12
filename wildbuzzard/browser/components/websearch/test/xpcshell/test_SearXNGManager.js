@@ -38,7 +38,7 @@ add_task(function test_profile_paths_are_private_and_bounded() {
 
 add_task(function test_search_submission_uses_stable_internal_route() {
   const template = managedSearXNGSearchTemplate();
-  Assert.equal(template, "moz-searxng://local/search");
+  Assert.equal(template, "about:searxng");
   Assert.ok(
     isWildBuzzardInternalSearchTemplate(
       SearchUtils.URL_TYPE.SEARCH,
@@ -52,7 +52,7 @@ add_task(function test_search_submission_uses_stable_internal_route() {
       template,
       "Firefox"
     ),
-    "A non-WildBuzzard build rejects the internal scheme"
+    "A non-WildBuzzard build rejects the internal page"
   );
   const url = new EngineURL({
     type: SearchUtils.URL_TYPE.SEARCH,
@@ -61,13 +61,13 @@ add_task(function test_search_submission_uses_stable_internal_route() {
   url.addParam("q", "{searchTerms}");
   Assert.equal(
     url.getSubmission("café", "UTF-8").uri.spec,
-    "moz-searxng://local/search?q=caf%C3%A9"
+    "about:searxng?q=caf%C3%A9"
   );
   Assert.throws(
     () =>
       new EngineURL({
         type: SearchUtils.URL_TYPE.SEARCH,
-        template: "moz-searxng://other/search",
+        template: "about:config",
       }),
     /invalid internal search URI/
   );

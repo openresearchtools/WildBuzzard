@@ -7,8 +7,5 @@
 ["test_SearXNGManager.js"]
 skip-if = ["os != 'linux'"]
 
-["test_SearXNGProtocolHandler.js"]
-skip-if = ["os != 'linux'"]
-
 ["test_SearXNGUDSTransport.js"]
 skip-if = ["os != 'linux'"]

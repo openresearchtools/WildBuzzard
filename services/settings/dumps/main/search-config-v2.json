@@ -25,7 +25,7 @@
         "name": "SearXNG",
         "urls": {
           "search": {
-            "base": "moz-searxng://local/search",
+            "base": "https://search.wildbuzzard.invalid/search",
             "searchTermParamName": "q"
           }
         }
