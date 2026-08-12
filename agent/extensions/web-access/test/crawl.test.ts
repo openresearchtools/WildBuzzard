@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import assert from "node:assert/strict";
+import { createServer, type RequestListener } from "node:http";
+import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { gzipSync } from "node:zlib";
 import {
@@ -10,6 +12,7 @@ import {
   parseRobots,
   parseSitemap,
   robotsAllows,
+  type CrawlProgress,
 } from "../crawl.ts";
 import { EXTRACTED_NETWORK_BYTES, type ExtractedContent } from "../extract.ts";
 
@@ -34,6 +37,89 @@ function page(
     trust: "untrusted",
   };
 }
+
+async function fixtureServer(handler: RequestListener) {
+  const server = createServer(handler);
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", resolve);
+  });
+  const address = server.address() as AddressInfo;
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    async close() {
+      await new Promise<void>(resolve => {
+        server.close(() => resolve());
+        server.closeAllConnections();
+      });
+    },
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+const localHttpFetch: typeof import("../extract.ts").fetchWithGecko = async (
+  url,
+  _mode,
+  _cwd,
+  _sessionId,
+  signal,
+  options
+) => {
+  let current = url;
+  let redirects = 0;
+  while (true) {
+    const currentUrl = new URL(current);
+    const allowedOrigins = options?.allowedOrigins;
+    if (allowedOrigins?.length && !allowedOrigins.includes(currentUrl.origin)) {
+      return {
+        ...page(url, "", "text/plain", 0, current, redirects),
+        error: "origin is outside the renderer scope",
+      };
+    }
+    const response = await fetch(current, {
+      headers: { "user-agent": "WildBuzzard" },
+      redirect: "manual",
+      signal,
+    });
+    if (
+      response.status >= 300 &&
+      response.status < 400 &&
+      response.headers.has("location")
+    ) {
+      if (redirects >= (options?.maxRedirects ?? 10)) {
+        return {
+          ...page(url, "", "text/plain", 0, current, redirects),
+          error: "resource-limit: redirect count exceeded",
+        };
+      }
+      current = new URL(response.headers.get("location")!, current).toString();
+      redirects++;
+      continue;
+    }
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const content = new TextDecoder().decode(bytes);
+    return {
+      ...page(
+        url,
+        content,
+        response.headers.get("content-type")?.split(";", 1)[0] ?? "",
+        response.status,
+        current,
+        redirects
+      ),
+      [EXTRACTED_NETWORK_BYTES]: bytes.byteLength,
+    };
+  }
+};
 
 test("robots selects the most specific groups and honors allow, delay, and sitemap directives", () => {
   const policy = parseRobots(`
@@ -146,6 +232,184 @@ test("crawl is exact breadth-first, path-scoped, robots-aware, and deterministic
   assert.equal(result.visited, 2);
   assert.equal(result.partial, false);
   assert.equal(result.stoppedReason, null);
+});
+
+test("crawl coordinates a deterministic local HTTP graph and emits bounded progress", async () => {
+  const externalRequests: string[] = [];
+  const external = await fixtureServer((request, response) => {
+    externalRequests.push(request.url ?? "");
+    response.setHeader("content-type", "text/html");
+    response.end("<html><body>external</body></html>");
+  });
+  const requests: string[] = [];
+  const fixture = await fixtureServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://fixture.invalid");
+    requests.push(url.pathname);
+    response.setHeader("content-type", "text/html; charset=utf-8");
+    switch (url.pathname) {
+      case "/robots.txt":
+        response.setHeader("content-type", "text/plain");
+        response.end(
+          "User-agent: WildBuzzard\nDisallow: /docs/blocked\nCrawl-delay: 0"
+        );
+        break;
+      case "/sitemap.xml":
+        response.setHeader("content-type", "application/xml");
+        response.end(
+          `<urlset><url><loc>${fixture.origin}/docs/from-sitemap</loc></url><url><loc>${fixture.origin}/docs/blocked</loc></url></urlset>`
+        );
+        break;
+      case "/docs/":
+        response.end(`<html><body>
+          <a href="child?b=2&amp;a=1&amp;utm_source=test">child</a>
+          <a href="child?a=1&amp;b=2#fragment">duplicate</a>
+          <a href="blocked">blocked</a>
+          <a href="/outside">outside</a>
+          <a href="canonical-alias">canonical alias</a>
+          <a href="external">external redirect</a>
+        </body></html>`);
+        break;
+      case "/docs/from-sitemap":
+        response.end("<html><body><p>sitemap page</p></body></html>");
+        break;
+      case "/docs/child":
+        response.end(
+          '<html><body><p>child page</p><a href="./">cycle</a><a href="grandchild">too deep</a></body></html>'
+        );
+        break;
+      case "/docs/canonical-alias":
+        response.end(
+          '<html><head><link rel="canonical" href="canonical"></head><body><p>canonical body</p></body></html>'
+        );
+        break;
+      case "/docs/external":
+        response.statusCode = 302;
+        response.setHeader("location", `${external.origin}/escaped`);
+        response.end();
+        break;
+      default:
+        response.statusCode = 404;
+        response.end("not found");
+        break;
+    }
+  });
+  const progress: CrawlProgress[] = [];
+  try {
+    const result = await crawlWithGecko(
+      {
+        url: `${fixture.origin}/docs/`,
+        maxDepth: 1,
+        maxConcurrency: 1,
+      },
+      "/workspace",
+      "local-http",
+      undefined,
+      localHttpFetch,
+      update => progress.push(update)
+    );
+    assert.deepEqual(
+      result.documents.map(document => new URL(document.url).pathname),
+      ["/docs/", "/docs/from-sitemap", "/docs/child", "/docs/canonical-alias"]
+    );
+    assert.equal(result.partial, false);
+    assert.equal(result.stoppedReason, null);
+    assert.equal(requests.filter(path => path === "/robots.txt").length, 1);
+    assert.ok(!requests.includes("/docs/blocked"));
+    assert.ok(!requests.includes("/docs/grandchild"));
+    assert.ok(!requests.includes("/outside"));
+    assert.deepEqual(externalRequests, []);
+    assert.ok(progress.some(update => update.phase === "sitemap"));
+    assert.ok(progress.some(update => update.phase === "crawl"));
+    assert.ok(progress.length <= result.visited + 3);
+    assert.deepEqual(progress.at(-1), {
+      phase: "complete",
+      rootUrl: `${fixture.origin}/docs/`,
+      visited: result.visited,
+      queued: 0,
+      documents: result.documents.length,
+      errors: result.errors.length,
+      totalBytes: result.totalBytes,
+      currentDepth: null,
+      partial: false,
+      stoppedReason: null,
+    });
+
+    requests.length = 0;
+    const budgetProgress: CrawlProgress[] = [];
+    const budgetResult = await crawlWithGecko(
+      {
+        url: `${fixture.origin}/docs/`,
+        limit: 2,
+      },
+      "/workspace",
+      "local-http-budget",
+      undefined,
+      localHttpFetch,
+      update => budgetProgress.push(update)
+    );
+    assert.equal(budgetResult.visited, 2);
+    assert.equal(budgetResult.partial, true);
+    assert.equal(budgetResult.stoppedReason, "limit");
+    assert.equal(budgetProgress.at(-1)?.partial, true);
+    assert.equal(budgetProgress.at(-1)?.stoppedReason, "limit");
+    assert.ok(!requests.includes("/docs/child"));
+  } finally {
+    await fixture.close();
+    await external.close();
+  }
+});
+
+test("local HTTP crawl cancellation closes the active request and reports final progress", async () => {
+  const slowStarted = deferred<void>();
+  const slowClosed = deferred<void>();
+  const fixture = await fixtureServer((request, response) => {
+    const url = new URL(request.url ?? "/", "http://fixture.invalid");
+    response.setHeader("content-type", "text/html");
+    if (url.pathname === "/cancel/") {
+      response.end('<html><body><a href="slow">slow</a></body></html>');
+      return;
+    }
+    if (url.pathname === "/cancel/slow") {
+      slowStarted.resolve(undefined);
+      response.on("close", () => slowClosed.resolve(undefined));
+      return;
+    }
+    response.statusCode = 404;
+    response.end("not found");
+  });
+  const controller = new AbortController();
+  const progress: CrawlProgress[] = [];
+  try {
+    const pending = crawlWithGecko(
+      {
+        url: `${fixture.origin}/cancel/`,
+        robots: "ignore",
+        sitemap: "skip",
+        maxDepth: 1,
+        timeoutMs: 10_000,
+      },
+      "/workspace",
+      "local-http-cancel",
+      controller.signal,
+      localHttpFetch,
+      update => progress.push(update)
+    );
+    await slowStarted.promise;
+    controller.abort(new Error("cancelled by local fixture"));
+    const result = await pending;
+    await Promise.race([
+      slowClosed.promise,
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("fixture request leaked")), 1_000)
+      ),
+    ]);
+    assert.equal(result.partial, true);
+    assert.equal(result.stoppedReason, "cancelled");
+    assert.equal(progress.at(-1)?.phase, "complete");
+    assert.equal(progress.at(-1)?.stoppedReason, "cancelled");
+  } finally {
+    await fixture.close();
+  }
 });
 
 test("HTML base and canonical URLs produce one deterministic document", async () => {
