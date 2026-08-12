@@ -29,6 +29,7 @@ test("browser prompts activate interaction tools without every diagnostic", () =
     "snapshot",
     "act",
     "read",
+    "native_search",
     "screenshot",
     "run",
   ]) {

@@ -11,6 +11,7 @@ const INTERACTION_TOOLS = [
   "read",
   "grep",
   "wait",
+  "native_search",
   "gecko_render",
 ];
 const BROWSER_INTENT =

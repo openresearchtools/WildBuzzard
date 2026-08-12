@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* Derived from pi-web-access. Copyright (c) 2025 Nico Bailon. */
 
+import { callBrowserTool } from "../browser-tools/bridge-client.ts";
 import {
   buildSearchQuery,
   matchesDomainFilters,
@@ -9,67 +10,262 @@ import {
   type QueryResponse,
   type SearchResult,
 } from "./contracts.ts";
-import { requestSearchService } from "./connection.ts";
 import { redactSensitiveText } from "./safe-output.ts";
 
+export interface NativeSearchRequest {
+  query: string;
+  engines?: string[];
+  language?: string;
+  page?: number;
+  timeRange?: "day" | "week" | "month" | "year";
+  safeSearch?: 1;
+  maxResults?: number;
+}
+
+interface NativeSearchDiagnostics {
+  catalogSha256: string;
+  totalEntries: number;
+  eligibleEntries: number;
+  totalModules: number;
+  eligibleModules: number;
+  attemptedEngines: string[];
+  completedEngines: string[];
+}
+
 interface RawResult {
-  title?: unknown;
-  url?: unknown;
-  content?: unknown;
-  engines?: unknown;
-  score?: unknown;
-  publishedDate?: unknown;
-  published_date?: unknown;
+  title?: string;
+  url: string;
+  content?: string;
+  engines?: string[];
+  score?: number | null;
+  publishedDate?: string | null;
 }
 
-interface RawResponse {
-  results?: unknown;
-  answers?: unknown;
-  corrections?: unknown;
-  suggestions?: unknown;
-  unresponsive_engines?: unknown;
+interface NativeSearchResponse {
+  schema: 1;
+  implementation: "bundled-searxng";
+  query: string;
+  results: RawResult[];
+  answers: unknown[];
+  corrections: unknown[];
+  suggestions: unknown[];
+  infoboxes: unknown[];
+  unresponsiveEngines: unknown[];
+  diagnostics: NativeSearchDiagnostics;
 }
 
-const MAX_SEARCH_RESPONSE_BYTES = 4 * 1024 * 1024;
+type BrowserCall = typeof callBrowserTool;
 
-function text(value: unknown, fallback: string, max: number): string {
-  return typeof value === "string" && value.trim()
-    ? redactSensitiveText(value.trim(), max)
-    : fallback;
-}
+const RESPONSE_FIELDS = new Set([
+  "answers",
+  "corrections",
+  "diagnostics",
+  "implementation",
+  "infoboxes",
+  "query",
+  "results",
+  "schema",
+  "suggestions",
+  "unresponsiveEngines",
+]);
+const DIAGNOSTIC_FIELDS = new Set([
+  "attemptedEngines",
+  "catalogSha256",
+  "completedEngines",
+  "eligibleEntries",
+  "eligibleModules",
+  "totalEntries",
+  "totalModules",
+]);
+const RESULT_FIELDS = new Set([
+  "content",
+  "engines",
+  "publishedDate",
+  "score",
+  "title",
+  "url",
+]);
+const MAX_CATALOG_ENTRIES = 4_096;
+const MAX_STRUCTURED_ITEMS = 50;
 
-function stringArray(value: unknown, limit: number): string[] {
-  if (!Array.isArray(value)) {
-    return [];
+function recordWithFields(
+  value: unknown,
+  fields: Set<string>,
+  exact: boolean
+): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
   }
-  return value
-    .filter((item): item is string => typeof item === "string")
-    .map(item => redactSensitiveText(item.trim(), 128))
-    .filter(Boolean)
-    .slice(0, limit);
+  const names = Object.keys(value);
+  return (
+    (!exact || names.length === fields.size) &&
+    names.every(name => fields.has(name))
+  );
 }
 
-function structuredArray(value: unknown, field: string): unknown[] {
-  if (value === undefined) {
-    return [];
+function stringArray(
+  value: unknown,
+  field: string,
+  limit: number,
+  itemLimit: number
+): string[] {
+  if (!Array.isArray(value) || value.length > limit) {
+    throw new Error(`Native search returned invalid ${field}`);
   }
-  if (!Array.isArray(value)) {
-    throw new Error(`WildBuzzard search service returned invalid ${field}`);
+  const result: string[] = [];
+  for (const item of value) {
+    if (
+      typeof item !== "string" ||
+      !item.trim() ||
+      item.length > itemLimit ||
+      result.includes(item)
+    ) {
+      throw new Error(`Native search returned invalid ${field}`);
+    }
+    result.push(item);
   }
-  return value.slice(0, 50).map(item => sanitizeStructuredValue(item));
+  return result;
+}
+
+function structuredArray(
+  value: unknown,
+  field: string,
+  limit = MAX_STRUCTURED_ITEMS
+): unknown[] {
+  if (!Array.isArray(value) || value.length > limit) {
+    throw new Error(`Native search returned invalid ${field}`);
+  }
+  return value.map(item => sanitizeStructuredValue(item));
+}
+
+function validateDiagnostics(value: unknown): NativeSearchDiagnostics {
+  if (!recordWithFields(value, DIAGNOSTIC_FIELDS, true)) {
+    throw new Error("Native search returned invalid diagnostics");
+  }
+  const totalEntries = value.totalEntries;
+  const eligibleEntries = value.eligibleEntries;
+  const totalModules = value.totalModules;
+  const eligibleModules = value.eligibleModules;
+  if (
+    typeof value.catalogSha256 !== "string" ||
+    !/^[a-f0-9]{64}$/.test(value.catalogSha256) ||
+    !Number.isInteger(totalEntries) ||
+    Number(totalEntries) < 1 ||
+    Number(totalEntries) > MAX_CATALOG_ENTRIES ||
+    !Number.isInteger(eligibleEntries) ||
+    Number(eligibleEntries) < 1 ||
+    Number(eligibleEntries) > Number(totalEntries) ||
+    !Number.isInteger(totalModules) ||
+    Number(totalModules) < 1 ||
+    Number(totalModules) > MAX_CATALOG_ENTRIES ||
+    !Number.isInteger(eligibleModules) ||
+    Number(eligibleModules) < 1 ||
+    Number(eligibleModules) > Number(totalModules)
+  ) {
+    throw new Error("Native search returned invalid diagnostics");
+  }
+  const attemptedEngines = stringArray(
+    value.attemptedEngines,
+    "attempted engines",
+    Number(eligibleEntries),
+    128
+  );
+  const completedEngines = stringArray(
+    value.completedEngines,
+    "completed engines",
+    Number(eligibleEntries),
+    128
+  );
+  if (completedEngines.some(engine => !attemptedEngines.includes(engine))) {
+    throw new Error("Native search returned invalid diagnostics");
+  }
+  return {
+    catalogSha256: value.catalogSha256,
+    totalEntries: Number(totalEntries),
+    eligibleEntries: Number(eligibleEntries),
+    totalModules: Number(totalModules),
+    eligibleModules: Number(eligibleModules),
+    attemptedEngines,
+    completedEngines,
+  };
+}
+
+function validateRawResult(value: unknown): RawResult {
+  if (!recordWithFields(value, RESULT_FIELDS, false)) {
+    throw new Error("Native search returned invalid results");
+  }
+  if (
+    typeof value.url !== "string" ||
+    value.url.length > 4_096 ||
+    (value.title !== undefined &&
+      (typeof value.title !== "string" || value.title.length > 500)) ||
+    (value.content !== undefined &&
+      (typeof value.content !== "string" || value.content.length > 4_000)) ||
+    (value.score !== undefined &&
+      value.score !== null &&
+      (typeof value.score !== "number" || !Number.isFinite(value.score))) ||
+    (value.publishedDate !== undefined &&
+      value.publishedDate !== null &&
+      (typeof value.publishedDate !== "string" ||
+        value.publishedDate.length > 128))
+  ) {
+    throw new Error("Native search returned invalid results");
+  }
+  const engines =
+    value.engines === undefined
+      ? undefined
+      : stringArray(value.engines, "result engines", 16, 128);
+  return {
+    url: value.url,
+    ...(value.title !== undefined ? { title: value.title } : {}),
+    ...(value.content !== undefined ? { content: value.content } : {}),
+    ...(engines !== undefined ? { engines } : {}),
+    ...(value.score !== undefined ? { score: value.score } : {}),
+    ...(value.publishedDate !== undefined
+      ? { publishedDate: value.publishedDate }
+      : {}),
+  };
+}
+
+function validateResponse(
+  value: unknown,
+  request: NativeSearchRequest
+): NativeSearchResponse {
+  if (!recordWithFields(value, RESPONSE_FIELDS, true)) {
+    throw new Error("Native search returned an invalid response");
+  }
+  if (
+    value.schema !== 1 ||
+    value.implementation !== "bundled-searxng" ||
+    value.query !== request.query ||
+    !Array.isArray(value.results) ||
+    value.results.length > (request.maxResults ?? 20)
+  ) {
+    throw new Error("Native search returned an invalid response");
+  }
+  const diagnostics = validateDiagnostics(value.diagnostics);
+  return {
+    schema: 1,
+    implementation: "bundled-searxng",
+    query: request.query,
+    results: value.results.map(validateRawResult),
+    answers: structuredArray(value.answers, "answers"),
+    corrections: structuredArray(value.corrections, "corrections"),
+    suggestions: structuredArray(value.suggestions, "suggestions"),
+    infoboxes: structuredArray(value.infoboxes, "infoboxes"),
+    unresponsiveEngines: structuredArray(
+      value.unresponsiveEngines,
+      "unresponsive engines",
+      diagnostics.eligibleEntries
+    ),
+    diagnostics,
+  };
 }
 
 function normalizeResult(
-  value: unknown,
+  raw: RawResult,
   includeContent: boolean
 ): SearchResult | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const raw = value as RawResult;
-  if (typeof raw.url !== "string" || raw.url.length > 4_096) {
-    return null;
-  }
   let url: URL;
   try {
     url = new URL(raw.url);
@@ -96,154 +292,95 @@ function normalizeResult(
   if (normalizedUrl.length > 4_096) {
     return null;
   }
-  const snippet = text(raw.content, "", 1_000);
-  const score =
-    typeof raw.score === "number" && Number.isFinite(raw.score)
-      ? raw.score
-      : null;
-  const dateValue = raw.publishedDate ?? raw.published_date;
-  const date =
-    typeof dateValue === "string" ? redactSensitiveText(dateValue, 128) : null;
+  const snippet = redactSensitiveText(raw.content?.trim() ?? "", 1_000);
   return {
-    title: text(raw.title, normalizedUrl, 500),
+    title: redactSensitiveText(raw.title?.trim() || normalizedUrl, 500),
     url: normalizedUrl,
     snippet,
-    engines: stringArray(raw.engines, 16),
-    score,
-    date,
+    engines: raw.engines ?? [],
+    score: raw.score ?? null,
+    date:
+      typeof raw.publishedDate === "string"
+        ? redactSensitiveText(raw.publishedDate, 128)
+        : null,
     provenance: "searxng",
     trust: "untrusted",
     ...(includeContent && snippet ? { contentPreview: snippet } : {}),
   };
 }
 
-async function readResponse(
-  response: Response,
-  signal?: AbortSignal
-): Promise<RawResponse> {
+export function nativeSearchRequest(
+  query: string,
+  input: NormalizedSearchInput
+): NativeSearchRequest {
+  const request: NativeSearchRequest = {
+    query: buildSearchQuery(query, input.domains),
+    ...(input.recencyFilter ? { timeRange: input.recencyFilter } : {}),
+    safeSearch: 1,
+    maxResults: input.numResults,
+  };
   if (
-    !/^application\/json(?:;|$)/i.test(
-      response.headers.get("content-type") ?? ""
-    )
+    [...request.query].length > 512 ||
+    Buffer.byteLength(request.query, "utf8") > 2_048
   ) {
-    await response.body?.cancel().catch(() => {});
-    throw new Error("WildBuzzard search service returned a non-JSON response");
+    throw new Error("Native search query exceeds the audited limit");
   }
-  const contentLength = Number(response.headers.get("content-length"));
-  if (
-    Number.isFinite(contentLength) &&
-    contentLength > MAX_SEARCH_RESPONSE_BYTES
-  ) {
-    await response.body?.cancel().catch(() => {});
-    throw new Error(
-      "WildBuzzard search service response exceeded the byte limit"
-    );
-  }
-  if (!response.body) {
-    throw new Error("WildBuzzard search service returned an empty response");
-  }
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder("utf-8", { fatal: true });
-  let bytes = 0;
-  let source = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-      bytes += value.byteLength;
-      if (bytes > MAX_SEARCH_RESPONSE_BYTES) {
-        await reader.cancel().catch(() => {});
-        throw new Error(
-          "WildBuzzard search service response exceeded the byte limit"
-        );
-      }
-      source += decoder.decode(value, { stream: true });
-    }
-    source += decoder.decode();
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("byte limit")) {
-      throw error;
-    }
-    if (signal?.aborted) {
-      throw new Error("WildBuzzard search service request was cancelled");
-    }
-    if (error instanceof DOMException && error.name === "AbortError") {
-      throw new Error(
-        "WildBuzzard search service request was cancelled or timed out"
-      );
-    }
-    throw new Error("WildBuzzard search service returned invalid JSON");
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(source);
-  } catch {
-    throw new Error("WildBuzzard search service returned invalid JSON");
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("WildBuzzard search service returned invalid JSON");
-  }
-  const raw = value as RawResponse;
-  if (!Array.isArray(raw.results)) {
-    throw new Error("WildBuzzard search service returned invalid results");
-  }
-  return raw;
+  return request;
 }
 
 export async function searchSearXNG(
   query: string,
   input: NormalizedSearchInput,
-  signal?: AbortSignal
+  cwd: string,
+  sessionId: string,
+  signal?: AbortSignal,
+  call: BrowserCall = callBrowserTool
 ): Promise<QueryResponse> {
-  const form = new URLSearchParams({
-    q: buildSearchQuery(query, input.domains),
-    format: "json",
-  });
-  if (input.recencyFilter) {
-    form.set("time_range", input.recencyFilter);
-  }
-  const response = await requestSearchService(
-    "/search",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: form.toString(),
-    },
-    signal
-  );
-  const raw = await readResponse(response, signal);
-  const rawResults = raw.results as unknown[];
-  const results: SearchResult[] = [];
-  for (const value of rawResults) {
-    const result = normalizeResult(value, input.includeContent);
-    if (!result || !matchesDomainFilters(result.url, input.domains)) {
-      continue;
+  const request = nativeSearchRequest(query, input);
+  let response;
+  try {
+    response = await call(
+      "native_search",
+      request,
+      cwd,
+      `web-access:${sessionId}`,
+      signal
+    );
+  } catch (error) {
+    if (signal?.aborted) {
+      throw new Error("Web search was cancelled");
     }
-    results.push(result);
-    if (results.length === input.numResults) {
-      break;
-    }
+    throw error;
   }
+  const raw = validateResponse(response.details, request);
+  const results = raw.results
+    .map(value => normalizeResult(value, input.includeContent))
+    .filter((value): value is SearchResult =>
+      Boolean(value && matchesDomainFilters(value.url, input.domains))
+    )
+    .slice(0, input.numResults);
   return {
     query,
-    answers: structuredArray(raw.answers, "answers"),
-    corrections: structuredArray(raw.corrections, "corrections"),
-    suggestions: structuredArray(raw.suggestions, "suggestions"),
-    unresponsiveEngines: structuredArray(
-      raw.unresponsive_engines,
-      "unresponsive_engines"
-    ),
+    implementation: raw.implementation,
+    diagnostics: raw.diagnostics,
+    answers: raw.answers,
+    corrections: raw.corrections,
+    suggestions: raw.suggestions,
+    infoboxes: raw.infoboxes,
+    unresponsiveEngines: raw.unresponsiveEngines,
     results,
   };
 }
 
+type SearchImplementation = typeof searchSearXNG;
+
 export async function searchSearXBatch(
   queries: string[],
   input: NormalizedSearchInput,
+  cwd: string,
+  sessionId: string,
   signal?: AbortSignal,
-  search: typeof searchSearXNG = searchSearXNG
+  search: SearchImplementation = searchSearXNG
 ): Promise<QueryResponse[]> {
   if (signal?.aborted) {
     throw new Error("Web search was cancelled");
@@ -254,7 +391,7 @@ export async function searchSearXBatch(
     : controller.signal;
   try {
     return await Promise.all(
-      queries.map(query => search(query, input, combined))
+      queries.map(query => search(query, input, cwd, sessionId, combined))
     );
   } catch (error) {
     controller.abort(new Error("Web search batch failed"));

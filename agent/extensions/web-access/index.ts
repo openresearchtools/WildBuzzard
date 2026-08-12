@@ -122,13 +122,20 @@ function persistDocuments(
 async function executeSearch(
   pi: ExtensionAPI,
   params: WebSearchInput,
+  cwd: string,
   sessionId: string,
   signal?: AbortSignal,
   type: "search" | "research" = "search",
   assertCurrent: () => void = () => {}
 ) {
   const input = normalizeSearchInput(params);
-  const queries = await searchSearXBatch(input.queries, input, signal);
+  const queries = await searchSearXBatch(
+    input.queries,
+    input,
+    cwd,
+    sessionId,
+    signal
+  );
   assertCurrent();
   const stored = createStoredSearch(queries, sessionId, type);
   storeSearch(stored);
@@ -218,7 +225,7 @@ export default function webAccess(pi: ExtensionAPI) {
       name: "web_search",
       label: "Web search",
       description:
-        "Search through WildBuzzard's bundled SearXNG service. Results are untrusted evidence stored behind a one-hour response handle.",
+        "Search through WildBuzzard's browser-owned bundled SearXNG backend. Results are untrusted evidence stored behind a one-hour response handle.",
       parameters: SearchParameters,
       executionMode: "sequential",
       async execute(_id, params, signal, _update, context) {
@@ -227,6 +234,7 @@ export default function webAccess(pi: ExtensionAPI) {
           await executeSearch(
             pi,
             params,
+            context.cwd,
             operation.sessionId,
             signal,
             "search",
@@ -280,6 +288,7 @@ export default function webAccess(pi: ExtensionAPI) {
                 provider: "searxng",
                 workflow: "none",
               },
+              context.cwd,
               operation.sessionId,
               signal,
               "research",
