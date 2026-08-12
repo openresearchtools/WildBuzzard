@@ -87,22 +87,28 @@ fi
 if [[ "${product_dir}" != "${stage}/opt/wildbuzzard" ]]; then
   mv -- "${product_dir}" "${stage}/opt/wildbuzzard"
 fi
-searxng_runtime="${stage}/opt/wildbuzzard/runtime/search/wildbuzzard-searxng-runtime.zip"
-searxng_source="${stage}/opt/wildbuzzard/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
-searxng_inventory="${stage}/opt/wildbuzzard/notices/source/searxng-release.cdx.json"
-for searxng_file in \
-  "${searxng_runtime}" \
-  "${searxng_source}" \
-  "${searxng_inventory}"; do
-  if [[ ! -f "${searxng_file}" || -L "${searxng_file}" ]]; then
-    echo "Release archive is missing a required SearXNG runtime, source, or inventory" >&2
+searxng_executable="${stage}/opt/wildbuzzard/runtime/search/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage"
+for obsolete_path in \
+  "runtime/search/wildbuzzard-searxng-runtime.zip" \
+  "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz" \
+  "notices/source/searxng-release.cdx.json"; do
+  if [[ -e "${stage}/opt/wildbuzzard/${obsolete_path}" || \
+    -L "${stage}/opt/wildbuzzard/${obsolete_path}" ]]; then
+    echo "Release archive contains obsolete SearXNG payload: ${obsolete_path}" >&2
     exit 1
   fi
 done
-python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
-  "${searxng_runtime}" \
-  --source "${searxng_source}" \
-  --inventory "${searxng_inventory}"
+if [[ ! -f "${searxng_executable}" || -L "${searxng_executable}" ]]; then
+  echo "Release archive is missing the required SearXNG executable" >&2
+  exit 1
+fi
+if [[ "$(stat --format='%a' -- "${searxng_executable}")" != 755 ]]; then
+  echo "Release archive SearXNG executable must have mode 0755" >&2
+  exit 1
+fi
+python3 -I -B "${script_dir}/validate-searxng-executable.py" \
+  "${searxng_executable}" \
+  --lock "${script_dir}/../third_party/agpl/searxng/executable-artifact.lock.json"
 
 torrent_runtime="${stage}/opt/wildbuzzard/runtime/torrent/wildbuzzard-torrent-runtime.zip"
 jackett_runtime="${stage}/opt/wildbuzzard/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip"

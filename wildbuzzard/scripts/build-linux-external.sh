@@ -18,8 +18,7 @@ usage() {
   echo "  --pi-web-runtime FILE  Pi Web runtime ZIP to include in the browser package"
   echo "  --torrent-runtime FILE  WebTorrent runtime ZIP to include in the browser package"
   echo "  --jackett-mini-runtime FILE  Jackett Mini runtime ZIP to include in the browser package"
-  echo "  --searxng-runtime FILE  SearXNG runtime ZIP to include in the browser package"
-  echo "  --searxng-source FILE  SearXNG corresponding-source archive to include"
+  echo "  --searxng-executable FILE  Self-contained SearXNG executable to include"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
   echo "  --bootstrap        force mach bootstrap before the requested action"
@@ -37,8 +36,7 @@ include_working_tree=false
 pi_web_runtime=""
 torrent_runtime=""
 jackett_mini_runtime=""
-searxng_runtime=""
-searxng_source=""
+searxng_executable=""
 arti_binary=""
 arti_provenance=""
 
@@ -76,12 +74,8 @@ while (($#)); do
       jackett_mini_runtime="${2:?--jackett-mini-runtime requires a file}"
       shift 2
       ;;
-    --searxng-runtime)
-      searxng_runtime="${2:?--searxng-runtime requires a file}"
-      shift 2
-      ;;
-    --searxng-source)
-      searxng_source="${2:?--searxng-source requires a file}"
+    --searxng-executable)
+      searxng_executable="${2:?--searxng-executable requires a file}"
       shift 2
       ;;
     --arti-binary)
@@ -140,21 +134,19 @@ if [[ -n "${jackett_mini_runtime}" ]]; then
     --lock "${source_repo}/wildbuzzard/jackett-mini-runtime-lock.json"
 fi
 
-if [[ -n "${searxng_runtime}" || -n "${searxng_source}" ]]; then
-  if [[ -z "${searxng_runtime}" || -z "${searxng_source}" ]]; then
-    echo "--searxng-runtime and --searxng-source must be supplied together" >&2
+if [[ -n "${searxng_executable}" ]]; then
+  if [[ -L "${searxng_executable}" || ! -f "${searxng_executable}" ]]; then
+    echo "--searxng-executable must name a regular file" >&2
     exit 2
   fi
-  searxng_runtime="$(realpath -- "${searxng_runtime}")"
-  searxng_source="$(realpath -- "${searxng_source}")"
-  if [[ ! -f "${searxng_runtime}" || ! -f "${searxng_source}" ]]; then
-    echo "SearXNG runtime and source inputs must be regular files" >&2
+  if [[ "$(stat --format='%a' -- "${searxng_executable}")" != 755 ]]; then
+    echo "--searxng-executable must have mode 0755" >&2
     exit 2
   fi
-  python3 -I -B "${script_dir}/validate-searxng-runtime-archive.py" \
-    "${searxng_runtime}" \
-    --source "${searxng_source}" \
-    --inventory "${source_repo}/wildbuzzard/packaging/searxng-release.cdx.json"
+  searxng_executable="$(realpath -- "${searxng_executable}")"
+  python3 -I -B "${script_dir}/validate-searxng-executable.py" \
+    "${searxng_executable}" \
+    --lock "${source_repo}/wildbuzzard/third_party/agpl/searxng/executable-artifact.lock.json"
 fi
 
 if [[ -n "${arti_binary}" || -n "${arti_provenance}" ]]; then
@@ -186,8 +178,8 @@ esac
 
 case "${action}" in
   package|appimage|all)
-    if [[ -z "${searxng_runtime}" || -z "${searxng_source}" ]]; then
-      echo "${action} requires --searxng-runtime and --searxng-source" >&2
+    if [[ -z "${searxng_executable}" ]]; then
+      echo "${action} requires --searxng-executable" >&2
       exit 2
     fi
     if [[ -z "${pi_web_runtime}" || -z "${torrent_runtime}" || \
@@ -288,8 +280,7 @@ fi
   echo "pi_web_runtime=${pi_web_runtime}"
   echo "torrent_runtime=${torrent_runtime}"
   echo "jackett_mini_runtime=${jackett_mini_runtime}"
-  echo "searxng_runtime=${searxng_runtime}"
-  echo "searxng_source=${searxng_source}"
+  echo "searxng_executable=${searxng_executable}"
   echo "arti_binary=${arti_binary}"
   echo "arti_provenance=${arti_provenance}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -391,9 +382,8 @@ fi
   if [[ -n "${jackett_mini_runtime}" ]]; then
     echo "ac_add_options --with-wildbuzzard-jackett-mini-runtime=${jackett_mini_runtime}"
   fi
-  if [[ -n "${searxng_runtime}" ]]; then
-    echo "ac_add_options --with-wildbuzzard-searxng-runtime=${searxng_runtime}"
-    echo "ac_add_options --with-wildbuzzard-searxng-source=${searxng_source}"
+  if [[ -n "${searxng_executable}" ]]; then
+    echo "ac_add_options --with-wildbuzzard-searxng-executable=${searxng_executable}"
   fi
   if [[ -n "${arti_binary}" ]]; then
     echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"
