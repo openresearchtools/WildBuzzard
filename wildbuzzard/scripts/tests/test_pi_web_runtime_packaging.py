@@ -30,6 +30,7 @@ VALIDATE = load_script("validate-pi-web-runtime-archive.py", "pi_web_runtime_val
 COMPARE = load_script("compare-pi-web-runtime-builds.py", "pi_web_compare")
 ARCHIVE = load_script("runtime-archive-manifest.py", "pi_web_archive")
 COPY = load_script("../copy_pi_web_runtime.py", "pi_web_copy")
+PREPARE = load_script("prepare-pi-web-runtime.py", "pi_web_prepare")
 
 
 def sha256(value):
@@ -487,26 +488,95 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             (SCRIPTS.parent / "copy_pi_web_runtime.py").read_text(),
         )
 
-    def test_runtime_zip_is_byte_reproducible(self):
+    def test_runtime_and_source_archives_are_byte_reproducible_in_distinct_roots(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary) / "root"
-            root.mkdir()
-            (root / "bin").mkdir()
-            tool = root / "bin" / "tool"
-            tool.write_bytes(b"payload")
-            tool.chmod(0o755)
-            (root / "data").write_bytes(b"data")
-            first = Path(temporary) / "first.zip"
-            second = Path(temporary) / "second.zip"
-            ARCHIVE.archive(root, first, 1_700_000_000)
-            tool.touch()
-            ARCHIVE.archive(root, second, 1_700_000_000)
-            self.assertEqual(first.read_bytes(), second.read_bytes())
-            with zipfile.ZipFile(first) as value:
+            directory = Path(temporary)
+            roots = [directory / "first-root", directory / "other" / "second-root"]
+            outputs = []
+            for index, root in enumerate(roots):
+                (root / "bin").mkdir(parents=True)
+                tool = root / "bin" / "tool"
+                tool.write_bytes(b"payload")
+                tool.chmod(0o755)
+                (root / "data").write_bytes(b"data")
+                tool.touch(1_700_000_000 + index)
+                runtime = directory / f"runtime-{index}.zip"
+                source = directory / f"source-{index}.tar.xz"
+                ARCHIVE.archive(root, runtime, 1_700_000_000)
+                subprocess.run(
+                    [
+                        "tar",
+                        "--sort=name",
+                        "--mtime=@1700000000",
+                        "--owner=0",
+                        "--group=0",
+                        "--numeric-owner",
+                        "-cJf",
+                        source,
+                        "-C",
+                        root,
+                        ".",
+                    ],
+                    check=True,
+                )
+                outputs.append((runtime, source))
+            first, second = outputs
+            self.assertEqual(first[0].read_bytes(), second[0].read_bytes())
+            self.assertEqual(first[1].read_bytes(), second[1].read_bytes())
+            with zipfile.ZipFile(first[0]) as value:
                 self.assertEqual(value.namelist(), ["bin/tool", "data"])
                 self.assertEqual(
                     value.getinfo("bin/tool").external_attr >> 16, stat.S_IFREG | 0o755
                 )
+
+    def node_pty_tree(self, root, embedded_root):
+        node_pty = root / "node_modules" / "node-pty"
+        binary = node_pty / "build" / "Release" / "pty.node"
+        binary.parent.mkdir(parents=True)
+        binary.write_bytes(b"\x7fELFnode-pty-native-runtime")
+        for relative in PREPARE.NODE_PTY_METADATA:
+            path = node_pty / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"generated from {embedded_root}\n", encoding="utf-8")
+        return binary
+
+    def test_node_pty_normalization_is_reproducible_and_preserves_native_addon(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            roots = [directory / "first", directory / "different" / "second"]
+            archives = []
+            for index, root in enumerate(roots):
+                binary = self.node_pty_tree(root, root)
+                expected = sha256(binary.read_bytes())
+                self.assertEqual(PREPARE.normalize_node_pty(root), expected)
+                PREPARE.verify_node_pty(root, expected)
+                self.assertEqual(binary.read_bytes(), b"\x7fELFnode-pty-native-runtime")
+                self.assertFalse((binary.parents[2] / "node-addon-api").exists())
+                archive = directory / f"node-pty-{index}.zip"
+                ARCHIVE.archive(root, archive, 1_700_000_000)
+                archives.append(archive)
+            self.assertEqual(archives[0].read_bytes(), archives[1].read_bytes())
+
+    def test_runtime_path_scan_detects_each_absolute_root_across_chunks(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            runtime = directory / "runtime"
+            runtime.mkdir()
+            first = directory / "first-build-root"
+            second = directory / "different" / "second-build-root"
+            first.mkdir()
+            second.mkdir(parents=True)
+            (runtime / "first.bin").write_bytes(b"x" * (1024 * 1024 - 2) + bytes(first))
+            (runtime / "second.txt").write_text(str(second), encoding="utf-8")
+            self.assertEqual(
+                PREPARE.path_leaks(runtime, [first, second]),
+                ["first.bin", "second.txt"],
+            )
+            with self.assertRaisesRegex(ValueError, "first.bin, second.txt"):
+                PREPARE.reject_path_leaks(runtime, [first, second])
+            (runtime / "first.bin").write_bytes(b"normalized")
+            (runtime / "second.txt").write_bytes(b"normalized")
+            PREPARE.reject_path_leaks(runtime, [first, second])
 
     def build_record(self, directory):
         runtime = directory / "runtime.zip"
@@ -576,9 +646,29 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
         self.assertIn("npm_config_globalconfig=${run_root}/npmrc-global", source)
         self.assertIn("npm_config_userconfig=${run_root}/npmrc-user", source)
         self.assertNotIn('=${run_root}/npmrc"', source)
-        self.assertIn("Pi Web node-pty native runtime was not built", source)
-        self.assertIn('"${node_pty_root}/build/config.gypi"', source)
-        self.assertIn('"${node_pty_root}/node-addon-api/"*.target.mk', source)
+        for path in (
+            "build/Makefile",
+            "build/config.gypi",
+            "build/pty.target.mk",
+            "node-addon-api/node_addon_api.target.mk",
+            "node-addon-api/node_addon_api_except.target.mk",
+            "node-addon-api/node_addon_api_maybe.target.mk",
+        ):
+            self.assertIn(path, PREPARE.NODE_PTY_METADATA)
+        self.assertIn("${node_pty_sha256}", source)
+        self.assertIn(
+            "Packaged Pi Web node-pty native runtime differs from the verified build",
+            (SCRIPTS / "prepare-pi-web-runtime.py").read_text(encoding="utf-8"),
+        )
+        self.assertIn("--remap-path-prefix=${cargo_home}=cargo-home", source)
+        self.assertIn("reject-path-leaks", source)
+        self.assertIn('"${build_root}" "${source_repo}" "${fork_repo}"', source)
+        self.assertLess(
+            source.index("normalize-node-pty"),
+            source.index(
+                "assemble-pi-web-runtime.mjs", source.index("normalize-node-pty")
+            ),
+        )
         self.assertIn("sbom.cdx.json", source)
         self.assertIn("sbom.spdx.json", source)
         self.assertIn("test-pi-web-runtime-lifecycle.mjs", source)
@@ -614,6 +704,7 @@ class PiWebRuntimePackagingTest(unittest.TestCase):
             "assemble-pi-web-runtime.mjs",
             "build-pi-web-runtime.sh",
             "compare-pi-web-runtime-builds.py",
+            "prepare-pi-web-runtime.py",
             "runtime-archive-manifest.py",
             "test-pi-web-runtime-lifecycle.mjs",
             "validate-pi-web-runtime-archive.py",

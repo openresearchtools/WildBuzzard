@@ -147,6 +147,7 @@ for path in \
   wildbuzzard/scripts/build-pi-web-runtime.sh \
   wildbuzzard/scripts/assemble-pi-web-runtime.mjs \
   wildbuzzard/scripts/compare-pi-web-runtime-builds.py \
+  wildbuzzard/scripts/prepare-pi-web-runtime.py \
   wildbuzzard/scripts/runtime-archive-manifest.py \
   wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
   wildbuzzard/scripts/verify-pi-web-installed-tree.mjs \
@@ -239,6 +240,7 @@ git -C "${source_checkout}" sparse-checkout set \
   /wildbuzzard/scripts/assemble-pi-web-runtime.mjs \
   /wildbuzzard/scripts/build-pi-web-runtime.sh \
   /wildbuzzard/scripts/compare-pi-web-runtime-builds.py \
+  /wildbuzzard/scripts/prepare-pi-web-runtime.py \
   /wildbuzzard/scripts/runtime-archive-manifest.py \
   /wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
   /wildbuzzard/scripts/validate-pi-web-runtime-archive.py \
@@ -271,18 +273,10 @@ fi
       --pack-destination "${run_root}"
 ) >"${run_root}/pi-web-build.log" 2>&1
 
-node_pty_root="${pi_web_checkout}/node_modules/node-pty"
-if [[ ! -f "${node_pty_root}/build/Release/pty.node" ]]; then
-  echo "Pi Web node-pty native runtime was not built" >&2
-  exit 1
-fi
-rm -f -- \
-  "${node_pty_root}/build/Makefile" \
-  "${node_pty_root}/build/config.gypi" \
-  "${node_pty_root}/build/"*.Makefile \
-  "${node_pty_root}/build/"*.target.mk \
-  "${node_pty_root}/node-addon-api/"*.target.mk
-rmdir -- "${node_pty_root}/node-addon-api"
+node_pty_sha256="$(
+  python3 "${source_checkout}/wildbuzzard/scripts/prepare-pi-web-runtime.py" \
+    normalize-node-pty "${pi_web_checkout}"
+)"
 
 package_tarball="$(find "${run_root}" -maxdepth 1 -type f -name 'jmfederico-pi-web-*.tgz' -print -quit)"
 if [[ -z "${package_tarball}" ]]; then
@@ -339,7 +333,7 @@ CARGO_HOME="${cargo_home}" CARGO_TARGET_DIR="${cargo_target}" \
   CARGO_INCREMENTAL=0 \
   CFLAGS="-ffile-prefix-map=${run_root}=. -fdebug-prefix-map=${run_root}=." \
   CXXFLAGS="-ffile-prefix-map=${run_root}=. -fdebug-prefix-map=${run_root}=." \
-  RUSTFLAGS="--remap-path-prefix=${run_root}=. --remap-path-prefix=${source_checkout}=wildbuzzard-source" \
+  RUSTFLAGS="--remap-path-prefix=${run_root}=. --remap-path-prefix=${source_checkout}=wildbuzzard-source --remap-path-prefix=${cargo_home}=cargo-home" \
   "${cargo_command}" "${cargo_arguments[@]}" \
   --manifest-path "${source_checkout}/agent/runtime/browser-runner/Cargo.toml" \
   >"${run_root}/browser-runner-build.log" 2>&1
@@ -490,6 +484,9 @@ cargo_lock_sha256="$(sha256sum "${source_checkout}/agent/runtime/browser-runner/
   --web-access-lock-sha256 "${web_access_lock_sha256}" \
   --web-access-root "${runtime_dir}/seed/web-access"
 
+python3 "${source_checkout}/wildbuzzard/scripts/prepare-pi-web-runtime.py" \
+  verify-node-pty "${runtime_dir}" "${node_pty_sha256}"
+
 find "${runtime_dir}/node" -mindepth 1 -maxdepth 1 \
   ! -name bin ! -name LICENSE -exec rm -r -- {} +
 find "${runtime_dir}/node/bin" -mindepth 1 ! -name node -delete
@@ -534,6 +531,7 @@ git -C "${source_checkout}" archive "${source_commit}" -- \
   wildbuzzard/scripts/assemble-pi-web-runtime.mjs \
   wildbuzzard/scripts/build-pi-web-runtime.sh \
   wildbuzzard/scripts/compare-pi-web-runtime-builds.py \
+  wildbuzzard/scripts/prepare-pi-web-runtime.py \
   wildbuzzard/scripts/runtime-archive-manifest.py \
   wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
   wildbuzzard/scripts/validate-pi-web-runtime-archive.py \
@@ -625,6 +623,10 @@ with open(sys.argv[1], "w", encoding="utf-8") as output:
     output.write("\n")
 PY
 cp -- "${environment_json}" "${runtime_dir}/source/build-inputs.json"
+
+python3 "${source_checkout}/wildbuzzard/scripts/prepare-pi-web-runtime.py" \
+  reject-path-leaks "${runtime_dir}" \
+  "${build_root}" "${source_repo}" "${fork_repo}"
 
 metadata_path="${run_root}/runtime-metadata.json"
 PI_WEB_VERSION="${pi_web_version}" \
