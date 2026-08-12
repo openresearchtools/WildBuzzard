@@ -41,6 +41,21 @@ export interface CrawlResult {
   stoppedReason: string | null;
 }
 
+export interface CrawlProgress {
+  phase: "sitemap" | "crawl" | "complete";
+  rootUrl: string;
+  visited: number;
+  queued: number;
+  documents: number;
+  errors: number;
+  totalBytes: number;
+  currentDepth: number | null;
+  partial: boolean;
+  stoppedReason: string | null;
+}
+
+export type CrawlProgressCallback = (progress: CrawlProgress) => void;
+
 interface NormalizedCrawlInput {
   root: URL;
   include: RegExp[];
@@ -842,7 +857,8 @@ export async function crawlWithGecko(
   cwd: string,
   sessionId: string,
   signal?: AbortSignal,
-  fetchPage: typeof fetchWithGecko = fetchWithGecko
+  fetchPage: typeof fetchWithGecko = fetchWithGecko,
+  onProgress?: CrawlProgressCallback
 ): Promise<CrawlResult> {
   const options = normalizeCrawlInput(input);
   const root = canonicalizeCrawlUrl(
@@ -873,6 +889,30 @@ export async function crawlWithGecko(
   let visited = 0;
   let partial = false;
   let stoppedReason: string | null = null;
+
+  const emitProgress = (
+    phase: CrawlProgress["phase"],
+    queued: number,
+    currentDepth: number | null = null
+  ) => {
+    if (!onProgress) {
+      return;
+    }
+    try {
+      onProgress({
+        phase,
+        rootUrl: root,
+        visited,
+        queued: Math.min(options.limit, Math.max(0, queued)),
+        documents: documents.length,
+        errors: errors.length,
+        totalBytes,
+        currentDepth,
+        partial,
+        stoppedReason,
+      });
+    } catch {}
+  };
 
   const stop = (reason: string) => {
     if (stoppedReason) {
@@ -1160,6 +1200,7 @@ export async function crawlWithGecko(
     }
     for (const url of sitemapUrls) {
       await collectSitemap(url, 0);
+      emitProgress("sitemap", queue.length);
       if (combined.aborted) {
         break;
       }
@@ -1361,6 +1402,11 @@ export async function crawlWithGecko(
           }
         }
       }
+      emitProgress(
+        "crawl",
+        queue.length + Math.max(0, level.length - offset) + additions.length,
+        depth
+      );
     }
     for (const item of additions) {
       if (!queued.has(item.url) && !seen.has(item.url)) {
@@ -1385,6 +1431,7 @@ export async function crawlWithGecko(
     partial = true;
     stoppedReason = "limit";
   }
+  emitProgress("complete", queue.length);
   return {
     rootUrl: root,
     documents,

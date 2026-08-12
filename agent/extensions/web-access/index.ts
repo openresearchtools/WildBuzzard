@@ -13,7 +13,11 @@ import {
   type ExtractedContent,
   type FetchInput,
 } from "./extract.ts";
-import { crawlWithGecko, type CrawlInput } from "./crawl.ts";
+import {
+  crawlWithGecko,
+  type CrawlInput,
+  type CrawlProgress,
+} from "./crawl.ts";
 import { extractGitHub, parseGitHubUrl } from "./github.ts";
 import { extractYouTubeCaptions, parseYouTubeUrl } from "./youtube.ts";
 import { answerFromPage } from "./page-answer.ts";
@@ -526,13 +530,18 @@ export default function webAccess(pi: ExtensionAPI) {
         { additionalProperties: false }
       ),
       executionMode: "sequential",
-      async execute(_id, params, signal, _update, context) {
+      async execute(_id, params, signal, update, context) {
         const operation = beginOperation(context);
         const result = await crawlWithGecko(
           params as CrawlInput,
           context.cwd,
           operation.sessionId,
-          signal
+          signal,
+          undefined,
+          typeof update === "function"
+            ? (progress: CrawlProgress) =>
+                update(toolResult(progress, progress))
+            : undefined
         );
         operation.assertCurrent();
         const stored = persistDocuments(
