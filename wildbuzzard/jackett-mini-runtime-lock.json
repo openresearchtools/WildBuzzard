@@ -1,12 +1,12 @@
 {
   "archive": {
-    "sha256": "b403902b943c6fe847592a54509ba27ef8d4253fac4e6ebec218d674a718ca3c",
-    "size": 117364953
+    "sha256": "0193e658b2434dd8b0f1283cd6673f90824d3403f9bac1183eb4ff908fdc8eee",
+    "size": 117369931
   },
   "component": "jackett-mini",
   "manifest": {
     "path": "jackett-mini-runtime.json",
-    "sha256": "990e1344963b36502c8d35923c1c7446ed319ed6fc051c4520794e5cbd11972a"
+    "sha256": "b8e77e2e049a0b49e3c29f5f107d6c59d5c8d1a0a6b9feadd6088009d0de9c47"
   },
   "manifestPins": {
     "architecture": "x86_64",
@@ -28,7 +28,7 @@
     "platform": "linux",
     "protocolVersion": 1,
     "providerPolicySha256": "5e25b54670dfb5ed914cfb51c0da615b9df5196ff6c588a67e534efedeb6c6f3",
-    "runtimeSha256": "612bb8b412c17660b8ff280fbbbc6520ec6f5afb09588ef024084bf0a6e7bcae",
+    "runtimeSha256": "ff4dac0a93c1c95ee93b2c38d473f47acb32c960c461d8222b9f603c0e54c937",
     "sbom": "jackett-mini.spdx.json",
     "schemaVersion": 1,
     "sdkToolchain": {
@@ -63,7 +63,7 @@
     },
     "jackett-mini.spdx.json": {
       "executable": false,
-      "sha256": "1b76d727fbf5046238297028cfab144133d70e1f77a206d40cda6bdb35186f6f",
+      "sha256": "be36b9de4a3a4545b55eeaca610dbf1f68e8865dbed5abd1067525e98eb49449",
       "size": 262242
     },
     "licenses/dotnet/LICENSE.txt": {
