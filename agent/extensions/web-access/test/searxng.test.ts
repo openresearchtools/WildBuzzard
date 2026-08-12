@@ -1,89 +1,92 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { createServer } from "node:http";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import test, { type TestContext } from "node:test";
-import { normalizeSearchInput } from "../contracts.ts";
-import { readSearchConnection, requestSearchService } from "../connection.ts";
-import { searchSearXBatch, searchSearXNG } from "../searxng.ts";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import test from "node:test";
+import { fileURLToPath } from "node:url";
+import { normalizeSearchInput, type QueryResponse } from "../contracts.ts";
+import {
+  nativeSearchRequest,
+  searchSearXBatch,
+  searchSearXNG,
+} from "../searxng.ts";
 
-const token = "a".repeat(64);
+const fixtures = {
+  catalogSha256: "a".repeat(64),
+  totalEntries: 343,
+  eligibleEntries: 332,
+  totalModules: 222,
+  eligibleModules: 211,
+  attemptedEngines: ["duckduckgo", "wikipedia"],
+  completedEngines: ["duckduckgo"],
+};
 
-function record(port: number) {
+function nativeResponse(
+  query: string,
+  overrides: Record<string, unknown> = {}
+) {
   return {
-    version: 1,
-    protocolVersion: 1,
-    runtimeVersion: "test-runtime",
-    address: "127.0.0.1",
-    port,
-    token,
-    pid: process.pid,
-    processStartTime: "12345",
-    executablePath: "/opt/wildbuzzard/search-gateway",
-    executableSha256: "0".repeat(64),
-    dataRootId: "test-data-root",
-    ownerInstanceId: "test-owner",
-    createdAt: 1_775_990_400_000,
-    lastHealthAt: 1_775_990_401_000,
+    schema: 1,
+    implementation: "bundled-searxng",
+    query,
+    results: [],
+    answers: [],
+    corrections: [],
+    suggestions: [],
+    infoboxes: [],
+    unresponsiveEngines: [],
+    diagnostics: fixtures,
+    ...overrides,
   };
 }
 
-function installConnection(
-  t: TestContext,
-  port: number,
-  value: Record<string, unknown> = record(port)
-): void {
-  const directory = mkdtempSync(join(tmpdir(), "wildbuzzard-search-test-"));
-  const connectionFile = join(directory, "connection.json");
-  writeFileSync(connectionFile, JSON.stringify(value), { mode: 0o600 });
-  chmodSync(connectionFile, 0o600);
-  const previous = process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE;
-  process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE = connectionFile;
-  t.after(() => {
-    if (previous === undefined) {
-      delete process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE;
-    } else {
-      process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE = previous;
-    }
-    rmSync(directory, { recursive: true });
-  });
+function queryResponse(query: string): QueryResponse {
+  return {
+    query,
+    implementation: "bundled-searxng",
+    diagnostics: fixtures,
+    results: [],
+    answers: [],
+    corrections: [],
+    suggestions: [],
+    infoboxes: [],
+    unresponsiveEngines: [],
+  };
 }
 
-test("managed SearXNG client uses private capability-authenticated POST", async t => {
-  let seen: {
-    method?: string;
-    url?: string;
-    authorization?: string;
-    accept?: string;
-    contentType?: string;
-    body?: string;
-  } = {};
-  const server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", chunk => chunks.push(chunk));
-    request.on("end", () => {
-      seen = {
-        method: request.method,
-        url: request.url,
-        authorization: request.headers.authorization,
-        accept: request.headers.accept,
-        contentType: request.headers["content-type"],
-        body: Buffer.concat(chunks).toString("utf8"),
-      };
-      response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(
-        JSON.stringify({
+test("native search uses the browser bridge contract and preserves typed fields", async () => {
+  let invocation: unknown[] = [];
+  const input = normalizeSearchInput({
+    query: "gecko renderer",
+    numResults: 10,
+    includeContent: true,
+    recencyFilter: "week",
+    domainFilter: ["example.com"],
+  });
+  const result = await searchSearXNG(
+    input.queries[0],
+    input,
+    "/work/project",
+    "session-a",
+    undefined,
+    async (...args) => {
+      invocation = args;
+      const request = args[1] as { query: string };
+      return {
+        content: [],
+        details: nativeResponse(request.query, {
           answers: [{ answer: "typed", source: "calculator" }],
           corrections: [{ correction: "corrected" }],
           suggestions: ["suggestion"],
-          unresponsive_engines: [["engine", "timeout"]],
+          infoboxes: [
+            { infobox: "Firefox", attributes: [["type", "browser"]] },
+          ],
+          unresponsiveEngines: [["wikipedia", "timeout"]],
           results: [
             {
               title: "Allowed",
-              url: "https://docs.example.com/allowed",
+              url: "https://docs.example.com/allowed?token=secret&view=1",
               content: "Evidence",
               engines: ["duckduckgo", "wikipedia"],
               score: 2.5,
@@ -94,240 +97,180 @@ test("managed SearXNG client uses private capability-authenticated POST", async 
               url: "https://example.com.attacker.invalid/blocked",
             },
             { title: "Unsafe", url: "file:///etc/passwd" },
-            {
-              title: "Credential URL",
-              url: "https://user:secret@docs.example.com/private",
-            },
           ],
-        })
-      );
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-
-  const directory = mkdtempSync(join(tmpdir(), "wildbuzzard-search-test-"));
-  const connectionFile = join(directory, "connection.json");
-  writeFileSync(connectionFile, JSON.stringify(record(address.port)), {
-    mode: 0o600,
-  });
-  chmodSync(connectionFile, 0o600);
-  const previous = process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE;
-  process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE = connectionFile;
-  t.after(() => {
-    if (previous === undefined) {
-      delete process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE;
-    } else {
-      process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE = previous;
+        }),
+      };
     }
-    rmSync(directory, { recursive: true });
-  });
-
-  const result = await searchSearXNG(
-    "gecko renderer",
-    normalizeSearchInput({
-      query: "gecko renderer",
-      numResults: 10,
-      includeContent: true,
-      recencyFilter: "week",
-      domainFilter: ["example.com"],
-    })
   );
-  assert.equal(seen.method, "POST");
-  assert.equal(seen.url, "/search");
-  assert.equal(seen.authorization, `Bearer ${token}`);
-  assert.equal(seen.contentType, "application/x-www-form-urlencoded");
-  assert.doesNotMatch(seen.url ?? "", /gecko|token|aaaa/);
-  const body = new URLSearchParams(seen.body);
-  assert.equal(body.get("q"), "gecko renderer site:example.com");
-  assert.equal(body.get("format"), "json");
-  assert.equal(body.get("time_range"), "week");
+  assert.equal(invocation[0], "native_search");
+  assert.deepEqual(invocation[1], {
+    query: "gecko renderer site:example.com",
+    timeRange: "week",
+    safeSearch: 1,
+    maxResults: 10,
+  });
+  assert.equal(invocation[2], "/work/project");
+  assert.equal(invocation[3], "web-access:session-a");
+  assert.equal(invocation[4], undefined);
+  assert.equal(result.implementation, "bundled-searxng");
+  assert.deepEqual(result.diagnostics, fixtures);
   assert.deepEqual(result.answers, [{ answer: "typed", source: "calculator" }]);
-  assert.equal(result.results.length, 1);
-  assert.deepEqual(result.results[0], {
-    title: "Allowed",
-    url: "https://docs.example.com/allowed",
-    snippet: "Evidence",
-    engines: ["duckduckgo", "wikipedia"],
-    score: 2.5,
-    date: "2026-08-10",
-    provenance: "searxng",
-    trust: "untrusted",
-    contentPreview: "Evidence",
-  });
-
-  const overrideResponse = await requestSearchService("/search", {
-    method: "POST",
-    headers: {
-      Accept: "text/html",
-      Authorization: "Bearer attacker-controlled",
-      "Content-Type": "application/x-www-form-urlencoded",
+  assert.deepEqual(result.corrections, [{ correction: "corrected" }]);
+  assert.deepEqual(result.suggestions, ["suggestion"]);
+  assert.deepEqual(result.infoboxes, [
+    { infobox: "Firefox", attributes: [["type", "browser"]] },
+  ]);
+  assert.deepEqual(result.unresponsiveEngines, [["wikipedia", "timeout"]]);
+  assert.deepEqual(result.results, [
+    {
+      title: "Allowed",
+      url: "https://docs.example.com/allowed?view=1",
+      snippet: "Evidence",
+      engines: ["duckduckgo", "wikipedia"],
+      score: 2.5,
+      date: "2026-08-10",
+      provenance: "searxng",
+      trust: "untrusted",
+      contentPreview: "Evidence",
     },
-    body: "q=override&format=json",
-  });
-  await overrideResponse.body?.cancel();
-  assert.equal(seen.authorization, `Bearer ${token}`);
-  assert.equal(seen.accept, "application/json");
+  ]);
 });
 
-test("client rejects malformed and oversized responses without exposing error bodies", async t => {
-  const server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", chunk => chunks.push(chunk));
-    request.on("end", () => {
-      const query = new URLSearchParams(Buffer.concat(chunks).toString()).get(
-        "q"
-      );
-      if (query === "http-error") {
-        response.writeHead(502, { "Content-Type": "application/json" });
-        response.end('{"error":"Bearer top-secret private-query"}');
-      } else if (query === "malformed") {
-        response.writeHead(200, { "Content-Type": "application/json" });
-        response.end("{");
-      } else if (query === "typed") {
-        response.writeHead(200, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ results: [], answers: { answer: 1 } }));
-      } else if (query === "non-json") {
-        response.writeHead(200, { "Content-Type": "text/html" });
-        response.end("<title>not JSON</title>");
-      } else {
-        response.writeHead(200, {
-          "Content-Type": "application/json",
-          "Content-Length": String(4 * 1024 * 1024 + 1),
-        });
-        response.end();
-      }
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => new Promise<void>(resolve => server.close(() => resolve())));
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  installConnection(t, address.port);
-  const inputFor = (query: string) => normalizeSearchInput({ query });
-
-  await assert.rejects(
-    searchSearXNG("malformed", inputFor("malformed")),
-    /invalid JSON/
-  );
-  await assert.rejects(
-    searchSearXNG("typed", inputFor("typed")),
-    /invalid answers/
-  );
-  await assert.rejects(
-    searchSearXNG("non-json", inputFor("non-json")),
-    /non-JSON/
-  );
-  await assert.rejects(
-    searchSearXNG("oversized", inputFor("oversized")),
-    /byte limit/
-  );
-  const error = (await searchSearXNG(
-    "http-error",
-    inputFor("http-error")
-  ).catch(value => value as Error)) as Error;
-  assert.match(error.message, /returned 502/);
-  assert.doesNotMatch(error.message, /top-secret|private-query|Bearer/i);
-});
-
-test("client supports concurrent calls and prompt cancellation", async t => {
-  let active = 0;
-  let maximumActive = 0;
-  const server = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", chunk => chunks.push(chunk));
-    request.on("end", () => {
-      const query =
-        new URLSearchParams(Buffer.concat(chunks).toString()).get("q") ?? "";
-      if (query === "cancel-body") {
-        response.writeHead(200, { "Content-Type": "application/json" });
-        response.write('{"results":[');
-        const timer = setTimeout(() => response.end("]}"), 2_000);
-        response.on("close", () => clearTimeout(timer));
-        return;
-      }
-      active++;
-      maximumActive = Math.max(maximumActive, active);
-      const timer = setTimeout(
-        () => {
-          active--;
-          response.writeHead(200, { "Content-Type": "application/json" });
-          response.end(
-            JSON.stringify({
-              results: [
-                {
-                  title: query,
-                  url: `https://example.test/${encodeURIComponent(query)}`,
-                },
-              ],
-            })
-          );
+test("native search rejects malformed, fake, stale, and oversized responses", async () => {
+  const input = normalizeSearchInput({ query: "fixture", numResults: 1 });
+  const failures = [
+    nativeResponse("fixture", { implementation: "unexpected-backend" }),
+    nativeResponse("fixture", { schema: 2 }),
+    { ...nativeResponse("fixture"), unexpected: true },
+    nativeResponse("fixture", {
+      diagnostics: { ...fixtures, eligibleEntries: 344 },
+    }),
+    nativeResponse("fixture", {
+      diagnostics: { ...fixtures, completedEngines: ["not-attempted"] },
+    }),
+    nativeResponse("fixture", {
+      diagnostics: { ...fixtures, catalogSha256: "A".repeat(64) },
+    }),
+    nativeResponse("fixture", { answers: {} }),
+    nativeResponse("fixture", {
+      results: [
+        {
+          url: "https://example.test/",
+          engines: "duckduckgo",
         },
-        query === "cancel-me" ? 2_000 : 50
-      );
-      response.on("close", () => {
-        clearTimeout(timer);
-      });
-    });
-  });
-  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => {
-    server.closeAllConnections();
-    return new Promise<void>(resolve => server.close(() => resolve()));
-  });
-  const address = server.address();
-  assert.ok(address && typeof address === "object");
-  installConnection(t, address.port);
-
-  const [first, second] = await Promise.all(
-    ["first", "second"].map(query =>
-      searchSearXNG(query, normalizeSearchInput({ query }))
-    )
-  );
-  assert.equal(maximumActive, 2);
-  assert.equal(first.results[0].title, "first");
-  assert.equal(second.results[0].title, "second");
-
-  const controller = new AbortController();
-  const pending = searchSearXNG(
-    "cancel-me",
-    normalizeSearchInput({ query: "cancel-me" }),
-    controller.signal
-  );
-  setTimeout(() => controller.abort(), 20);
-  await assert.rejects(pending, /cancelled/);
-
-  const bodyController = new AbortController();
-  const bodyPending = searchSearXNG(
-    "cancel-body",
-    normalizeSearchInput({ query: "cancel-body" }),
-    bodyController.signal
-  );
-  setTimeout(() => bodyController.abort(), 20);
-  await assert.rejects(bodyPending, /cancelled/);
+      ],
+    }),
+    nativeResponse("fixture", {
+      results: [
+        { url: "https://example.test/1" },
+        { url: "https://example.test/2" },
+      ],
+    }),
+  ];
+  for (const details of failures) {
+    await assert.rejects(
+      searchSearXNG(
+        "fixture",
+        input,
+        "/work/project",
+        "session-a",
+        undefined,
+        async () => ({ content: [], details })
+      ),
+      /Native search returned (?:an )?invalid/
+    );
+  }
 });
 
-test("query batches preserve input order and cancel siblings on failure", async () => {
+test("native request enforces audited query caps and fixed safe search", () => {
+  const atLimit = "x".repeat(512);
+  assert.deepEqual(
+    nativeSearchRequest(atLimit, normalizeSearchInput({ query: atLimit })),
+    { query: atLimit, safeSearch: 1, maxResults: 5 }
+  );
+  const overLimit = "x".repeat(513);
+  assert.throws(
+    () =>
+      nativeSearchRequest(
+        overLimit,
+        normalizeSearchInput({ query: overLimit })
+      ),
+    /audited limit/
+  );
+  const unicodeAtLimits = "💡".repeat(512);
+  assert.deepEqual(
+    nativeSearchRequest(
+      unicodeAtLimits,
+      normalizeSearchInput({ query: unicodeAtLimits })
+    ),
+    { query: unicodeAtLimits, safeSearch: 1, maxResults: 5 }
+  );
+  const unicodeOverByteLimit = "é".repeat(512);
+  assert.throws(
+    () =>
+      nativeSearchRequest(
+        `${unicodeOverByteLimit}é`,
+        normalizeSearchInput({ query: `${unicodeOverByteLimit}é` })
+      ),
+    /audited limit/
+  );
+});
+
+test("native component failures propagate without a fallback", async () => {
+  const unavailable = new Error("native_search component is unavailable");
+  await assert.rejects(
+    searchSearXNG(
+      "fixture",
+      normalizeSearchInput({ query: "fixture" }),
+      "/work/project",
+      "session-a",
+      undefined,
+      async () => {
+        throw unavailable;
+      }
+    ),
+    error => error === unavailable
+  );
+});
+
+test("native search forwards cancellation to the browser bridge", async () => {
+  const controller = new AbortController();
+  let forwardedSignal: AbortSignal | undefined;
+  const pending = searchSearXNG(
+    "cancel me",
+    normalizeSearchInput({ query: "cancel me" }),
+    "/work/project",
+    "session-a",
+    controller.signal,
+    async (_tool, _args, _cwd, _clientId, signal) => {
+      forwardedSignal = signal;
+      return new Promise((_resolve, reject) => {
+        signal?.addEventListener(
+          "abort",
+          () => reject(new Error("Browser tool call was aborted")),
+          { once: true }
+        );
+      });
+    }
+  );
+  controller.abort();
+  await assert.rejects(pending, /Web search was cancelled/);
+  assert.equal(forwardedSignal, controller.signal);
+});
+
+test("query batches preserve order and cancel siblings on first failure", async () => {
   const input = normalizeSearchInput({ queries: ["slow", "fast"] });
-  const responseFor = (query: string) => ({
-    query,
-    answers: [],
-    corrections: [],
-    suggestions: [],
-    unresponsiveEngines: [],
-    results: [],
-  });
   const ordered = await searchSearXBatch(
     input.queries,
     input,
+    "/work/project",
+    "session-a",
     undefined,
     async query => {
       await new Promise(resolve =>
         setTimeout(resolve, query === "slow" ? 30 : 1)
       );
-      return responseFor(query);
+      return queryResponse(query);
     }
   );
   assert.deepEqual(
@@ -340,13 +283,15 @@ test("query batches preserve input order and cancel siblings on failure", async 
     searchSearXBatch(
       ["fail", "sibling"],
       input,
+      "/work/project",
+      "session-a",
       undefined,
-      async (query, _normalized, signal) => {
+      async (query, _normalized, _cwd, _sessionId, signal) => {
         if (query === "fail") {
           throw new Error("fixture failure");
         }
         return new Promise((resolve, reject) => {
-          const timer = setTimeout(() => resolve(responseFor(query)), 5_000);
+          const timer = setTimeout(() => resolve(queryResponse(query)), 5_000);
           signal?.addEventListener(
             "abort",
             () => {
@@ -364,43 +309,14 @@ test("query batches preserve input order and cancel siblings on failure", async 
   assert.equal(siblingCancelled, true);
 });
 
-test("connection reader follows the exact managed service record schema", t => {
-  const expected = record(30000);
-  installConnection(t, 30000, expected);
-  assert.deepEqual(readSearchConnection(), expected);
-});
-
-test("connection reader rejects invalid epoch timestamp ordering", t => {
-  installConnection(t, 30000, {
-    ...record(30000),
-    lastHealthAt: 1_775_990_399_999,
-  });
-  assert.throws(() => readSearchConnection(), /invalid/);
-});
-
-test("connection reader rejects fields outside the managed schema", t => {
-  installConnection(t, 30000, {
-    ...record(30000),
-    unexpected: true,
-  });
-  assert.throws(() => readSearchConnection(), /invalid/);
-});
-
-test("connection reader rejects a group-readable capability record", () => {
-  const directory = mkdtempSync(join(tmpdir(), "wildbuzzard-search-mode-"));
-  const connectionFile = join(directory, "connection.json");
-  writeFileSync(connectionFile, JSON.stringify(record(30000)), { mode: 0o640 });
-  chmodSync(connectionFile, 0o640);
-  const previous = process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE;
-  process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE = connectionFile;
-  try {
-    assert.throws(() => readSearchConnection(), /not private/);
-  } finally {
-    if (previous === undefined) {
-      delete process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE;
-    } else {
-      process.env.WILDBUZZARD_SEARCH_CONNECTION_FILE = previous;
-    }
-    rmSync(directory, { recursive: true });
-  }
+test("search implementation has no service filesystem, environment, socket, or HTTP path", () => {
+  const directory = dirname(fileURLToPath(import.meta.url));
+  const sourceRoot = join(directory, "..");
+  const source = readFileSync(join(sourceRoot, "searxng.ts"), "utf8");
+  assert.doesNotMatch(
+    source,
+    /node:(?:fs|http|https|net)|process\.env|\bfetch\s*\(|connection\.ts|http:\/\/127\.0\.0\.1/
+  );
+  assert.ok(!readdirSync(sourceRoot).includes("connection.ts"));
+  assert.match(source, /await call\(\s*"native_search"/);
 });

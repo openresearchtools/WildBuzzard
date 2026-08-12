@@ -55,3 +55,55 @@ test("history result count is bounded", () => {
     /history: invalid arguments/
   );
 });
+
+test("native search arguments enforce the audited native boundary", () => {
+  const search = definitions.get("native_search");
+  assert.ok(search);
+  assert.doesNotThrow(() =>
+    assertBrowserToolParameters("native_search", search.parameters, {
+      query: "x".repeat(512),
+      engines: Array.from({ length: 332 }, (_, index) => `engine-${index}`),
+      language: "en-GB",
+      page: 10,
+      timeRange: "year",
+      safeSearch: 1,
+      maxResults: 100,
+    })
+  );
+  assert.doesNotThrow(() =>
+    assertBrowserToolParameters("native_search", search.parameters, {
+      query: "all eligible engines",
+      language: "all",
+    })
+  );
+  assert.doesNotThrow(() =>
+    assertBrowserToolParameters("native_search", search.parameters, {
+      query: "💡".repeat(512),
+      language: "en--GB",
+    })
+  );
+  for (const invalid of [
+    { query: "x".repeat(513) },
+    {
+      query: "x",
+      engines: Array.from({ length: 333 }, (_, index) => `engine-${index}`),
+    },
+    { query: "x", engines: ["wikipedia", "wikipedia"] },
+    { query: "x", categories: ["general"] },
+    { query: "x", language: "en_GB" },
+    { query: "x", page: 11 },
+    { query: "x", safeSearch: 0 },
+    { query: "x", maxResults: 101 },
+    { query: "x", unexpected: true },
+  ]) {
+    assert.throws(
+      () =>
+        assertBrowserToolParameters(
+          "native_search",
+          search.parameters,
+          invalid
+        ),
+      /native_search: invalid arguments/
+    );
+  }
+});

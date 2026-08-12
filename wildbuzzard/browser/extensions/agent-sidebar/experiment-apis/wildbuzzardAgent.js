@@ -420,12 +420,8 @@ class PiWebManager {
     if (AppConstants.platform !== "linux") {
       throw new Error("The bundled Pi Web runtime currently supports Linux");
     }
-    this.searchConnectionPath = Services.env.get(
-      "WILDBUZZARD_SEARCH_CONNECTION_FILE"
-    );
     if (SearXNGRuntime.isAvailable()) {
       await SearXNGRuntime.initialize();
-      this.searchConnectionPath = SearXNGRuntime.connectionPath;
     }
     for (const path of [
       this.rootDirectory,
@@ -919,11 +915,6 @@ class PiWebManager {
         WILDBUZZARD_AGENT_LOCAL_ONLY: "1",
         WILDBUZZARD_PI_WEB_IDENTITY_FILE: this.identityPath,
         WILDBUZZARD_BROWSER_CONTROL_FILE: this.connectionPath,
-        ...(this.searchConnectionPath
-          ? {
-              WILDBUZZARD_SEARCH_CONNECTION_FILE: this.searchConnectionPath,
-            }
-          : {}),
         WILDBUZZARD_BUNDLED_GIT: PathUtils.join(
           this.runtimeDirectory,
           "tools",
@@ -962,11 +953,6 @@ class PiWebManager {
       PI_CODING_AGENT_DIR: this.piDirectory,
       WILDBUZZARD_AGENT_LOCAL_ONLY: "1",
       WILDBUZZARD_BROWSER_CONTROL_FILE: this.connectionPath,
-      ...(this.searchConnectionPath
-        ? {
-            WILDBUZZARD_SEARCH_CONNECTION_FILE: this.searchConnectionPath,
-          }
-        : {}),
       WILDBUZZARD_PI_WEB_IDENTITY_FILE: this.identityPath,
       WILDBUZZARD_BUNDLED_GIT: PathUtils.join(
         runtimeDirectory,

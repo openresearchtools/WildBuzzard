@@ -50,9 +50,20 @@ export interface SearchResult {
 
 export interface QueryResponse {
   query: string;
+  implementation: "bundled-searxng";
+  diagnostics: {
+    catalogSha256: string;
+    totalEntries: number;
+    eligibleEntries: number;
+    totalModules: number;
+    eligibleModules: number;
+    attemptedEngines: string[];
+    completedEngines: string[];
+  };
   answers: unknown[];
   corrections: unknown[];
   suggestions: unknown[];
+  infoboxes: unknown[];
   unresponsiveEngines: unknown[];
   results: SearchResult[];
 }

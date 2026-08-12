@@ -45,9 +45,20 @@ after(() => {
 function response(): QueryResponse {
   return {
     query: "wild buzzard",
+    implementation: "bundled-searxng",
+    diagnostics: {
+      catalogSha256: "a".repeat(64),
+      totalEntries: 343,
+      eligibleEntries: 332,
+      totalModules: 222,
+      eligibleModules: 211,
+      attemptedEngines: ["fixture"],
+      completedEngines: ["fixture"],
+    },
     answers: [],
     corrections: [],
     suggestions: [],
+    infoboxes: [],
     unresponsiveEngines: [],
     results: [
       {

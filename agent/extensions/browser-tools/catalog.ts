@@ -53,6 +53,7 @@ export const BROWSER_TOOL_PROMPT_SNIPPETS: Readonly<Record<string, string>> = {
   wait: "Wait for page text, a selector, or a bounded delay",
   windows: "List, create, activate, or close browser windows",
   evaluate: "Evaluate a small JavaScript body in page context",
+  native_search: "Search with Firefox's privileged bundled SearXNG backend",
   gecko_render: "Render a public page in a fresh restricted Gecko context",
   run: "Compose multi-step browser SDK work in one sandboxed call",
 };
@@ -717,6 +718,36 @@ export const BROWSER_TOOL_CATALOG: readonly BrowserToolDefinition[] = [
         })
       ),
     }),
+  },
+  {
+    name: "native_search",
+    label: "Native Search",
+    description:
+      "Search through Firefox's privileged bridge to its bundled SearXNG backend. Omit engines to search every eligible engine; transport and backend capabilities stay browser-owned.",
+    parameters: Type.Object(
+      {
+        query: Type.String({ minLength: 1, maxLength: 512 }),
+        engines: Type.Optional(
+          Type.Array(Type.String({ minLength: 1, maxLength: 128 }), {
+            maxItems: 332,
+            uniqueItems: true,
+          })
+        ),
+        language: Type.Optional(
+          Type.String({
+            minLength: 1,
+            maxLength: 35,
+            pattern: "^[A-Za-z0-9-]+$",
+          })
+        ),
+        page: Type.Optional(Type.Integer({ minimum: 1, maximum: 10 })),
+        timeRange: Type.Optional(stringEnum(["day", "week", "month", "year"])),
+        safeSearch: Type.Optional(Type.Literal(1)),
+        maxResults: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
+      },
+      { additionalProperties: false }
+    ),
+    readOnly: true,
   },
   {
     name: "gecko_render",

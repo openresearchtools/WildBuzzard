@@ -467,7 +467,7 @@ class ShippingContractTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("missing a required SearXNG", result.stderr)
 
-    def test_browser_keeps_search_capability_out_of_content_urls(self) -> None:
+    def test_agent_search_uses_only_the_browser_control_capability(self) -> None:
         supervisor = (
             CHECKOUT
             / "wildbuzzard"
@@ -486,18 +486,17 @@ class ShippingContractTests(unittest.TestCase):
             / "wildbuzzardAgent.js"
         ).read_text(encoding="utf-8")
         web_access = (
-            CHECKOUT / "agent" / "extensions" / "web-access" / "connection.ts"
+            CHECKOUT / "agent" / "extensions" / "web-access" / "searxng.ts"
         ).read_text(encoding="utf-8")
         self.assertIn('request.setRequestHeader("Authorization"', supervisor)
         self.assertIn('command,\n        "--data-root"', supervisor)
         self.assertNotIn('runLifecycle(runtime, "stop")', supervisor)
         self.assertNotIn('runLifecycle(runtime, "restart")', supervisor)
         self.assertIn("get correspondingSourcePath()", supervisor)
-        self.assertIn("SearXNGRuntime.connectionPath", agent)
-        self.assertIn("WILDBUZZARD_SEARCH_CONNECTION_FILE", agent)
-        self.assertIn('headers.set("Authorization"', web_access)
-        self.assertIn("${connection.address}:${connection.port}${path}", web_access)
-        self.assertNotIn("connection.token}${path}", web_access)
+        self.assertIn("WILDBUZZARD_BROWSER_CONTROL_FILE", agent)
+        self.assertIn('await call(\n      "native_search"', web_access)
+        self.assertNotIn("requestSearchService", web_access)
+        self.assertNotIn("process.env", web_access)
 
     def test_only_pristine_comparator_uses_a_container(self) -> None:
         comparator = (HERE / "compare_searxng.py").read_text(encoding="utf-8")
