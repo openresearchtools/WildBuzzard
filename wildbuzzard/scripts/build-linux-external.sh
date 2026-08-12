@@ -22,7 +22,7 @@ usage() {
   echo "  --searxng-source FILE  SearXNG corresponding-source archive to include"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
-  echo "  --bootstrap        run mach bootstrap before the requested action"
+  echo "  --bootstrap        force mach bootstrap before the requested action"
   echo "  --help             show this help"
 }
 
@@ -366,7 +366,7 @@ run_appimage_package() {
     --output-dir "${run_root}/artifacts"
 }
 
-if [[ "${run_bootstrap}" == true ]]; then
+if [[ "${run_bootstrap}" == true || ! -x "${state_dir}/cbindgen/cbindgen" ]]; then
   run_step bootstrap ./mach --no-interactive bootstrap \
     --application-choice browser \
     --no-system-changes
