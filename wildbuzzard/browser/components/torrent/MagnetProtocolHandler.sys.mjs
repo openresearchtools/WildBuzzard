@@ -21,7 +21,7 @@ export class MagnetProtocolHandler {
       throw Components.Exception("", Cr.NS_ERROR_DOM_BAD_URI);
     }
     const target = Services.io.newURI(
-      `about:torrents?add=${encodeURIComponent(uri.spec)}`
+      `about:torrents#add=${encodeURIComponent(uri.spec)}`
     );
     const browsingContext = loadInfo.browsingContext?.top;
     Services.tm.dispatchToMainThread(() => {

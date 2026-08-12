@@ -36,10 +36,25 @@ add_setup(async function isolate_torrent_runtime() {
   for (const name of environmentNames) {
     Services.env.set(name, PathUtils.join(testRoot, name.toLowerCase()));
   }
+  const { TorrentManager, TorrentManagerTestUtils } =
+    ChromeUtils.importESModule("resource:///modules/TorrentManager.sys.mjs");
+  TorrentManagerTestUtils.configurePaths({
+    configHome: Services.env.get("XDG_CONFIG_HOME"),
+    dataHome: Services.env.get("XDG_DATA_HOME"),
+    runtimeHome: Services.env.get("XDG_RUNTIME_DIR"),
+  });
+  await IOUtils.makeDirectory(PathUtils.parent(TorrentManager.configPath), {
+    createAncestors: true,
+    permissions: 0o700,
+  });
+  await IOUtils.writeJSON(TorrentManager.configPath, {
+    dht: false,
+    lsd: false,
+    natPmp: false,
+    natUpnp: false,
+    utp: false,
+  });
   registerCleanupFunction(async () => {
-    const { TorrentManager } = ChromeUtils.importESModule(
-      "resource:///modules/TorrentManager.sys.mjs"
-    );
     await TorrentManager.request("POST", "/v1/shutdown", {}).catch(() => {});
     await TestUtils.waitForCondition(
       async () => !(await IOUtils.exists(TorrentManager.connectionPath)),
@@ -138,7 +153,9 @@ add_task(async function test_torrent_mime_response_opens_confirmation() {
   try {
     const opened = BrowserTestUtils.waitForNewTab(
       gBrowser,
-      url => url.startsWith("about:torrents"),
+      url =>
+        url.startsWith("about:torrents#draft=") ||
+        url === "about:torrents#draft-error=1",
       true
     );
     BrowserTestUtils.startLoadingURIString(
@@ -146,15 +163,25 @@ add_task(async function test_torrent_mime_response_opens_confirmation() {
       `http://localhost:${server.identity.primaryPort}/fixture.torrent`
     );
     confirmationTab = await opened;
+    Assert.equal(
+      confirmationTab.linkedBrowser.currentURI.spec,
+      "about:torrents#",
+      "The consumed draft capability is cleared before the tab is exposed"
+    );
     await SpecialPowers.spawn(confirmationTab.linkedBrowser, [], async () => {
       const dialog = content.document.getElementById("torrent-draft-dialog");
+      const toast = content.document.getElementById("toast");
       await ContentTaskUtils.waitForCondition(
-        () => dialog.open,
-        "The MIME response opens the metadata confirmation dialog"
+        () => dialog.open || !toast.hidden,
+        "The MIME response resolves to a confirmation or explicit error"
+      );
+      Assert.ok(
+        dialog.open,
+        `The MIME response opens the metadata confirmation dialog: ${toast.textContent}`
       );
       Assert.equal(
         content.location.href,
-        "about:torrents",
+        "about:torrents#",
         "The draft capability is removed from visible history"
       );
       const files = [

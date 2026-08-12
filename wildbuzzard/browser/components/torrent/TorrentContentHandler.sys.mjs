@@ -45,7 +45,7 @@ export class TorrentContentHandler {
         if (destination) {
           try {
             destination.openTrustedLinkIn(
-              `about:torrents?draft=${encodeURIComponent(draft.draftId)}`,
+              `about:torrents#draft=${encodeURIComponent(draft.draftId)}`,
               "tab"
             );
           } catch (error) {
@@ -62,7 +62,7 @@ export class TorrentContentHandler {
       })
       .catch(() => {
         targetWindow()?.openTrustedLinkIn(
-          "about:torrents?draft-error=1",
+          "about:torrents#draft-error=1",
           "tab"
         );
       });

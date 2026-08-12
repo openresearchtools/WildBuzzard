@@ -1330,12 +1330,12 @@ async function initialize() {
   initializeTorrentSearch();
   try {
     await TorrentManager.initialize();
-    const parameters = new URL(location.href).searchParams;
+    const parameters = new URLSearchParams(location.hash.slice(1));
     const draftId = parameters.get("draft");
     const draftError = parameters.has("draft-error");
     const source = parameters.get("add");
     if (draftId || draftError || source) {
-      history.replaceState(null, "", "about:torrents");
+      location.hash = "";
     }
     if (draftId) {
       try {

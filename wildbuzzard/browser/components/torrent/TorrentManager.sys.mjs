@@ -364,11 +364,17 @@ async function processMatches(pid, startTime) {
     return false;
   }
   try {
-    const value = await IOUtils.readUTF8(`/proc/${pid}/stat`);
+    const value = await readProcFile(`/proc/${pid}/stat`);
     return parsePidStartTime(value) === String(startTime);
   } catch {
     return false;
   }
+}
+
+async function readProcFile(path, maximum = 16 * 1024) {
+  return new TextDecoder().decode(
+    await IOUtils.read(path, { maxBytes: maximum })
+  );
 }
 
 async function ensurePrivateDirectory(path) {
@@ -400,7 +406,7 @@ async function acquireRuntimeExtractionLock(
     const owner = {
       pid: Services.appinfo.processID,
       pidStartTime: parsePidStartTime(
-        await IOUtils.readUTF8("/proc/self/stat")
+        await readProcFile(`/proc/${Services.appinfo.processID}/stat`)
       ),
       nonce: Services.uuid.generateUUID().toString(),
       createdAt: Date.now(),
@@ -516,11 +522,17 @@ class TorrentManagerImpl {
     const dataHome =
       Services.env.get("XDG_DATA_HOME") ||
       PathUtils.join(home, ".local", "share");
-    const configHome =
-      Services.env.get("XDG_CONFIG_HOME") || PathUtils.join(home, ".config");
-    const runtimeHome =
-      Services.env.get("XDG_RUNTIME_DIR") ||
-      PathUtils.join(dataHome, "wildbuzzard", "torrent", "run");
+    this.#configurePaths({
+      dataHome,
+      configHome:
+        Services.env.get("XDG_CONFIG_HOME") || PathUtils.join(home, ".config"),
+      runtimeHome:
+        Services.env.get("XDG_RUNTIME_DIR") ||
+        PathUtils.join(dataHome, "wildbuzzard", "torrent", "run"),
+    });
+  }
+
+  #configurePaths({ dataHome, configHome, runtimeHome }) {
     this.rootDirectory = PathUtils.join(dataHome, "wildbuzzard", "torrent");
     this.bundleRoot = PathUtils.join(this.rootDirectory, "runtime");
     this.configPath = PathUtils.join(
@@ -534,6 +546,16 @@ class TorrentManagerImpl {
       "wildbuzzard-torrent",
       "connection.json"
     );
+  }
+
+  configurePathsForTests(paths) {
+    if (!Cu.isInAutomation) {
+      throw new Error("Torrent test paths require automation");
+    }
+    if (this.initializeTask || this.connection || this.config) {
+      throw new Error("Torrent paths cannot change after initialization");
+    }
+    this.#configurePaths(paths);
   }
 
   async initialize() {
@@ -906,18 +928,28 @@ class TorrentManagerImpl {
     const process = await Subprocess.call({
       command: executable,
       arguments: argumentsList,
-      stdout: "pipe",
-      stderr: "pipe",
+      environmentAppend: false,
+      environment: {
+        HOME: Services.dirsvc.get("Home", Ci.nsIFile).path,
+        LANG: "C.UTF-8",
+        LC_ALL: "C.UTF-8",
+        PATH: "/usr/bin:/bin",
+        TZ: "UTC",
+        XDG_CONFIG_HOME: PathUtils.parent(
+          PathUtils.parent(PathUtils.parent(this.configPath))
+        ),
+        XDG_DATA_HOME: PathUtils.parent(PathUtils.parent(this.rootDirectory)),
+        XDG_RUNTIME_DIR: PathUtils.parent(
+          PathUtils.parent(this.connectionPath)
+        ),
+      },
+      stdin: "ignore",
+      stdout: "ignore",
+      stderr: "ignore",
     });
-    const [stdout, stderr, result] = await Promise.all([
-      process.stdout.readString(),
-      process.stderr.readString(),
-      process.wait(),
-    ]);
+    const result = await process.wait();
     if (result.exitCode !== 0) {
-      throw new Error(
-        stderr.trim() || stdout.trim() || "Torrent service failed"
-      );
+      throw new Error("Torrent service failed");
     }
   }
 
@@ -1387,3 +1419,9 @@ class TorrentManagerImpl {
 }
 
 export const TorrentManager = new TorrentManagerImpl();
+
+export const TorrentManagerTestUtils = Object.freeze({
+  configurePaths(paths) {
+    TorrentManager.configurePathsForTests(paths);
+  },
+});
