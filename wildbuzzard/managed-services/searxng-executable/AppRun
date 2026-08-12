@@ -1,0 +1,10 @@
+#!/bin/sh
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+set -eu
+runtime_root="${APPDIR:?}/usr/lib/wildbuzzard-searxng"
+export LD_LIBRARY_PATH="$runtime_root/python/lib"
+export OPENSSL_MODULES="$runtime_root/python/lib"
+exec "$runtime_root/python/bin/python3" -I -B \
+  "$runtime_root/libexec/searxng_executable.py" \
+  --runtime-root "$runtime_root" "$@"
