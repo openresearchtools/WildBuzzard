@@ -89,22 +89,28 @@ if [[ -z "${browser_root}" ]]; then
 fi
 
 cp -a -- "${browser_root}" "${app_dir}/usr/lib/wildbuzzard"
-searxng_runtime="${app_dir}/usr/lib/wildbuzzard/runtime/search/wildbuzzard-searxng-runtime.zip"
-searxng_source="${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
-searxng_inventory="${app_dir}/usr/lib/wildbuzzard/notices/source/searxng-release.cdx.json"
-for searxng_file in \
-  "${searxng_runtime}" \
-  "${searxng_source}" \
-  "${searxng_inventory}"; do
-  if [[ ! -f "${searxng_file}" || -L "${searxng_file}" ]]; then
-    echo "Release archive is missing a required SearXNG runtime, source, or inventory" >&2
+searxng_executable="${app_dir}/usr/lib/wildbuzzard/runtime/search/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage"
+for obsolete_path in \
+  "runtime/search/wildbuzzard-searxng-runtime.zip" \
+  "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz" \
+  "notices/source/searxng-release.cdx.json"; do
+  if [[ -e "${app_dir}/usr/lib/wildbuzzard/${obsolete_path}" || \
+    -L "${app_dir}/usr/lib/wildbuzzard/${obsolete_path}" ]]; then
+    echo "Release archive contains obsolete SearXNG payload: ${obsolete_path}" >&2
     exit 1
   fi
 done
-python3 -I -B "${product_dir}/scripts/validate-searxng-runtime-archive.py" \
-  "${searxng_runtime}" \
-  --source "${searxng_source}" \
-  --inventory "${searxng_inventory}"
+if [[ ! -f "${searxng_executable}" || -L "${searxng_executable}" ]]; then
+  echo "Release archive is missing the required SearXNG executable" >&2
+  exit 1
+fi
+if [[ "$(stat --format='%a' -- "${searxng_executable}")" != 755 ]]; then
+  echo "Release archive SearXNG executable must have mode 0755" >&2
+  exit 1
+fi
+python3 -I -B "${product_dir}/scripts/validate-searxng-executable.py" \
+  "${searxng_executable}" \
+  --lock "${product_dir}/third_party/agpl/searxng/executable-artifact.lock.json"
 
 required_runtime_files=(
   "runtime/pi-web/wildbuzzard-pi-web-runtime.zip"

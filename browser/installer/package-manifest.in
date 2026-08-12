@@ -179,10 +179,8 @@
 #ifdef WILDBUZZARD_JACKETT_MINI_RUNTIME
 @BINPATH@/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip
 #endif
-#ifdef WILDBUZZARD_SEARXNG_RUNTIME
-@BINPATH@/runtime/search/wildbuzzard-searxng-runtime.zip
-@BINPATH@/notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz
-@BINPATH@/notices/source/searxng-release.cdx.json
+#ifdef WILDBUZZARD_SEARXNG_EXECUTABLE
+@BINPATH@/runtime/search/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage
 #endif
 #ifdef WILDBUZZARD_ARTI_RUNTIME
 @BINPATH@/runtime/tor/arti@BIN_SUFFIX@
