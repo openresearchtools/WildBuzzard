@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import pathlib
@@ -21,6 +22,8 @@ HERE = pathlib.Path(__file__).resolve().parent
 CHECKOUT = HERE.parents[3]
 SOURCE_ROOT = CHECKOUT / "wildbuzzard" / "third_party" / "agpl" / "searxng"
 SEARXNG_NAME = "wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage"
+SEARXNG_SOURCE_NAME = "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz"
+SEARXNG_SBOM_NAME = "wildbuzzard-searxng-2026.8.6+b023a28ba-sbom.cdx.json"
 
 
 def host_native_release_archive(
@@ -94,6 +97,40 @@ def fake_packaging_tools(root: pathlib.Path) -> tuple[pathlib.Path, dict[str, st
     return appimagetool, environment
 
 
+def searxng_release_inputs(
+    root: pathlib.Path,
+) -> tuple[pathlib.Path, pathlib.Path, pathlib.Path]:
+    source = root / SEARXNG_SOURCE_NAME
+    sbom = root / SEARXNG_SBOM_NAME
+    source.write_bytes(b"complete source\n")
+    sbom.write_bytes(b'{"bomFormat":"CycloneDX"}\n')
+    source.chmod(0o644)
+    sbom.chmod(0o644)
+    lock = root / "release-assets.lock.json"
+    lock.write_text(
+        json.dumps(
+            {
+                "schema": 1,
+                "source": {
+                    "artifact": source.name,
+                    "artifactBytes": source.stat().st_size,
+                    "artifactSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                    "mode": "0644",
+                },
+                "sbom": {
+                    "artifact": sbom.name,
+                    "artifactBytes": sbom.stat().st_size,
+                    "artifactSha256": hashlib.sha256(sbom.read_bytes()).hexdigest(),
+                    "mode": "0644",
+                },
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    return source, sbom, lock
+
+
 class ShippingContractTests(unittest.TestCase):
     def test_cargo_vendor_archive_is_external(self) -> None:
         archive = SOURCE_ROOT / "granian-2.7.9-cargo-vendor.tar.xz"
@@ -160,6 +197,9 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn("copy_validated_searxng_executable.py", mozbuild)
         self.assertIn("--searxng-executable", external)
         self.assertIn("validate-searxng-executable.py", external)
+        self.assertIn("--searxng-release-source", external)
+        self.assertIn("--searxng-release-sbom", external)
+        self.assertIn("validate-searxng-release-assets.py", external)
         self.assertIn(
             f"@BINPATH@/runtime/search/{SEARXNG_NAME}",
             package_manifest,
@@ -172,6 +212,8 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn("validate-pi-web-runtime-archive.py", appimage)
         self.assertIn("pi-web-runtime-lock.json", appimage)
         self.assertIn("validate-searxng-executable.py", debian)
+        self.assertIn("validate-pi-web-runtime-archive.py", debian)
+        self.assertIn("pi-web-runtime-lock.json", debian)
         self.assertIn(SEARXNG_NAME, appimage)
         self.assertIn(SEARXNG_NAME, debian)
         for runtime_path in (
@@ -197,6 +239,75 @@ class ShippingContractTests(unittest.TestCase):
             "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz", package_manifest
         )
         self.assertNotIn("searxng-release.cdx.json", package_manifest)
+
+    def test_release_assets_are_validated_and_staged_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            source, sbom, lock = searxng_release_inputs(root)
+            output = root / "artifacts"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-B",
+                    CHECKOUT / "wildbuzzard/scripts/validate-searxng-release-assets.py",
+                    "--source",
+                    source,
+                    "--sbom",
+                    sbom,
+                    "--lock",
+                    lock,
+                    "--output-dir",
+                    output,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for original in (source, sbom):
+                staged = output / original.name
+                self.assertEqual(staged.read_bytes(), original.read_bytes())
+                self.assertEqual(staged.stat().st_mode & 0o777, 0o644)
+                checksum = output / f"{original.name}.sha256"
+                self.assertTrue(
+                    checksum.read_text(encoding="utf-8").endswith(
+                        f"  {original.name}\n"
+                    )
+                )
+
+    def test_release_asset_validator_rejects_tamper_mode_and_symlink(self) -> None:
+        for state in ("tampered", "mode", "symlink"):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temporary:
+                root = pathlib.Path(temporary)
+                source, sbom, lock = searxng_release_inputs(root)
+                if state == "tampered":
+                    source.write_bytes(b"tampered source\n")
+                elif state == "mode":
+                    source.chmod(0o600)
+                else:
+                    target = root / "source-target"
+                    source.rename(target)
+                    source.symlink_to(target.name)
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        "-I",
+                        "-B",
+                        CHECKOUT
+                        / "wildbuzzard/scripts/validate-searxng-release-assets.py",
+                        "--source",
+                        source,
+                        "--sbom",
+                        sbom,
+                        "--lock",
+                        lock,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertNotEqual(result.returncode, 0)
 
     def test_appimage_rejects_a_tampered_executable_before_packaging(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -302,6 +413,7 @@ class ShippingContractTests(unittest.TestCase):
             searxng_executable = root / SEARXNG_NAME
             searxng_executable.write_bytes(b"invalid")
             searxng_executable.chmod(0o755)
+            source, sbom, _ = searxng_release_inputs(root)
             fake_bin = root / "bin"
             fake_bin.mkdir()
             python = fake_bin / "python3"
@@ -318,6 +430,10 @@ class ShippingContractTests(unittest.TestCase):
                     root / "build",
                     "--searxng-executable",
                     searxng_executable,
+                    "--searxng-release-source",
+                    source,
+                    "--searxng-release-sbom",
+                    sbom,
                 ],
                 capture_output=True,
                 text=True,
@@ -326,6 +442,37 @@ class ShippingContractTests(unittest.TestCase):
             )
             self.assertEqual(result.returncode, 2)
             self.assertIn("requires --pi-web-runtime", result.stderr)
+
+    def test_release_actions_require_searxng_release_assets(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            executable = root / SEARXNG_NAME
+            executable.write_bytes(b"invalid")
+            executable.chmod(0o755)
+            fake_bin = root / "bin"
+            fake_bin.mkdir()
+            python = fake_bin / "python3"
+            python.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            python.chmod(0o755)
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}:/usr/bin:/bin"
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard/scripts/build-linux-external.sh",
+                    "--action",
+                    "package",
+                    "--build-root",
+                    root / "build",
+                    "--searxng-executable",
+                    executable,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+            )
+            self.assertEqual(result.returncode, 2)
+            self.assertIn("requires --searxng-release-source", result.stderr)
 
     def test_appimage_rejects_a_release_without_searxng(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -556,6 +703,34 @@ class ShippingContractTests(unittest.TestCase):
             )
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("missing the required SearXNG executable", result.stderr)
+
+    def test_debian_requires_pi_web_runtime(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = pathlib.Path(temporary)
+            package = host_native_release_archive(
+                root,
+                "wildbuzzard-1.0.en-US.linux-x86_64.tar.gz",
+                missing=("runtime/pi-web/wildbuzzard-pi-web-runtime.zip",),
+            )
+            dist = root / "dist"
+            dist.mkdir()
+            package.rename(dist / package.name)
+            _, environment = fake_packaging_tools(root)
+            result = subprocess.run(
+                [
+                    CHECKOUT / "wildbuzzard/scripts/package-deb.sh",
+                    "--dist-dir",
+                    dist,
+                    "--output-dir",
+                    root / "output",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                env=environment,
+            )
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("missing a required host-native runtime", result.stderr)
 
     def test_debian_rejects_wrong_mode_and_symlink_executables(self) -> None:
         for state, expected in (

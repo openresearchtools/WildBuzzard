@@ -19,6 +19,8 @@ usage() {
   echo "  --torrent-runtime FILE  WebTorrent runtime ZIP to include in the browser package"
   echo "  --jackett-mini-runtime FILE  Jackett Mini runtime ZIP to include in the browser package"
   echo "  --searxng-executable FILE  Self-contained SearXNG executable to include"
+  echo "  --searxng-release-source FILE  SearXNG corresponding source release asset"
+  echo "  --searxng-release-sbom FILE  SearXNG CycloneDX SBOM release asset"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
   echo "  --bootstrap        force mach bootstrap before the requested action"
@@ -37,6 +39,8 @@ pi_web_runtime=""
 torrent_runtime=""
 jackett_mini_runtime=""
 searxng_executable=""
+searxng_release_source=""
+searxng_release_sbom=""
 arti_binary=""
 arti_provenance=""
 
@@ -76,6 +80,14 @@ while (($#)); do
       ;;
     --searxng-executable)
       searxng_executable="${2:?--searxng-executable requires a file}"
+      shift 2
+      ;;
+    --searxng-release-source)
+      searxng_release_source="${2:?--searxng-release-source requires a file}"
+      shift 2
+      ;;
+    --searxng-release-sbom)
+      searxng_release_sbom="${2:?--searxng-release-sbom requires a file}"
       shift 2
       ;;
     --arti-binary)
@@ -149,6 +161,24 @@ if [[ -n "${searxng_executable}" ]]; then
     --lock "${source_repo}/wildbuzzard/third_party/agpl/searxng/executable-artifact.lock.json"
 fi
 
+if [[ -n "${searxng_release_source}" || -n "${searxng_release_sbom}" ]]; then
+  if [[ -z "${searxng_release_source}" || -z "${searxng_release_sbom}" ]]; then
+    echo "--searxng-release-source and --searxng-release-sbom must be supplied together" >&2
+    exit 2
+  fi
+  if [[ -L "${searxng_release_source}" || ! -f "${searxng_release_source}" || \
+    -L "${searxng_release_sbom}" || ! -f "${searxng_release_sbom}" ]]; then
+    echo "SearXNG source and SBOM inputs must be regular files" >&2
+    exit 2
+  fi
+  searxng_release_source="$(realpath -- "${searxng_release_source}")"
+  searxng_release_sbom="$(realpath -- "${searxng_release_sbom}")"
+  python3 -I -B "${script_dir}/validate-searxng-release-assets.py" \
+    --source "${searxng_release_source}" \
+    --sbom "${searxng_release_sbom}" \
+    --lock "${source_repo}/wildbuzzard/third_party/agpl/searxng/release-assets.lock.json"
+fi
+
 if [[ -n "${arti_binary}" || -n "${arti_provenance}" ]]; then
   if [[ -z "${arti_binary}" || -z "${arti_provenance}" ]]; then
     echo "--arti-binary and --arti-provenance must be supplied together" >&2
@@ -180,6 +210,10 @@ case "${action}" in
   package|appimage|all)
     if [[ -z "${searxng_executable}" ]]; then
       echo "${action} requires --searxng-executable" >&2
+      exit 2
+    fi
+    if [[ -z "${searxng_release_source}" || -z "${searxng_release_sbom}" ]]; then
+      echo "${action} requires --searxng-release-source and --searxng-release-sbom" >&2
       exit 2
     fi
     if [[ -z "${pi_web_runtime}" || -z "${torrent_runtime}" || \
@@ -281,6 +315,8 @@ fi
   echo "torrent_runtime=${torrent_runtime}"
   echo "jackett_mini_runtime=${jackett_mini_runtime}"
   echo "searxng_executable=${searxng_executable}"
+  echo "searxng_release_source=${searxng_release_source}"
+  echo "searxng_release_sbom=${searxng_release_sbom}"
   echo "arti_binary=${arti_binary}"
   echo "arti_provenance=${arti_provenance}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -357,6 +393,15 @@ run_appimage_package() {
     --output-dir "${run_root}/artifacts"
 }
 
+stage_searxng_release_assets() {
+  run_step searxng-release-assets \
+    python3 -I -B ./wildbuzzard/scripts/validate-searxng-release-assets.py \
+    --source "${searxng_release_source}" \
+    --sbom "${searxng_release_sbom}" \
+    --lock ./wildbuzzard/third_party/agpl/searxng/release-assets.lock.json \
+    --output-dir "${run_root}/artifacts"
+}
+
 if [[ "${run_bootstrap}" == true || ! -x "${state_dir}/cbindgen/cbindgen" ]]; then
   run_step bootstrap ./mach --no-interactive bootstrap \
     --application-choice browser \
@@ -413,11 +458,13 @@ case "${action}" in
     run_step package ./mach package
     run_deb_package
     run_appimage_package
+    stage_searxng_release_assets
     ;;
   appimage)
     run_step build ./mach build
     run_step package ./mach package
     run_appimage_package
+    stage_searxng_release_assets
     ;;
   all)
     run_step configure ./mach configure
@@ -427,6 +474,7 @@ case "${action}" in
     run_step package ./mach package
     run_deb_package
     run_appimage_package
+    stage_searxng_release_assets
     ;;
 esac
 
