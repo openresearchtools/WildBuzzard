@@ -2,8 +2,12 @@
 
 EXTRA_JS_MODULES += [
     "ManagedSearXNGEngine.sys.mjs",
-    "SearXNGRuntime.sys.mjs",
+    "SearXNGManager.sys.mjs",
+    "SearXNGProtocolHandler.sys.mjs",
+    "SearXNGUDSTransport.sys.mjs",
 ]
+
+XPCOM_MANIFESTS += ["components.conf"]
 
 BROWSER_CHROME_MANIFESTS += ["test/browser/browser.toml"]
 XPCSHELL_TESTS_MANIFESTS += ["test/xpcshell/xpcshell.toml"]

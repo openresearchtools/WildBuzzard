@@ -23,6 +23,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   PrivateTab: "resource:///modules/PrivateTab.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
+  SearXNGManager: "resource:///modules/SearXNGManager.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
   TorrentAgentToolController:
     "chrome://remote/content/wildbuzzard/TorrentAgentTools.sys.mjs",
@@ -4467,6 +4468,8 @@ class BrowserControlService {
         return this.downloadTool(args, cwd, signal);
       case "gecko_render":
         return this.geckoRenderTool(args, signal);
+      case "native_search":
+        return this.nativeSearchTool(args, signal);
       case "torrent_providers":
       case "torrent_search":
       case "torrent_prepare":
@@ -4552,6 +4555,14 @@ class BrowserControlService {
       details.pageError
         ? `Gecko render failed: ${details.pageError}`
         : `Gecko rendered ${details.finalUrl}`,
+      details
+    );
+  }
+
+  async nativeSearchTool(args, signal) {
+    const details = await lazy.SearXNGManager.search(args, signal);
+    return textResult(
+      wrapUntrusted(formatJson(details), "bundled-searxng"),
       details
     );
   }
