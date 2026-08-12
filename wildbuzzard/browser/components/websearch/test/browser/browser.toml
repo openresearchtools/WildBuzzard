@@ -2,5 +2,14 @@
 
 [DEFAULT]
 support-files = ["file_gecko_render.sjs"]
+environment = [
+  "WILDBUZZARD_SEARXNG_EXECUTABLE=/nonexistent/wildbuzzard-searxng-browser-test",
+  "XDG_CACHE_HOME=/tmp/wildbuzzard-searxng-browser-test/cache",
+  "XDG_DATA_HOME=/tmp/wildbuzzard-searxng-browser-test/data",
+  "XDG_RUNTIME_DIR=/tmp",
+]
 
 ["browser_gecko_render.js"]
+
+["browser_searxng_integration.js"]
+run-if = ["os == 'linux'"]
