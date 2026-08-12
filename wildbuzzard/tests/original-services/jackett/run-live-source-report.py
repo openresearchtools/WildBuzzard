@@ -307,12 +307,10 @@ def main():
         }
         if set(enabled) != set(source_states) or set(enabled) != set(live_states):
             raise RuntimeError("live report did not cover the immutable enabled set")
-        adult_results = sum(
+        adult_category_results = sum(
             any(6000 <= category <= 6999 for category in result["categoryIds"])
             for result in search_document["results"]
         )
-        if adult_results:
-            raise RuntimeError("adult-category result escaped live filtering")
         report = {
             "schemaVersion": 1,
             "quarantinedNonGating": True,
@@ -321,7 +319,8 @@ def main():
             "catalogPolicySha256": catalog["policySha256"],
             "sourceCount": len(enabled),
             "resultCount": len(search_document["results"]),
-            "adultCategoryResultCount": adult_results,
+            "adultCategoryResultCount": adult_category_results,
+            "resultCategoryPolicy": "preserved-for-enabled-providers",
             "partial": search_document["partial"],
             "stateCounts": dict(
                 sorted(

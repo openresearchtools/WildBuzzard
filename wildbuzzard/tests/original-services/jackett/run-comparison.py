@@ -816,11 +816,11 @@ def main():
         if semantic_diff:
             raise AssertionError("unexplained canonical search difference")
         raw_mini_search = json.loads(mini_search["body"])
-        if any(
+        if not any(
             any(6000 <= category <= 6999 for category in result["categoryIds"])
             for result in raw_mini_search["results"]
         ):
-            raise AssertionError("adult category escaped product filtering")
+            raise AssertionError("enabled-provider categories were not preserved")
         if (
             len([
                 result
@@ -834,7 +834,7 @@ def main():
             "scenario": "search",
             "original": "GET Torznab t=search&q=fixture%20Ω&limit=100&offset=0&cache=false&apikey=<redacted>",
             "ported": "POST /v1/search {query,sourceIds:[showrss],limit} + bearer capability",
-            "normalization": "provider alias, opaque IDs, timing, ordering; category 6000 is dropped and duplicate BTIH is collapsed",
+            "normalization": "provider alias, opaque IDs, timing, ordering; categories are preserved and duplicate BTIH is collapsed",
         })
 
         original_items = parsed_original["results"]
@@ -1154,7 +1154,7 @@ def main():
                 "immutable source catalog",
                 "bearer capability",
                 "no dashboard/config/update/raw Torznab routes",
-                "adult result filtering",
+                "adult-only provider exclusion with eligible-source category preservation",
                 "duplicate BTIH collapse",
                 "private torrent rejection",
                 "one-shot opaque resolution",

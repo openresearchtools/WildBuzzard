@@ -845,8 +845,8 @@ Eligibility is mechanical and product-specific:
 - include every public provider that needs no account, registration, login,
   cookie, passkey, API key, token, OTP, client certificate, or other tracker
   credential;
-- include general and mixed/general public providers, while filtering adult
-  result categories as described below;
+- include general and mixed/general public providers and preserve their
+  returned results and categories without content-level filtering;
 - exclude a provider whose primary catalog is adult-only;
 - exclude every private or semi-private provider, even when registration is
   currently open;
@@ -1703,7 +1703,7 @@ The work is complete only when:
 - Jackett Mini exposes only capability-authenticated read-only discovery; its
   immutable pinned catalog enables exactly every credential-free,
   non-adult-only, non-external-solver public source, including mixed/general
-  sources; it permanently removes adult-category results and exposes no raw
+  sources; it preserves results from those eligible sources and exposes no raw
   upstream, dashboard, credential, provider, or configuration mutation API;
 - exact pinned pristine SearXNG and Jackett services run under disposable
   rootless containers while both ported services run directly on the host, and

@@ -180,7 +180,7 @@ def expected_for(name, pristine, all_pristine):
     if name == "hanging-provider-timeout":
         return {"outcome": "timeout"}
     if name in {"adult-category-matrix", "mixed-safe-adult-category"}:
-        return search({}, items=[])
+        return search(pristine)
     if name == "peer-counts":
         return search(
             {},

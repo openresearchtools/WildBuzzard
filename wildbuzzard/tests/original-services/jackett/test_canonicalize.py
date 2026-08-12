@@ -11,7 +11,7 @@ class CanonicalizeTest(unittest.TestCase):
         parsed = parse_torznab(b'<error code="100" description="Invalid API Key"/>', "fixture", "Fixture")
         self.assertEqual(parsed, {"kind": "error", "code": 100, "description": "Invalid API Key"})
 
-    def test_adult_filter_peer_semantics_and_infohash_deduplication(self):
+    def test_categories_are_preserved_with_peer_semantics_and_infohash_deduplication(self):
         payload = b'''<?xml version="1.0"?>
 <rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
 <item><title>safe</title><guid>one</guid><pubDate>Mon, 10 Aug 2026 12:00:00 GMT</pubDate>
@@ -25,9 +25,10 @@ class CanonicalizeTest(unittest.TestCase):
 </channel></rss>'''
         parsed = parse_torznab(payload, "fixture", "Fixture")
         normalized = product_results(parsed)
-        self.assertEqual(len(normalized), 1)
-        self.assertEqual(normalized[0]["name"], "safe")
-        self.assertEqual(normalized[0]["leechers"], 3)
+        self.assertEqual(len(normalized), 2)
+        by_name = {item["name"]: item for item in normalized}
+        self.assertEqual(by_name["safe"]["leechers"], 3)
+        self.assertEqual(by_name["adult"]["categoryIds"], [6010])
 
     def test_dtd_and_malformed_xml_fail_closed(self):
         for payload in (b'<!DOCTYPE rss [<!ENTITY x SYSTEM "file:///etc/passwd">]><rss>&x;</rss>', b"<rss>"):

@@ -184,8 +184,6 @@ def product_results(parsed):
     seen = set()
     results = []
     for result in parsed["results"]:
-        if any(6000 <= category <= 6999 for category in result["categoryIds"]):
-            continue
         key = result["_dedup"]
         if key in seen:
             continue
