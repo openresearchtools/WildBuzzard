@@ -40,6 +40,18 @@ class PatchApplicationTest(unittest.TestCase):
             policy_text = network_policy.read_text(encoding="utf-8")
             self.assertIn("__WILDBUZZARD_FIXTURE_ORIGIN__", policy_text)
             self.assertTrue(policy_text.endswith("\n}\n"))
+            discovery = checkout / "src/Jackett.Mini/DiscoveryService.cs"
+            discovery_text = discovery.read_text(encoding="utf-8")
+            self.assertIn("SearchSource(source, queryText, request.Limit", discovery_text)
+            self.assertIn("Limit = limit,", discovery_text)
+            direct_client = checkout / "src/Jackett.Mini/DirectWebClient.cs"
+            direct_client_text = direct_client.read_text(encoding="utf-8")
+            self.assertIn(
+                "BrowserUtil.ChromeUserAgent",
+                direct_client_text,
+            )
+            self.assertIn("RemoteCertificateValidationCallback = ValidateCertificate", direct_client_text)
+            self.assertIn("trustedCertificates.TryGetValue", direct_client_text)
             self.assertFalse(any(checkout.rglob("*.rej")))
 
 

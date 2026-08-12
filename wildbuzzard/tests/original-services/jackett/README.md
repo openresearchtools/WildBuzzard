@@ -55,7 +55,27 @@ The live report verifies the manifest-bound executable, starts it directly on
 the host with a clean environment and loopback listener, records its PID and
 executable identity, and removes the process group and disposable data root.
 
-The gating deterministic scenarios cover health, caps/source status, indexer enumeration, Unicode search, adult-category filtering, peer-to-leecher conversion, duplicate BTIH collapse, public and private torrent resolution, upstream `apikey`/`passkey` behavior, product capability authentication, excluded sources, and removed dashboard/configuration/update/raw-Torznab routes. Live public-provider drift is intentionally outside this deterministic suite.
+Run the paired live comparison against every eligible source with pristine
+Jackett as the immutable OCI oracle and production Mini as a direct host
+process:
+
+```sh
+python3 wildbuzzard/tests/original-services/jackett/run-live-all-source-comparison.py \
+  --pristine-runtime /absolute/artifact/path/pristine-runtime \
+  --pristine-build-record /absolute/artifact/path/pristine-build-logs/pristine-runtime-build-record.json \
+  --pristine-source /absolute/artifact/path/pristine-object/Jackett-0cd8622b735922a909a128d8d6943bb8565a640f \
+  --mini-runtime /absolute/artifact/path/jackett-mini-runtime \
+  --mini-manifest /absolute/artifact/path/jackett-mini-runtime/jackett-mini-runtime.json \
+  --artifact-root /absolute/artifact/path
+```
+
+The paired runner preserves redacted raw configuration and search exchanges,
+normalized diffs, per-source outcomes, process and image identities, logs, and
+cleanup evidence. Transport and site failures compare by their normalized
+state while contract, availability, result, and volatile timestamp differences
+remain explicit outcomes.
+
+The gating deterministic scenarios cover health, caps/source status, indexer enumeration, Unicode search, category preservation for eligible mixed/general providers, adult-only provider exclusion, peer-to-leecher conversion, duplicate BTIH collapse, public and private torrent resolution, upstream `apikey`/`passkey` behavior, product capability authentication, excluded sources, and removed dashboard/configuration/update/raw-Torznab routes. Live public-provider drift is intentionally outside this deterministic suite.
 
 ## Adversarial side-by-side comparison
 

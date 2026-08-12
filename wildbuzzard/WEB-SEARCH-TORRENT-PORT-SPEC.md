@@ -877,7 +877,7 @@ Eligibility is mechanical and product-specific:
   cookie, passkey, API key, token, OTP, client certificate, or other tracker
   credential;
 - include general and mixed/general public providers and preserve their
-  returned results and categories;
+  returned results and categories without content-level filtering;
 - exclude a provider whose primary catalog is adult-only;
 - exclude every private or semi-private provider, even when registration is
   currently open;

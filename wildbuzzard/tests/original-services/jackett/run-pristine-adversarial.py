@@ -1708,9 +1708,13 @@ def validate_mini_matrix(observed, security_evidence, removed_statuses):
         {"id": "main", "state": "ready"},
     ]:
         raise AssertionError("the deterministic Mini source overlay is not isolated")
-    for name in ("adult-category-matrix", "mixed-safe-adult-category"):
-        if observed[name].get("items"):
-            raise AssertionError(f"adult content escaped Mini filtering: {name}")
+    if len(observed["adult-category-matrix"].get("items", [])) != len(ADULT_CATEGORIES):
+        raise AssertionError("Mini did not preserve the complete category matrix")
+    mixed_categories = observed["mixed-safe-adult-category"].get("items", [])[0][
+        "categoryIds"
+    ]
+    if 2000 not in mixed_categories or 6010 not in mixed_categories:
+        raise AssertionError("Mini did not preserve mixed-provider categories")
     if len(observed["duplicate-infohash-alternates"].get("items", [])) != 1:
         raise AssertionError("Mini did not collapse the duplicate BTIH")
     if observed["stale-generation"].get("completionOrder") != ["fast", "slow"]:
@@ -2770,13 +2774,13 @@ def main():
             "adult-category-matrix",
             torznab("oracle-main", t="search", q="adult-categories", cache="false"),
             "POST /v1/search",
-            "all 6000-series results are dropped by product policy",
+            "all source categories are preserved for an enabled provider",
         )
         run_scenario(
             "mixed-safe-adult-category",
             torznab("oracle-main", t="search", q="mixed-categories", cache="false"),
             "POST /v1/search",
-            "one adult category drops the complete result",
+            "mixed safe and 6000-series categories are preserved",
         )
         run_scenario(
             "missing-category",

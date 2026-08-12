@@ -1027,7 +1027,7 @@ new file mode 100644
 index 000000000..6f9f74157
 --- /dev/null
 +++ b/src/Jackett.Mini/CatalogPolicy.cs
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,80 @@
 +using System.Security.Cryptography;
 +using System.Text.Json;
 +
@@ -1098,7 +1098,6 @@ index 000000000..6f9f74157
 +        Enabled = enabled;
 +    }
 +
-+    public static bool IsAdultCategory(int category) => category is >= 6000 and <= 6999;
 +}
 +
 +internal static class JsonDefaults
@@ -1216,10 +1215,11 @@ new file mode 100644
 index 000000000..40ff4d8ba
 --- /dev/null
 +++ b/src/Jackett.Mini/DirectWebClient.cs
-@@ -0,0 +1,279 @@
+@@ -0,0 +1,318 @@
 +using System.IO.Compression;
 +using System.Net;
-+using System.Net.Http.Headers;
++using System.Net.Security;
++using System.Security.Cryptography.X509Certificates;
 +using System.Text;
 +using Jackett.Common.Models.Config;
 +using Jackett.Common.Services.Interfaces;
@@ -1247,6 +1247,7 @@ index 000000000..40ff4d8ba
 +            ConnectCallback = PublicNetworkPolicy.ConnectAsync,
 +            ConnectTimeout = TimeSpan.FromSeconds(10),
 +            MaxConnectionsPerServer = 4,
++            SslOptions = { RemoteCertificateValidationCallback = ValidateCertificate },
 +            UseCookies = false,
 +            UseProxy = false,
 +        };
@@ -1254,6 +1255,19 @@ index 000000000..40ff4d8ba
 +    }
 +
 +    public override void SetTimeout(int seconds) => _timeout = TimeSpan.FromSeconds(Math.Clamp(seconds, 1, 15));
++
++    private static bool ValidateCertificate(
++        object sender,
++        X509Certificate? certificate,
++        X509Chain? chain,
++        SslPolicyErrors sslPolicyErrors)
++    {
++        if (sslPolicyErrors == SslPolicyErrors.None)
++            return true;
++        if (sender is not SslStream { TargetHostName: var host } || certificate is null)
++            return false;
++        return trustedCertificates.TryGetValue(certificate.GetCertHashString(), out var hosts) && hosts.Contains(host);
++    }
 +
 +    protected override async Task<WebResult> Run(JackettWebRequest webRequest)
 +    {
@@ -1275,6 +1289,8 @@ index 000000000..40ff4d8ba
 +                compressedBytes,
 +                response.Content.Headers.ContentEncoding,
 +                timeout.Token);
++            if (IsExternalSolverChallenge(response, contentBytes))
++                throw new InvalidOperationException("Provider returned an external-solver challenge");
 +            var result = new WebResult
 +            {
 +                ContentBytes = contentBytes,
@@ -1307,6 +1323,26 @@ index 000000000..40ff4d8ba
 +                throw new InvalidOperationException($"Provider {kind} response exceeded the byte limit");
 +            output.Write(buffer, 0, count);
 +        }
++    }
++
++    internal static bool IsExternalSolverChallenge(HttpResponseMessage response, byte[] bytes)
++    {
++        var protectedServer = response.Headers.Server.Any(item =>
++            item.Product is not null &&
++            (item.Product.Name.ToLowerInvariant() is "cloudflare" or "cloudflare-nginx" or "ddos-guard"));
++        if (!protectedServer)
++            return false;
++        var body = Encoding.UTF8.GetString(bytes);
++        if ((response.StatusCode is HttpStatusCode.ServiceUnavailable or HttpStatusCode.Forbidden) &&
++            (body.Contains("<title>Just a moment...</title>", StringComparison.Ordinal) ||
++             body.Contains("<title>Access denied</title>", StringComparison.Ordinal) ||
++             body.Contains("<title>Attention Required! | Cloudflare</title>", StringComparison.Ordinal) ||
++             body.Trim().Equals("error code: 1020", StringComparison.Ordinal) ||
++             body.Contains("<title>DDOS-GUARD</title>", StringComparison.OrdinalIgnoreCase)))
++            return true;
++        return string.Join(",", response.Headers.Vary).Equals("Accept-Encoding,User-Agent", StringComparison.Ordinal) &&
++               response.Content.Headers.ContentEncoding.Count == 0 &&
++               body.Contains("ddos", StringComparison.OrdinalIgnoreCase);
 +    }
 +
 +    internal static async Task<byte[]> DecodeBoundedAsync(
@@ -1441,7 +1477,9 @@ index 000000000..40ff4d8ba
 +        if (includeSensitive && !string.IsNullOrWhiteSpace(webRequest.Cookies))
 +            request.Headers.TryAddWithoutValidation("Cookie", webRequest.Cookies);
 +        if (request.Headers.UserAgent.Count == 0)
-+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Jackett-Mini", CatalogPolicy.Version.TrimStart('v')));
++            request.Headers.UserAgent.ParseAdd(webRequest.EmulateBrowser == true
++                ? BrowserUtil.ChromeUserAgent
++                : "Jackett/" + CatalogPolicy.Version);
 +        if (!string.IsNullOrWhiteSpace(webRequest.Referer))
 +            request.Headers.Referrer = new Uri(webRequest.Referer);
 +        if (method == HttpMethod.Post && !string.IsNullOrEmpty(webRequest.RawBody))
@@ -1501,7 +1539,7 @@ new file mode 100644
 index 000000000..0a2a67758
 --- /dev/null
 +++ b/src/Jackett.Mini/SecuritySelfTest.cs
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,156 @@
 +using System.IO.Compression;
 +using System.Net;
 +using System.Security.Authentication;
@@ -1519,6 +1557,10 @@ index 000000000..0a2a67758
 +        Assert(!PublicNetworkPolicy.IsPublic(IPAddress.Parse("fc00::1")), "unique-local accepted");
 +        Assert(PublicNetworkPolicy.IsPublic(IPAddress.Parse("8.8.8.8")), "public address rejected");
 +        await AssertThrows<HttpRequestException>(() => Send(new StaticHandler(_ => new HttpResponseMessage(HttpStatusCode.TooManyRequests))));
++        using var challenge = new HttpResponseMessage(HttpStatusCode.Forbidden) { Content = new StringContent("<title>Just a moment...</title>") };
++        challenge.Headers.Server.ParseAdd("cloudflare");
++        Assert(DirectWebClient.IsExternalSolverChallenge(challenge, Encoding.UTF8.GetBytes("<title>Just a moment...</title>")),
++            "external-solver challenge was not detected");
 +        var redirects = 0;
 +        await AssertThrows<InvalidOperationException>(() => Send(new StaticHandler(_ =>
 +        {
@@ -1659,7 +1701,7 @@ new file mode 100644
 index 000000000..792c7f857
 --- /dev/null
 +++ b/src/Jackett.Mini/DiscoveryService.cs
-@@ -0,0 +1,235 @@
+@@ -0,0 +1,233 @@
 +using System.Diagnostics;
 +using System.Globalization;
 +using System.Security.Cryptography;
@@ -1709,7 +1751,7 @@ index 000000000..792c7f857
 +        using var overall = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
 +        overall.CancelAfter(TimeSpan.FromSeconds(30));
 +        using var permits = new SemaphoreSlim(4, 4);
-+        var tasks = selected.Select(source => SearchSource(source, queryText, permits, overall.Token)).ToArray();
++        var tasks = selected.Select(source => SearchSource(source, queryText, request.Limit, permits, overall.Token)).ToArray();
 +        var outcomes = await Task.WhenAll(tasks);
 +        var statuses = outcomes.Select(outcome => outcome.Status).ToArray();
 +        var mapped = new List<SearchResult>();
@@ -1721,8 +1763,6 @@ index 000000000..792c7f857
 +            foreach (var release in outcome.Releases)
 +            {
 +                var categories = (release.Category ?? Array.Empty<int>()).Distinct().Order().ToArray();
-+                if (categories.Any(CatalogPolicy.IsAdultCategory))
-+                    continue;
 +                var acquisition = TryMagnet(release, out _) ? "magnet" : ResolveUri(release) is not null ? "torrent" : null;
 +                if (acquisition is null)
 +                    continue;
@@ -1788,7 +1828,7 @@ index 000000000..792c7f857
 +        }
 +    }
 +
-+    private static async Task<SearchOutcome> SearchSource(SourceState source, string queryText, SemaphoreSlim permits, CancellationToken cancellationToken)
++    private static async Task<SearchOutcome> SearchSource(SourceState source, string queryText, int limit, SemaphoreSlim permits, CancellationToken cancellationToken)
 +    {
 +        var timer = Stopwatch.StartNew();
 +        if (source.Indexer is null)
@@ -1810,7 +1850,7 @@ index 000000000..792c7f857
 +                QueryType = "search",
 +                SearchTerm = queryText,
 +                Categories = Array.Empty<int>(),
-+                Limit = 200,
++                Limit = limit,
 +                Offset = 0,
 +                Cache = true,
 +                InteractiveSearch = false,

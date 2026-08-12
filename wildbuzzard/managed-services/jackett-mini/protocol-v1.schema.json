@@ -128,10 +128,7 @@
         "publishedAt": { "type": ["string", "null"], "format": "date-time" },
         "categoryIds": {
           "type": "array",
-          "items": {
-            "type": "integer",
-            "not": { "minimum": 6000, "maximum": 6999 }
-          }
+          "items": { "type": "integer" }
         },
         "access": { "const": "public" },
         "acquisition": { "enum": ["magnet", "torrent"] }
