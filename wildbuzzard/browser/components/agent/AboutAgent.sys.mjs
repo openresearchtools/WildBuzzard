@@ -2,7 +2,7 @@
 
 import { agentEndpointURI } from "resource:///modules/WildBuzzardAgentURL.sys.mjs";
 
-const STARTING_URL = "chrome://browser/content/agent/starting.html";
+const STARTING_URL = "chrome://browser/content/agent/starting.xhtml";
 
 /** Resolves the stable Agent page to the verified loopback service. */
 export class AboutAgent {
@@ -15,6 +15,12 @@ export class AboutAgent {
       endpoint ?? Services.io.newURI(STARTING_URL),
       loadInfo
     );
+    if (endpoint) {
+      channel.owner = Services.scriptSecurityManager.createContentPrincipal(
+        endpoint,
+        loadInfo.originAttributes
+      );
+    }
     channel.originalURI = uri;
     return channel;
   }

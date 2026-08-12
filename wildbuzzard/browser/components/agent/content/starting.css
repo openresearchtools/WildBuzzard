@@ -2,8 +2,8 @@
 
 :root {
   font: menu;
-  color: CanvasText;
-  background: Canvas;
+  color: var(--text-color);
+  background: var(--background-color-canvas);
 }
 
 body {
@@ -18,9 +18,9 @@ main {
 }
 
 h1 {
-  font-size: 1.35rem;
+  font-size: var(--font-size-xlarge);
 }
 
 p {
-  color: color-mix(in srgb, CanvasText 65%, transparent);
+  color: var(--text-color-deemphasized);
 }

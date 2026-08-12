@@ -9,10 +9,6 @@ const { UrlbarTestUtils } = ChromeUtils.importESModule(
 const { sinon } = ChromeUtils.importESModule(
   "resource://testing-common/Sinon.sys.mjs"
 );
-const { CryptoUtils } = ChromeUtils.importESModule(
-  "resource://services-crypto/utils.sys.mjs"
-);
-
 const AGENT_URL = "about:agent";
 
 add_setup(function () {
@@ -28,9 +24,9 @@ async function startHighLoopbackServer() {
   const { HttpServer } = ChromeUtils.importESModule(
     "resource://testing-common/httpd.sys.mjs"
   );
+  const firstPort = 49152 + (Date.now() % 16384);
   for (let attempt = 0; attempt < 200; attempt++) {
-    const random = CryptoUtils.generateRandomBytes(2);
-    const port = 49152 + (((random[0] << 8) | random[1]) % 16384);
+    const port = 49152 + ((firstPort - 49152 + attempt) % 16384);
     try {
       const server = new HttpServer();
       server.start(port);
@@ -88,19 +84,19 @@ add_task(async function test_agent_page_has_stable_address_bar_identity() {
       AGENT_URL,
       "The stable alias remains visible"
     );
-    is(
-      tab.linkedBrowser.contentPrincipal.originNoSuffix,
-      endpoint.slice(0, -1),
-      "Pi Web retains its loopback web-content principal"
-    );
     ok(
       !tab.linkedBrowser.contentPrincipal.isSystemPrincipal,
       "Pi Web does not receive the system principal"
     );
     is(
+      tab.linkedBrowser.contentPrincipal.originNoSuffix,
+      endpoint.slice(0, -1),
+      "Pi Web retains its loopback web-content principal"
+    );
+    is(
       tab.linkedBrowser.contentTitle,
       "Agent test",
-      "The web-content title is retained without exposing the endpoint"
+      "The Pi Web document loaded behind the stable Agent URL"
     );
     const { SessionStore } = ChromeUtils.importESModule(
       "resource:///modules/sessionstore/SessionStore.sys.mjs"
@@ -118,7 +114,7 @@ add_task(async function test_agent_page_has_stable_address_bar_identity() {
   } finally {
     BrowserTestUtils.removeTab(tab);
     setAgentEndpoint(null);
-    await new Promise(resolve => server.stop(resolve));
+    await server.stop();
   }
 });
 
@@ -141,9 +137,10 @@ add_task(async function test_starting_page_does_not_elevate_web_content() {
       response.write("<!doctype html><title>Agent ready</title>");
     });
     setAgentEndpoint(`http://127.0.0.1:${server.identity.primaryPort}/`);
-    const loaded = BrowserTestUtils.browserLoaded(browser);
-    BrowserTestUtils.startLoadingURIString(browser, AGENT_URL);
-    await loaded;
+    await TestUtils.waitForCondition(
+      () => browser.contentTitle === "Agent ready",
+      "The starting page reloaded the ready Pi Web document"
+    );
     ok(
       !browser.contentPrincipal.isSystemPrincipal,
       "loading Pi Web after startup receives only a web-content principal"
@@ -153,7 +150,7 @@ add_task(async function test_starting_page_does_not_elevate_web_content() {
     BrowserTestUtils.removeTab(tab);
     setAgentEndpoint(null);
     if (server) {
-      await new Promise(resolve => server.stop(resolve));
+      await server.stop();
     }
   }
 });

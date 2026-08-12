@@ -6,6 +6,7 @@ let endpoint = null;
 
 export function setAgentEndpoint(value) {
   endpoint = value;
+  Services.obs.notifyObservers(null, "wildbuzzard-agent-endpoint-changed");
 }
 
 export function agentEndpointURI() {

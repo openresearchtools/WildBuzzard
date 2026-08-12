@@ -6,9 +6,12 @@
 const MIGRATION_PREF = "wildbuzzard.search.searxngMigrationVersion";
 
 add_task(async function test_managed_searxng_dynamic_template_and_migration() {
-  const tab = await openPrefsTab("search");
-  const { synchronizeManagedSearXNGEngine } = ChromeUtils.importESModule(
-    "chrome://browser/content/wildbuzzard/settings/wildbuzzardSearch.mjs"
+  const { managedSearXNGSearchTemplate, synchronizeManagedSearXNGEngine } =
+    ChromeUtils.importESModule(
+      "resource:///modules/ManagedSearXNGEngine.sys.mjs"
+    );
+  const { SearchUtils } = ChromeUtils.importESModule(
+    "moz-src:///toolkit/components/search/SearchUtils.sys.mjs"
   );
   const { SearchService } = ChromeUtils.importESModule(
     "moz-src:///toolkit/components/search/SearchService.sys.mjs"
@@ -20,9 +23,9 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
   ok(searxng, "SearXNG is application-provided");
   ok(duckDuckGo, "DuckDuckGo is application-provided");
   is(
-    searxng.getSubmission("unavailable").uri.port,
-    0,
-    "The pre-start template cannot reach another loopback service"
+    searxng.getSubmission("unavailable").uri.scheme,
+    "moz-searxng",
+    "The pre-start template uses the private browser protocol"
   );
   Assert.deepEqual(
     (await SearchService.getAppProvidedEngines()).map(engine => engine.id),
@@ -59,7 +62,6 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
       );
     }
     Services.prefs.clearUserPref(MIGRATION_PREF);
-    BrowserTestUtils.removeTab(tab);
   });
 
   await SearchService.setDefault(
@@ -67,14 +69,21 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
     SearchService.CHANGE_REASON.CONFIG
   );
   Services.prefs.clearUserPref(MIGRATION_PREF);
-  await synchronizeManagedSearXNGEngine({
-    address: "127.0.0.1",
-    port: 49152,
-  });
+  await synchronizeManagedSearXNGEngine();
+  is(
+    managedSearXNGSearchTemplate(),
+    "moz-searxng://local/search",
+    "The managed engine uses the private browser protocol"
+  );
   is(
     searxng.getSubmission("café 東京").uri.spec,
-    "http://127.0.0.1:49152/search?q=caf%C3%A9+%E6%9D%B1%E4%BA%AC",
-    "The managed engine uses the current loopback port"
+    "moz-searxng://local/search?q=caf%C3%A9+%E6%9D%B1%E4%BA%AC",
+    "The managed engine never exposes a loopback port"
+  );
+  is(
+    Services.uriFixup.keywordToURI("café 東京", false).preferredURI.spec,
+    "moz-searxng://local/search?q=caf%C3%A9+%E6%9D%B1%E4%BA%AC",
+    "Address-bar searches accept only the product's internal engine URI"
   );
   is(await SearchService.getDefault(), searxng, "Migration selects SearXNG");
   ok(
@@ -89,19 +98,18 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
     "engines-reloaded"
   );
   await TestUtils.waitForCondition(
-    () => searxng.getSubmission("reload").uri.port === 49152,
+    () =>
+      searxng.getSubmission("reload").uri.spec ===
+      "moz-searxng://local/search?q=reload",
     "The managed template is restored after SearchService reloads"
   );
 
   await SearchService.setDefault(duckDuckGo, SearchService.CHANGE_REASON.USER);
-  await synchronizeManagedSearXNGEngine({
-    address: "127.0.0.1",
-    port: 49153,
-  });
+  await synchronizeManagedSearXNGEngine();
   is(
     searxng.getSubmission("port change").uri.spec,
-    "http://127.0.0.1:49153/search?q=port+change",
-    "A restart updates the ephemeral port"
+    "moz-searxng://local/search?q=port+change",
+    "A restart retains the private browser protocol"
   );
   is(
     await SearchService.getDefault(),
@@ -109,9 +117,9 @@ add_task(async function test_managed_searxng_dynamic_template_and_migration() {
     "A later port change does not overwrite the user's default choice"
   );
 
-  await Assert.rejects(
-    synchronizeManagedSearXNGEngine({ address: "0.0.0.0", port: 49154 }),
-    /IPv4 loopback/,
-    "Non-loopback addresses are rejected"
+  is(
+    searxng.getURLOfType(SearchUtils.URL_TYPE.SEARCH).template,
+    "moz-searxng://local/search",
+    "The application engine cannot be redirected to a TCP endpoint"
   );
 });

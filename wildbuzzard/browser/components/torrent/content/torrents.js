@@ -1307,8 +1307,7 @@ async function initialize() {
     refreshDraft(id, generation);
   });
   elements.draftCommit.addEventListener("click", commitDraft);
-  elements.draftDialog.addEventListener("cancel", event => {
-    event.preventDefault();
+  elements.draftDialog.addEventListener("cancel", () => {
     closeDraft(true);
   });
   const dropTarget = document.getElementById("drop-target");
