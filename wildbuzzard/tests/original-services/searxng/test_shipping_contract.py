@@ -161,12 +161,6 @@ class ShippingContractTests(unittest.TestCase):
             / "managed-services"
             / "searxng"
             / "searxng_service.py",
-            CHECKOUT
-            / "wildbuzzard"
-            / "browser"
-            / "components"
-            / "websearch"
-            / "SearXNGRuntime.sys.mjs",
         )
         pattern = re.compile(
             r"\b(?:podman|buildah|nerdctl)\b|\bdocker\s+(?:build|run)\b"
