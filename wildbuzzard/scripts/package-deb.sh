@@ -110,14 +110,21 @@ python3 -I -B "${script_dir}/validate-searxng-executable.py" \
   "${searxng_executable}" \
   --lock "${script_dir}/../third_party/agpl/searxng/executable-artifact.lock.json"
 
+pi_web_runtime="${stage}/opt/wildbuzzard/runtime/pi-web/wildbuzzard-pi-web-runtime.zip"
 torrent_runtime="${stage}/opt/wildbuzzard/runtime/torrent/wildbuzzard-torrent-runtime.zip"
 jackett_runtime="${stage}/opt/wildbuzzard/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip"
-for runtime_file in "${torrent_runtime}" "${jackett_runtime}"; do
+for runtime_file in \
+  "${pi_web_runtime}" \
+  "${torrent_runtime}" \
+  "${jackett_runtime}"; do
   if [[ ! -f "${runtime_file}" || -L "${runtime_file}" ]]; then
-    echo "Release archive is missing a required torrent or Jackett Mini runtime" >&2
+    echo "Release archive is missing a required host-native runtime" >&2
     exit 1
   fi
 done
+python3 -I -B "${script_dir}/validate-pi-web-runtime-archive.py" \
+  "${pi_web_runtime}" \
+  --lock "${script_dir}/../pi-web-runtime-lock.json"
 python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
   "${torrent_runtime}" \
   --kind torrent \
