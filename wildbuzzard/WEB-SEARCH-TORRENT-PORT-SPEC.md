@@ -15,6 +15,35 @@ The compact Codex goal that invokes this specification is in
 The implementation is not complete until every mandatory acceptance gate in
 this document passes in the externally built WildBuzzard browser and AppImage.
 
+### Superseding self-contained-search architecture correction
+
+The shipping SearXNG implementation is a self-contained compressed executable
+built directly from the exact pinned Python application and dependency lock.
+It preserves the original eligible engine implementations and contains its own
+CPython runtime and native libraries, so the installed product requires no
+system Python, pip, virtual environment, container, or first-run dependency
+resolution. The abandoned partial Rust engine rewrite is not a shipping
+component. Any later wording in this recovered document that requires a linked
+Rust rewrite is obsolete.
+
+The executable is built host-native outside the Firefox checkout, is packaged
+as an immutable digest-verified runtime, and listens only on an owned mode-0600
+Unix-domain socket under a mode-0700 runtime directory. It exposes no TCP
+listener. The browser owns lifecycle and authenticated access; Pi calls the
+browser's privileged search operation and never receives the socket path or
+service capability. Every configured engine that requires no credential must
+be enabled and covered by parity evidence against the pinned pristine SearXNG
+oracle. The AppImage contains the executable runtime, notices, manifest, and
+SBOM; complete corresponding source is published as a separate release asset
+so it does not inflate the executable AppImage.
+
+The latest torrent-content policy is provider-only exclusion. Adult/vulgar-only
+providers remain permanently excluded. Every eligible credential-free public
+general or mixed/general provider is included, and its returned results and
+categories pass through unchanged apart from ordinary malformed or oversized
+data rejection. Later recovered wording that filters individual results by
+category or keyword is obsolete.
+
 ## Product outcome
 
 WildBuzzard will provide:
@@ -298,8 +327,10 @@ startup of Pi Web, SearXNG, Jackett Mini, or normal browser UI.
 
 SearXNG and its exact locked Python dependencies are built from source in an
 external build directory. The shipping AppImage contains the resulting
-managed runtime and corresponding source; it does not install Docker, pull an
-image, invoke the system Python, or resolve packages on first run.
+self-contained executable, runtime manifest, notices, and SBOM; complete
+corresponding source is published as a separate release asset. The product does
+not install Docker, pull an image, invoke the system Python, or resolve packages
+on first run.
 
 The audited requirements included Python 3.10 or later, Flask 3.1.3, Jinja2
 3.1.6, lxml 6.1.1, httpx 0.28.1, Valkey client 6.1.1, msgspec 0.21.1, and
@@ -845,8 +876,8 @@ Eligibility is mechanical and product-specific:
 - include every public provider that needs no account, registration, login,
   cookie, passkey, API key, token, OTP, client certificate, or other tracker
   credential;
-- include general and mixed/general public providers, while filtering adult
-  result categories as described below;
+- include general and mixed/general public providers and preserve their
+  returned results and categories;
 - exclude a provider whose primary catalog is adult-only;
 - exclude every private or semi-private provider, even when registration is
   currently open;
@@ -863,24 +894,17 @@ sources for performance, but neither a user nor an agent can alter catalog
 membership. "All" always means every `enabled-public` source in the pinned
 catalog.
 
-### Adult-content defense in depth
+### Provider-level adult-content exclusion
 
-Torznab/Newznab category 6000 represents XXX, with audited subcategories 6010
-through 6090. The permanent product filter combines source and result policy:
-
-- never include an adult-only provider in the eligible catalog;
-- never request category 6000 or any subcategory;
-- drop a result containing any category from 6000 through 6999;
-- apply the same filtering to mixed/general public sources, including when a
-  source returns adult and ordinary material together;
-- keep thumbnails, suggestions, logs, cache entries, and agent output behind
-  the same filter; and
-- provide no user, agent, environment, or hidden configuration override.
-
-This is defense in depth, not a guarantee against incorrect or malicious
-tracker classification. Deterministic CI uses fixtures; quarantined live
-monitoring verifies eligible sources without making release tests depend on
-tracker uptime.
+Adult/vulgar-only providers are permanently absent from the eligible catalog.
+General and mixed/general providers remain eligible, and their individual
+results, categories, titles, and metadata are not censored by keyword or
+category. The product still rejects malformed, unsafe, or oversized protocol
+data and treats all provider fields as untrusted. There is no user, agent,
+environment, or hidden override that can enable an excluded adult-only
+provider. Deterministic CI proves provider exclusion and result preservation;
+quarantined live monitoring verifies eligible sources without making release
+tests depend on tracker uptime.
 
 ### Query disclosure and reliability
 
@@ -1703,8 +1727,9 @@ The work is complete only when:
 - Jackett Mini exposes only capability-authenticated read-only discovery; its
   immutable pinned catalog enables exactly every credential-free,
   non-adult-only, non-external-solver public source, including mixed/general
-  sources; it permanently removes adult-category results and exposes no raw
-  upstream, dashboard, credential, provider, or configuration mutation API;
+  sources; it preserves results and categories from every eligible source and
+  exposes no raw upstream, dashboard, credential, provider, or configuration
+  mutation API;
 - exact pinned pristine SearXNG and Jackett services run under disposable
   rootless containers while both ported services run directly on the host, and
   their original APIs pass the side-by-side corpus with raw evidence and no

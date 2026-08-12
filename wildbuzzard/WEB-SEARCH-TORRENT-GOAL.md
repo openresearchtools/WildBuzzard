@@ -10,6 +10,13 @@ in the repository, while the goal remains deliberately short.
 
 Use this objective:
 
+> Ship SearXNG as one self-contained compressed executable built from the
+> exact pinned Python source and dependency locks. It includes CPython and all
+> native dependencies, requires no system Python or container, exposes only a
+> private mode-0600 Unix socket, and preserves every eligible upstream engine.
+> The abandoned partial Rust rewrite is not a product component. Publish full
+> corresponding source separately from the executable AppImage.
+>
 > Implement WildBuzzard native web search, Gecko extraction/crawling, and
 > torrent discovery exactly as specified in
 > `/home/user/Downloads/WildBuzzard/wildbuzzard/WEB-SEARCH-TORRENT-PORT-SPEC.md`.
@@ -26,7 +33,7 @@ Use this objective:
 > and headed built-browser/AppImage E2E. Ship the constrained GPL-2.0-only
 > Jackett Mini with an immutable catalog enabling every credential-free,
 > non-adult-only, non-external-solver public source; include mixed/general
-> sources but permanently filter adult result categories. Expose no dashboard,
+> sources and preserve their results and categories unchanged. Expose no dashboard,
 > tracker credentials, raw upstream API, or provider/config mutation, and keep
 > its internal capability token distinct from tracker credentials. Have root
 > or root-owned ultra subagents provision exact pinned pristine SearXNG and
