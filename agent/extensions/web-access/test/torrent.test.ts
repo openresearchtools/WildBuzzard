@@ -6,6 +6,9 @@ import { Value } from "typebox/value";
 import {
   TORRENT_TOOL_NAMES,
   TorrentCommitParameters,
+  TorrentControlParameters,
+  TorrentDetailsParameters,
+  TorrentListParameters,
   TorrentPrepareParameters,
   TorrentSearchParameters,
   restoreTorrentWorkflow,
@@ -45,6 +48,40 @@ test("torrent tools activate only for torrent intent", () => {
 });
 
 test("torrent tool payload schemas expose only bounded opaque contracts", () => {
+  assert.equal(
+    Value.Check(TorrentListParameters, {
+      filter: "downloading",
+      sort: "dlspeed",
+      reverse: true,
+      limit: 50,
+    }),
+    true
+  );
+  assert.equal(
+    Value.Check(TorrentDetailsParameters, {
+      id: "a".repeat(40),
+      section: "peers",
+      limit: 100,
+    }),
+    true
+  );
+  assert.equal(
+    Value.Check(TorrentControlParameters, {
+      ids: ["a".repeat(40)],
+      action: "filePriority",
+      fileIds: [0, 2],
+      priority: 7,
+    }),
+    true
+  );
+  assert.equal(
+    Value.Check(TorrentControlParameters, {
+      ids: ["not-a-torrent"],
+      action: "delete",
+      confirmed: true,
+    }),
+    false
+  );
   assert.equal(
     Value.Check(TorrentSearchParameters, {
       query: "linux iso",

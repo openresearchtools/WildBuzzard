@@ -4,6 +4,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   TorrentAgentToolController,
+  validateTorrentControlArgs,
+  validateTorrentDetailsArgs,
+  validateTorrentListArgs,
   validateTorrentSearchArgs,
 } from "../../../../remote/wildbuzzard/TorrentAgentTools.sys.mjs";
 
@@ -14,6 +17,7 @@ function fixture() {
     commits: [],
     cancelledDrafts: [],
     resolved: [],
+    controls: [],
   };
   const discoveryManager = {
     async getSources() {
@@ -53,6 +57,71 @@ function fixture() {
   };
   const draft = backendDraft();
   const torrentManager = {
+    async listTorrents(args) {
+      calls.list = args;
+      return [
+        {
+          hash: "a".repeat(40),
+          name: "Linux ISO",
+          state: "downloading",
+          progress: 0.5,
+          total_size: 2048,
+          downloaded: 1024,
+          uploaded: 10,
+          dlspeed: 500,
+          upspeed: 20,
+          num_seeds: 4,
+          num_leechs: 2,
+          eta: 60,
+          ratio: 0.01,
+          added_on: 123,
+          completion_on: -1,
+          save_path: "/tmp/downloads",
+          category: "",
+          tags: "linux",
+          force_start: false,
+          seq_dl: false,
+          f_l_piece_prio: false,
+        },
+      ];
+    },
+    async getTorrentSection(id, section) {
+      calls.details = { id, section };
+      if (section === "files") {
+        return [
+          {
+            index: 0,
+            name: "Linux/linux.iso",
+            size: 2048,
+            progress: 0.5,
+            priority: 1,
+            availability: 4,
+          },
+        ];
+      }
+      return { name: "Linux ISO", total_size: 2048, private: false };
+    },
+    async action(ids, action) {
+      calls.controls.push({ ids, action });
+    },
+    async setForceStart(ids, value) {
+      calls.controls.push({ ids, forceStart: value });
+    },
+    async setFilePriority(id, fileIds, priority) {
+      calls.controls.push({ id, fileIds, priority });
+    },
+    async setLimits(ids, downloadLimit, uploadLimit) {
+      calls.controls.push({ ids, downloadLimit, uploadLimit });
+    },
+    async rename(id, name) {
+      calls.controls.push({ id, name });
+    },
+    async setToggle(id, property, enabled) {
+      calls.controls.push({ id, property, enabled });
+    },
+    async remove(ids, deleteData) {
+      calls.controls.push({ ids, deleteData });
+    },
     async createTorrentDraft() {
       return structuredClone(draft);
     },
@@ -80,6 +149,79 @@ function fixture() {
     torrentManager,
   };
 }
+
+test("qBittorrent list, details, and controls use bounded typed contracts", async () => {
+  const { controller, calls } = fixture();
+  const id = "a".repeat(40);
+  const list = await controller.execute(
+    "torrent_list",
+    { filter: "downloading", limit: 10 },
+    "session-one"
+  );
+  assert.equal(list.torrents[0].id, id);
+  assert.equal(list.torrents[0].downloadSpeed, 500);
+  assert.equal(list.torrents[0].name, "Linux ISO");
+  assert.equal(calls.list.sort, "added_on");
+
+  const details = await controller.execute(
+    "torrent_details",
+    { id, section: "files" },
+    "session-one"
+  );
+  assert.deepEqual(details.items[0], {
+    index: 0,
+    name: "Linux/linux.iso",
+    sizeBytes: 2048,
+    progress: 0.5,
+    priority: 1,
+    availability: 4,
+  });
+
+  await controller.execute(
+    "torrent_control",
+    { ids: [id], action: "filePriority", fileIds: [0], priority: 7 },
+    "session-one"
+  );
+  assert.deepEqual(calls.controls.pop(), {
+    id,
+    fileIds: [0],
+    priority: 7,
+  });
+  await assert.rejects(
+    controller.execute(
+      "torrent_control",
+      { ids: [id], action: "delete", deleteData: true },
+      "session-one"
+    ),
+    /explicit user confirmation/
+  );
+  await controller.execute(
+    "torrent_control",
+    { ids: [id], action: "delete", deleteData: true, confirmed: true },
+    "session-one"
+  );
+  assert.deepEqual(calls.controls.pop(), { ids: id, deleteData: true });
+
+  assert.deepEqual(validateTorrentListArgs({}), {
+    filter: "all",
+    category: undefined,
+    tag: undefined,
+    sort: "added_on",
+    reverse: true,
+    limit: 50,
+    offset: 0,
+  });
+  assert.deepEqual(validateTorrentDetailsArgs({ id }), {
+    id,
+    section: "overview",
+    offset: 0,
+    limit: 100,
+  });
+  assert.equal(
+    validateTorrentControlArgs({ ids: [id], action: "reannounce" }).action,
+    "reannounce"
+  );
+});
 
 function result(resultId, title, seeders) {
   return {

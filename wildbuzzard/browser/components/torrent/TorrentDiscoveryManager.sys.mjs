@@ -180,9 +180,10 @@ class TorrentDiscoveryManagerImpl {
     }
   }
 
-  #request(method, path, body = null, timeout = 35000) {
+  #request(method, path, body = null, timeout = 35000, signal) {
     return new Promise((resolve, reject) => {
       const request = new ServiceRequest({ mozAnon: true });
+      let settled = false;
       request.mozBackgroundRequest = true;
       request.open(method, `http://127.0.0.1:${this.connection.port}${path}`, {
         bypassProxy: true,
@@ -198,9 +199,12 @@ class TorrentDiscoveryManagerImpl {
         request.setRequestHeader("Content-Type", "application/json");
       }
       const finish = error => {
-        if (this.activeRequest === request) {
-          this.activeRequest = null;
+        if (settled) {
+          return;
         }
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        this.activeRequests?.delete(request);
         if (error) {
           if (error.serviceUnavailable) {
             this.connection = null;
@@ -231,6 +235,7 @@ class TorrentDiscoveryManagerImpl {
         }
         resolve(response);
       };
+      const onAbort = () => request.abort();
       request.addEventListener("load", () => finish());
       request.addEventListener("error", () =>
         finish(
@@ -250,8 +255,18 @@ class TorrentDiscoveryManagerImpl {
         )
       );
       if (path === "/v1/search") {
-        this.activeRequest = request;
+        this.activeRequests ??= new Set();
+        this.activeRequests.add(request);
       }
+      if (signal?.aborted) {
+        finish(
+          Object.assign(new Error("Torrent search cancelled"), {
+            cancelled: true,
+          })
+        );
+        return;
+      }
+      signal?.addEventListener("abort", onAbort, { once: true });
       request.send(body === null ? null : JSON.stringify(body));
     });
   }
@@ -261,7 +276,7 @@ class TorrentDiscoveryManagerImpl {
     return sanitizeSources(await this.#request("GET", "/v1/sources"));
   }
 
-  async search({ query, sourceIds, limit = 200, isPrivate = false }) {
+  async search({ query, sourceIds, limit = 200, isPrivate = false, signal }) {
     if (isPrivate) {
       throw new Error("Torrent search is disabled in private windows");
     }
@@ -283,14 +298,18 @@ class TorrentDiscoveryManagerImpl {
       body.sourceIds = sourceIds;
     }
     await this.initialize();
-    return sanitizeSearch(await this.#request("POST", "/v1/search", body));
+    return sanitizeSearch(
+      await this.#request("POST", "/v1/search", body, 35000, signal)
+    );
   }
 
   cancelSearch() {
-    this.activeRequest?.abort();
+    for (const request of this.activeRequests ?? []) {
+      request.abort();
+    }
   }
 
-  async resolve(resultId) {
+  async resolve(resultId, signal) {
     if (!OPAQUE_ID.test(resultId || "")) {
       throw new Error("The torrent result identifier is invalid");
     }
@@ -298,7 +317,9 @@ class TorrentDiscoveryManagerImpl {
     const response = await this.#request(
       "POST",
       `/v1/results/${encodeURIComponent(resultId)}/resolve`,
-      {}
+      {},
+      35000,
+      signal
     );
     if (
       response?.kind === "magnet" &&

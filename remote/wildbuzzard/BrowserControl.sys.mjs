@@ -4470,6 +4470,9 @@ class BrowserControlService {
         return this.geckoRenderTool(args, signal);
       case "native_search":
         return this.nativeSearchTool(args, signal);
+      case "torrent_list":
+      case "torrent_details":
+      case "torrent_control":
       case "torrent_providers":
       case "torrent_search":
       case "torrent_prepare":

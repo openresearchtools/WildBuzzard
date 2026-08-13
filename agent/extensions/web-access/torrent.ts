@@ -7,7 +7,10 @@ import {
 } from "../browser-tools/bridge-client.ts";
 import {
   TorrentCommitParameters,
+  TorrentControlParameters,
+  TorrentDetailsParameters,
   TorrentDraftParameters,
+  TorrentListParameters,
   TorrentPrepareParameters,
   TorrentProviderParameters,
   TorrentSearchParameters,
@@ -38,6 +41,48 @@ export function registerTorrentTools(
     }
     return browserCall(tool, params, context.cwd, sessionId, signal);
   };
+
+  pi.registerTool(
+    defineTool({
+      name: "torrent_list",
+      label: "List torrents",
+      description:
+        "List active and saved qBittorrent transfers with bounded progress, speed, peer, and state data.",
+      parameters: TorrentListParameters,
+      executionMode: "sequential",
+      async execute(_id, params, signal, _update, context) {
+        return execute("torrent_list", params, signal, context);
+      },
+    })
+  );
+
+  pi.registerTool(
+    defineTool({
+      name: "torrent_details",
+      label: "Inspect torrent",
+      description:
+        "Inspect one qBittorrent transfer by section: overview, files, trackers, or peers. Files and connections are paginated to avoid flooding context.",
+      parameters: TorrentDetailsParameters,
+      executionMode: "sequential",
+      async execute(_id, params, signal, _update, context) {
+        return execute("torrent_details", params, signal, context);
+      },
+    })
+  );
+
+  pi.registerTool(
+    defineTool({
+      name: "torrent_control",
+      label: "Control torrents",
+      description:
+        "Control qBittorrent transfers: start, stop, force or automatic start, reannounce, recheck, rename, priorities, limits, sequential mode, or deletion. Delete requires confirmed=true; deleteData=true also removes downloaded files.",
+      parameters: TorrentControlParameters,
+      executionMode: "sequential",
+      async execute(_id, params, signal, _update, context) {
+        return execute("torrent_control", params, signal, context);
+      },
+    })
+  );
 
   pi.registerTool(
     defineTool({

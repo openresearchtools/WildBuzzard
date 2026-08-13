@@ -2,17 +2,24 @@ diff --git a/cmake/Modules/CheckPackages.cmake b/cmake/Modules/CheckPackages.cma
 index 6b082ea1190ace4ba4c1bfd30ecae037f7527b0d..4650975e6b800083fa0698a14e309e344ad95a95 100644
 --- a/cmake/Modules/CheckPackages.cmake
 +++ b/cmake/Modules/CheckPackages.cmake
-@@ -49,4 +49 @@ find_package(ZLIB ${minZlibVersion} REQUIRED)
+@@ -46,10 +46,7 @@ set_property(CACHE LibtorrentRasterbar_DIR PROPERTY TYPE PATH)
+ find_package(Boost ${minBoostVersion} REQUIRED)
+ find_package(OpenSSL ${minOpenSSLVersion} REQUIRED)
+ find_package(ZLIB ${minZlibVersion} REQUIRED)
 -find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Core Network Sql Xml LinguistTools)
 -if (Qt6_FOUND AND (Qt6_VERSION VERSION_GREATER_EQUAL 6.10))
 -    find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS CorePrivate)
 -endif()
 +find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Core Network Sql Xml)
+ if (DBUS)
+     find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS DBus)
+     set_package_properties(Qt6DBus PROPERTIES
 diff --git a/src/app/CMakeLists.txt b/src/app/CMakeLists.txt
 index 1b222ee060ffc23966331321fd5683a9018982d5..24d4a599246b3a82c8123a86df6b284f693b4cdd 100644
 --- a/src/app/CMakeLists.txt
 +++ b/src/app/CMakeLists.txt
-@@ -2,10 +2,17 @@ file(GLOB QBT_TS_FILES "${qBittorrent_SOURCE_DIR}/src/lang/*.ts")
+@@ -1,28 +1,33 @@
+ file(GLOB QBT_TS_FILES "${qBittorrent_SOURCE_DIR}/src/lang/*.ts")
 -# Custom target to update .ts files and include new strings from source files
 -# Depends on Qt's LinguistTools
 -get_target_property(QT_LUPDATE_EXECUTABLE Qt::lupdate IMPORTED_LOCATION)
@@ -40,26 +47,45 @@ index 1b222ee060ffc23966331321fd5683a9018982d5..24d4a599246b3a82c8123a86df6b284f
 +    endforeach()
 +    set(${output_variable} "${outputs}" PARENT_SCOPE)
 +endfunction()
-@@ -17,2 +24 @@ add_custom_target(qbt_update_translations
+ 
+ # Generate and configure translation files
+ # -----------------------------------------------------------------------------
+ # -----------------------------------------------------------------------------
+ # Based on https://gist.github.com/giraldeau/546ba5512a74dfe9d8ea0862d66db412
 -set_source_files_properties(${QBT_TS_FILES} PROPERTIES OUTPUT_LOCATION "${qBittorrent_BINARY_DIR}/src/lang")
 -qt_add_translation(QBT_QM_FILES ${QBT_TS_FILES} OPTIONS -removeidentical -silent)
 +qbt_add_translation_files(QBT_QM_FILES "${qBittorrent_BINARY_DIR}/src/lang" ${QBT_TS_FILES})
-@@ -23,3 +29,2 @@ if (WEBUI)
+ configure_file("${qBittorrent_SOURCE_DIR}/src/lang/lang.qrc" "${qBittorrent_BINARY_DIR}/src/lang/lang.qrc" COPYONLY)
+ 
+ if (WEBUI)
+     file(GLOB QBT_WEBUI_TS_FILES "${qBittorrent_SOURCE_DIR}/src/webui/www/translations/*.ts")
 -    set_source_files_properties(${QBT_WEBUI_TS_FILES}
 -        PROPERTIES OUTPUT_LOCATION "${qBittorrent_BINARY_DIR}/src/webui/www/translations")
 -    qt_add_translation(QBT_WEBUI_QM_FILES ${QBT_WEBUI_TS_FILES} OPTIONS -removeidentical -silent)
 +    qbt_add_translation_files(QBT_WEBUI_QM_FILES
 +        "${qBittorrent_BINARY_DIR}/src/webui/www/translations" ${QBT_WEBUI_TS_FILES})
+     configure_file("${qBittorrent_SOURCE_DIR}/src/webui/www/translations/webui_translations.qrc"
+         "${qBittorrent_BINARY_DIR}/src/webui/www/translations/webui_translations.qrc" COPYONLY)
+ endif()
 diff --git a/src/app/application.cpp b/src/app/application.cpp
 index 62da9eb24f8c711f1eb2d73d2d3e9de2a36705ef..b8f481a5c913bf2cc0fa34106b81ff29d25c86f6 100644
 --- a/src/app/application.cpp
 +++ b/src/app/application.cpp
-@@ -967,0 +968 @@ int Application::exec()
+@@ -965,8 +965,9 @@ int Application::exec()
+         m_webui = new WebUI(this);
+ #else
+         const auto *pref = Preferences::instance();
 +        const bool wildBuzzardMode = !qEnvironmentVariableIsEmpty("WILDBUZZARD_QBITTORRENT_SOCKET");
-@@ -969 +970 @@ int Application::exec()
+ 
 -        const QString tempPassword = pref->getWebUIPassword().isEmpty()
 +        const QString tempPassword = !wildBuzzardMode && pref->getWebUIPassword().isEmpty()
-@@ -987,5 +988,12 @@ int Application::exec()
+                 ? Utils::Password::generate(9) : QString();
+         m_webui = new WebUI(this, (!tempPassword.isEmpty() ? Utils::Password::PBKDF2::generate(tempPassword) : QByteArray()));
+         connect(m_webui, &WebUI::error, this, [](const QString &message)
+@@ -984,11 +985,18 @@ int Application::exec()
+         }
+         else if (m_webui->isEnabled())
+         {
 -            const QHostAddress address = m_webui->hostAddress();
 -            const QString url = u"%1://%2:%3"_s.arg((m_webui->isHttps() ? u"https"_s : u"http"_s)
 -                    , (address.isEqual(QHostAddress::Any, QHostAddress::ConvertUnspecifiedAddress) ? u"localhost"_s : address.toString())
@@ -77,11 +103,38 @@ index 62da9eb24f8c711f1eb2d73d2d3e9de2a36705ef..b8f481a5c913bf2cc0fa34106b81ff29
 +                        , QString::number(m_webui->port()));
 +                printf("%s\n", qUtf8Printable(tr("To control qBittorrent, access the WebUI at: %1").arg(url)));
 +            }
+ 
+             if (!tempPassword.isEmpty())
+             {
+diff --git a/src/app/main.cpp b/src/app/main.cpp
+index 3eccdc1ce718c8387310750819c7b7fe585d894b..a54adad7670163a2bec15258a90f1155b8a404de 100644
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -35,6 +35,7 @@
+ 
+ #ifdef Q_OS_UNIX
+ #include <sys/resource.h>
++#include <sys/stat.h>
+ #endif
+ 
+ #ifndef Q_OS_WIN
+@@ -289,6 +290,8 @@ int main(int argc, char *argv[])
+             app.reset(); // Destroy current application instance
+             if (::daemon(1, 0) == 0)
+             {
++                if (!qEnvironmentVariableIsEmpty("WILDBUZZARD_QBITTORRENT_SOCKET"))
++                    ::umask(S_IRWXG | S_IRWXO);
+                 app = std::make_unique<Application>(argc, argv);
+                 if (app->hasAnotherInstance())
+                 {
 diff --git a/src/base/CMakeLists.txt b/src/base/CMakeLists.txt
 index 4f792ae798342f326091f5e42261191e960adc52..678232a69b6dcc2cb10651a85b6d2c7a97197750 100644
 --- a/src/base/CMakeLists.txt
 +++ b/src/base/CMakeLists.txt
-@@ -234,5 +234,4 @@ target_link_libraries(qbt_base
+@@ -231,14 +231,15 @@ target_link_libraries(qbt_base
+         $<IF:$<TARGET_EXISTS:ZLIB::ZLIB>,ZLIB::ZLIB,ZLIB::ZLIBSTATIC>
+     PUBLIC
+         LibtorrentRasterbar::torrent-rasterbar
 -        Qt::Core
 -        Qt::CorePrivate
 -        Qt::Network
@@ -91,85 +144,189 @@ index 4f792ae798342f326091f5e42261191e960adc52..678232a69b6dcc2cb10651a85b6d2c7a
 +        Qt6::Network
 +        Qt6::Sql
 +        Qt6::Xml
-@@ -241,0 +241,2 @@ target_link_libraries(qbt_base
+         qbt_common_cfg
+ )
+ 
 +target_compile_definitions(qbt_base PUBLIC QBT_USE_QCOLLATOR=1)
 +
-@@ -272 +273 @@ if (DBUS)
+ if (CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+     find_library(AppKit_LIBRARY AppKit)
+     find_library(Carbon_LIBRARY Carbon)
+@@ -269,5 +270,5 @@ if (NOT WEBUI)
+ endif()
+ 
+ if (DBUS)
 -    target_link_libraries(qbt_base PUBLIC Qt::DBus)
 +    target_link_libraries(qbt_base PUBLIC Qt6::DBus)
+ endif()
 diff --git a/src/base/http/connection.cpp b/src/base/http/connection.cpp
 index ef32859688fcc910c14aed363c7c722ea6ff3a08..e9a2a65877e74e0cb8f7c19a01d4b6c232f12790 100644
 --- a/src/base/http/connection.cpp
 +++ b/src/base/http/connection.cpp
-@@ -34,0 +35 @@
+@@ -32,9 +32,9 @@
+ 
+ #include <ranges>
+ 
 +#include <QIODevice>
-@@ -37 +37,0 @@
+ #include <QStringTokenizer>
+ #include <QStringView>
 -#include <QTcpSocket>
-@@ -45 +45,2 @@ using namespace Http;
+ 
+ #include "irequesthandler.h"
+ #include "requestparser.h"
+@@ -42,13 +42,16 @@
+ 
+ using namespace Http;
+ 
 -Connection::Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObject *parent)
 +Connection::Connection(QIODevice *socket, const Environment &environment, QString peerName
 +        , IRequestHandler *requestHandler, QObject *parent)
-@@ -47,0 +49,2 @@ Connection::Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObj
+     : QObject(parent)
+     , m_socket(socket)
 +    , m_environment(environment)
 +    , m_peerName(std::move(peerName))
-@@ -51 +54 @@ Connection::Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObj
+     , m_requestHandler(requestHandler)
+ {
+     m_socket->setParent(this);
 -    connect(m_socket, &QAbstractSocket::disconnected, this, &Connection::closed);
 +    connect(m_socket, SIGNAL(disconnected()), this, SIGNAL(closed()));
-@@ -97 +100 @@ void Connection::read()
+ 
+     // reserve common size for requests, don't use the max allowed size which is too big for
+     // memory constrained platforms
+@@ -94,7 +97,7 @@ void Connection::read()
+                 if (m_receivedData.size() > bufferLimit)
+                 {
+                     qWarning("%s", qUtf8Printable(tr("Http request size exceeds limitation, closing socket. Limit: %1, IP: %2")
 -                        .arg(QString::number(bufferLimit), m_socket->peerAddress().toString())));
 +                        .arg(QString::number(bufferLimit), m_peerName)));
-@@ -111 +114 @@ void Connection::read()
+ 
+                     Response resp(413, u"Payload Too Large"_s);
+                     resp.headers[HEADER_CONNECTION] = u"close"_s;
+@@ -108,7 +111,7 @@ void Connection::read()
+         case RequestParser::ParseStatus::BadMethod:
+             {
+                 qWarning("%s", qUtf8Printable(tr("Bad Http request method, closing socket. IP: %1. Method: \"%2\"")
 -                    .arg(m_socket->peerAddress().toString(), result.request.method)));
 +                    .arg(m_peerName, result.request.method)));
-@@ -124 +127 @@ void Connection::read()
+ 
+                 Response resp(501, u"Not Implemented"_s);
+                 resp.headers[HEADER_CONNECTION] = u"close"_s;
+@@ -121,7 +124,7 @@ void Connection::read()
+         case RequestParser::ParseStatus::BadRequest:
+             {
+                 qWarning("%s", qUtf8Printable(tr("Bad Http request, closing socket. IP: %1")
 -                    .arg(m_socket->peerAddress().toString())));
 +                    .arg(m_peerName)));
-@@ -136,2 +138,0 @@ void Connection::read()
+ 
+                 Response resp(400, u"Bad Request"_s);
+                 resp.headers[HEADER_CONNECTION] = u"close"_s;
+@@ -133,14 +136,12 @@ void Connection::read()
+ 
+         case RequestParser::ParseStatus::OK:
+             {
 -                const Environment env {m_socket->localAddress(), m_socket->localPort(), m_socket->peerAddress(), m_socket->peerPort()};
 -
-@@ -143 +144 @@ void Connection::read()
+                 if (result.request.method == HEADER_REQUEST_METHOD_HEAD)
+                 {
+                     Request getRequest = result.request;
+                     getRequest.method = HEADER_REQUEST_METHOD_GET;
+ 
 -                    Response resp = m_requestHandler->processRequest(getRequest, env);
 +                    Response resp = m_requestHandler->processRequest(getRequest, m_environment);
-@@ -153 +154 @@ void Connection::read()
+ 
+                     resp.headers[HEADER_CONNECTION] = u"keep-alive"_s;
+                     resp.headers[HEADER_CONTENT_LENGTH] = QString::number(resp.content.length());
+@@ -150,7 +151,7 @@ void Connection::read()
+                 }
+                 else
+                 {
 -                    Response resp = m_requestHandler->processRequest(result.request, env);
 +                    Response resp = m_requestHandler->processRequest(result.request, m_environment);
+ 
+                     if (acceptsGzipEncoding(result.request.headers.value(u"accept-encoding"_s)))
+                         resp.headers[HEADER_CONTENT_ENCODING] = u"gzip"_s;
 diff --git a/src/base/http/connection.h b/src/base/http/connection.h
 index 9a73650826a4b74e89f4bfae751d42c6b22f0c47..f59660be8ffac207092b1938331d26d3214e9785 100644
 --- a/src/base/http/connection.h
 +++ b/src/base/http/connection.h
-@@ -35 +35,3 @@
+@@ -32,7 +32,9 @@
+ #include <QElapsedTimer>
+ #include <QObject>
+ 
 -class QTcpSocket;
 +class QIODevice;
 +
 +#include "types.h"
-@@ -48 +50,2 @@ namespace Http
+ 
+ namespace Http
+ {
+@@ -45,7 +47,8 @@ namespace Http
+         Q_DISABLE_COPY_MOVE(Connection)
+ 
+     public:
 -        Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObject *parent = nullptr);
 +        Connection(QIODevice *socket, const Environment &environment, QString peerName
 +            , IRequestHandler *requestHandler, QObject *parent = nullptr);
-@@ -60 +63,3 @@ namespace Http
+ 
+         bool hasExpired(qint64 timeout) const;
+ 
+@@ -57,7 +60,9 @@ namespace Http
+         void read();
+         void sendResponse(const Response &response) const;
+ 
 -        QTcpSocket *m_socket = nullptr;
 +        QIODevice *m_socket = nullptr;
 +        const Environment m_environment;
 +        const QString m_peerName;
+         IRequestHandler *m_requestHandler = nullptr;
+         QByteArray m_receivedData;
+         QElapsedTimer m_idleTimer;
 diff --git a/src/base/http/server.cpp b/src/base/http/server.cpp
 index 98565046edc2113050b80644395d7ac5be19fbe7..6b9a47e39b77a807fcb1a35a9e33ad33f1b56315 100644
 --- a/src/base/http/server.cpp
 +++ b/src/base/http/server.cpp
-@@ -38,0 +39,3 @@
+@@ -36,6 +36,9 @@
+ #include <new>
+ 
+ #include <QtLogging>
 +#include <QFile>
 +#include <QLocalServer>
 +#include <QLocalSocket>
-@@ -103,0 +107 @@ Server::Server(IRequestHandler *requestHandler, QObject *parent)
+ #include <QNetworkProxy>
+ #include <QSslCertificate>
+ #include <QSslCipher>
+@@ -101,6 +104,7 @@ using namespace Http;
+ Server::Server(IRequestHandler *requestHandler, QObject *parent)
+     : QTcpServer(parent)
+     , m_requestHandler(requestHandler)
 +    , m_localServer(new QLocalServer(this))
-@@ -110,0 +115,2 @@ Server::Server(IRequestHandler *requestHandler, QObject *parent)
+     , m_sslConfig {QSslConfiguration::defaultConfiguration()}
+ {
+     setProxy(QNetworkProxy::NoProxy);
+@@ -108,6 +112,8 @@ Server::Server(IRequestHandler *requestHandler, QObject *parent)
+     m_sslConfig.setCiphers(safeCipherList());
+     m_sslConfig.setPeerVerifyMode(QSslSocket::VerifyNone);
+ 
 +    connect(m_localServer, &QLocalServer::newConnection, this, &Server::acceptLocalConnections);
 +
-@@ -137 +143,3 @@ void Server::incomingConnection(const qintptr socketDescriptor)
+     auto *dropConnectionTimer = new QTimer(this);
+     connect(dropConnectionTimer, &QTimer::timeout, this, &Server::dropTimedOutConnection);
+     dropConnectionTimer->start(CONNECTIONS_SCAN_INTERVAL);
+@@ -134,7 +140,9 @@ void Server::incomingConnection(const qintptr socketDescriptor)
+             sslSocket->startServerEncryption();
+         }
+ 
 -        auto *connection = new Connection(serverSocket.release(), m_requestHandler, this);
 +        QTcpSocket *socket = serverSocket.release();
 +        const Environment environment {socket->localAddress(), socket->localPort(), socket->peerAddress(), socket->peerPort()};
 +        auto *connection = new Connection(socket, environment, socket->peerAddress().toString(), m_requestHandler, this);
-@@ -148,0 +157,83 @@ void Server::incomingConnection(const qintptr socketDescriptor)
+         m_connections.insert(connection);
+         connect(connection, &Connection::closed, this, [this, connection] { removeConnection(connection); });
+     }
+@@ -146,6 +154,89 @@ void Server::incomingConnection(const qintptr socketDescriptor)
+     }
+ }
+ 
 +void Server::acceptLocalConnections()
 +{
 +    while (m_localServer->hasPendingConnections())
@@ -253,14 +410,26 @@ index 98565046edc2113050b80644395d7ac5be19fbe7..6b9a47e39b77a807fcb1a35a9e33ad33
 +    return m_localMode;
 +}
 +
+ void Server::removeConnection(Connection *connection)
+ {
+     m_connections.remove(connection);
 diff --git a/src/base/http/server.h b/src/base/http/server.h
 index 61c9563875f14d5fccfeabfe28ca17403908a176..4924601f2af51fcc954eddb756e9dc921fd460db 100644
 --- a/src/base/http/server.h
 +++ b/src/base/http/server.h
-@@ -36,0 +37,2 @@
+@@ -34,6 +34,8 @@
+ #include <QSslConfiguration>
+ #include <QTcpServer>
+ 
 +class QLocalServer;
 +
-@@ -49,0 +52,9 @@ namespace Http
+ namespace Http
+ {
+     class IRequestHandler;
+@@ -47,6 +49,15 @@ namespace Http
+     public:
+         explicit Server(IRequestHandler *requestHandler, QObject *parent = nullptr);
+ 
 +        bool listen(const QHostAddress &address, quint16 port = 0);
 +        bool listenLocal(const QString &socketPath);
 +        void close();
@@ -270,20 +439,35 @@ index 61c9563875f14d5fccfeabfe28ca17403908a176..4924601f2af51fcc954eddb756e9dc92
 +        quint16 serverPort() const;
 +        bool isLocal() const;
 +
-@@ -58,0 +70 @@ namespace Http
+         bool setupHttps(const QByteArray &certificates, const QByteArray &privateKey);
+         void disableHttps();
+         bool isHttps() const;
+@@ -56,10 +67,13 @@ namespace Http
+ 
+     private:
+         void incomingConnection(qintptr socketDescriptor) override;
 +        void acceptLocalConnections();
-@@ -62,0 +75,2 @@ namespace Http
+         void removeConnection(Connection *connection);
+ 
+         IRequestHandler *m_requestHandler = nullptr;
+         QSet<Connection *> m_connections;  // for tracking persistent connections
 +        QLocalServer *m_localServer = nullptr;
 +        bool m_localMode = false;
+ 
+         bool m_https = false;
+         QSslConfiguration m_sslConfig;
 diff --git a/src/base/utils/compare.h b/src/base/utils/compare.h
 index bf222fc1eefd66baa7847cb1ea6ff4ef561b5e36..367fbfa7070e50f9565bcb83e7f4ef13f3f80fc0 100644
 --- a/src/base/utils/compare.h
 +++ b/src/base/utils/compare.h
-@@ -34,3 +33,0 @@
+@@ -31,20 +31,12 @@
+ #include <Qt>
+ #include <QtSystemDetection>
+ 
 -// for QT_FEATURE_xxx, see: https://wiki.qt.io/Qt5_Build_System#How_to
 -#include <QtCore/private/qtcore-config_p.h>
 -
-@@ -38,8 +34,0 @@
+ #ifndef QBT_USE_QCOLLATOR
 -// macOS and Windows support 'case sensitivity' and 'numeric mode' natively
 -// https://github.com/qt/qtbase/blob/6.0/src/corelib/CMakeLists.txt#L777-L793
 -// https://github.com/qt/qtbase/blob/6.0/src/corelib/text/qcollator_macx.cpp#L74-L77
@@ -292,41 +476,78 @@ index bf222fc1eefd66baa7847cb1ea6ff4ef561b5e36..367fbfa7070e50f9565bcb83e7f4ef13
 -#define QBT_USE_QCOLLATOR 1
 -#include <QCollator>
 -#else
-@@ -47,0 +37,3 @@
+ #define QBT_USE_QCOLLATOR 0
+ #endif
 +
 +#if (QBT_USE_QCOLLATOR == 1)
 +#include <QCollator>
+ #endif
+ 
+ class QString;
 diff --git a/src/gui/CMakeLists.txt b/src/gui/CMakeLists.txt
 index a0625dc312514c81cf36dca04e4f1acc3c13de75..ea130a8153ddd86b49fb7ec6722042a07462d642 100644
 --- a/src/gui/CMakeLists.txt
 +++ b/src/gui/CMakeLists.txt
-@@ -264 +264 @@ target_link_libraries(qbt_gui
+@@ -261,7 +261,7 @@ target_link_libraries(qbt_gui
+     PRIVATE
+         qbt_base
+     PUBLIC
 -        Qt::Gui Qt::Widgets
 +        Qt6::Gui Qt6::Widgets
+ )
+ 
+ if (DBUS)
 diff --git a/src/webui/webapplication.cpp b/src/webui/webapplication.cpp
 index 91d9c80fd1c8615e690c6888434c742579a541a9..887df3c829a769dd17968b8505f29f5a65484a73 100644
 --- a/src/webui/webapplication.cpp
 +++ b/src/webui/webapplication.cpp
-@@ -316 +316 @@ void WebApplication::doProcessRequest(const bool isUsingApiKey)
+@@ -313,7 +313,7 @@ void WebApplication::doProcessRequest(const bool isUsingApiKey)
+     const QRegularExpressionMatch match = m_apiPathPattern.match(request().path);
+     if (!match.hasMatch())
+     {
 -        if (isUsingApiKey)
 +        if (isUsingApiKey && !session())
-@@ -435,0 +436,2 @@ void WebApplication::configure()
+             throw NotFoundHTTPError();
+ 
+         sendWebUIFile();
+@@ -433,6 +433,8 @@ void WebApplication::doProcessRequest(const bool isUsingApiKey)
+ void WebApplication::configure()
+ {
+     const auto *pref = Preferences::instance();
 +    const QString apiKeyPath = qEnvironmentVariable("WILDBUZZARD_QBITTORRENT_API_KEY_FILE");
 +    const bool wildBuzzardMode = !qEnvironmentVariableIsEmpty("WILDBUZZARD_QBITTORRENT_SOCKET");
-@@ -468,2 +470,2 @@ void WebApplication::configure()
+ 
+     const bool isAltUIUsed = pref->isAltWebUIEnabled();
+     const Path rootFolder = (!isAltUIUsed ? Path(WWW_FOLDER) : pref->getWebUIRootFolder());
+@@ -465,8 +467,8 @@ void WebApplication::configure()
+         }
+     }
+ 
 -    m_isLocalAuthEnabled = pref->isWebUILocalAuthEnabled();
 -    m_isAuthSubnetWhitelistEnabled = pref->isWebUIAuthSubnetWhitelistEnabled();
 +    m_isLocalAuthEnabled = wildBuzzardMode || pref->isWebUILocalAuthEnabled();
 +    m_isAuthSubnetWhitelistEnabled = !wildBuzzardMode && pref->isWebUIAuthSubnetWhitelistEnabled();
-@@ -482 +484 @@ void WebApplication::configure()
+     m_authSubnetWhitelist = pref->getWebUIAuthSubnetWhitelist();
+     m_sessionTimeout = std::chrono::seconds(pref->getWebUISessionTimeout());
+     m_sessionCookieName = SESSION_COOKIE_NAME_PREFIX + QString::number(pref->getWebUIPort());
+@@ -479,10 +481,10 @@ void WebApplication::configure()
+     for (QString &entry : m_domainList)
+         entry = entry.trimmed();
+ 
 -    m_isCSRFProtectionEnabled = pref->isWebUICSRFProtectionEnabled();
 +    m_isCSRFProtectionEnabled = !wildBuzzardMode && pref->isWebUICSRFProtectionEnabled();
-@@ -484,2 +486,2 @@ void WebApplication::configure()
+     m_isSecureCookieEnabled = pref->isWebUISecureCookieEnabled();
 -    m_isHostHeaderValidationEnabled = pref->isWebUIHostHeaderValidationEnabled();
 -    m_isHttpsEnabled = pref->isWebUIHttpsEnabled();
 +    m_isHostHeaderValidationEnabled = !wildBuzzardMode && pref->isWebUIHostHeaderValidationEnabled();
 +    m_isHttpsEnabled = !wildBuzzardMode && pref->isWebUIHttpsEnabled();
-@@ -563 +565,9 @@ void WebApplication::configure()
+ 
+     m_prebuiltHeaders.clear();
+     m_prebuiltHeaders.push_back({Http::HEADER_X_XSS_PROTECTION, u"1; mode=block"_s});
+@@ -560,8 +562,17 @@ void WebApplication::configure()
+             m_isReverseProxySupportEnabled = false;
+     }
+ 
 -    if (const QString apiKey = pref->getWebUIApiKey(); apiKey.isEmpty() || Utils::APIKey::isValid(apiKey))
 +    if (wildBuzzardMode)
 +    {
@@ -337,15 +558,23 @@ index 91d9c80fd1c8615e690c6888434c742579a541a9..887df3c829a769dd17968b8505f29f5a
 +    }
 +    else if (const QString apiKey = pref->getWebUIApiKey(); apiKey.isEmpty() || Utils::APIKey::isValid(apiKey))
 +    {
-@@ -564,0 +575 @@ void WebApplication::configure()
+         m_apiKey = apiKey;
 +    }
+ }
+ 
+ void WebApplication::declarePublicAPI(const QString &apiPath)
 diff --git a/src/webui/webui.cpp b/src/webui/webui.cpp
 index fc177d56bfec06c3da5d07f39d244f9b2cd48306..3d7a021d960d93da0d61c86fce255762abd2cb94 100644
 --- a/src/webui/webui.cpp
 +++ b/src/webui/webui.cpp
-@@ -39,0 +40 @@
+@@ -37,9 +37,49 @@
+ #include "base/preferences.h"
+ #include "base/utils/io.h"
+ #include "base/utils/net.h"
 +#include "base/utils/apikey.h"
-@@ -42,0 +44,39 @@
+ #include "base/utils/password.h"
+ #include "webapplication.h"
+ 
 +#include <QFileInfo>
 +
 +#ifdef Q_OS_UNIX
@@ -385,42 +614,82 @@ index fc177d56bfec06c3da5d07f39d244f9b2cd48306..3d7a021d960d93da0d61c86fce255762
 +    }
 +}
 +
-@@ -56,0 +97,2 @@ void WebUI::configure()
+ WebUI::WebUI(IApplication *app, const QByteArray &tempPasswordHash)
+     : ApplicationComponent(app)
+     , m_tempPasswordHash {tempPasswordHash}
+@@ -54,8 +94,10 @@ void WebUI::configure()
+     m_errorMsg.clear();
+ 
+     const Preferences *pref = Preferences::instance();
 +    const QString socketPath = qEnvironmentVariable("WILDBUZZARD_QBITTORRENT_SOCKET");
 +    const bool wildBuzzardMode = !socketPath.isEmpty();
-@@ -58 +100 @@ void WebUI::configure()
+ 
 -    m_isEnabled = pref->isWebUIEnabled();
 +    m_isEnabled = wildBuzzardMode || pref->isWebUIEnabled();
-@@ -67 +109 @@ void WebUI::configure()
+     const QString username = pref->getWebUIUsername();
+     QByteArray passwordHash = m_tempPasswordHash;
+     if (const QByteArray prefPasswordHash = pref->getWebUIPassword(); !prefPasswordHash.isEmpty())
+@@ -64,10 +106,13 @@ void WebUI::configure()
+         m_tempPasswordHash.clear();
+     }
+ 
 -    if (m_isEnabled && (username.isEmpty() || passwordHash.isEmpty()))
 +    if (m_isEnabled && !wildBuzzardMode && (username.isEmpty() || passwordHash.isEmpty()))
-@@ -70,0 +113,3 @@ void WebUI::configure()
+     {
+         setError(tr("Credentials are not set"));
+     }
 +    const bool socketIsOwned = m_httpServer && m_httpServer->isLocal() && m_httpServer->isListening();
 +    if (wildBuzzardMode && !validWildBuzzardConfiguration(socketPath, socketIsOwned))
 +        setError(tr("Invalid WildBuzzard WebUI configuration"));
-@@ -80 +125 @@ void WebUI::configure()
+ 
+     const QString portForwardingProfile = u"webui"_s;
+ 
+@@ -77,7 +122,7 @@ void WebUI::configure()
+ 
+         // Port forwarding
+         auto *portForwarder = Net::PortForwarder::instance();
 -        if (pref->useUPnPForWebUIPort())
 +        if (!wildBuzzardMode && pref->useUPnPForWebUIPort())
-@@ -101 +146,3 @@ void WebUI::configure()
+         {
+             portForwarder->setPorts(portForwardingProfile, {port});
+         }
+@@ -98,14 +143,16 @@ void WebUI::configure()
+         }
+         else
+         {
 -            if ((m_httpServer->serverAddress() != serverAddress) || (m_httpServer->serverPort() != port))
 +            if ((!wildBuzzardMode && (m_httpServer->isLocal()
 +                    || (m_httpServer->serverAddress() != serverAddress) || (m_httpServer->serverPort() != port)))
 +                || (wildBuzzardMode && !m_httpServer->isLocal()))
-@@ -108 +155 @@ void WebUI::configure()
+                 m_httpServer->close();
+         }
+ 
+         m_webapp->setUsername(username);
+         m_webapp->setPasswordHash(passwordHash);
+ 
 -        if (pref->isWebUIHttpsEnabled())
 +        if (!wildBuzzardMode && pref->isWebUIHttpsEnabled())
-@@ -131 +178,3 @@ void WebUI::configure()
+         {
+             const auto readData = [](const Path &path) -> QByteArray
+             {
+@@ -128,20 +175,28 @@ void WebUI::configure()
+ 
+         if (!m_httpServer->isListening())
+         {
 -            const bool success = m_httpServer->listen(serverAddress, port);
 +            const bool success = wildBuzzardMode
 +                ? m_httpServer->listenLocal(socketPath)
 +                : m_httpServer->listen(serverAddress, port);
-@@ -134 +183,4 @@ void WebUI::configure()
+             if (success)
+             {
 -                LogMsg(tr("WebUI: Now listening on IP: %1, port: %2").arg(serverAddressString).arg(port));
 +                if (wildBuzzardMode)
 +                    LogMsg(tr("WebUI: Now listening on private local socket"));
 +                else
 +                    LogMsg(tr("WebUI: Now listening on IP: %1, port: %2").arg(serverAddressString).arg(port));
-@@ -138,2 +190,5 @@ void WebUI::configure()
+             }
+             else
+             {
 -                setError(tr("Unable to bind to IP: %1, port: %2. Reason: %3")
 -                        .arg(serverAddressString).arg(port).arg(m_httpServer->errorString()));
 +                if (wildBuzzardMode)
@@ -428,6 +697,542 @@ index fc177d56bfec06c3da5d07f39d244f9b2cd48306..3d7a021d960d93da0d61c86fce255762
 +                else
 +                    setError(tr("Unable to bind to IP: %1, port: %2. Reason: %3")
 +                            .arg(serverAddressString).arg(port).arg(m_httpServer->errorString()));
-@@ -144 +199 @@ void WebUI::configure()
+             }
+         }
+ 
+         // DynDNS
 -        if (pref->isDynDNSEnabled())
 +        if (!wildBuzzardMode && pref->isDynDNSEnabled())
+         {
+             if (!m_dnsUpdater)
+                 m_dnsUpdater = new Net::DNSUpdater(this);
+diff --git a/src/webui/www/private/addtorrent.html b/src/webui/www/private/addtorrent.html
+index 718fbfa4e8fd24e7e70886ffaf879d54d835c17e..fccdda433abb2c73e8d9040331318cf775a99c18 100644
+--- a/src/webui/www/private/addtorrent.html
++++ b/src/webui/www/private/addtorrent.html
+@@ -44,8 +44,6 @@
+ 
+             // fetch unless explicitly told not to
+             const fetchMetadata = searchParams.get("fetch") !== "false";
+-            let submitted = false;
+-
+             const windowId = searchParams.get("windowId");
+             window.qBittorrent.AddTorrent.setWindowId(windowId);
+ 
+@@ -56,14 +54,36 @@
+                 downloaderInput.disabled = false;
+             }
+ 
+-            document.getElementById("uploadForm").addEventListener("submit", (event) => {
+-                submitted = true;
++            document.getElementById("uploadForm").addEventListener("submit", async (event) => {
++                event.preventDefault();
+                 window.qBittorrent.AddTorrent.submitForm();
+-            });
+-
+-            document.getElementById("upload_frame").addEventListener("load", (event) => {
+-                if (submitted)
++                const form = event.currentTarget;
++                const submitter = event.submitter;
++                if (submitter)
++                    submitter.disabled = true;
++                try {
++                    const formData = new FormData(form);
++                    const fromSearch = source.startsWith("wildbuzzard-result:");
++                    const body = fromSearch
++                        ? new URLSearchParams([...formData].filter(([, value]) => typeof value === "string"))
++                        : formData;
++                    const response = await fetch(fromSearch ? "api/v2/search/commit" : form.action, {
++                        method: "POST",
++                        body: body
++                    });
++                    if (!response.ok) {
++                        alert((await response.text()) || "Unable to add torrent.");
++                        return;
++                    }
+                     window.parent.qBittorrent.Client.closeFrameWindow(window);
++                }
++                catch (error) {
++                    alert(error.toString());
++                }
++                finally {
++                    if (submitter)
++                        submitter.disabled = false;
++                }
+             });
+ 
+             document.getElementById("saveTorrent").addEventListener("click", (event) => {
+@@ -158,8 +178,7 @@
+         </li>
+     </ul>
+ 
+-    <iframe id="upload_frame" name="upload_frame" class="invisible" title="" src="about:blank"></iframe>
+-    <form action="api/v2/torrents/add" enctype="multipart/form-data" method="post" id="uploadForm" style="text-align: center; padding: 10px 12px;" target="upload_frame" autocorrect="off" autocapitalize="none">
++    <form action="api/v2/torrents/add" enctype="multipart/form-data" method="post" id="uploadForm" style="text-align: center; padding: 10px 12px;" autocorrect="off" autocapitalize="none">
+         <input type="hidden" id="urls" name="urls">
+         <input type="hidden" id="filePriorities" name="filePriorities">
+         <input type="hidden" id="downloader" name="downloader" disabled>
+diff --git a/src/webui/www/private/css/style.css b/src/webui/www/private/css/style.css
+index caa0067da4eb694a1975996f9d2433eee6839e67..f8428bd880358adca68840eeac69b6a2f7183b87 100644
+--- a/src/webui/www/private/css/style.css
++++ b/src/webui/www/private/css/style.css
+@@ -19,6 +19,7 @@
+     --color-border-default: hsl(0deg 0% 85%);
+     --color-icon-hover: brightness(0) invert(100%) sepia(100%) saturate(0%)
+         hue-rotate(108deg) brightness(104%) contrast(104%);
++    --wildbuzzard-font: system-ui, sans-serif;
+ 
+     & #torrentTrackersTableDiv tr {
+         --color-tracker-disabled: hsl(240deg 4% 46%);
+@@ -63,6 +64,23 @@
+     }
+ }
+ 
++@supports (color: light-dark(black, white)) {
++    :root {
++        color-scheme: light dark;
++        --color-accent-blue: light-dark(
++            var(--button-background-color-primary, hsl(210deg 65% 55%)),
++            var(--button-background-color-primary, hsl(210deg 42% 48%))
++        );
++        --color-text-blue: var(--text-color-accent-primary, hsl(210deg 100% 55%));
++        --color-text-default: var(--text-color, light-dark(hsl(0deg 0% 20%), hsl(0deg 0% 90%)));
++        --color-background-primary: var(--background-color-canvas, light-dark(white, hsl(0deg 0% 10%)));
++        --color-background-popup: var(--background-color-box, light-dark(white, hsl(0deg 0% 16%)));
++        --color-background-default: var(--background-color-box, light-dark(hsl(0deg 0% 94%), hsl(0deg 0% 20%)));
++        --color-background-hover: var(--button-background-color-primary-hover, light-dark(hsl(210deg 85% 90%), hsl(210deg 35% 30%)));
++        --color-border-default: var(--border-color, light-dark(hsl(0deg 0% 82%), hsl(0deg 0% 32%)));
++    }
++}
++
+ /* Reset */
+ 
+ *,
+@@ -82,6 +100,16 @@ select {
+     font: inherit;
+ }
+ 
++body {
++    font-family: var(--wildbuzzard-font);
++}
++
++img[src$="qbittorrent-tray.svg"],
++img[src$="qbittorrent32.png"],
++img[src$="mascot.png"] {
++    display: none !important;
++}
++
+ a img,
+ :link img,
+ :visited img {
+diff --git a/src/webui/www/private/index.html b/src/webui/www/private/index.html
+index 976ff6c3378c2561a390d204d99fbc09f95e36d9..92a919c57bac18c3d86ad838790d6755083eaca8 100644
+--- a/src/webui/www/private/index.html
++++ b/src/webui/www/private/index.html
+@@ -5,14 +5,11 @@
+ <head>
+     <meta charset="UTF-8">
+     <meta http-equiv="X-UA-Compatible" content="IE=10">
+-    <meta name="application-name" content="qBittorrent">
+-    <meta name="description" content="qBittorrent WebUI">
++    <meta name="application-name" content="Torrents">
++    <meta name="description" content="Torrent manager">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ 
+-    <title>qBittorrent WebUI</title>
+-
+-    <link rel="icon" type="image/png" href="images/qbittorrent32.png" sizes="32x32">
+-    <link rel="icon" type="image/svg+xml" href="images/qbittorrent-tray.svg" sizes="any">
++    <title>Torrents</title>
+     <link rel="stylesheet" type="text/css" href="css/dynamicTable.css?v=${CACHEID}">
+     <link rel="stylesheet" type="text/css" href="css/style.css?v=${CACHEID}">
+     <link rel="stylesheet" type="text/css" href="css/Core.css?v=${CACHEID}">
+@@ -23,6 +20,7 @@
+         <link rel="stylesheet" type="text/css" href="css/noscript.css?v=${CACHEID}">
+     </noscript>
+ 
++    <script src="scripts/wildbuzzard-bridge.js?v=${CACHEID}"></script>
+     <script defer src="scripts/lib/MooTools-Core-1.6.0-compat-compressed.js"></script>
+     <script defer src="scripts/lib/MooTools-More-1.6.0-compat-compressed.js"></script>
+     <script defer src="scripts/lib/mocha.min.js"></script>
+@@ -68,8 +66,6 @@
+                                 </div>
+                             </li>
+                             <li><a id="downloadLink"><img class="MyMenuIcon" alt="QBT_TR(Add Torrent Link...)QBT_TR[CONTEXT=MainWindow]" src="images/insert-link.svg" width="16" height="16">QBT_TR(Add Torrent Link...)QBT_TR[CONTEXT=MainWindow]</a></li>
+-                            <li class="divider"><a id="logoutLink"><img class="MyMenuIcon" alt="QBT_TR(Logout)QBT_TR[CONTEXT=HttpServer]" src="images/system-log-out.svg" width="16" height="16">QBT_TR(Logout)QBT_TR[CONTEXT=HttpServer]</a></li>
+-                            <li><a id="shutdownLink"><img class="MyMenuIcon" alt="QBT_TR(Exit qBittorrent)QBT_TR[CONTEXT=HttpServer]" src="images/application-exit.svg" width="16" height="16">QBT_TR(Exit qBittorrent)QBT_TR[CONTEXT=HttpServer]</a></li>
+                         </ul>
+                     </li>
+                     <li>
+@@ -105,15 +101,6 @@
+                             <li><a id="torrentCreatorLink"><img class="MyMenuIcon" src="images/torrent-creator.svg" alt="QBT_TR(Torrent Creator)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Torrent Creator)QBT_TR[CONTEXT=MainWindow]</a></li>
+                             <li class="divider"><a id="manageCookiesLink"><img class="MyMenuIcon" src="images/browser-cookies.svg" alt="QBT_TR(Manage Cookies...)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Manage Cookies...)QBT_TR[CONTEXT=MainWindow]</a></li>
+                             <li><a id="preferencesLink"><img class="MyMenuIcon" src="images/configure.svg" alt="QBT_TR(Options...)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Options...)QBT_TR[CONTEXT=MainWindow]</a></li>
+-                            <li class="divider"><a id="registerMagnetHandlerLink"><img class="MyMenuIcon" src="images/torrent-magnet.svg" alt="QBT_TR(Register to handle magnet links...)QBT_TR[CONTEXT=HttpServer]" width="16" height="16">QBT_TR(Register to handle magnet links...)QBT_TR[CONTEXT=HttpServer]</a></li>
+-                        </ul>
+-                    </li>
+-                    <li>
+-                        <a class="returnFalse">QBT_TR(Help)QBT_TR[CONTEXT=MainWindow]</a>
+-                        <ul>
+-                            <li><a id="docsLink" target="_blank" href="https://wiki.qbittorrent.org/"><img class="MyMenuIcon" src="images/help-contents.svg" alt="QBT_TR(Documentation)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Documentation)QBT_TR[CONTEXT=MainWindow]</a></li>
+-                            <li class="divider"><a id="bugLink" target="_blank" href="https://www.qbittorrent.org/donate"><img class="MyMenuIcon" src="images/wallet-open.svg" alt="QBT_TR(Donate!)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Donate!)QBT_TR[CONTEXT=MainWindow]</a></li>
+-                            <li><a id="aboutLink"><img class="MyMenuIcon" src="images/help-about.svg" alt="QBT_TR(About)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(About)QBT_TR[CONTEXT=MainWindow]</a></li>
+                         </ul>
+                     </li>
+                 </ul>
+diff --git a/src/webui/www/private/scripts/client.js b/src/webui/www/private/scripts/client.js
+index 5579dadeca706ab1588575eaa02b88d7e1cf57f1..fcb11fc2851ba1f0ecf6ee6c16fb1e6778227712 100644
+--- a/src/webui/www/private/scripts/client.js
++++ b/src/webui/www/private/scripts/client.js
+@@ -135,11 +135,10 @@ window.qBittorrent.Client ??= (() => {
+ 
+     const mainTitle = () => {
+         const emDash = "\u2014";
+-        const qbtVersion = window.qBittorrent.Cache.qbtVersion.get();
+         let suffix = window.qBittorrent.Cache.preferences.get()["app_instance_name"] || "";
+         if (suffix.length > 0)
+             suffix = ` ${emDash} ${suffix}`;
+-        const title = `qBittorrent ${qbtVersion} QBT_TR(WebUI)QBT_TR[CONTEXT=OptionsDialog]${suffix}`;
++        const title = `Torrents${suffix}`;
+         return title;
+     };
+ 
+@@ -1092,7 +1091,7 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+                 (error) => {
+                     const errorDiv = document.getElementById("error_div");
+                     if (errorDiv)
+-                        errorDiv.textContent = "QBT_TR(qBittorrent client is not reachable)QBT_TR[CONTEXT=HttpServer]";
++                        errorDiv.textContent = "Torrent client is not reachable";
+                     syncRequestInProgress = false;
+                     syncData(document.hidden
+                         ? (window.qBittorrent.Cache.preferences.get().web_ui_session_timeout * 1000) / 2
+@@ -1304,11 +1303,9 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         const templateUrl = `${location.origin}${location.pathname}${location.search}#${templateHashString}`;
+ 
+         navigator.registerProtocolHandler("magnet", templateUrl,
+-            "qBittorrent WebUI magnet handler");
++            "Torrent manager magnet handler");
+     };
+-    document.getElementById("registerMagnetHandlerLink").addEventListener("click", (e) => {
+-        registerMagnetHandler();
+-    });
++    document.getElementById("registerMagnetHandlerLink")?.addEventListener("click", registerMagnetHandler);
+ 
+     document.getElementById("showFiltersSidebarLink").addEventListener("click", (e) => {
+         showFiltersSidebar = !showFiltersSidebar;
+diff --git a/src/webui/www/private/scripts/dynamicTable.js b/src/webui/www/private/scripts/dynamicTable.js
+index c33ed0e5b31b9c65f7594d23ececaee3937c293a..3b86ebda742b3cfe691b18512656207beb3f63d6 100644
+--- a/src/webui/www/private/scripts/dynamicTable.js
++++ b/src/webui/www/private/scripts/dynamicTable.js
+@@ -1969,8 +1969,6 @@ window.qBittorrent.DynamicTable ??= (() => {
+             this.newColumn("fileSize", "", "QBT_TR(Size)QBT_TR[CONTEXT=SearchResultsTable]", 100, true);
+             this.newColumn("nbSeeders", "", "QBT_TR(Seeders)QBT_TR[CONTEXT=SearchResultsTable]", 100, true);
+             this.newColumn("nbLeechers", "", "QBT_TR(Leechers)QBT_TR[CONTEXT=SearchResultsTable]", 100, true);
+-            this.newColumn("engineName", "", "QBT_TR(Engine)QBT_TR[CONTEXT=SearchResultsTable]", 100, true);
+-            this.newColumn("siteUrl", "", "QBT_TR(Engine URL)QBT_TR[CONTEXT=SearchResultsTable]", 250, true);
+             this.newColumn("pubDate", "", "QBT_TR(Published On)QBT_TR[CONTEXT=SearchResultsTable]", 200, true);
+ 
+             this.initColumnsFunctions();
+diff --git a/src/webui/www/private/scripts/mocha-init.js b/src/webui/www/private/scripts/mocha-init.js
+index 3665a6ebc5e73c8eacf58c459cf4fec14042526d..65fe118925fb85a4ca907f92390a8961fcc52f54 100644
+--- a/src/webui/www/private/scripts/mocha-init.js
++++ b/src/webui/www/private/scripts/mocha-init.js
+@@ -1326,67 +1326,6 @@ const initializeWindows = () => {
+         }
+     };
+ 
+-    addClickEvent("about", (e) => {
+-        e.preventDefault();
+-        e.stopPropagation();
+-
+-        const id = "aboutpage";
+-        new MochaUI.Window({
+-            id: id,
+-            icon: "images/qbittorrent-tray.svg",
+-            title: "QBT_TR(About qBittorrent)QBT_TR[CONTEXT=AboutDialog]",
+-            loadMethod: "xhr",
+-            contentURL: "views/about.html?v=${CACHEID}",
+-            require: {
+-                css: ["css/Tabs.css?v=${CACHEID}"]
+-            },
+-            toolbar: true,
+-            toolbarURL: "views/aboutToolbar.html?v=${CACHEID}",
+-            padding: 10,
+-            width: loadWindowWidth(id, 570),
+-            height: loadWindowHeight(id, 360),
+-            onResize: window.qBittorrent.Misc.createDebounceHandler(500, (e) => {
+-                saveWindowSize(id);
+-            })
+-        });
+-    });
+-
+-    addClickEvent("logout", (e) => {
+-        e.preventDefault();
+-        e.stopPropagation();
+-
+-        fetch("api/v2/auth/logout", {
+-                method: "POST"
+-            })
+-            .then((response) => {
+-                if (!response.ok)
+-                    return;
+-
+-                window.location.reload(true);
+-            });
+-    });
+-
+-    addClickEvent("shutdown", (e) => {
+-        e.preventDefault();
+-        e.stopPropagation();
+-
+-        if (confirm("QBT_TR(Are you sure you want to quit qBittorrent?)QBT_TR[CONTEXT=MainWindow]")) {
+-            fetch("api/v2/app/shutdown", {
+-                    method: "POST"
+-                })
+-                .then((response) => {
+-                    if (!response.ok)
+-                        return;
+-
+-                    const shutdownMessage = "QBT_TR(%1 has been shutdown)QBT_TR[CONTEXT=HttpServer]".replace("%1", window.qBittorrent.Client.mainTitle());
+-                    document.write(`<!doctype html><html lang="${LANG}"><head> <meta charset="UTF-8"> <meta name="color-scheme" content="light dark"> <title>${shutdownMessage}</title> <style>* {font-family: Arial, Helvetica, sans-serif;}</style></head><body> <h1 style="text-align: center;">${shutdownMessage}</h1></body></html>`);
+-                    document.close();
+-                    window.stop();
+-                    window.qBittorrent.Client.stop();
+-                });
+-        }
+-    });
+-
+     // Deactivate menu header links
+     for (const el of document.querySelectorAll("a.returnFalse")) {
+         el.addEventListener("click", (e) => {
+diff --git a/src/webui/www/private/scripts/prop-general.js b/src/webui/www/private/scripts/prop-general.js
+index 092cacefe2001c14050008f05747f738ed443742..442fa456904d83637b4190006bdb9cc5c7328ae7 100644
+--- a/src/webui/www/private/scripts/prop-general.js
++++ b/src/webui/www/private/scripts/prop-general.js
+@@ -108,7 +108,7 @@ window.qBittorrent.PropGeneral ??= (() => {
+             })
+             .then(async (response) => {
+                 if (!response.ok) {
+-                    document.getElementById("error_div").textContent = "QBT_TR(qBittorrent client is not reachable)QBT_TR[CONTEXT=HttpServer]";
++                    document.getElementById("error_div").textContent = "Torrent client is not reachable";
+                     clearTimeout(loadTorrentDataTimer);
+                     loadTorrentDataTimer = loadTorrentData.delay(10000);
+                     return;
+@@ -259,7 +259,7 @@ window.qBittorrent.PropGeneral ??= (() => {
+             }, (error) => {
+                 console.error(error);
+ 
+-                document.getElementById("error_div").textContent = "QBT_TR(qBittorrent client is not reachable)QBT_TR[CONTEXT=HttpServer]";
++                document.getElementById("error_div").textContent = "Torrent client is not reachable";
+                 clearTimeout(loadTorrentDataTimer);
+                 loadTorrentDataTimer = loadTorrentData.delay(10000);
+             });
+@@ -274,7 +274,7 @@ window.qBittorrent.PropGeneral ??= (() => {
+             })
+             .then(async (response) => {
+                 if (!response.ok) {
+-                    document.getElementById("error_div").textContent = "QBT_TR(qBittorrent client is not reachable)QBT_TR[CONTEXT=HttpServer]";
++                    document.getElementById("error_div").textContent = "Torrent client is not reachable";
+                     clearTimeout(loadTorrentDataTimer);
+                     loadTorrentDataTimer = loadTorrentData.delay(10000);
+                     return;
+@@ -293,7 +293,7 @@ window.qBittorrent.PropGeneral ??= (() => {
+             }, (error) => {
+                 console.error(error);
+ 
+-                document.getElementById("error_div").textContent = "QBT_TR(qBittorrent client is not reachable)QBT_TR[CONTEXT=HttpServer]";
++                document.getElementById("error_div").textContent = "Torrent client is not reachable";
+                 clearTimeout(loadTorrentDataTimer);
+                 loadTorrentDataTimer = loadTorrentData.delay(10000);
+             });
+diff --git a/src/webui/www/private/scripts/search.js b/src/webui/www/private/scripts/search.js
+index 82b82eba7ee23486b9b837b34564331ba8c9267f..a44860084b826c879fb60e80cca17d19521291ae 100644
+--- a/src/webui/www/private/scripts/search.js
++++ b/src/webui/www/private/scripts/search.js
+@@ -142,7 +142,10 @@ window.qBittorrent.Search ??= (() => {
+             }
+         });
+         searchResultsTable = new window.qBittorrent.DynamicTable.SearchResultsTable();
++        const hasStoredSort = localPreferences.get("sorted_column_searchResultsTableDiv") !== null;
+         searchResultsTable.setup("searchResultsTableDiv", "searchResultsTableFixedHeaderDiv", searchResultsTableContextMenu);
++        if (!hasStoredSort)
++            searchResultsTable.setSortedColumn("nbSeeders", "1");
+         getPlugins();
+ 
+         searchResultsTable.dynamicTableDiv.addEventListener("dblclick", (e) => { openDownloadWindow(); });
+diff --git a/src/webui/www/private/views/log.html b/src/webui/www/private/views/log.html
+index e1adafdf8b4fade8b5a21418d6587cd5adc51df0..86a19abc9444a700ef7905e957149af5c52ffb50 100644
+--- a/src/webui/www/private/views/log.html
++++ b/src/webui/www/private/views/log.html
+@@ -364,7 +364,7 @@
+                     if (!response.ok) {
+                         const errorDiv = document.getElementById("error_div");
+                         if (errorDiv)
+-                            errorDiv.textContent = "QBT_TR(qBittorrent client is not reachable)QBT_TR[CONTEXT=HttpServer]";
++                            errorDiv.textContent = "Torrent client is not reachable";
+                         tableInfo[curTab].progress = false;
+                         syncLogWithInterval(10000);
+                         return;
+@@ -412,7 +412,7 @@
+                 }, (error) => {
+                     console.error(error);
+ 
+-                    document.getElementById("error_div").textContent = "QBT_TR(qBittorrent client is not reachable)QBT_TR[CONTEXT=HttpServer]";
++                    document.getElementById("error_div").textContent = "Torrent client is not reachable";
+                     tableInfo[curTab].progress = false;
+                     syncLogWithInterval(10000);
+                 });
+diff --git a/src/webui/www/private/views/preferences.html b/src/webui/www/private/views/preferences.html
+index 1d0628fec5def5e822298e03be36cfe8eedc0b62..cb21ba59725982166be097bb4d6935e51db8c65f 100644
+--- a/src/webui/www/private/views/preferences.html
++++ b/src/webui/www/private/views/preferences.html
+@@ -1194,7 +1194,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+ 
+ <div id="AdvancedTab" class="PrefTab invisible">
+     <fieldset class="settings">
+-        <legend>QBT_TR(qBittorrent Section)QBT_TR[CONTEXT=OptionsDialog]&nbsp;(<a href="https://github.com/qbittorrent/qBittorrent/wiki/Explanation-of-Options-in-qBittorrent#Advanced" target="_blank">QBT_TR(Open documentation)QBT_TR[CONTEXT=HttpServer]</a>)</legend>
++        <legend>QBT_TR(Advanced)QBT_TR[CONTEXT=OptionsDialog]</legend>
+         <table>
+             <tbody>
+                 <tr>
+@@ -1290,7 +1290,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+                         <label for="appInstanceName">QBT_TR(Customize application instance name:)QBT_TR[CONTEXT=OptionsDialog]</label>
+                     </td>
+                     <td>
+-                        <input type="text" id="appInstanceName" style="width: 15em;" title="QBT_TR(It appends the text to the window title to help distinguish qBittorrent instances)QBT_TR[CONTEXT=OptionsDialog]">
++                        <input type="text" id="appInstanceName" style="width: 15em;" title="The text is appended to the title to distinguish torrent instances">
+                     </td>
+                 </tr>
+                 <tr>
+@@ -2016,7 +2016,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+                 })
+                 .then((response) => {
+                     if (!response.ok) {
+-                        alert("QBT_TR(Could not contact qBittorrent)QBT_TR[CONTEXT=HttpServer]");
++                        alert("Could not contact the torrent client");
+                         return;
+                     }
+ 
+@@ -2749,7 +2749,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+                     document.getElementById("i2pOutboundLength").value = pref.i2p_outbound_length;
+                 }).catch((error) => {
+                     console.error(error);
+-                    alert("QBT_TR(Unable to load program preferences, qBittorrent is probably unreachable.)QBT_TR[CONTEXT=HttpServer]");
++                    alert("Unable to load preferences; the torrent client is probably unreachable.");
+                 });
+         };
+ 
+@@ -3289,7 +3289,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+                     if (error.name === "ServerError")
+                         alert(`QBT_TR(Error:)QBT_TR[CONTEXT=HttpServer] ${error.message}`);
+                     else
+-                        alert("QBT_TR(Unable to save preferences, qBittorrent is probably unreachable.)QBT_TR[CONTEXT=HttpServer]");
++                        alert("Unable to save preferences; the torrent client is probably unreachable.");
+                 }
+             });
+         };
+@@ -3412,7 +3412,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+                 : "QBT_TR(Generate API key)QBT_TR[CONTEXT=OptionsDialog]";
+             const message = hasKey
+                 ? "QBT_TR(Rotate this API key? The current key will immediately stop working and a new key will be generated.)QBT_TR[CONTEXT=confirmRotateAPIKeyDialog]"
+-                : "QBT_TR(Generate an API key? This key can be used to interact with qBittorrent's API.)QBT_TR[CONTEXT=confirmRotateAPIKeyDialog]";
++                : "Generate an API key for torrent client automation?";
+ 
+             new MochaUI.Modal({
+                 ...window.qBittorrent.Dialog.baseModalOptions,
+diff --git a/src/webui/www/private/views/preferencesToolbar.html b/src/webui/www/private/views/preferencesToolbar.html
+index da9dbd33288d6790402e331ce7bb2a6fd0b19d98..fe7a6ad73880070055acdd35fbd210a5cdcb00a2 100644
+--- a/src/webui/www/private/views/preferencesToolbar.html
++++ b/src/webui/www/private/views/preferencesToolbar.html
+@@ -19,9 +19,6 @@
+         <li id="PrefRSSLink">
+             <a><img alt="QBT_TR(RSS)QBT_TR[CONTEXT=OptionsDialog]" src="images/application-rss.svg" width="16" height="16">QBT_TR(RSS)QBT_TR[CONTEXT=OptionsDialog]</a>
+         </li>
+-        <li id="PrefWebUILink">
+-            <a><img alt="QBT_TR(WebUI)QBT_TR[CONTEXT=OptionsDialog]" src="images/preferences-webui.svg" width="16" height="16">QBT_TR(WebUI)QBT_TR[CONTEXT=OptionsDialog]</a>
+-        </li>
+         <li id="PrefAdvancedLink">
+             <a><img alt="QBT_TR(Advanced)QBT_TR[CONTEXT=OptionsDialog]" src="images/preferences-advanced.svg" width="16" height="16">QBT_TR(Advanced)QBT_TR[CONTEXT=OptionsDialog]</a>
+         </li>
+@@ -58,9 +55,6 @@
+         document.getElementById("PrefRSSLink").addEventListener("click", (e) => {
+             showTab(document.getElementById("RSSTab"));
+         });
+-        document.getElementById("PrefWebUILink").addEventListener("click", (e) => {
+-            showTab(document.getElementById("WebUITab"));
+-        });
+         document.getElementById("PrefAdvancedLink").addEventListener("click", (e) => {
+             showTab(document.getElementById("AdvancedTab"));
+         });
+diff --git a/src/webui/www/private/views/search.html b/src/webui/www/private/views/search.html
+index 73afff05978a5eca728ebc2a483b2a0abf2fe131..401596f1384a8ebc8e6a8d8d6e004203b0015013 100644
+--- a/src/webui/www/private/views/search.html
++++ b/src/webui/www/private/views/search.html
+@@ -215,23 +215,15 @@
+         </div>
+     </div>
+ 
+-    <div style="height: 30px; padding-top: 10px;">
+-        <button type="button" id="manageSearchPlugins" onclick="qBittorrent.Search.manageSearchPlugins()">
+-            <img alt="QBT_TR(Search plugins...)QBT_TR[CONTEXT=SearchEngineWidget]" src="images/plugins.svg" width="16" height="16">QBT_TR(Search plugins...)QBT_TR[CONTEXT=SearchEngineWidget]
+-        </button>
+-    </div>
+ </div>
+ 
+ <ul id="searchResultsTableMenu" class="contextMenu">
+     <li><a href="#OpenDownloadWindow"><img src="images/download.svg" alt="QBT_TR(Open download window)QBT_TR[CONTEXT=SearchJobWidget]"> QBT_TR(Open download window)QBT_TR[CONTEXT=SearchJobWidget]</a></li>
+     <li><a href="#Download"><img src="images/downloading.svg" alt="QBT_TR(Download)QBT_TR[CONTEXT=SearchJobWidget]"> QBT_TR(Download)QBT_TR[CONTEXT=SearchJobWidget]</a></li>
+-    <li class="separator"><a href="#OpenDescriptionUrl"><img src="images/application-url.svg" alt="QBT_TR(Open description page)QBT_TR[CONTEXT=SearchJobWidget]"> QBT_TR(Open description page)QBT_TR[CONTEXT=SearchJobWidget]</a></li>
+     <li>
+         <a href="#" class="arrow-right"><img src="images/edit-copy.svg" alt="QBT_TR(Copy)QBT_TR[CONTEXT=SearchJobWidget]"> QBT_TR(Copy)QBT_TR[CONTEXT=SearchJobWidget]</a>
+         <ul>
+             <li><a href="#" id="copySearchTorrentName" class="copySearchDataToClipboard"><img src="images/name.svg" alt="QBT_TR(Name)QBT_TR[CONTEXT=SearchJobWidget]"> QBT_TR(Name)QBT_TR[CONTEXT=SearchJobWidget]</a></li>
+-            <li><a href="#" id="copySearchTorrentDownloadLink" class="copySearchDataToClipboard"><img src="images/insert-link.svg" alt="QBT_TR(Download link)QBT_TR[CONTEXT=SearchJobWidget]"> QBT_TR(Download link)QBT_TR[CONTEXT=SearchJobWidget]</a></li>
+-            <li><a href="#" id="copySearchTorrentDescriptionUrl" class="copySearchDataToClipboard"><img src="images/application-url.svg" alt="QBT_TR(Description page URL)QBT_TR[CONTEXT=SearchJobWidget]"> QBT_TR(Description page URL)QBT_TR[CONTEXT=SearchJobWidget]</a></li>
+         </ul>
+     </li>
+ </ul>
+diff --git a/src/webui/www/public/index.html b/src/webui/www/public/index.html
+index a9e748c1e91a52fdff628d6bed5a8a99b62785c8..7b3ef65f674f6f0e7988514c53540dc0936330b5 100644
+--- a/src/webui/www/public/index.html
++++ b/src/webui/www/public/index.html
+@@ -4,13 +4,10 @@
+ <head>
+     <meta charset="UTF-8">
+     <meta name="color-scheme" content="light dark">
+-    <meta name="description" content="qBittorrent WebUI">
++    <meta name="description" content="Torrent manager">
+     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+ 
+-    <title>QBT_TR(qBittorrent WebUI)QBT_TR[CONTEXT=Login]</title>
+-
+-    <link rel="icon" type="image/png" href="images/qbittorrent32.png">
+-    <link rel="icon" type="image/svg+xml" href="images/qbittorrent-tray.svg">
++    <title>Torrents</title>
+     <link rel="stylesheet" type="text/css" href="css/login.css?v=${CACHEID}">
+     <noscript>
+         <link rel="stylesheet" type="text/css" href="css/noscript.css?v=${CACHEID}">
+@@ -24,10 +21,7 @@
+         <h1>QBT_TR(JavaScript Required! You must enable JavaScript for the WebUI to work properly)QBT_TR[CONTEXT=Login]</h1>
+     </noscript>
+     <div id="main">
+-        <h1>QBT_TR(qBittorrent WebUI)QBT_TR[CONTEXT=Login]</h1>
+-        <div id="logo" class="col">
+-            <img src="images/qbittorrent-tray.svg" alt="qBittorrent logo">
+-        </div>
++        <h1>Torrents</h1>
+         <div id="formplace" class="col">
+             <form id="loginform">
+                 <div class="row">
+diff --git a/src/webui/www/webui.qrc b/src/webui/www/webui.qrc
+index b85e8d53a582a394bed731b5db8da3ac06953bcc..e8c6815ceff518cafe63d053d7b4424615f2363f 100644
+--- a/src/webui/www/webui.qrc
++++ b/src/webui/www/webui.qrc
+@@ -417,6 +417,7 @@
+         <file>private/scripts/search.js</file>
+         <file>private/scripts/statistics.js</file>
+         <file>private/scripts/torrent-content.js</file>
++        <file>private/scripts/wildbuzzard-bridge.js</file>
+         <file>private/setlocation.html</file>
+         <file>private/shareratio.html</file>
+         <file>private/speedlimit.html</file>

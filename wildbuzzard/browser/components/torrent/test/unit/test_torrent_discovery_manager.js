@@ -155,7 +155,9 @@ add_task(async function test_eligible_provider_categories_are_preserved() {
 add_task(async function test_search_cancellation_aborts_transport() {
   searchMode = "delayed";
   const pending = TorrentDiscoveryManager.search({ query: "linux iso" });
-  await TestUtils.waitForCondition(() => TorrentDiscoveryManager.activeRequest);
+  await TestUtils.waitForCondition(
+    () => TorrentDiscoveryManager.activeRequests?.size === 1
+  );
   TorrentDiscoveryManager.cancelSearch();
   await Assert.rejects(pending, error => error.cancelled);
   searchMode = "valid";

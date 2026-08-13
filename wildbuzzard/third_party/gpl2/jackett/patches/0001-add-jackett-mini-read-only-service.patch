@@ -1800,7 +1800,7 @@ index 000000000..792c7f857
 +
 +    public async Task<ResolutionResponse?> Resolve(string id, CancellationToken cancellationToken)
 +    {
-+        if (id.Length != 32 || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_') || !_store.TryTake(id, out var stored) || stored is null)
++        if (id.Length != 32 || id.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not '-' and not '_') || !_store.TryGet(id, out var stored) || stored is null)
 +            return null;
 +        if (TryMagnet(stored.Release, out var magnet))
 +            return new ResolutionResponse("magnet", magnet, null, null);
@@ -2467,7 +2467,7 @@ index 000000000..35f3ad3df
 +{
 +    private readonly object _gate = new();
 +    private readonly Dictionary<string, StoredResult> _results = new(StringComparer.Ordinal);
-+    private const int MaximumResults = 2000;
++    private const int MaximumResults = 10000;
 +
 +    public string Add(string searchId, IWebIndexer indexer, ReleaseInfo release)
 +    {
@@ -2481,17 +2481,17 @@ index 000000000..35f3ad3df
 +            {
 +                id = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(24));
 +            } while (_results.ContainsKey(id));
-+            _results.Add(id, new StoredResult(searchId, indexer, release, DateTimeOffset.UtcNow.AddMinutes(10)));
++            _results.Add(id, new StoredResult(searchId, indexer, release, DateTimeOffset.UtcNow.AddHours(24)));
 +            return id;
 +        }
 +    }
 +
-+    public bool TryTake(string id, out StoredResult? result)
++    public bool TryGet(string id, out StoredResult? result)
 +    {
 +        lock (_gate)
 +        {
 +            Prune();
-+            if (_results.Remove(id, out var found))
++            if (_results.TryGetValue(id, out var found))
 +            {
 +                result = found;
 +                return true;
