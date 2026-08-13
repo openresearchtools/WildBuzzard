@@ -179,6 +179,9 @@ class ShippingContractTests(unittest.TestCase):
         package_manifest = (
             CHECKOUT / "browser" / "installer" / "package-manifest.in"
         ).read_text(encoding="utf-8")
+        packager = (
+            CHECKOUT / "toolkit" / "mozapps" / "installer" / "packager.py"
+        ).read_text(encoding="utf-8")
         appimage = (
             CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh"
         ).read_text(encoding="utf-8")
@@ -214,6 +217,9 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn("pi-web-runtime-lock.json", debian)
         self.assertIn(SEARXNG_NAME, appimage)
         self.assertIn(SEARXNG_NAME, debian)
+        self.assertIn('MOZ_APP_BASENAME") == "WildBuzzard"', packager)
+        self.assertIn(SEARXNG_NAME, packager)
+        self.assertIn("preserve_executables=preserve_executables", packager)
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
             "runtime/torrent/wildbuzzard-torrent-runtime.zip",

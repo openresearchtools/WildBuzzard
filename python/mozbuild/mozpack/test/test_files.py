@@ -14,6 +14,7 @@ from mozpack.files import (
     DeflatedFile,
     Dest,
     ExistingFile,
+    ExecutableFile,
     ExtractedTarFile,
     File,
     FileFinder,
@@ -43,6 +44,7 @@ import tarfile
 import unittest
 from io import BytesIO
 from tempfile import mkdtemp
+from unittest.mock import patch
 
 import mozfile
 import mozunit
@@ -1122,6 +1124,18 @@ class TestFileFinder(MatchTestTemplate, TestWithTmpDir):
         res = finder.get("bar")
         self.assertIsInstance(res, File)
         self.assertEqual(mozpath.normpath(res.path), mozpath.join(self.tmpdir, "bar"))
+
+    def test_preserve_executables(self):
+        self.add("runtime/search/nested.AppImage")
+        self.add("runtime/search/helper")
+        finder = FileFinder(
+            self.tmpdir,
+            find_executables=True,
+            preserve_executables=("runtime/search/nested.AppImage",),
+        )
+        with patch("mozpack.files.is_executable", return_value=True):
+            self.assertIs(type(finder.get("runtime/search/nested.AppImage")), File)
+            self.assertIsInstance(finder.get("runtime/search/helper"), ExecutableFile)
 
     def test_ignored_dirs(self):
         """Ignored directories should not have results returned."""

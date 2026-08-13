@@ -225,11 +225,18 @@ def main():
         respath = respath[1:]
 
     with errors.accumulate():
+        preserve_executables = ()
+        if buildconfig.substs.get("MOZ_APP_BASENAME") == "WildBuzzard":
+            preserve_executables = (
+                "bin/runtime/search/"
+                "wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage",
+            )
         finder_args = dict(
             minify=args.minify,
             minify_js=args.minify_js,
             minify_pdfjs=args.minify_pdfjs,
             ignore_broken_symlinks=args.ignore_broken_symlinks,
+            preserve_executables=preserve_executables,
         )
         finder = PackagerFileFinder(args.source, find_executables=True, **finder_args)
         if "NO_PKG_FILES" in os.environ:

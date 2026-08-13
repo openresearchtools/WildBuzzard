@@ -1028,6 +1028,7 @@ class FileFinder(BaseFinder):
         ignore=(),
         ignore_broken_symlinks=False,
         find_dotfiles=False,
+        preserve_executables=(),
         **kargs,
     ):
         """
@@ -1036,6 +1037,9 @@ class FileFinder(BaseFinder):
         The find_executables argument determines whether the finder needs to
         try to guess whether files are executables. Disabling this guessing
         when not necessary can speed up the finder significantly.
+
+        ``preserve_executables`` accepts paths that must be copied as regular
+        files even if executable detection succeeds.
 
         ``ignore`` accepts an iterable of patterns to ignore. Entries are
         strings that match paths relative to ``base`` using
@@ -1049,6 +1053,9 @@ class FileFinder(BaseFinder):
         BaseFinder.__init__(self, base, **kargs)
         self.find_dotfiles = find_dotfiles
         self.find_executables = find_executables
+        self.preserve_executables = tuple(
+            mozpath.normsep(path) for path in preserve_executables
+        )
         self.ignore = tuple(mozpath.normsep(path) for path in ignore)
         self.ignore_broken_symlinks = ignore_broken_symlinks
 
@@ -1101,7 +1108,10 @@ class FileFinder(BaseFinder):
             if mozpath.match(path, p):
                 return None
 
-        if self.find_executables and is_executable(srcpath):
+        preserve_executable = any(
+            mozpath.match(path, pattern) for pattern in self.preserve_executables
+        )
+        if self.find_executables and not preserve_executable and is_executable(srcpath):
             return ExecutableFile(srcpath)
         else:
             return File(srcpath)
