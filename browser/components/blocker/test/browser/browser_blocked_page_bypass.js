@@ -300,6 +300,8 @@ add_task(
         "Normal bypass checks should not see the private exception"
       );
 
+      Cu.forceGC();
+      Cu.forceCC();
       await closePrivateWindowAndWait(privateWin);
       privateWin = null;
 

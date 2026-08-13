@@ -14,26 +14,19 @@ export const PERMISSION_TYPE = "wildbuzzard-blocker";
 export const PERMISSION_TYPE_PB = "wildbuzzard-blocker-pb";
 
 let pbContextObserverRegistered = false;
+const pbContextObserver = {
+  observe(subject, topic) {
+    if (topic === "last-pb-context-exited") {
+      Services.perms.removeByType(PERMISSION_TYPE_PB);
+    }
+  },
+};
 
 function maybeRegisterPbContextObserver() {
   if (pbContextObserverRegistered) {
     return;
   }
-  Services.obs.addObserver(
-    {
-      QueryInterface: ChromeUtils.generateQI([
-        "nsIObserver",
-        "nsISupportsWeakReference",
-      ]),
-      observe(subject, topic) {
-        if (topic === "last-pb-context-exited") {
-          Services.perms.removeByType(PERMISSION_TYPE_PB);
-        }
-      },
-    },
-    "last-pb-context-exited",
-    true
-  );
+  Services.obs.addObserver(pbContextObserver, "last-pb-context-exited");
   pbContextObserverRegistered = true;
 }
 
