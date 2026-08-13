@@ -1,2 +1,2 @@
 # Patches are applied in order by the host-native runtime builder.
-
+0001-add-private-wildbuzzard-runtime.patch

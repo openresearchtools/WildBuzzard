@@ -33,4 +33,4 @@ shared = false
 python_bindings = false
 tests = false
 examples = false
-
+boost_source_lock = "boost-source.lock.json"

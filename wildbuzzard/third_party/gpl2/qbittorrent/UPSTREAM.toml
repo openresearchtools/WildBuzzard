@@ -28,7 +28,7 @@ signed_at = 1783372069
 
 [downstream]
 patch_series = "patches/series"
+patch_series_sha256 = "5088d2b03aca0107d080a08736b062e70ef455770eb5cf7138e4c7f2eb9cb94d"
 transport = "private-unix-domain-socket"
 search_provider = "jackett-mini"
 python_search_plugins = false
-

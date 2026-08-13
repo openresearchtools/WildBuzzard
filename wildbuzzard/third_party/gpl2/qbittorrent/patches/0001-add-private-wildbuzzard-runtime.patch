@@ -1,0 +1,433 @@
+diff --git a/cmake/Modules/CheckPackages.cmake b/cmake/Modules/CheckPackages.cmake
+index 6b082ea1190ace4ba4c1bfd30ecae037f7527b0d..4650975e6b800083fa0698a14e309e344ad95a95 100644
+--- a/cmake/Modules/CheckPackages.cmake
++++ b/cmake/Modules/CheckPackages.cmake
+@@ -49,4 +49 @@ find_package(ZLIB ${minZlibVersion} REQUIRED)
+-find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Core Network Sql Xml LinguistTools)
+-if (Qt6_FOUND AND (Qt6_VERSION VERSION_GREATER_EQUAL 6.10))
+-    find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS CorePrivate)
+-endif()
++find_package(Qt6 ${minQt6Version} REQUIRED COMPONENTS Core Network Sql Xml)
+diff --git a/src/app/CMakeLists.txt b/src/app/CMakeLists.txt
+index 1b222ee060ffc23966331321fd5683a9018982d5..24d4a599246b3a82c8123a86df6b284f693b4cdd 100644
+--- a/src/app/CMakeLists.txt
++++ b/src/app/CMakeLists.txt
+@@ -2,10 +2,17 @@ file(GLOB QBT_TS_FILES "${qBittorrent_SOURCE_DIR}/src/lang/*.ts")
+-# Custom target to update .ts files and include new strings from source files
+-# Depends on Qt's LinguistTools
+-get_target_property(QT_LUPDATE_EXECUTABLE Qt::lupdate IMPORTED_LOCATION)
+-add_custom_target(qbt_update_translations
+-                    COMMAND ${QT_LUPDATE_EXECUTABLE} -extensions ui,c,c++,cc,cpp,cxx,ch,h,h++,hh,hpp,hxx
+-                                                     ${qBittorrent_SOURCE_DIR}
+-                                                     -ts ${QBT_TS_FILES}
+-                    WORKING_DIRECTORY "${qBittorrent_SOURCE_DIR}"
+-                    VERBATIM
+-                    COMMAND_EXPAND_LISTS)
++find_program(QT_LRELEASE_EXECUTABLE NAMES lrelease lrelease-qt6 REQUIRED)
++
++function(qbt_add_translation_files output_variable output_directory)
++    set(outputs)
++    foreach(ts_file IN LISTS ARGN)
++        get_filename_component(name "${ts_file}" NAME_WE)
++        set(output "${output_directory}/${name}.qm")
++        add_custom_command(
++            OUTPUT "${output}"
++            COMMAND "${QT_LRELEASE_EXECUTABLE}" -removeidentical -silent "${ts_file}" -qm "${output}"
++            DEPENDS "${ts_file}"
++            VERBATIM
++        )
++        list(APPEND outputs "${output}")
++    endforeach()
++    set(${output_variable} "${outputs}" PARENT_SCOPE)
++endfunction()
+@@ -17,2 +24 @@ add_custom_target(qbt_update_translations
+-set_source_files_properties(${QBT_TS_FILES} PROPERTIES OUTPUT_LOCATION "${qBittorrent_BINARY_DIR}/src/lang")
+-qt_add_translation(QBT_QM_FILES ${QBT_TS_FILES} OPTIONS -removeidentical -silent)
++qbt_add_translation_files(QBT_QM_FILES "${qBittorrent_BINARY_DIR}/src/lang" ${QBT_TS_FILES})
+@@ -23,3 +29,2 @@ if (WEBUI)
+-    set_source_files_properties(${QBT_WEBUI_TS_FILES}
+-        PROPERTIES OUTPUT_LOCATION "${qBittorrent_BINARY_DIR}/src/webui/www/translations")
+-    qt_add_translation(QBT_WEBUI_QM_FILES ${QBT_WEBUI_TS_FILES} OPTIONS -removeidentical -silent)
++    qbt_add_translation_files(QBT_WEBUI_QM_FILES
++        "${qBittorrent_BINARY_DIR}/src/webui/www/translations" ${QBT_WEBUI_TS_FILES})
+diff --git a/src/app/application.cpp b/src/app/application.cpp
+index 62da9eb24f8c711f1eb2d73d2d3e9de2a36705ef..b8f481a5c913bf2cc0fa34106b81ff29d25c86f6 100644
+--- a/src/app/application.cpp
++++ b/src/app/application.cpp
+@@ -967,0 +968 @@ int Application::exec()
++        const bool wildBuzzardMode = !qEnvironmentVariableIsEmpty("WILDBUZZARD_QBITTORRENT_SOCKET");
+@@ -969 +970 @@ int Application::exec()
+-        const QString tempPassword = pref->getWebUIPassword().isEmpty()
++        const QString tempPassword = !wildBuzzardMode && pref->getWebUIPassword().isEmpty()
+@@ -987,5 +988,12 @@ int Application::exec()
+-            const QHostAddress address = m_webui->hostAddress();
+-            const QString url = u"%1://%2:%3"_s.arg((m_webui->isHttps() ? u"https"_s : u"http"_s)
+-                    , (address.isEqual(QHostAddress::Any, QHostAddress::ConvertUnspecifiedAddress) ? u"localhost"_s : address.toString())
+-                    , QString::number(m_webui->port()));
+-            printf("%s\n", qUtf8Printable(tr("To control qBittorrent, access the WebUI at: %1").arg(url)));
++            if (wildBuzzardMode)
++            {
++                printf("%s\n", qUtf8Printable(tr("The WebUI is available through WildBuzzard.")));
++            }
++            else
++            {
++                const QHostAddress address = m_webui->hostAddress();
++                const QString url = u"%1://%2:%3"_s.arg((m_webui->isHttps() ? u"https"_s : u"http"_s)
++                        , (address.isEqual(QHostAddress::Any, QHostAddress::ConvertUnspecifiedAddress) ? u"localhost"_s : address.toString())
++                        , QString::number(m_webui->port()));
++                printf("%s\n", qUtf8Printable(tr("To control qBittorrent, access the WebUI at: %1").arg(url)));
++            }
+diff --git a/src/base/CMakeLists.txt b/src/base/CMakeLists.txt
+index 4f792ae798342f326091f5e42261191e960adc52..678232a69b6dcc2cb10651a85b6d2c7a97197750 100644
+--- a/src/base/CMakeLists.txt
++++ b/src/base/CMakeLists.txt
+@@ -234,5 +234,4 @@ target_link_libraries(qbt_base
+-        Qt::Core
+-        Qt::CorePrivate
+-        Qt::Network
+-        Qt::Sql
+-        Qt::Xml
++        Qt6::Core
++        Qt6::Network
++        Qt6::Sql
++        Qt6::Xml
+@@ -241,0 +241,2 @@ target_link_libraries(qbt_base
++target_compile_definitions(qbt_base PUBLIC QBT_USE_QCOLLATOR=1)
++
+@@ -272 +273 @@ if (DBUS)
+-    target_link_libraries(qbt_base PUBLIC Qt::DBus)
++    target_link_libraries(qbt_base PUBLIC Qt6::DBus)
+diff --git a/src/base/http/connection.cpp b/src/base/http/connection.cpp
+index ef32859688fcc910c14aed363c7c722ea6ff3a08..e9a2a65877e74e0cb8f7c19a01d4b6c232f12790 100644
+--- a/src/base/http/connection.cpp
++++ b/src/base/http/connection.cpp
+@@ -34,0 +35 @@
++#include <QIODevice>
+@@ -37 +37,0 @@
+-#include <QTcpSocket>
+@@ -45 +45,2 @@ using namespace Http;
+-Connection::Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObject *parent)
++Connection::Connection(QIODevice *socket, const Environment &environment, QString peerName
++        , IRequestHandler *requestHandler, QObject *parent)
+@@ -47,0 +49,2 @@ Connection::Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObj
++    , m_environment(environment)
++    , m_peerName(std::move(peerName))
+@@ -51 +54 @@ Connection::Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObj
+-    connect(m_socket, &QAbstractSocket::disconnected, this, &Connection::closed);
++    connect(m_socket, SIGNAL(disconnected()), this, SIGNAL(closed()));
+@@ -97 +100 @@ void Connection::read()
+-                        .arg(QString::number(bufferLimit), m_socket->peerAddress().toString())));
++                        .arg(QString::number(bufferLimit), m_peerName)));
+@@ -111 +114 @@ void Connection::read()
+-                    .arg(m_socket->peerAddress().toString(), result.request.method)));
++                    .arg(m_peerName, result.request.method)));
+@@ -124 +127 @@ void Connection::read()
+-                    .arg(m_socket->peerAddress().toString())));
++                    .arg(m_peerName)));
+@@ -136,2 +138,0 @@ void Connection::read()
+-                const Environment env {m_socket->localAddress(), m_socket->localPort(), m_socket->peerAddress(), m_socket->peerPort()};
+-
+@@ -143 +144 @@ void Connection::read()
+-                    Response resp = m_requestHandler->processRequest(getRequest, env);
++                    Response resp = m_requestHandler->processRequest(getRequest, m_environment);
+@@ -153 +154 @@ void Connection::read()
+-                    Response resp = m_requestHandler->processRequest(result.request, env);
++                    Response resp = m_requestHandler->processRequest(result.request, m_environment);
+diff --git a/src/base/http/connection.h b/src/base/http/connection.h
+index 9a73650826a4b74e89f4bfae751d42c6b22f0c47..f59660be8ffac207092b1938331d26d3214e9785 100644
+--- a/src/base/http/connection.h
++++ b/src/base/http/connection.h
+@@ -35 +35,3 @@
+-class QTcpSocket;
++class QIODevice;
++
++#include "types.h"
+@@ -48 +50,2 @@ namespace Http
+-        Connection(QTcpSocket *socket, IRequestHandler *requestHandler, QObject *parent = nullptr);
++        Connection(QIODevice *socket, const Environment &environment, QString peerName
++            , IRequestHandler *requestHandler, QObject *parent = nullptr);
+@@ -60 +63,3 @@ namespace Http
+-        QTcpSocket *m_socket = nullptr;
++        QIODevice *m_socket = nullptr;
++        const Environment m_environment;
++        const QString m_peerName;
+diff --git a/src/base/http/server.cpp b/src/base/http/server.cpp
+index 98565046edc2113050b80644395d7ac5be19fbe7..6b9a47e39b77a807fcb1a35a9e33ad33f1b56315 100644
+--- a/src/base/http/server.cpp
++++ b/src/base/http/server.cpp
+@@ -38,0 +39,3 @@
++#include <QFile>
++#include <QLocalServer>
++#include <QLocalSocket>
+@@ -103,0 +107 @@ Server::Server(IRequestHandler *requestHandler, QObject *parent)
++    , m_localServer(new QLocalServer(this))
+@@ -110,0 +115,2 @@ Server::Server(IRequestHandler *requestHandler, QObject *parent)
++    connect(m_localServer, &QLocalServer::newConnection, this, &Server::acceptLocalConnections);
++
+@@ -137 +143,3 @@ void Server::incomingConnection(const qintptr socketDescriptor)
+-        auto *connection = new Connection(serverSocket.release(), m_requestHandler, this);
++        QTcpSocket *socket = serverSocket.release();
++        const Environment environment {socket->localAddress(), socket->localPort(), socket->peerAddress(), socket->peerPort()};
++        auto *connection = new Connection(socket, environment, socket->peerAddress().toString(), m_requestHandler, this);
+@@ -148,0 +157,83 @@ void Server::incomingConnection(const qintptr socketDescriptor)
++void Server::acceptLocalConnections()
++{
++    while (m_localServer->hasPendingConnections())
++    {
++        std::unique_ptr<QLocalSocket> socket {m_localServer->nextPendingConnection()};
++        if (!socket)
++            return;
++
++        if (m_connections.size() >= CONNECTIONS_LIMIT)
++        {
++            qWarning("Too many connections. Exceeded CONNECTIONS_LIMIT (%d). Connection closed.", CONNECTIONS_LIMIT);
++            continue;
++        }
++
++        try
++        {
++            const Environment environment {QHostAddress::LocalHost, 0, QHostAddress::LocalHost, 0};
++            auto *connection = new Connection(socket.release(), environment, u"local"_s, m_requestHandler, this);
++            m_connections.insert(connection);
++            connect(connection, &Connection::closed, this, [this, connection] { removeConnection(connection); });
++        }
++        catch (const std::bad_alloc &)
++        {
++            qWarning("Failed to allocate memory for HTTP connection. Connection closed.");
++        }
++    }
++}
++
++bool Server::listenLocal(const QString &socketPath)
++{
++    QTcpServer::close();
++    m_localServer->close();
++    m_localServer->setSocketOptions(QLocalServer::UserAccessOption);
++    m_localMode = true;
++    if (!m_localServer->listen(socketPath))
++        return false;
++    if (!QFile::setPermissions(socketPath, QFileDevice::ReadOwner | QFileDevice::WriteOwner))
++    {
++        m_localServer->close();
++        QLocalServer::removeServer(socketPath);
++        return false;
++    }
++    return true;
++}
++
++bool Server::listen(const QHostAddress &address, const quint16 port)
++{
++    m_localServer->close();
++    m_localMode = false;
++    return QTcpServer::listen(address, port);
++}
++
++void Server::close()
++{
++    QTcpServer::close();
++    m_localServer->close();
++}
++
++bool Server::isListening() const
++{
++    return m_localMode ? m_localServer->isListening() : QTcpServer::isListening();
++}
++
++QString Server::errorString() const
++{
++    return m_localMode ? m_localServer->errorString() : QTcpServer::errorString();
++}
++
++QHostAddress Server::serverAddress() const
++{
++    return m_localMode ? QHostAddress::LocalHost : QTcpServer::serverAddress();
++}
++
++quint16 Server::serverPort() const
++{
++    return m_localMode ? 0 : QTcpServer::serverPort();
++}
++
++bool Server::isLocal() const
++{
++    return m_localMode;
++}
++
+diff --git a/src/base/http/server.h b/src/base/http/server.h
+index 61c9563875f14d5fccfeabfe28ca17403908a176..4924601f2af51fcc954eddb756e9dc921fd460db 100644
+--- a/src/base/http/server.h
++++ b/src/base/http/server.h
+@@ -36,0 +37,2 @@
++class QLocalServer;
++
+@@ -49,0 +52,9 @@ namespace Http
++        bool listen(const QHostAddress &address, quint16 port = 0);
++        bool listenLocal(const QString &socketPath);
++        void close();
++        bool isListening() const;
++        QString errorString() const;
++        QHostAddress serverAddress() const;
++        quint16 serverPort() const;
++        bool isLocal() const;
++
+@@ -58,0 +70 @@ namespace Http
++        void acceptLocalConnections();
+@@ -62,0 +75,2 @@ namespace Http
++        QLocalServer *m_localServer = nullptr;
++        bool m_localMode = false;
+diff --git a/src/base/utils/compare.h b/src/base/utils/compare.h
+index bf222fc1eefd66baa7847cb1ea6ff4ef561b5e36..367fbfa7070e50f9565bcb83e7f4ef13f3f80fc0 100644
+--- a/src/base/utils/compare.h
++++ b/src/base/utils/compare.h
+@@ -34,3 +33,0 @@
+-// for QT_FEATURE_xxx, see: https://wiki.qt.io/Qt5_Build_System#How_to
+-#include <QtCore/private/qtcore-config_p.h>
+-
+@@ -38,8 +34,0 @@
+-// macOS and Windows support 'case sensitivity' and 'numeric mode' natively
+-// https://github.com/qt/qtbase/blob/6.0/src/corelib/CMakeLists.txt#L777-L793
+-// https://github.com/qt/qtbase/blob/6.0/src/corelib/text/qcollator_macx.cpp#L74-L77
+-// https://github.com/qt/qtbase/blob/6.0/src/corelib/text/qcollator_win.cpp#L72-L78
+-#if ((QT_FEATURE_icu == 1) || defined(Q_OS_MACOS) || defined(Q_OS_WIN))
+-#define QBT_USE_QCOLLATOR 1
+-#include <QCollator>
+-#else
+@@ -47,0 +37,3 @@
++
++#if (QBT_USE_QCOLLATOR == 1)
++#include <QCollator>
+diff --git a/src/gui/CMakeLists.txt b/src/gui/CMakeLists.txt
+index a0625dc312514c81cf36dca04e4f1acc3c13de75..ea130a8153ddd86b49fb7ec6722042a07462d642 100644
+--- a/src/gui/CMakeLists.txt
++++ b/src/gui/CMakeLists.txt
+@@ -264 +264 @@ target_link_libraries(qbt_gui
+-        Qt::Gui Qt::Widgets
++        Qt6::Gui Qt6::Widgets
+diff --git a/src/webui/webapplication.cpp b/src/webui/webapplication.cpp
+index 91d9c80fd1c8615e690c6888434c742579a541a9..887df3c829a769dd17968b8505f29f5a65484a73 100644
+--- a/src/webui/webapplication.cpp
++++ b/src/webui/webapplication.cpp
+@@ -316 +316 @@ void WebApplication::doProcessRequest(const bool isUsingApiKey)
+-        if (isUsingApiKey)
++        if (isUsingApiKey && !session())
+@@ -435,0 +436,2 @@ void WebApplication::configure()
++    const QString apiKeyPath = qEnvironmentVariable("WILDBUZZARD_QBITTORRENT_API_KEY_FILE");
++    const bool wildBuzzardMode = !qEnvironmentVariableIsEmpty("WILDBUZZARD_QBITTORRENT_SOCKET");
+@@ -468,2 +470,2 @@ void WebApplication::configure()
+-    m_isLocalAuthEnabled = pref->isWebUILocalAuthEnabled();
+-    m_isAuthSubnetWhitelistEnabled = pref->isWebUIAuthSubnetWhitelistEnabled();
++    m_isLocalAuthEnabled = wildBuzzardMode || pref->isWebUILocalAuthEnabled();
++    m_isAuthSubnetWhitelistEnabled = !wildBuzzardMode && pref->isWebUIAuthSubnetWhitelistEnabled();
+@@ -482 +484 @@ void WebApplication::configure()
+-    m_isCSRFProtectionEnabled = pref->isWebUICSRFProtectionEnabled();
++    m_isCSRFProtectionEnabled = !wildBuzzardMode && pref->isWebUICSRFProtectionEnabled();
+@@ -484,2 +486,2 @@ void WebApplication::configure()
+-    m_isHostHeaderValidationEnabled = pref->isWebUIHostHeaderValidationEnabled();
+-    m_isHttpsEnabled = pref->isWebUIHttpsEnabled();
++    m_isHostHeaderValidationEnabled = !wildBuzzardMode && pref->isWebUIHostHeaderValidationEnabled();
++    m_isHttpsEnabled = !wildBuzzardMode && pref->isWebUIHttpsEnabled();
+@@ -563 +565,9 @@ void WebApplication::configure()
+-    if (const QString apiKey = pref->getWebUIApiKey(); apiKey.isEmpty() || Utils::APIKey::isValid(apiKey))
++    if (wildBuzzardMode)
++    {
++        const auto key = Utils::IO::readFile(Path(apiKeyPath), 128);
++        m_apiKey = key ? QString::fromUtf8(key.value()).trimmed() : QString();
++        if (!Utils::APIKey::isValid(m_apiKey))
++            m_apiKey.clear();
++    }
++    else if (const QString apiKey = pref->getWebUIApiKey(); apiKey.isEmpty() || Utils::APIKey::isValid(apiKey))
++    {
+@@ -564,0 +575 @@ void WebApplication::configure()
++    }
+diff --git a/src/webui/webui.cpp b/src/webui/webui.cpp
+index fc177d56bfec06c3da5d07f39d244f9b2cd48306..3d7a021d960d93da0d61c86fce255762abd2cb94 100644
+--- a/src/webui/webui.cpp
++++ b/src/webui/webui.cpp
+@@ -39,0 +40 @@
++#include "base/utils/apikey.h"
+@@ -42,0 +44,39 @@
++#include <QFileInfo>
++
++#ifdef Q_OS_UNIX
++#include <unistd.h>
++#endif
++
++namespace
++{
++    bool privatePath(const QString &path, const bool directory)
++    {
++#ifdef Q_OS_UNIX
++        const QFileInfo info {path};
++        return info.isAbsolute() && !info.isSymLink() && (info.ownerId() == geteuid())
++            && (info.permissions() & (QFileDevice::ReadGroup | QFileDevice::WriteGroup | QFileDevice::ExeGroup
++                | QFileDevice::ReadOther | QFileDevice::WriteOther | QFileDevice::ExeOther)) == 0
++            && (directory ? info.isDir() : info.isFile());
++#else
++        Q_UNUSED(path);
++        Q_UNUSED(directory);
++        return false;
++#endif
++    }
++
++    bool validWildBuzzardConfiguration(const QString &socketPath, const bool socketIsOwned)
++    {
++        if (socketPath.toUtf8().size() > 100 || (QFileInfo::exists(socketPath) && !socketIsOwned)
++            || !privatePath(QFileInfo(socketPath).absolutePath(), true))
++        {
++            return false;
++        }
++
++        const QString keyPath = qEnvironmentVariable("WILDBUZZARD_QBITTORRENT_API_KEY_FILE");
++        if (!privatePath(keyPath, false))
++            return false;
++        const auto key = Utils::IO::readFile(Path(keyPath), 128);
++        return key && Utils::APIKey::isValid(QString::fromUtf8(key.value()).trimmed());
++    }
++}
++
+@@ -56,0 +97,2 @@ void WebUI::configure()
++    const QString socketPath = qEnvironmentVariable("WILDBUZZARD_QBITTORRENT_SOCKET");
++    const bool wildBuzzardMode = !socketPath.isEmpty();
+@@ -58 +100 @@ void WebUI::configure()
+-    m_isEnabled = pref->isWebUIEnabled();
++    m_isEnabled = wildBuzzardMode || pref->isWebUIEnabled();
+@@ -67 +109 @@ void WebUI::configure()
+-    if (m_isEnabled && (username.isEmpty() || passwordHash.isEmpty()))
++    if (m_isEnabled && !wildBuzzardMode && (username.isEmpty() || passwordHash.isEmpty()))
+@@ -70,0 +113,3 @@ void WebUI::configure()
++    const bool socketIsOwned = m_httpServer && m_httpServer->isLocal() && m_httpServer->isListening();
++    if (wildBuzzardMode && !validWildBuzzardConfiguration(socketPath, socketIsOwned))
++        setError(tr("Invalid WildBuzzard WebUI configuration"));
+@@ -80 +125 @@ void WebUI::configure()
+-        if (pref->useUPnPForWebUIPort())
++        if (!wildBuzzardMode && pref->useUPnPForWebUIPort())
+@@ -101 +146,3 @@ void WebUI::configure()
+-            if ((m_httpServer->serverAddress() != serverAddress) || (m_httpServer->serverPort() != port))
++            if ((!wildBuzzardMode && (m_httpServer->isLocal()
++                    || (m_httpServer->serverAddress() != serverAddress) || (m_httpServer->serverPort() != port)))
++                || (wildBuzzardMode && !m_httpServer->isLocal()))
+@@ -108 +155 @@ void WebUI::configure()
+-        if (pref->isWebUIHttpsEnabled())
++        if (!wildBuzzardMode && pref->isWebUIHttpsEnabled())
+@@ -131 +178,3 @@ void WebUI::configure()
+-            const bool success = m_httpServer->listen(serverAddress, port);
++            const bool success = wildBuzzardMode
++                ? m_httpServer->listenLocal(socketPath)
++                : m_httpServer->listen(serverAddress, port);
+@@ -134 +183,4 @@ void WebUI::configure()
+-                LogMsg(tr("WebUI: Now listening on IP: %1, port: %2").arg(serverAddressString).arg(port));
++                if (wildBuzzardMode)
++                    LogMsg(tr("WebUI: Now listening on private local socket"));
++                else
++                    LogMsg(tr("WebUI: Now listening on IP: %1, port: %2").arg(serverAddressString).arg(port));
+@@ -138,2 +190,5 @@ void WebUI::configure()
+-                setError(tr("Unable to bind to IP: %1, port: %2. Reason: %3")
+-                        .arg(serverAddressString).arg(port).arg(m_httpServer->errorString()));
++                if (wildBuzzardMode)
++                    setError(tr("Unable to bind private local socket. Reason: %1").arg(m_httpServer->errorString()));
++                else
++                    setError(tr("Unable to bind to IP: %1, port: %2. Reason: %3")
++                            .arg(serverAddressString).arg(port).arg(m_httpServer->errorString()));
+@@ -144 +199 @@ void WebUI::configure()
+-        if (pref->isDynDNSEnabled())
++        if (!wildBuzzardMode && pref->isDynDNSEnabled())
