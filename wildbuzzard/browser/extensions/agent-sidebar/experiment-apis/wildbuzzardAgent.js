@@ -23,7 +23,7 @@ const { BrowserControl } = ChromeUtils.importESModule(
   "chrome://remote/content/wildbuzzard/BrowserControl.sys.mjs"
 );
 const { CryptoUtils } = ChromeUtils.importESModule(
-  "resource://services-crypto/utils.sys.mjs"
+  "moz-src:///services/crypto/modules/utils.sys.mjs"
 );
 const { setAgentEndpoint } = ChromeUtils.importESModule(
   "resource:///modules/WildBuzzardAgentURL.sys.mjs"
