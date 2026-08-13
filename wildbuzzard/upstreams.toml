@@ -64,6 +64,17 @@ binary_license = "GPL-3.0-or-later"
 path = "wildbuzzard/third_party/gpl2/qbittorrent"
 role = "source-built-headless-torrent-client"
 
+[libtorrent]
+remote = "https://github.com/arvidn/libtorrent.git"
+ref = "v2.0.14"
+commit = "aab2a10e2f60d9eac78e885a696736d043527794"
+git_tree = "12e2e374948c6000909d627f453688e83ba42b60"
+version = "2.0.14"
+source_sha256 = "6aa999446ea679818e816c15c1e0d72f9ebe3e2cdd70aa2c8615388a3a04fccd"
+license = "BSD-3-Clause"
+path = "wildbuzzard/third_party/bsd3/libtorrent"
+role = "statically-linked-qbittorrent-protocol-engine"
+
 [searxng]
 remote = "https://github.com/searxng/searxng.git"
 ref = "b023a28bab8839dba9eac96e9a51cc91bbd0a267"
