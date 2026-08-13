@@ -51,6 +51,19 @@ license = "GPL-2.0-only"
 path = "wildbuzzard/third_party/gpl2/jackett"
 role = "source-built-read-only-torrent-discovery-service"
 
+[qbittorrent]
+remote = "https://github.com/qbittorrent/qBittorrent.git"
+ref = "release-5.2.3"
+tag_object = "70e16de46cd559a7db3e6d7faace5e40b86f63dc"
+commit = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf"
+git_tree = "cc5c624002edb2d817c826de57b3accf2e607439"
+version = "5.2.3"
+source_sha256 = "e3656e156f08645db67f4f9c2eaab6a7a094791d91e7559d983228edac10ab55"
+license = "GPL-2.0-or-later"
+binary_license = "GPL-3.0-or-later"
+path = "wildbuzzard/third_party/gpl2/qbittorrent"
+role = "source-built-headless-torrent-client"
+
 [searxng]
 remote = "https://github.com/searxng/searxng.git"
 ref = "b023a28bab8839dba9eac96e9a51cc91bbd0a267"

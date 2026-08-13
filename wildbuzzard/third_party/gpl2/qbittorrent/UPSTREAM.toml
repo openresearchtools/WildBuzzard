@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+schema = 1
+name = "qBittorrent"
+version = "5.2.3"
+repository = "https://github.com/qbittorrent/qBittorrent.git"
+release = "https://github.com/qbittorrent/qBittorrent/releases/tag/release-5.2.3"
+tag = "release-5.2.3"
+tag_object = "70e16de46cd559a7db3e6d7faace5e40b86f63dc"
+commit = "0b63c3d17373f6132ea211c9dcd4241284ccdfaf"
+git_tree = "cc5c624002edb2d817c826de57b3accf2e607439"
+source_date_epoch = 1783372054
+source_tree = "upstream"
+source_files = 1722
+source_bytes = 60917265
+git_archive_sha256 = "e3656e156f08645db67f4f9c2eaab6a7a094791d91e7559d983228edac10ab55"
+license = "GPL-2.0-or-later"
+binary_license = "GPL-3.0-or-later"
+license_file = "upstream/COPYING"
+license_sha256 = "e675cd856f9817474455200ba7e6f5b7cc42d6598a5eecbbbdaa0e6fd304d6b7"
+
+[signature]
+kind = "openpgp-annotated-tag"
+status = "good"
+fingerprint = "D8F3DA77AAC6741053599C136E4A2D025B7CC9A2"
+key_file = "upstream/5B7CC9A2.asc"
+signed_at = 1783372069
+
+[downstream]
+patch_series = "patches/series"
+transport = "private-unix-domain-socket"
+search_provider = "jackett-mini"
+python_search_plugins = false
+
