@@ -578,11 +578,7 @@ class PiWebManager {
     await IOUtils.setPermissions(staging, 0o700);
     const zip = new ZipReader(new LocalFile(retained.path));
     try {
-      for (const entry of zip.findEntries(null)) {
-        const metadata = bundle.centralEntries.get(entry);
-        if (!metadata) {
-          throw new Error(`Unindexed path in Pi Web runtime: ${entry}`);
-        }
+      for (const [entry, metadata] of bundle.centralEntries) {
         const isDirectory = metadata.directory;
         const path = isDirectory ? entry.slice(0, -1) : entry;
         const parts = path.split("/");

@@ -234,6 +234,11 @@ class ShippingContractTests(unittest.TestCase):
             'Cu.importGlobalProperties(["TextDecoder", "TextEncoder"]);',
             agent_experiment,
         )
+        self.assertIn(
+            "for (const [entry, metadata] of bundle.centralEntries)",
+            agent_experiment,
+        )
+        self.assertNotIn("zip.findEntries(null)", agent_experiment)
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
             "runtime/torrent/wildbuzzard-torrent-runtime.zip",
