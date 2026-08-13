@@ -372,7 +372,9 @@ function requestHealth(record, timeout = 1000) {
 }
 
 async function processStartTime(pid) {
-  const value = await IOUtils.readUTF8(`/proc/${pid}/stat`);
+  const value = new TextDecoder().decode(
+    await IOUtils.read(`/proc/${pid}/stat`, { maxBytes: 16 * 1024 })
+  );
   const closingParenthesis = value.lastIndexOf(")");
   const fields = value
     .slice(closingParenthesis + 2)
@@ -699,11 +701,7 @@ export class JackettMiniRuntime {
     });
     const zip = new ZipReader(new LocalFile(archivePath));
     try {
-      for (const entry of zip.findEntries(null)) {
-        const metadata = bundle.centralEntries.get(entry);
-        if (!metadata) {
-          throw new Error(`Unindexed Jackett Mini runtime path: ${entry}`);
-        }
+      for (const [entry, metadata] of bundle.centralEntries) {
         const path = metadata.directory ? entry.slice(0, -1) : entry;
         const target = PathUtils.join(staging, ...path.split("/"));
         if (metadata.directory) {
@@ -724,7 +722,9 @@ export class JackettMiniRuntime {
         const stream = zip.getInputStream(entry);
         let bytes;
         try {
-          bytes = NetUtil.readInputStream(stream, zipEntry.realSize);
+          bytes = new Uint8Array(
+            NetUtil.readInputStream(stream, zipEntry.realSize)
+          );
         } finally {
           stream.close();
         }

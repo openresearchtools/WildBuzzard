@@ -1,5 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+import { clearTimeout, setTimeout } from "resource://gre/modules/Timer.sys.mjs";
+
 const OPAQUE_ID = /^[A-Za-z0-9_-]{32}$/;
 const SEARCH_TTL_MS = 60 * 60 * 1000;
 const MAX_RESULTS = 100;
@@ -398,7 +400,7 @@ export class TorrentAgentToolController {
         signal?.addEventListener("abort", abort, { once: true });
       });
       const timeout = new Promise((resolve, reject) => {
-        timer = globalThis.setTimeout(() => {
+        timer = setTimeout(() => {
           this.discoveryManager.cancelSearch();
           reject(new Error("Torrent search timed out"));
         }, args.timeoutMs);
@@ -458,7 +460,7 @@ export class TorrentAgentToolController {
       }
       throw new Error("Torrent search failed");
     } finally {
-      globalThis.clearTimeout(timer);
+      clearTimeout(timer);
       signal?.removeEventListener("abort", abort);
     }
   }

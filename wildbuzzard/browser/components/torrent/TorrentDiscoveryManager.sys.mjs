@@ -104,10 +104,7 @@ function sanitizeSearch(response) {
       !["magnet", "torrent"].includes(result.acquisition) ||
       !Array.isArray(result.categoryIds) ||
       result.categoryIds.some(
-        category =>
-          !Number.isSafeInteger(category) ||
-          category < 0 ||
-          (category >= 6000 && category <= 6999)
+        category => !Number.isSafeInteger(category) || category < 0
       )
     ) {
       throw invalidResponse();

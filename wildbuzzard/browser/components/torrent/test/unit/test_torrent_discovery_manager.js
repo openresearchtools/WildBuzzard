@@ -141,11 +141,13 @@ add_task(async function test_bounded_sanitized_product_contract() {
   Assert.ok(!("capability" in result));
 });
 
-add_task(async function test_adult_category_fails_closed() {
+add_task(async function test_eligible_provider_categories_are_preserved() {
   searchMode = "adult";
-  await Assert.rejects(
-    TorrentDiscoveryManager.search({ query: "linux iso" }),
-    /invalid response/
+  const result = await TorrentDiscoveryManager.search({ query: "linux iso" });
+  Assert.deepEqual(
+    result.results[0].categoryIds,
+    [6000],
+    "The Firefox bridge does not censor categories from eligible providers"
   );
   searchMode = "valid";
 });

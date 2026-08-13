@@ -243,6 +243,32 @@ class ShippingContractTests(unittest.TestCase):
             "bytes = new Uint8Array(\n            NetUtil.readInputStream",
             agent_experiment,
         )
+        jackett_runtime = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "components"
+            / "torrent"
+            / "JackettMiniRuntime.sys.mjs"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("zip.findEntries(null)", jackett_runtime)
+        self.assertIn(
+            "for (const [entry, metadata] of bundle.centralEntries)", jackett_runtime
+        )
+        self.assertIn(
+            "bytes = new Uint8Array(\n            NetUtil.readInputStream",
+            jackett_runtime,
+        )
+        self.assertIn(
+            "IOUtils.read(`/proc/${pid}/stat`, { maxBytes: 16 * 1024 })",
+            jackett_runtime,
+        )
+        self.assertNotIn("IOUtils.readUTF8(`/proc/${pid}/stat`)", jackett_runtime)
+        torrent_agent = (
+            CHECKOUT / "remote" / "wildbuzzard" / "TorrentAgentTools.sys.mjs"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("globalThis.clearTimeout", torrent_agent)
+        self.assertIn('from "resource://gre/modules/Timer.sys.mjs"', torrent_agent)
         self.assertIn("commandExecutable.normalize();", agent_experiment)
         self.assertIn("commandScript.normalize();", agent_experiment)
         self.assertIn(
