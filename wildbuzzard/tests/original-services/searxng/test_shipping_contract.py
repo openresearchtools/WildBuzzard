@@ -243,6 +243,8 @@ class ShippingContractTests(unittest.TestCase):
             "bytes = new Uint8Array(\n            NetUtil.readInputStream",
             agent_experiment,
         )
+        self.assertIn("commandExecutable.normalize();", agent_experiment)
+        self.assertIn("commandScript.normalize();", agent_experiment)
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
             "runtime/torrent/wildbuzzard-torrent-runtime.zip",

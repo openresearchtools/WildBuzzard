@@ -1065,11 +1065,15 @@ class PiWebManager {
       );
       const executable = new LocalFile(`/proc/${pid}/exe`);
       executable.normalize();
+      const commandExecutable = new LocalFile(commandLine[0]);
+      commandExecutable.normalize();
+      const commandScript = new LocalFile(commandLine[1]);
+      commandScript.normalize();
       return (
         executable.path === node &&
         commandLine.length === 2 &&
-        commandLine[0] === node &&
-        commandLine[1] === script
+        commandExecutable.path === node &&
+        commandScript.path === script
       );
     } catch {
       return false;
