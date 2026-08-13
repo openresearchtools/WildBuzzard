@@ -26,3 +26,18 @@ export function agentEndpointURI() {
     return null;
   }
 }
+
+export function isAgentPageURL(value) {
+  if (value === AGENT_PAGE_URL) {
+    return true;
+  }
+  const currentEndpoint = agentEndpointURI();
+  if (!currentEndpoint) {
+    return false;
+  }
+  try {
+    return Services.io.newURI(value).prePath === currentEndpoint.prePath;
+  } catch {
+    return false;
+  }
+}

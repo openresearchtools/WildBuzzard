@@ -65,6 +65,27 @@ add_task(async function test_agent_alias_uses_switch_or_open_route() {
   }
 });
 
+add_task(async function test_agent_alias_reuses_active_endpoint() {
+  const { setAgentEndpoint } = ChromeUtils.importESModule(
+    "resource:///modules/WildBuzzardAgentURL.sys.mjs"
+  );
+  const endpoint = "http://127.0.0.1:54321/";
+  const sandbox = sinon.createSandbox();
+  try {
+    setAgentEndpoint(endpoint);
+    const switchOrOpen = sandbox.stub(window, "switchToTabHavingURI");
+    await enterAgentAlias("agent");
+    is(
+      switchOrOpen.firstCall.args[0].spec,
+      endpoint,
+      "The alias reuses the active Pi Web endpoint"
+    );
+  } finally {
+    sandbox.restore();
+    setAgentEndpoint(null);
+  }
+});
+
 add_task(async function test_agent_page_has_stable_address_bar_identity() {
   const { setAgentEndpoint } = ChromeUtils.importESModule(
     "resource:///modules/WildBuzzardAgentURL.sys.mjs"
@@ -145,7 +166,11 @@ add_task(async function test_starting_page_does_not_elevate_web_content() {
       !browser.contentPrincipal.isSystemPrincipal,
       "loading Pi Web after startup receives only a web-content principal"
     );
-    is(browser.currentURI.spec, AGENT_URL, "the stable URL remains visible");
+    is(
+      browser.currentURI.spec,
+      `http://127.0.0.1:${server.identity.primaryPort}/`,
+      "the starting page replaces itself with the working Pi Web document"
+    );
   } finally {
     BrowserTestUtils.removeTab(tab);
     setAgentEndpoint(null);
@@ -157,14 +182,24 @@ add_task(async function test_starting_page_does_not_elevate_web_content() {
 
 add_task(
   function test_agent_endpoint_accepts_only_dynamic_high_loopback_port() {
-    const { agentEndpointURI, setAgentEndpoint } = ChromeUtils.importESModule(
-      "resource:///modules/WildBuzzardAgentURL.sys.mjs"
-    );
+    const { agentEndpointURI, isAgentPageURL, setAgentEndpoint } =
+      ChromeUtils.importESModule(
+        "resource:///modules/WildBuzzardAgentURL.sys.mjs"
+      );
     setAgentEndpoint("http://127.0.0.1:54321/");
     is(
       agentEndpointURI().spec,
       "http://127.0.0.1:54321/",
       "The about page resolves the verified dynamic endpoint"
+    );
+    ok(isAgentPageURL(AGENT_URL), "The stable Agent URL is recognized");
+    ok(
+      isAgentPageURL("http://127.0.0.1:54321/session/1"),
+      "Every route on the active Pi Web origin is recognized"
+    );
+    ok(
+      !isAgentPageURL("http://127.0.0.1:54322/"),
+      "A different loopback service is not recognized as Agent"
     );
     for (const value of [
       "http://127.0.0.1:8765/",

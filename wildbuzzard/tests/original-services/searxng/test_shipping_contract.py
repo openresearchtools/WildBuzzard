@@ -250,6 +250,26 @@ class ShippingContractTests(unittest.TestCase):
             agent_experiment,
         )
         self.assertNotIn("IOUtils.readUTF8(`/proc/${pid}/cmdline`)", agent_experiment)
+        about_agent = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "components"
+            / "agent"
+            / "AboutAgent.sys.mjs"
+        ).read_text(encoding="utf-8")
+        starting = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "components"
+            / "agent"
+            / "content"
+            / "starting.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("endpoint ?? Services.io.newURI(STARTING_URL)", about_agent)
+        self.assertIn("if (endpoint)", about_agent)
+        self.assertIn("location.replace(endpoint.spec)", starting)
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
             "runtime/torrent/wildbuzzard-torrent-runtime.zip",

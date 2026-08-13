@@ -38,6 +38,28 @@ add_task(function test_agent_button_uses_switch_or_open_route() {
   }
 });
 
+add_task(function test_agent_button_reuses_active_endpoint() {
+  const { setAgentEndpoint } = ChromeUtils.importESModule(
+    "resource:///modules/WildBuzzardAgentURL.sys.mjs"
+  );
+  const endpoint = "http://127.0.0.1:54321/";
+  const button = document.getElementById("wildbuzzard-agent-toolbar-button");
+  const sandbox = sinon.createSandbox();
+  try {
+    setAgentEndpoint(endpoint);
+    const switchOrOpen = sandbox.stub(window, "switchToTabHavingURI");
+    EventUtils.synthesizeMouseAtCenter(button, {}, window);
+    is(
+      switchOrOpen.firstCall.args[0].spec,
+      endpoint,
+      "The Agent button reuses the active Pi Web endpoint"
+    );
+  } finally {
+    sandbox.restore();
+    setAgentEndpoint(null);
+  }
+});
+
 add_task(function test_torrent_button_uses_switch_or_open_route() {
   const button = document.getElementById("wildbuzzard-torrent-toolbar-button");
   ok(button, "Torrent button is present");

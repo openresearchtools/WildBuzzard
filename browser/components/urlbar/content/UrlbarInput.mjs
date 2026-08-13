@@ -51,6 +51,8 @@ const lazy = XPCOMUtils.declareLazy({
     "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs",
   BrowserUIUtils: "resource:///modules/BrowserUIUtils.sys.mjs",
   AGENT_PAGE_URL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
+  agentEndpointURI: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
+  isAgentPageURL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
   ConfigSearchEngine:
     "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
@@ -1125,7 +1127,7 @@ ${
       this.untrimmedValue.trim().toLowerCase() === "agent"
     ) {
       this.window.switchToTabHavingURI(
-        Services.io.newURI(lazy.AGENT_PAGE_URL),
+        lazy.agentEndpointURI() ?? Services.io.newURI(lazy.AGENT_PAGE_URL),
         true,
         {
           ignoreQueryString: true,
@@ -3446,7 +3448,7 @@ ${
     if (originalUrl) {
       val = originalUrl.displaySpec;
     }
-    const isAgentPage = val === lazy.AGENT_PAGE_URL;
+    const isAgentPage = lazy.isAgentPageURL(val);
     this._untrimmedValue = untrimmedValue ?? val;
     if (isAgentPage) {
       val = "Agent";

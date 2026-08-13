@@ -20,8 +20,9 @@ export class AboutAgent {
         endpoint,
         loadInfo.originAttributes
       );
+    } else {
+      channel.originalURI = uri;
     }
-    channel.originalURI = uri;
     return channel;
   }
 

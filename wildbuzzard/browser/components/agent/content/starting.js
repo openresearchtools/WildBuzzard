@@ -5,9 +5,11 @@ const { agentEndpointURI } = ChromeUtils.importESModule(
 );
 
 function updateAgentEndpoint() {
-  if (agentEndpointURI()) {
-    location.reload();
+  const endpoint = agentEndpointURI();
+  if (!endpoint) {
+    return;
   }
+  location.replace(endpoint.spec);
 }
 
 window.addEventListener(

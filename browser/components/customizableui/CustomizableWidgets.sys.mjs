@@ -21,6 +21,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   SharingUtils: "resource:///modules/SharingUtils.sys.mjs",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
   AGENT_PAGE_URL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
+  agentEndpointURI: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
+  isAgentPageURL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
 });
 
 const kPrefCustomizationDebug = "browser.uiCustomization.debug";
@@ -357,9 +359,7 @@ export const CustomizableWidgets = [
     onCreated(aNode) {
       const win = aNode.documentGlobal;
       const update = () => {
-        const active = win.gBrowser.currentURI.spec.startsWith(
-          lazy.AGENT_PAGE_URL
-        );
+        const active = lazy.isAgentPageURL(win.gBrowser.currentURI.spec);
         aNode.toggleAttribute("checked", active);
         aNode.setAttribute("aria-pressed", String(active));
       };
@@ -393,11 +393,15 @@ export const CustomizableWidgets = [
     },
     onCommand(aEvent) {
       const win = aEvent.view ?? aEvent.target.documentGlobal;
-      win.switchToTabHavingURI(Services.io.newURI(lazy.AGENT_PAGE_URL), true, {
-        ignoreQueryString: true,
-        triggeringPrincipal:
-          Services.scriptSecurityManager.getSystemPrincipal(),
-      });
+      win.switchToTabHavingURI(
+        lazy.agentEndpointURI() ?? Services.io.newURI(lazy.AGENT_PAGE_URL),
+        true,
+        {
+          ignoreQueryString: true,
+          triggeringPrincipal:
+            Services.scriptSecurityManager.getSystemPrincipal(),
+        }
+      );
     },
   },
   {
