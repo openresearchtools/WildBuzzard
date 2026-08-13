@@ -18,6 +18,8 @@ const {
   "resource:///modules/WildBuzzardAgentState.sys.mjs"
 );
 
+let testDirectory;
+
 async function symlink(target, path) {
   const process = await Subprocess.call({
     command: "/bin/ln",
@@ -29,19 +31,19 @@ async function symlink(target, path) {
 
 add_setup(async function () {
   const suffix = Services.uuid.generateUUID().toString().slice(1, -1);
-  this.directory = PathUtils.join(
+  testDirectory = PathUtils.join(
     Services.dirsvc.get("TmpD", Ci.nsIFile).path,
     `wildbuzzard-agent-state-${suffix}`
   );
-  await privateDirectory(this.directory);
+  await privateDirectory(testDirectory);
   registerCleanupFunction(() =>
-    IOUtils.remove(this.directory, { recursive: true, ignoreAbsent: true })
+    IOUtils.remove(testDirectory, { recursive: true, ignoreAbsent: true })
   );
 });
 
 add_task(async function test_private_json_is_atomic_and_replaces_symlink() {
-  const path = PathUtils.join(this.directory, "state.json");
-  const victim = PathUtils.join(this.directory, "victim.json");
+  const path = PathUtils.join(testDirectory, "state.json");
+  const victim = PathUtils.join(testDirectory, "victim.json");
   const predictable = `${path}.new-${Services.appinfo.processID}-predictable`;
   await IOUtils.writeUTF8(victim, '{"victim":true}');
   await symlink(victim, path);
@@ -54,7 +56,7 @@ add_task(async function test_private_json_is_atomic_and_replaces_symlink() {
   Assert.ok(new FileUtils.File(predictable).isSymlink());
   Assert.equal((await IOUtils.stat(path)).permissions & 0o777, 0o600);
   Assert.deepEqual(
-    (await IOUtils.getChildren(this.directory)).filter(child =>
+    (await IOUtils.getChildren(testDirectory)).filter(child =>
       child.startsWith(`${path}.new-`)
     ),
     [predictable],
@@ -63,8 +65,8 @@ add_task(async function test_private_json_is_atomic_and_replaces_symlink() {
 });
 
 add_task(async function test_private_json_rejects_unsafe_files() {
-  const path = PathUtils.join(this.directory, "unsafe.json");
-  const target = PathUtils.join(this.directory, "target.json");
+  const path = PathUtils.join(testDirectory, "unsafe.json");
+  const target = PathUtils.join(testDirectory, "target.json");
   await IOUtils.writeUTF8(path, '{"unsafe":true}');
   await IOUtils.setPermissions(path, 0o644);
   Assert.equal(await readPrivateJSON(path), null, "0644 is rejected");
@@ -78,8 +80,8 @@ add_task(async function test_private_json_rejects_unsafe_files() {
 });
 
 add_task(async function test_private_directory_does_not_follow_symlink() {
-  const target = PathUtils.join(this.directory, "directory-target");
-  const path = PathUtils.join(this.directory, "directory-link");
+  const target = PathUtils.join(testDirectory, "directory-target");
+  const path = PathUtils.join(testDirectory, "directory-link");
   await IOUtils.makeDirectory(target, { permissions: 0o755 });
   await IOUtils.setPermissions(target, 0o755);
   await symlink(target, path);
