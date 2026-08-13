@@ -891,7 +891,12 @@ ${
     // base domain. To avoid auth prompt spoofing we already display the url of
     // the cross domain resource, although the page is not loaded yet.
     // This url will be set/unset by PromptParent. See bug 791594 for reference.
-    if (value === null || (!value && dueToTabSwitch)) {
+    const selectedURI = uri || this.window.gBrowser.currentURI;
+    if (
+      value === null ||
+      (!value &&
+        (dueToTabSwitch || lazy.isAgentPageURL(selectedURI?.spec ?? "")))
+    ) {
       uri =
         this.window.gBrowser.selectedBrowser.currentAuthPromptURI ||
         uri ||

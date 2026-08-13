@@ -157,6 +157,7 @@ add_task(async function test_starting_page_does_not_elevate_web_content() {
       response.setHeader("Content-Type", "text/html");
       response.write("<!doctype html><title>Agent ready</title>");
     });
+    gURLBar.userTypedValue = "";
     setAgentEndpoint(`http://127.0.0.1:${server.identity.primaryPort}/`);
     await TestUtils.waitForCondition(
       () => browser.contentTitle === "Agent ready",
@@ -170,6 +171,11 @@ add_task(async function test_starting_page_does_not_elevate_web_content() {
       browser.currentURI.spec,
       `http://127.0.0.1:${server.identity.primaryPort}/`,
       "the starting page replaces itself with the working Pi Web document"
+    );
+    is(
+      gURLBar.value,
+      "Agent",
+      "the replaced Agent page fills an initially empty address bar"
     );
   } finally {
     BrowserTestUtils.removeTab(tab);
