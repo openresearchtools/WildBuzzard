@@ -139,24 +139,3 @@ WantedBy=default.target
     })
   );
 });
-
-add_task(async function test_agent_experiment_imports_encoding_globals() {
-  const source = await IOUtils.readUTF8(
-    PathUtils.join(
-      testDirectory,
-      "..",
-      "..",
-      "..",
-      "..",
-      "extensions",
-      "agent-sidebar",
-      "experiment-apis",
-      "wildbuzzardAgent.js"
-    )
-  );
-  Assert.ok(
-    source.includes(
-      'Cu.importGlobalProperties(["TextDecoder", "TextEncoder"]);'
-    )
-  );
-});

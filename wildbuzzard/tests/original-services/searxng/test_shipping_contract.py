@@ -182,6 +182,15 @@ class ShippingContractTests(unittest.TestCase):
         packager = (
             CHECKOUT / "toolkit" / "mozapps" / "installer" / "packager.py"
         ).read_text(encoding="utf-8")
+        agent_experiment = (
+            CHECKOUT
+            / "wildbuzzard"
+            / "browser"
+            / "extensions"
+            / "agent-sidebar"
+            / "experiment-apis"
+            / "wildbuzzardAgent.js"
+        ).read_text(encoding="utf-8")
         appimage = (
             CHECKOUT / "wildbuzzard" / "scripts" / "package-appimage.sh"
         ).read_text(encoding="utf-8")
@@ -221,6 +230,10 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn(SEARXNG_NAME, packager)
         self.assertIn('"bin/runtime/tor/arti"', packager)
         self.assertIn("preserve_executables=preserve_executables", packager)
+        self.assertIn(
+            'Cu.importGlobalProperties(["TextDecoder", "TextEncoder"]);',
+            agent_experiment,
+        )
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
             "runtime/torrent/wildbuzzard-torrent-runtime.zip",
