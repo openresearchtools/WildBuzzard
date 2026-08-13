@@ -602,7 +602,9 @@ class PiWebManager {
         const stream = zip.getInputStream(entry);
         let bytes;
         try {
-          bytes = NetUtil.readInputStream(stream, zipEntry.realSize);
+          bytes = new Uint8Array(
+            NetUtil.readInputStream(stream, zipEntry.realSize)
+          );
         } finally {
           stream.close();
         }

@@ -239,6 +239,10 @@ class ShippingContractTests(unittest.TestCase):
             agent_experiment,
         )
         self.assertNotIn("zip.findEntries(null)", agent_experiment)
+        self.assertIn(
+            "bytes = new Uint8Array(\n            NetUtil.readInputStream",
+            agent_experiment,
+        )
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
             "runtime/torrent/wildbuzzard-torrent-runtime.zip",
