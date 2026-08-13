@@ -2,19 +2,21 @@
 
 Date: 2026-08-13
 
-## Resume point
+## Authoritative resume point
 
 - Repository: `https://github.com/openresearchtools/WildBuzzard.git`
-- Branch: `codex/qbittorrent-backend`
+- Branch: `integration/web-search-torrent-final`
 - Worktree used during development: `/home/user/Downloads/WildBuzzard-worktrees/torrent-client-repair`
 - Branch base: `c54e09f9f16b` (`Fix Agent identity for empty startup URL bars`)
 - Existing branch commits:
   - `4e6c484daa26` vendors the pinned qBittorrent 5.2.3 source.
   - `ea2696f958cb` vendors the pinned libtorrent 2.0.14 source.
   - `790083f08df9` adds the first private-runtime downstream patch.
-- The checkpoint containing the integration described below is the branch tip after this document is committed.
+- The branch base already contains the accepted Pi, Agent, SearXNG, Gecko crawl, Jackett Mini, torrent, Tor/Arti, packaging and browser integration work. The commits above add the qBittorrent replacement on top of that complete browser history.
+- `codex/qbittorrent-backend` is a backup pointer to the same checkpoint. It is not an additional branch to merge.
+- Historical `agent/*`, `codex/searx-*` and `integration/waterfox-port` branches are development evidence. Do not merge or cherry-pick them when reconstructing the product.
 
-Do not resume from the dirty shared checkout at `/home/user/Downloads/WildBuzzard`. Clone or fetch the repository and switch directly to `codex/qbittorrent-backend`.
+Do not resume from the dirty shared checkout at `/home/user/Downloads/WildBuzzard`. Clone or fetch the repository and switch directly to `integration/web-search-torrent-final`. No other branch is required.
 
 ## Intended product architecture
 
@@ -84,7 +86,7 @@ This is a source checkpoint, not a release-ready torrent package.
 ```bash
 git clone https://github.com/openresearchtools/WildBuzzard.git
 cd WildBuzzard
-git switch codex/qbittorrent-backend
+git switch integration/web-search-torrent-final
 
 curl -fL -o /path/to/boost_1_88_0.tar.bz2 \
   https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.bz2
