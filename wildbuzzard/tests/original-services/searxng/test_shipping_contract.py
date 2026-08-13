@@ -219,6 +219,7 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn(SEARXNG_NAME, debian)
         self.assertIn('MOZ_APP_BASENAME") == "WildBuzzard"', packager)
         self.assertIn(SEARXNG_NAME, packager)
+        self.assertIn('"bin/runtime/tor/arti"', packager)
         self.assertIn("preserve_executables=preserve_executables", packager)
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",

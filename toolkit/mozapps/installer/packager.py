@@ -230,6 +230,7 @@ def main():
             preserve_executables = (
                 "bin/runtime/search/"
                 "wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage",
+                "bin/runtime/tor/arti",
             )
         finder_args = dict(
             minify=args.minify,

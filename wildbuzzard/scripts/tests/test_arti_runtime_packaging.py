@@ -16,6 +16,10 @@ MODULE_PATH = SCRIPTS / "arti-runtime-provenance.py"
 SPEC = importlib.util.spec_from_file_location("arti_runtime_provenance", MODULE_PATH)
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
+COPY_MODULE_PATH = SCRIPTS.parent / "copy_executable.py"
+COPY_SPEC = importlib.util.spec_from_file_location("copy_executable", COPY_MODULE_PATH)
+COPY_MODULE = importlib.util.module_from_spec(COPY_SPEC)
+COPY_SPEC.loader.exec_module(COPY_MODULE)
 
 
 def sha256(value):
@@ -23,6 +27,27 @@ def sha256(value):
 
 
 class ArtiRuntimePackagingTests(unittest.TestCase):
+    def test_executable_copy_preserves_bytes_and_sets_mode(self):
+        class Output:
+            def __init__(self, path):
+                self.name = str(path)
+
+            def avoid_writing_to_file(self):
+                pass
+
+            def close(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            destination = root / "destination"
+            source.write_bytes(b"executable bytes")
+            source.chmod(0o644)
+            COPY_MODULE.main(Output(destination), source)
+            self.assertEqual(destination.read_bytes(), source.read_bytes())
+            self.assertEqual(stat.S_IMODE(destination.stat().st_mode), 0o755)
+
     def fixture(self, root):
         binary_bytes = b"source-built arti binary"
         cargo_lock = b"""version = 4
@@ -207,6 +232,7 @@ checksum = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         self.assertIn("arti-runtime-provenance.py", configure)
         self.assertIn("arti-runtime-provenance.py", appimage_package)
         self.assertIn("arti-runtime-provenance.py", deb_package)
+        self.assertIn('arti_binary.script = "copy_executable.py"', mozbuild)
 
 
 if __name__ == "__main__":

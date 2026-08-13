@@ -72,7 +72,7 @@ if CONFIG["WILDBUZZARD_ARTI"]:
     arti_provenance_name = "wildbuzzard-arti-2.5.1-provenance.zip"
     GENERATED_FILES += [arti_name, arti_provenance_name]
     arti_binary = GENERATED_FILES[arti_name]
-    arti_binary.script = "copy_file.py"
+    arti_binary.script = "copy_executable.py"
     arti_binary.flags = [CONFIG["WILDBUZZARD_ARTI"]]
     arti_binary.extra_deps = [
         "%" + CONFIG["WILDBUZZARD_ARTI"],
