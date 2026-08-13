@@ -1050,7 +1050,10 @@ class PiWebManager {
       return false;
     }
     try {
-      const commandLine = (await IOUtils.readUTF8(`/proc/${pid}/cmdline`))
+      const commandLine = new TextDecoder()
+        .decode(
+          await IOUtils.read(`/proc/${pid}/cmdline`, { maxBytes: 64 * 1024 })
+        )
         .split("\0")
         .filter(Boolean);
       const node = PathUtils.join(runtimeDirectory, "node", "bin", "node");

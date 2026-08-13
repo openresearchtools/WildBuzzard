@@ -245,6 +245,11 @@ class ShippingContractTests(unittest.TestCase):
         )
         self.assertIn("commandExecutable.normalize();", agent_experiment)
         self.assertIn("commandScript.normalize();", agent_experiment)
+        self.assertIn(
+            "IOUtils.read(`/proc/${pid}/cmdline`, { maxBytes: 64 * 1024 })",
+            agent_experiment,
+        )
+        self.assertNotIn("IOUtils.readUTF8(`/proc/${pid}/cmdline`)", agent_experiment)
         for runtime_path in (
             "runtime/pi-web/wildbuzzard-pi-web-runtime.zip",
             "runtime/torrent/wildbuzzard-torrent-runtime.zip",
