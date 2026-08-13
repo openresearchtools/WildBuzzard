@@ -11,6 +11,11 @@ const { SearchService } = ChromeUtils.importESModule(
 const { SearXNGManager, SearXNGManagerTestUtils, searXNGManagerPaths } =
   ChromeUtils.importESModule("resource:///modules/SearXNGManager.sys.mjs");
 
+const LocalFile = Components.Constructor(
+  "@mozilla.org/file/local;1",
+  "nsIFile",
+  "initWithPath"
+);
 const ARTIFACT_ENV = "WILDBUZZARD_SEARXNG_TEST_EXECUTABLE";
 const LIVE_SEARCH_ENV = "WILDBUZZARD_SEARXNG_LIVE_TEST";
 const EXECUTABLE_PREF = "wildbuzzard.search.searxngExecutable";
@@ -27,8 +32,8 @@ async function packagedArtifactPath() {
       SearXNGManagerTestUtils.ARTIFACT_NAME
     );
   try {
-    const stat = await IOUtils.stat(path);
-    if (stat.type === "regular") {
+    const artifact = new LocalFile(path);
+    if (artifact.isFile() && !artifact.isSymlink()) {
       return path;
     }
   } catch {}

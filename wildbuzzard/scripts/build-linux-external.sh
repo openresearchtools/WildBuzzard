@@ -363,6 +363,7 @@ run_product_tests() {
     component="${relative_manifest#wildbuzzard/browser/components/}"
     component="${component%%/*}"
     run_step "product-browser-${component}" env MOZ_HEADLESS=1 \
+      WILDBUZZARD_SEARXNG_TEST_EXECUTABLE="${searxng_executable}" \
       ./mach mochitest --flavor browser "${relative_manifest}"
   done < <(
     find "${checkout_dir}/wildbuzzard/browser/components" \

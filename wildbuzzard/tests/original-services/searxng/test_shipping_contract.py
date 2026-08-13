@@ -195,6 +195,10 @@ class ShippingContractTests(unittest.TestCase):
         self.assertIn("--searxng-release-sbom", external)
         self.assertIn("validate-searxng-release-assets.py", external)
         self.assertIn(
+            'WILDBUZZARD_SEARXNG_TEST_EXECUTABLE="${searxng_executable}"',
+            external,
+        )
+        self.assertIn(
             f"@BINPATH@/runtime/search/{SEARXNG_NAME}",
             package_manifest,
         )
