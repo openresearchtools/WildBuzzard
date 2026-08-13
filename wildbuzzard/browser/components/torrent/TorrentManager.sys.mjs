@@ -26,6 +26,7 @@ const MAX_RUNTIME_MANIFEST_SIZE = 16 * 1024 * 1024;
 const MAX_RUNTIME_FILE_SIZE = 512 * 1024 * 1024;
 const MAX_RUNTIME_SIZE = 4 * 1024 * 1024 * 1024;
 const RUNTIME_LOCK_STALE_MS = 30000;
+const SERVICE_SHUTDOWN_ATTEMPTS = 100;
 const RUNTIME_NODE_VERSION = "22.23.2";
 const RUNTIME_NODE_SHA256 =
   "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307";
@@ -843,7 +844,7 @@ class TorrentManagerImpl {
       );
     }
     await this.#request("POST", "/v1/shutdown", {}, connection);
-    for (let attempt = 0; attempt < 40; attempt++) {
+    for (let attempt = 0; attempt < SERVICE_SHUTDOWN_ATTEMPTS; attempt++) {
       if (!(await IOUtils.exists(this.connectionPath))) {
         return;
       }
@@ -1057,7 +1058,7 @@ class TorrentManagerImpl {
           return;
         }
         await this.#request("POST", "/v1/shutdown", {}, connection);
-        for (let attempt = 0; attempt < 40; attempt++) {
+        for (let attempt = 0; attempt < SERVICE_SHUTDOWN_ATTEMPTS; attempt++) {
           if (!(await IOUtils.exists(this.connectionPath))) {
             break;
           }
