@@ -4,6 +4,9 @@
 
 /* global ExtensionAPI, IOUtils, PathUtils, Services, TextDecoder, TextEncoder */
 
+// eslint-disable-next-line mozilla/reject-importGlobalProperties
+Cu.importGlobalProperties(["TextDecoder", "TextEncoder"]);
+
 const { Subprocess } = ChromeUtils.importESModule(
   "resource://gre/modules/Subprocess.sys.mjs"
 );
