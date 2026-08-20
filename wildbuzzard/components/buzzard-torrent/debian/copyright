@@ -1,0 +1,15 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Buzzard Torrent
+Source: https://github.com/openresearchtools/wildbuzzard
+
+Files: *
+Copyright: 2026 Open Research Tools
+License: AGPL-3+
+ On Debian systems the complete text of the GNU Affero General Public License
+ version 3 is available in /usr/share/common-licenses/AGPL-3.
+
+Files: usr/lib/buzzard-torrent/runtime/*
+Copyright: qBittorrent, libtorrent, Boost, Qt and bundled dependency authors
+License: GPL-3+ and other bundled licenses
+ The runtime carries complete corresponding source, an SPDX SBOM, a component
+ inventory and the applicable license texts and copyright notices.

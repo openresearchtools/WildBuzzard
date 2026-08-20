@@ -71,8 +71,24 @@ function handlePreconnect(request, response, params) {
   );
 }
 
+function handleLogpointScript(request, response) {
+  response.setHeader("Content-Type", "application/javascript", false);
+  response.write(
+    "globalThis.wildBuzzardLogpointRuns = (globalThis.wildBuzzardLogpointRuns || 0) + 1;"
+  );
+}
+
+function handleLogpointPage(request, response) {
+  response.setHeader("Content-Type", "text/html; charset=utf-8", false);
+  response.write(
+    `<!doctype html><title>logpoint</title><script src="${request.path}?mode=logpoint-script"></script>`
+  );
+}
+
 const SPECIAL_MODE_HANDLERS = new Map([
   ["early-hint-preconnect", handleEarlyHintPreconnect],
+  ["logpoint-page", handleLogpointPage],
+  ["logpoint-script", handleLogpointScript],
   ["preconnect", handlePreconnect],
 ]);
 
@@ -255,7 +271,7 @@ function handleRequest(request, response) {
   if (mode === "large-dom") {
     response.setHeader("Content-Type", "text/html", false);
     response.write(`<!doctype html><title>large</title><script>
-      for (let index = 0; index < 21000; index++) {
+      for (let index = 0; index < 501000; index++) {
         document.documentElement.append(document.createElement("i"));
       }
     </script>`);
@@ -272,6 +288,10 @@ function handleRequest(request, response) {
       document.body.textContent = "x".repeat(2 * 1024 * 1024 + 1);
     </script></body>`);
     return;
+  }
+
+  if (mode === "html-coop") {
+    response.setHeader("Cross-Origin-Opener-Policy", "same-origin", false);
   }
 
   response.setHeader("Content-Type", "text/html; charset=utf-8", false);

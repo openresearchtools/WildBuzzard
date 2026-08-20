@@ -23,12 +23,12 @@ EXPECTED_FILE_COUNT = 7_042
 MANIFEST = "wildbuzzard-runtime.json"
 MANIFEST_LIMIT = 2 * 1024 * 1024
 RUNTIME_ARCHIVE_SHA256 = (
-    "cf7dfaa9e4768131407e35baeda277a4f55784172290903c19ad3f524dd8a587"
+    "12120e882ca48b673e2901da6b76f3d9616063aed96b11b92cdc2dac5c9a426a"
 )
 SOURCE_ARCHIVE_SHA256 = (
-    "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751"
+    "fe9462c1b8118e51f2507ecc2c613fc71fc140ea517720d83c322b1c208dd98d"
 )
-SOURCE_ARCHIVE_SIZE = 697_377_128
+SOURCE_ARCHIVE_SIZE = 696_519_100
 RELEASE_INVENTORY_SHA256 = (
     "cb67704fee61966b386c661fd6b382005bd28d8e870c7b901989e472bdcf9e77"
 )
@@ -48,7 +48,7 @@ EXPECTED_MANIFEST = {
     "compilerTarget": "x86_64-linux-gnu.2.28",
     "component": "searxng",
     "correspondingSource": "wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz",
-    "correspondingSourceSha256": "c10b3af18c19af1b58f41cfa3503dcf7759e7a22162b9cab7801492aa8a12751",
+    "correspondingSourceSha256": "fe9462c1b8118e51f2507ecc2c613fc71fc140ea517720d83c322b1c208dd98d",
     "dependencyLockSha256": "3532d6386c8fae458945006efae16a07ed10d327f66ceccae7a34140f753cf8e",
     "granianCargoComponentsLockSha256": "8ad3c33d6967c2fcf0d2b71889b230df0df46a4a1b63a4f3af04b2d94b6e0c30",
     "granianCargoVendorLockSha256": "6fbd1c743108c9484ec7995d4ff90f2effa1796dc2c3568c7210a0c14c2f8550",

@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "platform": "linux-x64",
+  "piWeb": {
+    "repository": "https://github.com/openresearchtools/pi-web.git",
+    "commit": "1d86c2269cc70e09a2af739f73767d9bbf80d9c0",
+    "tree": "aa57132b6b0be8cefa2f9e757dbac8e80e0df10b",
+    "name": "@jmfederico/pi-web",
+    "version": "1.202608.0",
+    "packageManager": "npm@10.9.8",
+    "packageJsonSha256": "934353208bca1e6a07ef43ce53bbb1f485e8a9f3d2c06d80bccfcba3e2c8e4f3",
+    "packageLockSha256": "cdd86881ce56233c9e9f7a16f299484b7efee0200ccd763dd5368404fe39dcb2",
+    "licenseSha256": "33224f23ad1e3dc3e6c3870c3b136013519e1d327aa795b090f47e02b0f38632"
+  },
+  "piPackages": {
+    "@earendil-works/pi-agent-core": "0.84.1",
+    "@earendil-works/pi-ai": "0.84.1",
+    "@earendil-works/pi-coding-agent": "0.84.1"
+  },
+  "node": {
+    "version": "22.23.2",
+    "archive": "node-v22.23.2-linux-x64.tar.xz",
+    "url": "https://nodejs.org/dist/v22.23.2/node-v22.23.2-linux-x64.tar.xz",
+    "archiveSha256": "d60acfe00a2932254bb0ad20e01b0d74397a0875595de719654b214f4b03f307",
+    "binarySha256": "3517c2df0b2f8cd7f422b4b8450ef81c6889f08eb03e281d6de9079b15e6a327"
+  }
+}
+

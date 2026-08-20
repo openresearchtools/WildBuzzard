@@ -356,7 +356,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifacts", required=True)
     parser.add_argument("--source-root")
-    parser.add_argument("--gecko-connection")
+    parser.add_argument("--wildbuzzard")
     parser.add_argument("--timeout", type=bounded_timeout, default=180.0)
     parser.add_argument("--skip-stress", action="store_true")
     return parser.parse_args()
@@ -1345,80 +1345,54 @@ def record_http_exchange(
     )
 
 
-def read_gecko_connection(path_value: str) -> dict[str, object]:
-    path = pathlib.Path(path_value).resolve(strict=True)
-    path_stat = path.stat()
-    if stat.S_IMODE(path_stat.st_mode) != 0o600:
-        raise RuntimeError("Gecko browser-control connection file must be mode 0600")
-    if path_stat.st_size > 65536:
-        raise RuntimeError("Gecko browser-control connection record is too large")
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if (
-        not isinstance(value, dict)
-        or not isinstance(value.get("port"), int)
-        or not 0 < value["port"] <= 65535
-        or not isinstance(value.get("token"), str)
-        or not value["token"]
-        or len(value["token"]) > 4096
-    ):
-        raise RuntimeError("Gecko browser-control connection record is invalid")
-    return {"port": value["port"], "token": value["token"]}
-
-
 def gecko_request_bytes(
-    connection: dict[str, object],
+    command: str,
     args: dict[str, object],
-) -> tuple[str, bytes]:
-    request_id = f"firecrawl-comparison-{secrets.token_hex(8)}"
-    request = {
-        "token": connection["token"],
-        "id": request_id,
-        "tool": "gecko_render",
-        "args": args,
-        "cwd": str(CHECKOUT),
-        "clientId": "firecrawl-comparison",
-    }
-    return request_id, json.dumps(request, separators=(",", ":")).encode() + b"\n"
+) -> bytes:
+    request = [command, "gecko-render", "--json", "--input", args]
+    return json.dumps(request, separators=(",", ":")).encode() + b"\n"
 
 
-def receive_gecko(
-    stream: socket.socket, request_id: str, timeout: float
-) -> tuple[dict[str, object], bytes]:
-    stream.settimeout(timeout)
-    chunks = bytearray()
-    while b"\n" not in chunks:
-        block = stream.recv(65536)
-        if not block:
-            raise RuntimeError("Gecko closed the browser-control connection")
-        chunks.extend(block)
-        if len(chunks) > 16 * 1024 * 1024:
-            raise RuntimeError("Gecko browser-control response exceeded the limit")
-    response_bytes = bytes(chunks).split(b"\n", 1)[0]
+def parse_gecko_response(response_bytes: bytes) -> dict[str, object]:
     response = json.loads(response_bytes)
     if not isinstance(response, dict):
-        raise RuntimeError("Gecko returned a non-object browser-control response")
-    if response.get("id") != request_id:
-        raise RuntimeError("Gecko returned a mismatched browser-control response")
+        raise RuntimeError("WildBuzzard returned a non-object response")
     if response.get("ok") is not True:
-        raise RuntimeError(str(response.get("error", "Gecko render failed")))
-    result = response.get("result")
-    details = result.get("details") if isinstance(result, dict) else None
+        raise RuntimeError(str(response.get("error", "WildBuzzard render failed")))
+    details = response.get("details")
     if not isinstance(details, dict):
-        raise RuntimeError("Gecko returned no render details")
-    return details, response_bytes
+        raise RuntimeError("WildBuzzard returned no render details")
+    return details
 
 
 def call_gecko(
-    connection: dict[str, object],
+    command: str,
     args: dict[str, object],
     timeout: float,
 ) -> tuple[dict[str, object], bytes, bytes]:
-    request_id, request_bytes = gecko_request_bytes(connection, args)
-    with socket.create_connection(
-        ("127.0.0.1", int(connection["port"])), timeout=timeout
-    ) as stream:
-        stream.sendall(request_bytes)
-        details, response_bytes = receive_gecko(stream, request_id, timeout)
+    request_bytes = gecko_request_bytes(command, args)
+    invocation = [
+        command,
+        "gecko-render",
+        "--json",
+        "--input",
+        json.dumps(args, separators=(",", ":")),
+    ]
+    completed = subprocess.run(
+        invocation,
+        cwd=CHECKOUT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=timeout,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise RuntimeError(
+            completed.stderr.decode(errors="replace").strip()
+            or f"WildBuzzard exited {completed.returncode}"
+        )
+    response_bytes = completed.stdout.splitlines()[0]
+    details = parse_gecko_response(response_bytes)
     return details, request_bytes, response_bytes
 
 
@@ -1533,7 +1507,7 @@ def run_scenarios(
     playwright_container: str,
     include_stress: bool,
     timeout: float,
-    gecko_connection: dict[str, object] | None,
+    wildbuzzard_command: str | None,
 ) -> list[dict[str, object]]:
     root = artifacts / "scenarios"
     root.mkdir(mode=0o700)
@@ -1606,7 +1580,7 @@ def run_scenarios(
         }
         if scenario.get("documentedDifference"):
             entry["documentedDifference"] = scenario["documentedDifference"]
-        if gecko_connection:
+        if wildbuzzard_command:
             allowed_test_origins = [f"http://127.0.0.1:{fixture_port}"]
             if scenario.get("crossOrigin"):
                 allowed_test_origins.append(f"http://127.0.0.1:{other_fixture_port}")
@@ -1623,7 +1597,7 @@ def run_scenarios(
                 args["headers"] = scenario["headers"]
             try:
                 details, request_bytes, response_bytes = call_gecko(
-                    gecko_connection,
+                    wildbuzzard_command,
                     args,
                     max(timeout, int(args["timeoutMs"]) / 1000 + 15),
                 )
@@ -1759,7 +1733,7 @@ def cancellation_probe(
 def gecko_cancellation_probe(
     artifacts: pathlib.Path,
     redactor: Redactor,
-    connection: dict[str, object],
+    command: str,
     fixture_port: int,
     timeout: float,
 ) -> dict[str, object]:
@@ -1770,14 +1744,8 @@ def gecko_cancellation_probe(
         "_testAllowedHosts": [f"http://127.0.0.1:{fixture_port}"],
         "_testDiagnostics": True,
     }
-    request_id, request_bytes = gecko_request_bytes(connection, args)
-    cancel_bytes = (
-        json.dumps(
-            {"token": connection["token"], "id": request_id, "cancel": True},
-            separators=(",", ":"),
-        ).encode()
-        + b"\n"
-    )
+    request_bytes = gecko_request_bytes(command, args)
+    cancel_bytes = b'{"signal":"SIGTERM","meaning":"client-disconnect"}\n'
     write_bytes(
         artifacts / "gecko-cancellation.request.jsonl",
         redactor.data(request_bytes + cancel_bytes),
@@ -1787,25 +1755,37 @@ def gecko_cancellation_probe(
     response_bytes = None
     prompt_errors = []
     prompt_duration = None
-    with socket.create_connection(
-        ("127.0.0.1", int(connection["port"])), timeout=timeout
-    ) as stream:
-        stream.sendall(request_bytes)
+    invocation = [
+        command,
+        "gecko-render",
+        "--json",
+        "--input",
+        json.dumps(args, separators=(",", ":")),
+    ]
+    process = subprocess.Popen(
+        invocation,
+        cwd=CHECKOUT,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    try:
         _active, peak = wait_fixture_activity(
             fixture_port, lambda value: value >= 1, min(timeout, 30)
         )
         cancelled_at = time.monotonic()
         deadline = cancelled_at + CANCELLATION_PROMPT_BOUND_MS / 1000
-        stream.sendall(cancel_bytes)
+        process.terminate()
         try:
-            details, response_bytes = receive_gecko(
-                stream, request_id, max(0.05, deadline - time.monotonic())
+            stdout, _stderr = process.communicate(
+                timeout=max(0.05, deadline - time.monotonic())
             )
-        except Exception as error:
-            prompt_errors.append(f"response: {type(error).__name__}: {error}")
+            if stdout.strip():
+                response_bytes = stdout.splitlines()[0]
+                details = parse_gecko_response(response_bytes)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.communicate()
         if details is not None:
-            if "aborted" not in str(details.get("_testError", "")):
-                prompt_errors.append("Gecko did not report caller abort")
             try:
                 assert_gecko_cleanup(details)
             except Exception as error:
@@ -1822,6 +1802,10 @@ def gecko_cancellation_probe(
             active = fixture_activity(fixture_port, min(1, timeout))
             prompt_peak = active
             prompt_errors.append(f"fixture: {type(error).__name__}: {error}")
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.communicate()
     if response_bytes is not None:
         write_bytes(
             artifacts / "gecko-cancellation.response.jsonl",
@@ -1832,7 +1816,7 @@ def gecko_cancellation_probe(
     )
     eventual_duration = round((time.monotonic() - cancelled_at) * 1000)
     followup, _request, _response = call_gecko(
-        connection,
+        command,
         {
             "url": f"http://127.0.0.1:{fixture_port}/fast",
             "waitMs": 100,
@@ -1937,7 +1921,7 @@ def main() -> int:
         "startedAt": utc_now(),
         "outcome": "infrastructure-failure",
         "reference": "Firecrawl /v2/scrape",
-        "geckoComparisonRequested": bool(args.gecko_connection),
+        "geckoComparisonRequested": bool(args.wildbuzzard),
     }
     cleanup: dict[str, object] = {}
     interrupted = False
@@ -2181,13 +2165,11 @@ def main() -> int:
         wait_http(fixture_port, "/health", args.timeout)
         wait_http(playwright_port, "/health", args.timeout)
         wait_http(api_port, "/e2e-test", args.timeout)
-        connection = (
-            read_gecko_connection(args.gecko_connection)
-            if args.gecko_connection
+        wildbuzzard_command = (
+            str(pathlib.Path(args.wildbuzzard).resolve(strict=True))
+            if args.wildbuzzard
             else None
         )
-        if connection:
-            redactor.add(str(connection["token"]), "<redacted>")
         results = run_scenarios(
             artifacts,
             redactor,
@@ -2199,7 +2181,7 @@ def main() -> int:
             names["playwright"],
             not args.skip_stress,
             args.timeout,
-            connection,
+            wildbuzzard_command,
         )
         summary["scenarios"] = results
         cancellation = cancellation_probe(
@@ -2214,11 +2196,11 @@ def main() -> int:
         )
         summary["cancellation"] = cancellation
         gecko_cancellation = None
-        if connection:
+        if wildbuzzard_command:
             gecko_cancellation = gecko_cancellation_probe(
                 artifacts,
                 redactor,
-                connection,
+                wildbuzzard_command,
                 fixture_port,
                 args.timeout,
             )
@@ -2236,7 +2218,7 @@ def main() -> int:
             and bool(cancellation["contractPassed"])
             and bool(concurrency["passed"])
         )
-        if connection:
+        if wildbuzzard_command:
             gecko_passed = all(
                 item.get("geckoPassed") is True for item in results
             ) and bool(gecko_cancellation and gecko_cancellation["passed"])
@@ -2250,8 +2232,7 @@ def main() -> int:
                 else "reference-failure"
             )
             summary["geckoGate"] = (
-                "A fresh WildBuzzard binary and mode-0600 browser-control connection "
-                "record are required for the side-by-side gate"
+                "A fresh WildBuzzard binary is required for the side-by-side gate"
             )
     except KeyboardInterrupt:
         interrupted = True

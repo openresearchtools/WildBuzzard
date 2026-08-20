@@ -170,18 +170,6 @@
 #endif
 @BINPATH@/@MOZ_APP_NAME@
 #endif
-#ifdef WILDBUZZARD_PI_WEB_RUNTIME
-@BINPATH@/runtime/pi-web/wildbuzzard-pi-web-runtime.zip
-#endif
-#ifdef WILDBUZZARD_TORRENT_RUNTIME
-@BINPATH@/runtime/torrent/wildbuzzard-torrent-runtime.zip
-#endif
-#ifdef WILDBUZZARD_JACKETT_MINI_RUNTIME
-@BINPATH@/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip
-#endif
-#ifdef WILDBUZZARD_SEARXNG_EXECUTABLE
-@BINPATH@/runtime/search/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage
-#endif
 #ifdef WILDBUZZARD_ARTI_RUNTIME
 @BINPATH@/runtime/tor/arti@BIN_SUFFIX@
 @BINPATH@/runtime/tor/arti.toml

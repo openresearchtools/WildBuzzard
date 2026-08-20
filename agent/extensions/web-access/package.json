@@ -9,7 +9,7 @@
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "0.83.0",
+    "@earendil-works/pi-ai": "0.84.1",
     "@mozilla/readability": "0.6.0",
     "linkedom": "0.16.11",
     "p-limit": "6.2.0",
@@ -28,5 +28,8 @@
     "upstream": "https://github.com/nicobailon/pi-web-access",
     "upstreamCommit": "692483ae782e41978fb2eba0eec70fd4056608c8",
     "upstreamVersion": "0.19.0"
+  },
+  "overrides": {
+    "@earendil-works/pi-telemetry": "0.84.1"
   }
 }

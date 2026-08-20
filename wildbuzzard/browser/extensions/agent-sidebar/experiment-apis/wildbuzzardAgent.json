@@ -1,7 +1,7 @@
 [
   {
     "namespace": "wildbuzzardAgent",
-    "description": "Starts and monitors the persistent Pi Web services.",
+    "description": "Starts and monitors the installed Buzzard Agent Web services.",
     "functions": [
       {
         "name": "initialize",

@@ -77,6 +77,26 @@ let JSPROCESSACTORS = {
  * available at https://firefox-source-docs.mozilla.org/dom/ipc/jsactors.html
  */
 let JSWINDOWACTORS = {
+  QBittorrentWebUI: {
+    parent: {
+      esModuleURI: "resource:///modules/QBittorrentWebUIParent.sys.mjs",
+    },
+    child: {
+      esModuleURI: "resource:///modules/QBittorrentWebUIChild.sys.mjs",
+      events: {
+        DOMDocElementInserted: {},
+        WildBuzzardTorrentRequest: { wantUntrusted: true },
+      },
+    },
+    allFrames: true,
+    matches: [
+      "about:torrents*",
+      "resource:///modules/torrent-bootstrap.html",
+      "moz-torrent://local/*",
+    ],
+    remoteTypes: ["privilegedabout"],
+  },
+
   Megalist: {
     parent: {
       esModuleURI: "resource://gre/actors/MegalistParent.sys.mjs",

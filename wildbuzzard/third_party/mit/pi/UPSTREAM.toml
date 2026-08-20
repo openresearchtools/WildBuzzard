@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: MIT
+
+schema = 1
+name = "Pi coding agent"
+version = "0.84.1"
+repository = "https://github.com/earendil-works/pi.git"
+tag = "v0.84.1"
+tag_kind = "lightweight"
+commit = "53fa77ccd8a279eb87e92294ef3687b03ff80112"
+git_tree = "70a1ca9fe2bd7dfdcf00d53a60b02be4978e40e9"
+commit_time = "2026-08-07T05:48:13Z"
+source_date_epoch = 1786081693
+source_tree = "upstream"
+source_files = 1354
+source_bytes = 17877004
+source_archive_url = "https://codeload.github.com/earendil-works/pi/tar.gz/53fa77ccd8a279eb87e92294ef3687b03ff80112"
+source_archive_bytes = 6132787
+source_archive_sha256 = "2abd56747323ec382738ebb716dce2ba174bfa5c51495de7e3bfabea254f5319"
+source_manifest = "SOURCE-MANIFEST.sha256"
+source_manifest_sha256 = "2d21ca68373d25ba8003e77ef81b831e6d31a7d956e059615b22935a9b28324d"
+license = "MIT"
+license_file = "upstream/LICENSE"
+license_sha256 = "0457f5bcec3b3b211605dfb5d1a49042fd638f3686a410fe099c24a25af13c48"
+treatment = "complete unmodified upstream Git tree; downstream branding and Debian packaging live outside upstream"
+
+[runtime_evidence]
+installed_package = "@earendil-works/pi-coding-agent"
+installed_version = "0.84.1"
+npm_git_head = "53fa77ccd8a279eb87e92294ef3687b03ff80112"
+npm_tarball = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-0.84.1.tgz"
+npm_integrity = "sha512-ncAqFrG+iybuPGOhMiZoEHkEzTpJgz3guYD32pD+M7ucc0WeHmauP6wa7qwP8V/KWvsZDVNa5XGsdZ7fkC7w7A=="
+npm_shasum = "e098cada629fdeeb9df6e77c6d480d43e1b2c553"
+package_json_sha256 = "f9aaa275eac3292508bd9a1325d705a41c2d24c9a34da2b690e400d5a761a985"
+npm_shrinkwrap_sha256 = "a724da15dc849d0ab2fe346845f8986b059ab89339a03a365b5910b23217c0c3"
+
+[version_selection]
+selected = "0.84.1"
+reason = "The pristine monorepo packages and npm registry metadata resolve the installed agent to 0.84.1 and the same Git commit."
+stale_extension_declaration = "agent/extensions/web-access/package.json declares @earendil-works/pi-ai 0.83.0; it is not the installed runtime source pin."

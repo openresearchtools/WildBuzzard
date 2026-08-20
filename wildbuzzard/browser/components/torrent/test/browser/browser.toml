@@ -1,10 +1,5 @@
 [DEFAULT]
 tags = "wildbuzzard_torrent"
 
-["browser_torrent_draft_dialog.js"]
-
-["browser_torrent_file_picker.js"]
-
-["browser_torrent_search.js"]
-
-["browser_torrent_ui.js"]
+["browser_qbittorrent_ui.js"]
+skip-if = ["os != 'linux'"]

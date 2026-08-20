@@ -8,16 +8,9 @@ export const WEB_TOOL_NAMES = [
   "get_search_content",
 ];
 
-const WEB_CONTINUATION_TOOL_NAMES = ["fetch_content", "get_search_content"];
-const ACTIVATION_PATTERN =
-  /\b(search|research|source|citation|website|web|internet|online|current|latest|github|youtube|url|crawl|scrape)\b/i;
-
 export function webToolsForPrompt(
-  prompt: string,
-  hasStoredResults = false
+  _prompt: string,
+  _hasStoredResults = false
 ): string[] {
-  if (ACTIVATION_PATTERN.test(prompt)) {
-    return [...WEB_TOOL_NAMES];
-  }
-  return hasStoredResults ? [...WEB_CONTINUATION_TOOL_NAMES] : [];
+  return [...WEB_TOOL_NAMES];
 }

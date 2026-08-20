@@ -3,8 +3,24 @@
 
 "use strict";
 
-const { parseSearXNGHTTPResponse, SearXNGUDSTransportTestUtils } =
-  ChromeUtils.importESModule("resource:///modules/SearXNGUDSTransport.sys.mjs");
+const {
+  parseSearXNGHTTPResponse,
+  requestSearXNGUDS,
+  SearXNGUDSTransportTestUtils,
+} = ChromeUtils.importESModule(
+  "resource:///modules/SearXNGUDSTransport.sys.mjs"
+);
+
+const LocalFile = Components.Constructor(
+  "@mozilla.org/file/local;1",
+  "nsIFile",
+  "initWithPath"
+);
+const UnixServerSocket = Components.Constructor(
+  "@mozilla.org/network/server-socket;1",
+  "nsIServerSocket",
+  "initWithFilename"
+);
 
 add_task(function test_content_length_and_chunked_framing() {
   const fixed = parseSearXNGHTTPResponse(
@@ -17,6 +33,36 @@ add_task(function test_content_length_and_chunked_framing() {
     "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nOK\r\n0\r\n\r\n"
   );
   Assert.equal(new TextDecoder().decode(chunked.body), "OK");
+});
+
+add_task(function test_detects_complete_keep_alive_responses() {
+  const fixed =
+    "HTTP/1.1 200 OK\r\nConnection: keep-alive\r\nContent-Length: 2\r\n\r\nOK";
+  Assert.equal(
+    SearXNGUDSTransportTestUtils.completeResponseLength(
+      fixed.slice(0, -1),
+      1024
+    ),
+    null
+  );
+  Assert.equal(
+    SearXNGUDSTransportTestUtils.completeResponseLength(fixed, 1024),
+    fixed.length
+  );
+
+  const chunked =
+    "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nOK\r\n0\r\n\r\n";
+  Assert.equal(
+    SearXNGUDSTransportTestUtils.completeResponseLength(
+      chunked.slice(0, -1),
+      1024
+    ),
+    null
+  );
+  Assert.equal(
+    SearXNGUDSTransportTestUtils.completeResponseLength(chunked, 1024),
+    chunked.length
+  );
 });
 
 add_task(function test_rejects_ambiguous_or_oversized_framing() {
@@ -44,6 +90,54 @@ add_task(function test_rejects_ambiguous_or_oversized_framing() {
       ),
     /exceeded/
   );
+});
+
+add_task(async function test_request_over_unix_domain_socket() {
+  const socketFile = new LocalFile("/tmp");
+  socketFile.append(`wb-${Services.uuid.generateUUID()}`);
+  const server = new UnixServerSocket(socketFile, 0o600, -1);
+  server.asyncListen({
+    onSocketAccepted(_server, transport) {
+      const input = transport
+        .openInputStream(0, 0, 0)
+        .QueryInterface(Ci.nsIAsyncInputStream);
+      const output = transport.openOutputStream(0, 0, 0);
+      input.asyncWait(
+        {
+          onInputStreamReady(stream) {
+            const reader = Cc[
+              "@mozilla.org/scriptableinputstream;1"
+            ].createInstance(Ci.nsIScriptableInputStream);
+            reader.init(stream);
+            const request = reader.readBytes(stream.available());
+            Assert.ok(request.startsWith("GET /healthz HTTP/1.1\r\n"));
+            const response =
+              "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK";
+            output.write(response, response.length);
+            output.close();
+          },
+        },
+        0,
+        0,
+        Services.tm.currentThread
+      );
+    },
+    onStopListening() {},
+  });
+  try {
+    const response = await requestSearXNGUDS(
+      new LocalFile(socketFile.path),
+      {
+        target: "/healthz",
+        maximum: 16,
+        timeout: 3000,
+      }
+    );
+    Assert.equal(response.status, 200);
+    Assert.equal(new TextDecoder().decode(response.body), "OK");
+  } finally {
+    server.close();
+  }
 });
 
 function asyncOutput({ abortController, wouldBlock = true } = {}) {

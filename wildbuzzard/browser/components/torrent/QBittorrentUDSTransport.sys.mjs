@@ -2,6 +2,13 @@
 
 const DEFAULT_MAX_RESPONSE_BYTES = 64 * 1024 * 1024;
 const MAX_HEADER_BYTES = 64 * 1024;
+
+function isByteArray(value) {
+  return (
+    ArrayBuffer.isView(value) &&
+    Object.prototype.toString.call(value) === "[object Uint8Array]"
+  );
+}
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 
 function abortError() {
@@ -145,6 +152,95 @@ function decodeChunked(source) {
   }
 }
 
+function completeResponseLength(source, maximum) {
+  const separator = source.indexOf("\r\n\r\n");
+  if (separator < 0) {
+    if (source.length > MAX_HEADER_BYTES) {
+      throw new Error("qBittorrent returned invalid HTTP");
+    }
+    return null;
+  }
+  if (separator > MAX_HEADER_BYTES) {
+    throw new Error("qBittorrent returned invalid HTTP");
+  }
+  const contentLengths = [];
+  const transferEncodings = [];
+  for (const line of source.slice(0, separator).split("\r\n").slice(1)) {
+    const match = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([^\r\n]*)$/.exec(line);
+    if (!match) {
+      throw new Error("qBittorrent returned invalid HTTP headers");
+    }
+    const name = match[1].toLowerCase();
+    if (name === "content-length") {
+      contentLengths.push(match[2].trim());
+    } else if (name === "transfer-encoding") {
+      transferEncodings.push(match[2].trim());
+    }
+  }
+  const bodyStart = separator + 4;
+  if (transferEncodings.length) {
+    if (
+      transferEncodings.length !== 1 ||
+      transferEncodings[0].toLowerCase() !== "chunked" ||
+      contentLengths.length
+    ) {
+      throw new Error("qBittorrent returned invalid HTTP framing");
+    }
+    let cursor = bodyStart;
+    let decodedLength = 0;
+    while (true) {
+      const lineEnd = source.indexOf("\r\n", cursor);
+      if (lineEnd < 0) {
+        return null;
+      }
+      const sizeText = source.slice(cursor, lineEnd).split(";", 1)[0];
+      if (!/^[0-9A-Fa-f]+$/.test(sizeText)) {
+        throw new Error("qBittorrent returned invalid chunked HTTP framing");
+      }
+      const size = Number.parseInt(sizeText, 16);
+      if (!Number.isSafeInteger(size)) {
+        throw new Error("qBittorrent returned invalid chunked HTTP framing");
+      }
+      cursor = lineEnd + 2;
+      if (size === 0) {
+        if (source.length < cursor + 2) {
+          return null;
+        }
+        if (source.slice(cursor, cursor + 2) !== "\r\n") {
+          throw new Error("qBittorrent returned unsupported HTTP trailers");
+        }
+        return cursor + 2;
+      }
+      decodedLength += size;
+      if (!Number.isSafeInteger(decodedLength) || decodedLength > maximum) {
+        throw new Error("qBittorrent response body exceeded its limit");
+      }
+      if (source.length < cursor + size + 2) {
+        return null;
+      }
+      if (source.slice(cursor + size, cursor + size + 2) !== "\r\n") {
+        throw new Error("qBittorrent returned invalid chunked HTTP framing");
+      }
+      cursor += size + 2;
+    }
+  }
+  if (contentLengths.length) {
+    if (
+      contentLengths.length !== 1 ||
+      !/^(?:0|[1-9]\d*)$/.test(contentLengths[0])
+    ) {
+      throw new Error("qBittorrent returned invalid HTTP content length");
+    }
+    const length = Number(contentLengths[0]);
+    if (!Number.isSafeInteger(length) || length > maximum) {
+      throw new Error("qBittorrent response body exceeded its limit");
+    }
+    const total = bodyStart + length;
+    return source.length >= total ? total : null;
+  }
+  return null;
+}
+
 export function parseQBittorrentHTTPResponse(
   source,
   maximum = DEFAULT_MAX_RESPONSE_BYTES
@@ -214,9 +310,13 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
     let output;
     let pump;
     let settled = false;
+    const socketFile = Cc["@mozilla.org/file/local;1"].createInstance(
+      Ci.nsIFile
+    );
+    socketFile.initWithPath(socket);
     const transport = Cc["@mozilla.org/network/socket-transport-service;1"]
       .getService(Ci.nsISocketTransportService)
-      .createUnixDomainTransport(socket);
+      .createUnixDomainTransport(socketFile);
     const finish = (callback, value) => {
       if (settled) {
         return;
@@ -259,7 +359,7 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
         Ci.nsIInputStreamPump
       );
       pump.init(input, 0, 0, true);
-      const chunks = [];
+      let source = "";
       let size = 0;
       pump.asyncRead({
         onStartRequest() {},
@@ -274,9 +374,24 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
             activeRequest.cancel(Cr.NS_ERROR_FILE_TOO_BIG);
             return;
           }
-          chunks.push(chunk);
+          source += chunk;
+          try {
+            const length = completeResponseLength(source, maximum);
+            if (length !== null) {
+              if (length !== source.length) {
+                throw new Error("qBittorrent returned invalid HTTP framing");
+              }
+              finish(resolve, parseQBittorrentHTTPResponse(source, maximum));
+            }
+          } catch (error) {
+            activeRequest.cancel(Cr.NS_ERROR_FAILURE);
+            finish(reject, error);
+          }
         },
         onStopRequest(_activeRequest, status) {
+          if (settled) {
+            return;
+          }
           if (!Components.isSuccessCode(status)) {
             finish(
               reject,
@@ -287,10 +402,7 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
             return;
           }
           try {
-            finish(
-              resolve,
-              parseQBittorrentHTTPResponse(chunks.join(""), maximum)
-            );
+            finish(resolve, parseQBittorrentHTTPResponse(source, maximum));
           } catch (error) {
             finish(reject, error);
           }
@@ -308,9 +420,9 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
 function validHeader(name, value) {
   return Boolean(
     /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) &&
-      typeof value === "string" &&
-      value.length <= 8192 &&
-      !/[\r\n\0]/.test(value)
+    typeof value === "string" &&
+    value.length <= 8192 &&
+    !/[\r\n\0]/.test(value)
   );
 }
 
@@ -333,11 +445,13 @@ export function requestQBittorrentUDS(
     target.length > 65536 ||
     /[^\x20-\x7e]/.test(target) ||
     /[\r\n]/.test(target) ||
-    !(body instanceof Uint8Array) ||
+    !isByteArray(body) ||
     body.length > MAX_REQUEST_BYTES ||
     !headers ||
     typeof headers !== "object" ||
-    Object.entries(headers).some(([name, value]) => !validHeader(name, value)) ||
+    Object.entries(headers).some(
+      ([name, value]) => !validHeader(name, value)
+    ) ||
     !Number.isInteger(timeout) ||
     timeout < 1 ||
     timeout > 120000 ||
@@ -357,7 +471,10 @@ export function requestQBittorrentUDS(
   for (const [name, value] of Object.entries(headers)) {
     request += `${name}: ${value}\r\n`;
   }
-  if (body.length && !Object.keys(headers).some(name => name.toLowerCase() === "content-length")) {
+  if (
+    body.length &&
+    !Object.keys(headers).some(name => name.toLowerCase() === "content-length")
+  ) {
     request += `Content-Length: ${body.length}\r\n`;
   }
   request += `\r\n${byteString(body)}`;
@@ -366,6 +483,7 @@ export function requestQBittorrentUDS(
 
 export const QBittorrentUDSTransportTestUtils = {
   byteString,
+  completeResponseLength,
   decodeChunked,
   writeAsyncRequest,
 };

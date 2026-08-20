@@ -1,10 +1,10 @@
 <!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
 
-# Managed SearXNG service
+# Packaged SearXNG service
 
-The native runtime launches the source-built bundled CPython and Granian. The
+The `buzzard-search` package launches the source-built CPython and Granian. The
 upstream application listens only on a mode-0600 Unix socket. A small
-WildBuzzard gateway selects an ephemeral `127.0.0.1` port and enforces the
+Buzzard gateway selects an ephemeral `127.0.0.1` port and enforces the
 local trust boundary.
 
 JSON searches, `/config`, `/stats`, `/metrics`, `/v1/health`, and
@@ -13,36 +13,27 @@ allowed without placing the capability in a URL, but rejects a mismatched Host,
 cross-origin Origin, or cross-site Fetch Metadata request. The gateway emits no
 CORS headers and does not log requests.
 
-The browser starts or reconnects to the detached service with:
+The package starts or reconnects to the detached service internally with:
 
 ```text
 <runtime>/python/bin/python3 -I <runtime>/libexec/searxng_service.py \
   --runtime-root <immutable-runtime> \
   start \
-  --data-root <xdg-data>/wildbuzzard/search/searxng \
-  --cache-root <xdg-cache>/wildbuzzard/search/searxng \
-  --runtime-dir <xdg-runtime>/wildbuzzard-search \
-  --connection-file <xdg-runtime>/wildbuzzard-search/connection.json \
+  --data-root <xdg-data>/buzzard/search/searxng \
+  --cache-root <xdg-cache>/buzzard/search/searxng \
+  --runtime-dir <xdg-runtime>/buzzard/search \
+  --connection-file <xdg-runtime>/buzzard/search/connection.json \
   --owner-instance-id <opaque-owner-id>
 ```
 
-`browser/components/websearch/SearXNGRuntime.sys.mjs` verifies and atomically
-extracts the bundled ZIP into versioned per-profile XDG state before invoking
-that lifecycle interface. The AppImage packager also streams and verifies the
-complete manifest inventory and every payload digest before producing an
-image. The owner ID is a domain-separated digest of the canonical browser
-profile path. Normal navigation receives only the live loopback search URL;
-the bundled Pi web-access extension receives the private connection-record
-path through its privileged service environment and reads the capability from
-that mode-0600 file.
+`/usr/bin/buzzard-search` owns that lifecycle interface and the package-private
+AppImage. Wild Buzzard, Buzzard Agent and other applications use its JSON CLI
+or stdio MCP server; they do not inspect `/usr/lib/buzzard-search`. Normal
+navigation receives only the live loopback search URL. Callers never receive
+the service capability or connection record.
 
-Every browser package carries the exact complete corresponding source at
-`notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz` and the
-cross-referencing CycloneDX inventory at
-`notices/source/searxng-release.cdx.json`. In an installed AppImage the paths
-are below `/usr/lib/wildbuzzard`; in the Debian package they are below
-`/opt/wildbuzzard`. Privileged browser code can obtain the installation path
-from `SearXNGRuntime.correspondingSourcePath`.
+The Ubuntu builder emits the exact corresponding-source archive and CycloneDX
+inventory beside `buzzard-search.deb`. Publish all three artifacts together.
 
 The same launcher supports `status`, `stop`, `restart`, and the foreground
 `serve` operation. `start` returns only after an authenticated health check.

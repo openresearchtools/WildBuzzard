@@ -1,0 +1,5 @@
+buzzard-quick-search (0.1.0-1) unstable; urgency=medium
+
+  * Initial standalone CLI and MCP package with Unsloth-compatible results.
+
+ -- Wild Buzzard Project  Tue, 18 Aug 2026 15:00:00 +0100

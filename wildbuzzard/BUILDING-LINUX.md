@@ -2,182 +2,117 @@
 
 # Isolated Linux builds
 
-`scripts/build-linux-external.sh` simulates a clean self-hosted runner on the
-same machine. It clones a committed revision into an external run directory and
-puts the object directory, Mozilla build state, ccache, logs, and packages
-outside the developer checkout.
+All release binaries are built on pinned Ubuntu runners. The supported runtime
+matrix is Ubuntu 24.04, Ubuntu 26.04 and Debian 13 or newer.
 
-The default layout is a sibling of the repository:
+## Browser build
+
+`scripts/build-linux-external.sh` clones a committed revision into an external
+run directory and keeps the object directory, Mozilla state, ccache, logs and
+packages outside the checkout. The default layout is:
 
 ```text
 wildbuzzard-builds/
-├── ccache/                  shared safely across ESR updates
-├── state/                   shared mach/bootstrap state
-└── runs/
-    └── <UTC>-<commit>-<pid>/
-        ├── source/          clean detached checkout
-        ├── obj/             build objects and dist packages
-        ├── artifacts/       packages and separate release-source assets
-        ├── logs/
-        └── build-manifest.txt
+├── ccache/
+├── state/
+└── runs/<UTC>-<commit>-<pid>/
+    ├── source/
+    ├── obj/
+    ├── artifacts/
+    ├── logs/
+    └── build-manifest.txt
 ```
 
-From the WildBuzzard repository:
+Build a committed revision:
 
 ```bash
 ./wildbuzzard/scripts/build-linux-external.sh --action build
 ```
 
-The `package`, `appimage`, and `all` actions are release gates and require the
-Pi Web, torrent, Jackett Mini, SearXNG, and Arti host-native runtime artifacts.
-
 Useful variants:
 
 ```bash
-# Use all 24 cores explicitly.
 ./wildbuzzard/scripts/build-linux-external.sh --action build --jobs 24
-
-# Build an exact committed revision.
 ./wildbuzzard/scripts/build-linux-external.sh --action package --ref <commit>
-
-# Build the current working tree with pinned host-native runtime inputs.
-./wildbuzzard/scripts/build-linux-external.sh \
-  --working-tree \
-  --pi-web-runtime /absolute/path/to/wildbuzzard-pi-web-runtime-linux-x64.zip \
-  --torrent-runtime /absolute/path/to/wildbuzzard-torrent-runtime-linux-x64.zip \
-  --jackett-mini-runtime /absolute/path/to/wildbuzzard-jackett-mini-runtime.zip \
-  --searxng-executable /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage \
-  --searxng-release-source /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz \
-  --searxng-release-sbom /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-sbom.cdx.json \
-  --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
-  --arti-provenance /absolute/path/to/wildbuzzard-arti-2.5.1-provenance.zip \
-  --action appimage
-
-# Bootstrap a new build host, then build.
 ./wildbuzzard/scripts/build-linux-external.sh --bootstrap --action build
-
-# Put all runner state on a larger disk.
 ./wildbuzzard/scripts/build-linux-external.sh \
   --build-root /absolute/path/wildbuzzard-builds \
   --action all
 ```
 
-The script ignores uncommitted files unless `--working-tree` is supplied.
-Every run records the base commit and whether it included that snapshot in
-`build-manifest.txt`. Pi Web runtime builds require a clean, committed local
-Pi Web fork and always record its exact commit separately.
+The script ignores uncommitted files unless `--working-tree` is supplied. Every
+run records the base commit and whether it included a working-tree snapshot.
 
-Build the Pi Web runtime separately from the browser checkout. The Git and
-yt-dlp helper archives must be source-built runtime ZIPs and their SHA-256
-values are mandatory:
-
-```bash
-./wildbuzzard/scripts/build-pi-web-runtime.sh \
-  --fork /absolute/path/to/WildBuzzard-pi-web \
-  --build-root /absolute/path/to/pi-web-builds \
-  --git-runtime /absolute/path/to/git-runtime.zip \
-  --git-runtime-sha256 <sha256> \
-  --ytdlp-runtime /absolute/path/to/ytdlp-runtime.zip \
-  --ytdlp-runtime-sha256 <sha256>
-```
-
-The committed runtime lock pins the Pi Web commit and tree, package lock,
-Node archive, npm version, and Pi packages. Builds use isolated npm and Cargo
-state, fresh per-run Rust targets, production npm and RustSec audits, and emit
-CycloneDX and SPDX inventories covering Pi Web, web-access, and the native
-browser runner. `--offline` fails if a pinned input, package, or advisory
-database is absent. To verify reproducibility, run two clean builds and pass
-the first run's `build-record.json` to the second with `--compare-to`; the
-comparator checks archive bytes, members, modes, timestamps, per-member hashes,
-inputs, and build environment.
-
-Build the SearXNG runtime and executable directly from the pinned sources and
-host-native toolchains. Its shipping path never invokes an OCI runtime:
-
-```bash
-./wildbuzzard/scripts/build-searxng-runtime.sh \
-  --output /absolute/path/to/searxng-output \
-  --cache /absolute/path/to/searxng-cache
-
-./wildbuzzard/scripts/build-searxng-executable.sh \
-  --output /absolute/path/to/searxng-executable-output \
-  --cache /absolute/path/to/searxng-cache \
-  --runtime-archive /absolute/path/to/searxng-output/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.zip
-
-unzip -p \
-  /absolute/path/to/searxng-output/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.zip \
-  share/wildbuzzard/searxng/sbom.cdx.json \
-  > /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-sbom.cdx.json
-chmod 0644 \
-  /absolute/path/to/wildbuzzard-searxng-2026.8.6+b023a28ba-sbom.cdx.json
-```
-
-The runtime build emits its intermediate ZIP, build record, and complete
-corresponding-source archive. The executable build converts that runtime into
-the single SearXNG AppImage accepted by browser packaging. Pass the executable,
-source archive, and extracted standalone SBOM through `--searxng-executable`,
-`--searxng-release-source`, and `--searxng-release-sbom`. Release actions reject a missing,
-renamed, mode-changed, or digest-mismatched input. The browser tarball, Debian
-package, and outer AppImage contain only the nested executable, including its
-notices and SBOM. The source archive and standalone SBOM are copied beside the
-packages in the run's `artifacts/` directory with SHA-256 sidecars and must be
-published as release assets.
-
-After extracting a built runtime, run its lifecycle gate before packaging:
-
-```bash
-./wildbuzzard/scripts/test-pi-web-runtime-lifecycle.mjs \
-  --runtime /absolute/path/to/extracted-runtime
-```
-
-The gate starts the runtime's bundled Node, web service, and session daemon;
-creates a real project and Pi session; rotates the private service identity as
-a cold browser restart does; reconnects with a fresh challenge; and verifies
-that the authenticated web and session-daemon PIDs and the session remain
-unchanged. It terminates only the two processes it created and removes its
-temporary state when complete.
-
-The `appimage` action builds the browser, creates Mozilla's Linux tar archive,
-and packages it as a self-contained AppImage. The Pi Web runtime ZIP and nested
-SearXNG executable, including their native dependencies and license
-inventories, are included in that image. SearXNG source and standalone SBOM
-remain separate release assets. The `all` action also runs the native blocker
-tests and every WildBuzzard component test, and creates both an `amd64` Debian
-package and an AppImage. Packaging runs entirely in the external run directory
-and does not use `sudo`.
-
-Build the pinned, unmodified Tor Project Arti subtree into the external Arti
-build directory before packaging:
+The browser package does not embed SearXNG, qBittorrent, Jackett Mini, Buzzard
+Agent or Buzzard Agent Web payloads. Those capabilities are ordinary Debian
+package dependencies. The browser packaging gate accepts only the pinned Arti
+binary and its provenance archive:
 
 ```bash
 ./wildbuzzard/scripts/build-arti-runtime.sh
+
+./wildbuzzard/scripts/build-linux-external.sh \
+  --working-tree \
+  --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
+  --arti-provenance /absolute/path/to/wildbuzzard-arti-2.5.1-provenance.zip \
+  --action all
 ```
 
-The script verifies that `third_party/arti` exactly matches the commit pinned
-in `wildbuzzard/third_party/arti.toml`, builds with Arti's locked dependencies,
-and emits the pinned executable plus a provenance ZIP containing exact
-corresponding source, CycloneDX SBOM, runtime manifest, and both upstream
-licenses. Pass both printed paths through `--arti-binary` and
-`--arti-provenance`. The Firefox release archive includes the provenance ZIP,
-and both the derived AppImage and Debian package validate it before packaging.
-The resulting browser starts Arti only when a tab first enables Tor routing.
-See `wildbuzzard/TOR.md` for the routing model, update procedure, and anonymity
-scope.
+The Arti builder verifies the pristine pinned subtree, uses locked dependencies
+and emits corresponding source, SBOM, runtime manifest and upstream licences.
 
-Run the AppImage normally on a system with FUSE support. On build or test hosts
-without FUSE, use:
+## Component packages
+
+First-party package definitions are under `wildbuzzard/components`. Third-party
+source and exact provenance are under `wildbuzzard/third_party`. Build these as
+separate packages in dependency order:
+
+1. `buzzard-search`
+2. `buzzard-torrent-search`
+3. `buzzard-torrent`
+4. `buzzard-quick-search`
+5. `buzzard-agent`
+6. `buzzard-agent-web`
+7. `wildbuzzard`
+
+The runtime-bearing package builders receive their own pinned build output:
+
+```bash
+BUZZARD_SEARCH_RUNTIME=/absolute/path/to/searxng.AppImage \
+  ./wildbuzzard/components/buzzard-search/scripts/build-deb.sh /absolute/path/out
+
+BUZZARD_TORRENT_SEARCH_RUNTIME=/absolute/path/to/jackett-mini-runtime \
+BUZZARD_NODE_ROOT=/opt/node \
+  ./wildbuzzard/components/buzzard-torrent-search/scripts/build-deb.sh /absolute/path/out
+
+BUZZARD_TORRENT_RUNTIME=/absolute/path/to/qbittorrent-runtime \
+  ./wildbuzzard/components/buzzard-torrent/scripts/build-deb.sh /absolute/path/out
+
+./wildbuzzard/components/buzzard-quick-search/scripts/build-deb.sh
+BUZZARD_NODE_ROOT=/opt/node \
+  ./wildbuzzard/components/buzzard-agent/build-deb.sh /absolute/path/out
+./wildbuzzard/components/buzzard-agent-web/scripts/build-deb.sh
+```
+
+Each package owns its runtime, lifecycle, state, CLI and stdio MCP server. No
+consumer reads another package's private `/usr/lib` directory. Build twice from
+independent roots and require byte-identical `.deb` output before publishing.
+
+Install and smoke-test the exact final package set on all three supported base
+images. The combined test must exercise CLI discovery, MCP initialization/tool
+catalogues, private per-user services and the browser-to-package integrations.
+
+## AppImage and host notes
+
+The AppImage contains the browser core, not the independently packaged
+capabilities. Run it normally with FUSE or use this on build hosts:
 
 ```bash
 APPIMAGE_EXTRACT_AND_RUN=1 ./WildBuzzard-*.AppImage
 ```
 
-`ccache` is useful across Firefox ESR updates because unchanged C/C++ translation
-units and headers still produce cache hits. The cache lives outside individual
-runs, while each run gets a fresh source and object directory. Rust and final
-linking work are not covered by ordinary ccache.
-
-On Ubuntu 26.04, Firefox configure currently requires the PulseAudio development
-package:
+`ccache` is useful across Firefox ESR updates. Rust and final linking are not
+covered by ordinary ccache. Ubuntu 26.04 Firefox configure currently also needs:
 
 ```bash
 sudo apt install libpulse-dev

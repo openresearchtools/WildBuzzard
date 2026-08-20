@@ -73,6 +73,8 @@ if [[ -e "$OUTPUT_DIR/$ARTIFACT_NAME" ]]; then
 fi
 WORK_DIR=$(mktemp -d "$OUTPUT_DIR/.searxng-executable.XXXXXX")
 trap 'rm -rf -- "$WORK_DIR"' EXIT
+mkdir -p "$WORK_DIR/tmp"
+export TMPDIR="$WORK_DIR/tmp"
 
 IFS=$'\t' read -r tool_name tool_version tool_filename tool_digest tool_size _tool_license tool_url _tool_source < <(
   awk -F '\t' '$1 == "appimagetool" { print $0 }' "$TOOL_LOCK"

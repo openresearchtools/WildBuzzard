@@ -1,0 +1,5 @@
+buzzard-torrent (0.1.0-1) unstable; urgency=medium
+
+  * Initial independent qBittorrent/libtorrent package.
+
+ -- Open Research Tools <maintainers@openresearchtools.org>  Tue, 18 Aug 2026 12:00:00 +0000

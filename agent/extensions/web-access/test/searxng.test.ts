@@ -10,6 +10,7 @@ import {
   nativeSearchRequest,
   searchSearXBatch,
   searchSearXNG,
+  sortSearchResults,
 } from "../searxng.ts";
 
 const fixtures = {
@@ -213,6 +214,210 @@ test("native request enforces audited query caps and fixed safe search", () => {
         normalizeSearchInput({ query: `${unicodeOverByteLimit}é` })
       ),
     /audited limit/
+  );
+});
+
+test("date sorting is stable and always leaves invalid or missing dates last", () => {
+  const results = [
+    { title: "old", date: "2024-01-01" },
+    { title: "invalid", date: "not-a-date" },
+    { title: "equal-first", date: "2026-08-10T00:00:00Z" },
+    { title: "missing", date: null },
+    { title: "equal-second", date: "2026-08-10" },
+    { title: "middle", date: "2025-06-01" },
+  ].map(({ title, date }) => ({
+    title,
+    date,
+    url: `https://${title}.example/`,
+    snippet: "",
+    engines: [],
+    score: null,
+    provenance: "searxng" as const,
+    trust: "untrusted" as const,
+  }));
+
+  assert.deepEqual(
+    sortSearchResults(results, "newest").map(result => result.title),
+    [
+      "equal-first",
+      "equal-second",
+      "middle",
+      "old",
+      "invalid",
+      "missing",
+    ]
+  );
+  assert.deepEqual(
+    sortSearchResults(results, "oldest").map(result => result.title),
+    [
+      "old",
+      "middle",
+      "equal-first",
+      "equal-second",
+      "invalid",
+      "missing",
+    ]
+  );
+});
+
+test("default search ordering preserves SearXNG relevance", async () => {
+  const input = normalizeSearchInput({ query: "fixture", numResults: 3 });
+  let request: unknown;
+  const result = await searchSearXNG(
+    "fixture",
+    input,
+    "/work/project",
+    "session-a",
+    undefined,
+    async (_tool, args) => {
+      request = args;
+      return {
+        content: [],
+        details: nativeResponse("fixture", {
+          results: [
+            {
+              title: "most relevant",
+              url: "https://first.example/",
+              publishedDate: "2024-01-01",
+            },
+            {
+              title: "second most relevant",
+              url: "https://second.example/",
+              publishedDate: "2026-01-01",
+            },
+            {
+              title: "third most relevant",
+              url: "https://third.example/",
+            },
+          ],
+        }),
+      };
+    }
+  );
+  assert.deepEqual(request, {
+    query: "fixture",
+    safeSearch: 1,
+    maxResults: 3,
+  });
+  assert.deepEqual(
+    result.results.map(item => item.title),
+    ["most relevant", "second most relevant", "third most relevant"]
+  );
+});
+
+test("recency filtering and result ordering coexist independently", async () => {
+  const input = normalizeSearchInput({
+    query: "fixture",
+    numResults: 2,
+    recencyFilter: "month",
+    sortOrder: "newest",
+  });
+  let request: unknown;
+  const result = await searchSearXNG(
+    "fixture",
+    input,
+    "/work/project",
+    "session-a",
+    undefined,
+    async (_tool, args) => {
+      request = args;
+      return {
+        content: [],
+        details: nativeResponse("fixture", {
+          results: [
+            {
+              title: "undated",
+              url: "https://undated.example/",
+            },
+            {
+              title: "older",
+              url: "https://older.example/",
+              publishedDate: "2026-07-20",
+            },
+            {
+              title: "newer",
+              url: "https://newer.example/",
+              publishedDate: "2026-08-12",
+            },
+          ],
+        }),
+      };
+    }
+  );
+  assert.deepEqual(request, {
+    query: "fixture",
+    timeRange: "month",
+    safeSearch: 1,
+    maxResults: 100,
+  });
+  assert.deepEqual(
+    result.results.map(item => item.title),
+    ["newer", "older"]
+  );
+});
+
+test("query batches apply date ordering within each response", async () => {
+  const input = normalizeSearchInput({
+    queries: ["alpha", "beta"],
+    numResults: 3,
+    sortOrder: "oldest",
+  });
+  const result = await searchSearXBatch(
+    input.queries,
+    input,
+    "/work/project",
+    "session-a",
+    undefined,
+    (query, normalized, cwd, sessionId, signal) =>
+      searchSearXNG(
+        query,
+        normalized,
+        cwd,
+        sessionId,
+        signal,
+        async (_tool, args) => ({
+          content: [],
+          details: nativeResponse((args as { query: string }).query, {
+            results:
+              query === "alpha"
+                ? [
+                    {
+                      title: "alpha-new",
+                      url: "https://alpha-new.example/",
+                      publishedDate: "2026-08-02",
+                    },
+                    {
+                      title: "alpha-old",
+                      url: "https://alpha-old.example/",
+                      publishedDate: "2026-08-01",
+                    },
+                  ]
+                : [
+                    {
+                      title: "beta-undated",
+                      url: "https://beta-undated.example/",
+                    },
+                    {
+                      title: "beta-old",
+                      url: "https://beta-old.example/",
+                      publishedDate: "2025-01-01",
+                    },
+                    {
+                      title: "beta-new",
+                      url: "https://beta-new.example/",
+                      publishedDate: "2026-01-01",
+                    },
+                  ],
+          }),
+        })
+      )
+  );
+  assert.deepEqual(
+    result.map(response => response.results.map(item => item.title)),
+    [
+      ["alpha-old", "alpha-new"],
+      ["beta-old", "beta-new", "beta-undated"],
+    ]
   );
 });
 

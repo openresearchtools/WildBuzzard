@@ -1421,7 +1421,7 @@ labels = {
     "repository": os.environ["ROOT_DIR"],
     "output": os.environ["OUTPUT_DIR"],
     "cache": os.environ["CACHE_DIR"],
-    "home": str(Path.home()),
+    "home": f"{Path.home()}/",
     "corresponding-source": os.environ["SOURCE_STAGE"],
 }
 needles = {

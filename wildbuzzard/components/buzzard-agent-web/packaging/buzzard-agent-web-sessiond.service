@@ -1,0 +1,15 @@
+[Unit]
+Description=Buzzard Agent Web persistent-session daemon
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=-%t/buzzard-agent-web/environment
+ExecStart=/usr/bin/buzzard-agent-web sessiond
+Restart=on-failure
+RestartSec=2
+KillMode=mixed
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target

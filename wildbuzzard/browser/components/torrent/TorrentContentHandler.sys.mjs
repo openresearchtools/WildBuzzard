@@ -1,12 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { BrowserWindowTracker } from "resource:///modules/BrowserWindowTracker.sys.mjs";
-import { TorrentManager } from "resource:///modules/TorrentManager.sys.mjs";
 
 const CONTENT_TYPES = new Set([
   "application/x-bittorrent",
   "application/vnd.bittorrent",
 ]);
+const recentDownloads = new Map();
+const DUPLICATE_WINDOW_MS = 2000;
 
 /** Routes BitTorrent metadata responses to the built-in client. */
 export class TorrentContentHandler {
@@ -21,6 +22,15 @@ export class TorrentContentHandler {
       throw Components.Exception("", Cr.NS_ERROR_WONT_HANDLE_CONTENT);
     }
     const { loadInfo, URI } = request;
+    const now = Date.now();
+    for (const [key, timestamp] of recentDownloads) {
+      if (now - timestamp >= DUPLICATE_WINDOW_MS) {
+        recentDownloads.delete(key);
+      }
+    }
+    const downloadKey = `${loadInfo.browsingContextID}:${URI.spec}`;
+    const duplicate = recentDownloads.has(downloadKey);
+    recentDownloads.set(downloadKey, now);
     const privateBrowsing = Boolean(
       loadInfo.originAttributes.privateBrowsingId
     );
@@ -31,40 +41,16 @@ export class TorrentContentHandler {
         ? originatingWindow
         : BrowserWindowTracker.getTopWindow({ private: privateBrowsing });
     request.cancel(Cr.NS_BINDING_ABORTED);
+    if (duplicate) {
+      return;
+    }
     const window = targetWindow();
     if (!window) {
       throw Components.Exception("", Cr.NS_ERROR_NOT_AVAILABLE);
     }
-    TorrentManager.createDraftFromURL(
-      URI.spec,
-      loadInfo.triggeringPrincipal,
-      loadInfo.cookieJarSettings
-    )
-      .then(async draft => {
-        const destination = targetWindow();
-        if (destination) {
-          try {
-            destination.openTrustedLinkIn(
-              `about:torrents#draft=${encodeURIComponent(draft.draftId)}`,
-              "tab"
-            );
-          } catch (error) {
-            await TorrentManager.cancelTorrentDraft(draft.draftId).catch(
-              () => {}
-            );
-            throw error;
-          }
-        } else {
-          await TorrentManager.cancelTorrentDraft(draft.draftId).catch(
-            () => {}
-          );
-        }
-      })
-      .catch(() => {
-        targetWindow()?.openTrustedLinkIn(
-          "about:torrents#draft-error=1",
-          "tab"
-        );
-      });
+    window.openTrustedLinkIn(
+      `about:torrents#download=${encodeURIComponent(URI.spec)}`,
+      "tab"
+    );
   }
 }

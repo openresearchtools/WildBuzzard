@@ -4,129 +4,65 @@
 "use strict";
 
 ChromeUtils.defineESModuleGetters(this, {
-  HttpServer: "resource://testing-common/httpd.sys.mjs",
-  NetUtil: "resource://gre/modules/NetUtil.sys.mjs",
   TestUtils: "resource://testing-common/TestUtils.sys.mjs",
   TorrentDiscoveryManager:
     "resource:///modules/TorrentDiscoveryManager.sys.mjs",
 });
 
-const CAPABILITY = "A".repeat(43);
 const RESULT_ID = "R".repeat(32);
-let connectionPath;
-let originalConnection;
-let searchMode = "valid";
-let server;
-
-function sendJson(request, response, body, status = 200) {
-  const encoded = JSON.stringify(body);
-  response.setStatusLine(request.httpVersion, status, "OK");
-  response.setHeader("Content-Type", "application/json", false);
-  response.setHeader("Content-Length", String(encoded.length), false);
-  response.bodyOutputStream.write(encoded, encoded.length);
-}
-
-function assertRequest(request) {
-  Assert.equal(
-    request.getHeader("Authorization"),
-    `Bearer ${CAPABILITY}`,
-    "The capability is sent only in the authorization header"
-  );
-  Assert.ok(!request.hasHeader("Origin"), "No web origin is sent");
-}
+let modePath;
+let originalCommand;
+let originalMode;
 
 add_setup(async function setup() {
   do_get_profile();
-  server = new HttpServer();
-  server.registerPathHandler("/v1/health", (request, response) => {
-    assertRequest(request);
-    sendJson(request, response, { status: "ok" });
-  });
-  server.registerPathHandler("/v1/sources", (request, response) => {
-    assertRequest(request);
-    sendJson(request, response, {
-      immutable: true,
-      sources: [
-        {
-          id: "linuxtracker",
-          name: "Linux\u0000Tracker",
-          state: "ready",
-          access: "public",
-          contentClass: "general",
-          reasons: ["credential-free"],
-        },
-      ],
-    });
-  });
-  server.registerPathHandler("/v1/search", (request, response) => {
-    assertRequest(request);
-    if (searchMode === "delayed") {
-      response.processAsync();
-      do_timeout(5000, () => {
-        try {
-          sendJson(request, response, { error: "late" });
-          response.finish();
-        } catch {}
-      });
-      return;
-    }
-    const body = JSON.parse(
-      NetUtil.readInputStreamToString(
-        request.bodyInputStream,
-        request.bodyInputStream.available()
-      )
-    );
-    Assert.deepEqual(body, { query: "linux iso", limit: 200 });
-    sendJson(request, response, {
-      searchId: "S".repeat(32),
-      partial: true,
-      providers: [{ id: "linuxtracker", state: "ok", elapsedMs: 2 }],
-      results: [
-        {
-          resultId: RESULT_ID,
-          providerId: "linuxtracker",
-          providerName: "Linux Tracker",
-          name: "Linux\u0007 ISO",
-          sizeBytes: 1024,
-          seeders: 10,
-          leechers: null,
-          publishedAt: "2026-08-10T00:00:00Z",
-          categoryIds: searchMode === "adult" ? [6000] : [8000],
-          access: "public",
-          acquisition: "magnet",
-        },
-      ],
-    });
-  });
-  server.registerPathHandler(
-    `/v1/results/${RESULT_ID}/resolve`,
-    (request, response) => {
-      assertRequest(request);
-      sendJson(request, response, {
-        kind: "magnet",
-        magnet: "magnet:?xt=urn:btih:0123456789012345678901234567890123456789",
-        torrentBase64: null,
-        torrentBytes: null,
-      });
-    }
+  const commandPath = PathUtils.join(PathUtils.profileDir, "torrent-search");
+  modePath = PathUtils.join(PathUtils.profileDir, "torrent-search-mode");
+  const command = `#!/bin/sh
+set -eu
+mode=$(cat "$WILDBUZZARD_TORRENT_TEST_MODE" 2>/dev/null || printf valid)
+case "$2" in
+  torrent_sources)
+    printf '%s\\n' '{"immutable":true,"sources":[{"id":"linuxtracker","name":"Linux\\u0000Tracker","state":"ready","access":"public","contentClass":"general","reasons":["credential-free"]}]}'
+    ;;
+  torrent_search)
+    [ "$mode" = delayed ] && exec sleep 5
+    category=8000
+    [ "$mode" = adult ] && category=6000
+    printf '{"searchId":"SSSSSSSSSSSSSSSSSSSSSSSSSSSSSSSS","partial":true,"providers":[{"id":"linuxtracker","state":"ok","elapsedMs":2}],"results":[{"resultId":"${RESULT_ID}","providerId":"linuxtracker","providerName":"Linux Tracker","name":"Linux\\u0007 ISO","sizeBytes":1024,"seeders":10,"leechers":null,"publishedAt":"2026-08-10T00:00:00Z","categoryIds":[%s],"access":"public","acquisition":"magnet"}]}\\n' "$category"
+    ;;
+  torrent_resolve)
+    printf '%s\\n' '{"kind":"magnet","magnet":"magnet:?xt=urn:btih:0123456789012345678901234567890123456789","torrentBase64":null,"torrentBytes":null}'
+    ;;
+  *) exit 2 ;;
+esac
+`;
+  await IOUtils.writeUTF8(commandPath, command);
+  await IOUtils.setPermissions(commandPath, 0o700);
+  await IOUtils.writeUTF8(modePath, "valid");
+  originalCommand = Services.prefs.getStringPref(
+    "wildbuzzard.torrent.searchCommand",
+    ""
   );
-  server.start(-1);
-  connectionPath = PathUtils.join(PathUtils.profileDir, "jackett.json");
-  await IOUtils.writeJSON(connectionPath, {
-    address: "127.0.0.1",
-    port: server.identity.primaryPort,
-    capability: CAPABILITY,
-  });
-  originalConnection = Services.env.get("WILDBUZZARD_JACKETT_MINI_CONNECTION");
-  Services.env.set("WILDBUZZARD_JACKETT_MINI_CONNECTION", connectionPath);
-  registerCleanupFunction(async () => {
+  originalMode = Services.env.get("WILDBUZZARD_TORRENT_TEST_MODE");
+  Services.prefs.setStringPref(
+    "wildbuzzard.torrent.searchCommand",
+    commandPath
+  );
+  Services.env.set("WILDBUZZARD_TORRENT_TEST_MODE", modePath);
+  registerCleanupFunction(() => {
     TorrentDiscoveryManager.cancelSearch();
-    TorrentDiscoveryManager.connection = null;
-    TorrentDiscoveryManager.initializeTask = null;
-    Services.env.set("WILDBUZZARD_JACKETT_MINI_CONNECTION", originalConnection);
-    await new Promise(resolve => server.stop(resolve));
+    Services.prefs.setStringPref(
+      "wildbuzzard.torrent.searchCommand",
+      originalCommand
+    );
+    Services.env.set("WILDBUZZARD_TORRENT_TEST_MODE", originalMode);
   });
 });
+
+async function setMode(value) {
+  await IOUtils.writeUTF8(modePath, value, { mode: "overwrite" });
+}
 
 add_task(async function test_bounded_sanitized_product_contract() {
   const sources = await TorrentDiscoveryManager.getSources();
@@ -142,28 +78,24 @@ add_task(async function test_bounded_sanitized_product_contract() {
 });
 
 add_task(async function test_eligible_provider_categories_are_preserved() {
-  searchMode = "adult";
+  await setMode("adult");
   const result = await TorrentDiscoveryManager.search({ query: "linux iso" });
-  Assert.deepEqual(
-    result.results[0].categoryIds,
-    [6000],
-    "The Firefox bridge does not censor categories from eligible providers"
-  );
-  searchMode = "valid";
+  Assert.deepEqual(result.results[0].categoryIds, [6000]);
+  await setMode("valid");
 });
 
-add_task(async function test_search_cancellation_aborts_transport() {
-  searchMode = "delayed";
+add_task(async function test_search_cancellation_aborts_package_command() {
+  await setMode("delayed");
   const pending = TorrentDiscoveryManager.search({ query: "linux iso" });
   await TestUtils.waitForCondition(
-    () => TorrentDiscoveryManager.activeRequests?.size === 1
+    () => TorrentDiscoveryManager.activeProcesses?.size === 1
   );
   TorrentDiscoveryManager.cancelSearch();
   await Assert.rejects(pending, error => error.cancelled);
-  searchMode = "valid";
+  await setMode("valid");
 });
 
-add_task(async function test_private_and_tor_search_fails_closed() {
+add_task(async function test_private_search_fails_closed() {
   await Assert.rejects(
     TorrentDiscoveryManager.search({ query: "linux iso", isPrivate: true }),
     /disabled in private windows/

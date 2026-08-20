@@ -54,7 +54,7 @@ add_task(async function test_agent_alias_uses_switch_or_open_route() {
     for (const call of switchOrOpen.getCalls()) {
       is(call.args[0].spec, AGENT_URL, "The alias opens the Agent URL");
       is(call.args[1], true, "The alias recreates a missing Agent tab");
-      ok(call.args[2].ignoreQueryString, "Pi Web session URLs are reused");
+      ok(call.args[2].ignoreQueryString, "Agent Web session URLs are reused");
       ok(
         call.args[2].triggeringPrincipal.isSystemPrincipal,
         "The route is privileged"
@@ -78,7 +78,7 @@ add_task(async function test_agent_alias_reuses_active_endpoint() {
     is(
       switchOrOpen.firstCall.args[0].spec,
       endpoint,
-      "The alias reuses the active Pi Web endpoint"
+      "The alias reuses the active Agent Web endpoint"
     );
   } finally {
     sandbox.restore();
@@ -107,17 +107,17 @@ add_task(async function test_agent_page_has_stable_address_bar_identity() {
     );
     ok(
       !tab.linkedBrowser.contentPrincipal.isSystemPrincipal,
-      "Pi Web does not receive the system principal"
+      "Agent Web does not receive the system principal"
     );
     is(
       tab.linkedBrowser.contentPrincipal.originNoSuffix,
       endpoint.slice(0, -1),
-      "Pi Web retains its loopback web-content principal"
+      "Agent Web retains its loopback web-content principal"
     );
     is(
       tab.linkedBrowser.contentTitle,
       "Agent test",
-      "The Pi Web document loaded behind the stable Agent URL"
+      "The Agent Web document loaded behind the stable Agent URL"
     );
     const { SessionStore } = ChromeUtils.importESModule(
       "resource:///modules/sessionstore/SessionStore.sys.mjs"
@@ -161,16 +161,16 @@ add_task(async function test_starting_page_does_not_elevate_web_content() {
     setAgentEndpoint(`http://127.0.0.1:${server.identity.primaryPort}/`);
     await TestUtils.waitForCondition(
       () => browser.contentTitle === "Agent ready",
-      "The starting page reloaded the ready Pi Web document"
+      "The starting page reloaded the ready Agent Web document"
     );
     ok(
       !browser.contentPrincipal.isSystemPrincipal,
-      "loading Pi Web after startup receives only a web-content principal"
+      "loading Agent Web after startup receives only a web-content principal"
     );
     is(
       browser.currentURI.spec,
       `http://127.0.0.1:${server.identity.primaryPort}/`,
-      "the starting page replaces itself with the working Pi Web document"
+      "the starting page replaces itself with the working Agent Web document"
     );
     is(
       gURLBar.value,
@@ -201,7 +201,7 @@ add_task(
     ok(isAgentPageURL(AGENT_URL), "The stable Agent URL is recognized");
     ok(
       isAgentPageURL("http://127.0.0.1:54321/session/1"),
-      "Every route on the active Pi Web origin is recognized"
+      "Every route on the active Agent Web origin is recognized"
     );
     ok(
       !isAgentPageURL("http://127.0.0.1:54322/"),

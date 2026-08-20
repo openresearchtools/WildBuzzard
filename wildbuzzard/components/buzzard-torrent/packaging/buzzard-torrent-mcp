@@ -1,0 +1,2 @@
+#!/bin/sh
+PYTHONPATH=/usr/lib/buzzard-torrent exec python3 /usr/lib/buzzard-torrent/buzzard_torrent_mcp.py "$@"

@@ -27,7 +27,7 @@ add_task(function test_agent_button_uses_switch_or_open_route() {
     for (const call of switchOrOpen.getCalls()) {
       is(call.args[0].spec, AGENT_URL, "The Agent URL is opened");
       is(call.args[1], true, "A missing Agent tab is opened");
-      ok(call.args[2].ignoreQueryString, "Pi Web session URLs are reused");
+      ok(call.args[2].ignoreQueryString, "Agent Web session URLs are reused");
       ok(
         call.args[2].triggeringPrincipal.isSystemPrincipal,
         "The route is privileged"
@@ -52,7 +52,7 @@ add_task(function test_agent_button_reuses_active_endpoint() {
     is(
       switchOrOpen.firstCall.args[0].spec,
       endpoint,
-      "The Agent button reuses the active Pi Web endpoint"
+      "The Agent button reuses the active Agent Web endpoint"
     );
   } finally {
     sandbox.restore();

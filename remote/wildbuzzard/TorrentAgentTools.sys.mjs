@@ -35,12 +35,7 @@ const TORRENT_SORTS = new Set([
   "added_on",
   "completion_on",
 ]);
-const TORRENT_SECTIONS = new Set([
-  "overview",
-  "files",
-  "trackers",
-  "peers",
-]);
+const TORRENT_SECTIONS = new Set(["overview", "files", "trackers", "peers"]);
 const SEARCH_SORTS = new Set([
   "seeders",
   "leechers",
@@ -205,7 +200,15 @@ export function validateTorrentListArgs(raw) {
   const args = requireObject(raw, "torrent_list");
   assertKeys(
     args,
-    new Set(["filter", "category", "tag", "sort", "reverse", "limit", "offset"]),
+    new Set([
+      "filter",
+      "category",
+      "tag",
+      "sort",
+      "reverse",
+      "limit",
+      "offset",
+    ]),
     "torrent_list"
   );
   const filter = args.filter ?? "all";
@@ -246,7 +249,11 @@ export function validateTorrentListArgs(raw) {
 
 export function validateTorrentDetailsArgs(raw) {
   const args = requireObject(raw, "torrent_details");
-  assertKeys(args, new Set(["id", "section", "offset", "limit"]), "torrent_details");
+  assertKeys(
+    args,
+    new Set(["id", "section", "offset", "limit"]),
+    "torrent_details"
+  );
   const section = args.section ?? "overview";
   const offset = args.offset ?? 0;
   const limit = args.limit ?? 100;
@@ -342,6 +349,12 @@ export function validateTorrentControlArgs(raw) {
       throw new Error("rename accepts one torrent ID");
     }
     boundedText(args.name, "name", 512);
+  }
+  if (
+    ["sequential", "firstLastPiece"].includes(args.action) &&
+    ids.length !== 1
+  ) {
+    throw new Error(`${args.action} accepts one torrent ID`);
   }
   if (
     ["sequential", "firstLastPiece"].includes(args.action) &&

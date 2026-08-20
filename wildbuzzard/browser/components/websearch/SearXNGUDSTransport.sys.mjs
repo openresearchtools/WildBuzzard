@@ -144,6 +144,94 @@ function decodeChunked(source) {
   }
 }
 
+function completeResponseLength(source, maximum) {
+  const separator = source.indexOf("\r\n\r\n");
+  if (separator < 0) {
+    if (source.length > MAX_HEADER_BYTES) {
+      throw new Error("SearXNG returned invalid HTTP");
+    }
+    return null;
+  }
+  if (separator > MAX_HEADER_BYTES) {
+    throw new Error("SearXNG returned invalid HTTP");
+  }
+  let contentLength;
+  let transferEncoding;
+  for (const line of source.slice(0, separator).split("\r\n").slice(1)) {
+    const match = /^([!#$%&'*+.^_`|~0-9A-Za-z-]+):[ \t]*([^\r\n]*)$/.exec(line);
+    if (!match) {
+      throw new Error("SearXNG returned invalid HTTP headers");
+    }
+    const name = match[1].toLowerCase();
+    if (name === "content-length") {
+      if (contentLength !== undefined) {
+        throw new Error("SearXNG returned duplicate content-length header");
+      }
+      contentLength = match[2].trim();
+    } else if (name === "transfer-encoding") {
+      if (transferEncoding !== undefined) {
+        throw new Error("SearXNG returned duplicate transfer-encoding header");
+      }
+      transferEncoding = match[2].trim();
+    }
+  }
+  const bodyStart = separator + 4;
+  if (transferEncoding !== undefined) {
+    if (transferEncoding.toLowerCase() !== "chunked" || contentLength) {
+      throw new Error("SearXNG returned invalid HTTP framing");
+    }
+    let cursor = bodyStart;
+    let decodedLength = 0;
+    while (true) {
+      const lineEnd = source.indexOf("\r\n", cursor);
+      if (lineEnd < 0) {
+        return null;
+      }
+      const sizeText = source.slice(cursor, lineEnd);
+      if (!/^[0-9A-Fa-f]+$/.test(sizeText)) {
+        throw new Error("SearXNG returned invalid chunked HTTP framing");
+      }
+      const size = Number.parseInt(sizeText, 16);
+      if (!Number.isSafeInteger(size)) {
+        throw new Error("SearXNG returned invalid chunked HTTP framing");
+      }
+      cursor = lineEnd + 2;
+      if (size === 0) {
+        if (source.length < cursor + 2) {
+          return null;
+        }
+        if (source.slice(cursor, cursor + 2) !== "\r\n") {
+          throw new Error("SearXNG returned unsupported HTTP trailers");
+        }
+        return cursor + 2;
+      }
+      decodedLength += size;
+      if (!Number.isSafeInteger(decodedLength) || decodedLength > maximum) {
+        throw new Error("SearXNG response body exceeded its limit");
+      }
+      if (source.length < cursor + size + 2) {
+        return null;
+      }
+      if (source.slice(cursor + size, cursor + size + 2) !== "\r\n") {
+        throw new Error("SearXNG returned invalid chunked HTTP framing");
+      }
+      cursor += size + 2;
+    }
+  }
+  if (contentLength !== undefined) {
+    if (!/^(?:0|[1-9]\d*)$/.test(contentLength)) {
+      throw new Error("SearXNG returned invalid HTTP content length");
+    }
+    const length = Number(contentLength);
+    if (!Number.isSafeInteger(length) || length > maximum) {
+      throw new Error("SearXNG response body exceeded its limit");
+    }
+    const total = bodyStart + length;
+    return source.length >= total ? total : null;
+  }
+  return null;
+}
+
 export function parseSearXNGHTTPResponse(
   source,
   maximum = DEFAULT_MAX_RESPONSE_BYTES
@@ -252,7 +340,7 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
         Ci.nsIInputStreamPump
       );
       pump.init(input, 0, 0, true);
-      const chunks = [];
+      let source = "";
       let size = 0;
       pump.asyncRead({
         onStartRequest() {},
@@ -267,9 +355,24 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
             activeRequest.cancel(Cr.NS_ERROR_FILE_TOO_BIG);
             return;
           }
-          chunks.push(chunk);
+          source += chunk;
+          try {
+            const length = completeResponseLength(source, maximum);
+            if (length !== null) {
+              if (length !== source.length) {
+                throw new Error("SearXNG returned invalid HTTP framing");
+              }
+              finish(resolve, parseSearXNGHTTPResponse(source, maximum));
+            }
+          } catch (error) {
+            activeRequest.cancel(Cr.NS_ERROR_FAILURE);
+            finish(reject, error);
+          }
         },
         onStopRequest(_activeRequest, status) {
+          if (settled) {
+            return;
+          }
           if (!Components.isSuccessCode(status)) {
             finish(
               reject,
@@ -280,7 +383,7 @@ function readUnixResponse(socket, request, timeout, maximum, signal) {
             return;
           }
           try {
-            const response = parseSearXNGHTTPResponse(chunks.join(""), maximum);
+            const response = parseSearXNGHTTPResponse(source, maximum);
             finish(resolve, response);
           } catch (error) {
             finish(reject, error);
@@ -309,6 +412,12 @@ export function requestSearXNGUDS(
     signal,
   }
 ) {
+  let socketFile;
+  try {
+    socketFile = socket.QueryInterface(Ci.nsIFile);
+  } catch {
+    throw new TypeError("Invalid SearXNG UDS request");
+  }
   if (
     !["GET", "POST"].includes(method) ||
     typeof target !== "string" ||
@@ -349,11 +458,12 @@ export function requestSearXNGUDS(
     request += `Content-Type: ${contentType}\r\nContent-Length: ${body.length}\r\n`;
   }
   request += `\r\n${bodySource}`;
-  return readUnixResponse(socket, request, timeout, maximum, signal);
+  return readUnixResponse(socketFile, request, timeout, maximum, signal);
 }
 
 export const SearXNGUDSTransportTestUtils = {
   byteString,
+  completeResponseLength,
   decodeChunked,
   writeAsyncRequest,
 };

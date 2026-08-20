@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Agent — WildBuzzard</title>
+    <meta name="theme-color" content="#1b1b1d" />
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <style>
+      :root {
+        color-scheme: dark;
+        --pi-control-font-size: 16px;
+        --pi-control-font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        --pi-control-monospace-font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --pi-bg: #1b1b1d;
+        --pi-surface: #252529;
+        --pi-surface-hover: #343438;
+        --pi-terminal-bg: #111113;
+        --pi-terminal-text: #f2f2f4;
+        --pi-border: #45454b;
+        --pi-border-muted: #343438;
+        --pi-text: #f2f2f4;
+        --pi-text-secondary: #d8d8dc;
+        --pi-text-bright: #ffffff;
+        --pi-muted: #bfbfc9;
+        --pi-dim: #8d8d98;
+        --pi-accent: #75baff;
+        --pi-accent-border: #75baff;
+        --pi-selection-bg: #263b52;
+        --pi-success: #8bd17c;
+        --pi-success-border: #5bb84b;
+        --pi-success-bg: #17251a;
+        --pi-success-surface: #1d3021;
+        --pi-success-ring: #8bd17c55;
+        --pi-warning: #ffbd4f;
+        --pi-warning-border: #d79318;
+        --pi-warning-surface: #302414;
+        --pi-danger: #ff9aa2;
+        --pi-purple: #d9bfff;
+        --pi-purple-border: #b88cff;
+        --pi-purple-surface: #2a2035;
+        --pi-overlay: #0009;
+        --pi-shadow-soft: #0004;
+        --pi-shadow: #0007;
+        --pi-shadow-strong: #000a;
+        --pi-bg-overlay-soft: #1b1b1ddd;
+        --pi-bg-overlay: #1b1b1de6;
+        --pi-success-bg-overlay: #17251aee;
+        --pi-terminal-selection: #335576;
+      }
+      html, body { margin: 0; height: 100%; overflow: hidden; background: var(--pi-bg); color: var(--pi-text); }
+      body { min-height: 100dvh; }
+    </style>
+  </head>
+  <body>
+    <pi-web-app></pi-web-app>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

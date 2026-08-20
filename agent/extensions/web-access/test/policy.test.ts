@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -45,15 +45,16 @@ test("Pi tool schemas reject undeclared properties and discover bundled skills",
   assert.doesNotMatch(source, /truthVerdict/);
 });
 
-test("Pi runtime bundles, validates, and attributes the web-access extension", () => {
-  const buildScript = readFileSync(
-    join(sourceRoot, "wildbuzzard", "scripts", "build-pi-web-runtime.sh"),
-    "utf8"
+test("web-access delegates browser operations to the native WildBuzzard CLI", () => {
+  assert.equal(
+    existsSync(
+      join(sourceRoot, "wildbuzzard", "scripts", "build-pi-web-runtime.sh")
+    ),
+    false
   );
-  assert.match(buildScript, /seed\/web-access/);
-  assert.match(buildScript, /web-access-validation\.log/);
-  assert.match(buildScript, /seed\/web-access\/LICENSE\.pi-web-access/);
-  assert.match(buildScript, /seed\/web-access\/UPSTREAM\.toml/);
+  const client = readFileSync(join(root, "wildbuzzard-cli.ts"), "utf8");
+  assert.match(client, /\/usr\/bin\/wildbuzzard/);
+  assert.doesNotMatch(client, /browser-control\.json|token|TCPServerSocket/);
 });
 
 test("credential-bearing documents do not receive durable response handles", () => {

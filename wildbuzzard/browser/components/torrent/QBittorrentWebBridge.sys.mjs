@@ -23,6 +23,13 @@ const RESPONSE_HEADERS = new Set([
 ]);
 const BRIDGE_SCRIPT = '<script src="/scripts/wildbuzzard-bridge.js"></script>';
 
+function isByteArray(value) {
+  return (
+    ArrayBuffer.isView(value) &&
+    Object.prototype.toString.call(value) === "[object Uint8Array]"
+  );
+}
+
 function normalizedHeaders(headers) {
   if (!headers || typeof headers !== "object") {
     throw new TypeError("Invalid torrent request headers");
@@ -64,11 +71,12 @@ class QBittorrentWebBridgeImpl {
       target.length > MAX_TARGET_LENGTH ||
       /[^\x20-\x7e]/.test(target) ||
       /[\r\n]/.test(target) ||
-      !(body instanceof Uint8Array) ||
+      !isByteArray(body) ||
       body.length > MAX_REQUEST_BYTES
     ) {
       throw new TypeError("Invalid torrent WebUI request");
     }
+    body = new Uint8Array(body);
     const safeHeaders = normalizedHeaders(headers);
     const response =
       (await QBittorrentSearchBridge.maybeRequest({

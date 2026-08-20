@@ -63,10 +63,29 @@ if [[ "$(sha256sum "${boost_archive}" | awk '{print $1}')" != "46d9d2c06637b2192
   echo "Boost source archive differs from the pin" >&2
   exit 1
 fi
+qt_lrelease_sha256="e9f9f468f45fe73b1fe56a235438d802d51fd45dd55b52f06b212029bce458b8"
 if [[ "$(${lrelease} -version 2>&1)" != "lrelease version 6.10.2" ]]; then
   echo "Qt lrelease version differs from the pin" >&2
   exit 1
 fi
+if [[ "$(sha256sum "${lrelease}" | awk '{print $1}')" != "${qt_lrelease_sha256}" ]]; then
+  echo "Qt lrelease executable differs from the pin" >&2
+  exit 1
+fi
+qt_prefix="$(dirname -- "$(dirname -- "$(realpath -- "${lrelease}")")")"
+qtpaths="${qt_prefix}/bin/qtpaths"
+if [[ ! -x "${qtpaths}" ]]; then
+  qtpaths="${qt_prefix}/bin/qtpaths6"
+fi
+if [[ ! -x "${qtpaths}" ]]; then
+  echo "The pinned Qt installation does not provide qtpaths" >&2
+  exit 1
+fi
+if [[ "$(${qtpaths} --query QT_VERSION)" != "6.10.2" ]]; then
+  echo "Qt runtime version differs from the pin" >&2
+  exit 1
+fi
+qt_plugin_root="$(${qtpaths} --query QT_INSTALL_PLUGINS)"
 
 mkdir -p -- "${build_root}"
 build_root="$(cd -- "${build_root}" && pwd -P)"
@@ -80,6 +99,10 @@ esac
 commit="$(git -C "${source_repo}" rev-parse --verify "${build_ref}^{commit}")"
 short_commit="${commit:0:12}"
 source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${commit}")"
+export SOURCE_DATE_EPOCH="${source_date_epoch}"
+export TZ=UTC
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${short_commit}-$$"
 run_root="${build_root}/runs/${run_id}"
 checkout="${run_root}/source"
@@ -101,7 +124,7 @@ patch --batch --forward --fuzz=0 -d "${qbt_source}" -p1 < "${checkout}/wildbuzza
 mkdir -p -- "${boost_source}"
 tar -xjf "${boost_archive}" --strip-components=1 -C "${boost_source}"
 
-prefix_flags="-ffile-prefix-map=${run_root}=. -fdebug-prefix-map=${run_root}=. -fmacro-prefix-map=${run_root}=."
+prefix_flags="-ffile-prefix-map=${run_root}=. -fdebug-prefix-map=${run_root}=. -fmacro-prefix-map=${run_root}=. -frandom-seed=${commit}"
 cmake -S "${libtorrent_source}" -B "${work}/libtorrent-build" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_FLAGS_RELEASE="-O3 -DNDEBUG ${prefix_flags}" \
@@ -125,6 +148,7 @@ cmake -S "${qbt_source}" -B "${work}/qbittorrent-build" \
   -DCMAKE_INSTALL_PREFIX="${prefix}/qbittorrent" \
   -DBOOST_ROOT="${boost_source}" \
   -DBoost_INCLUDE_DIR="${boost_source}" \
+  -DCMAKE_PREFIX_PATH="${qt_prefix}" \
   -DGUI=OFF \
   -DLibtorrentRasterbar_DIR="${prefix}/lib/cmake/LibtorrentRasterbar" \
   -DQT_LRELEASE_EXECUTABLE="${lrelease}" \
@@ -145,9 +169,14 @@ copy_plugin() {
   fi
   install -m 644 -- "${source}" "${destination}"
 }
-copy_plugin /usr/lib/x86_64-linux-gnu/qt6/plugins/sqldrivers/libqsqlite.so "${runtime}/plugins/sqldrivers/libqsqlite.so"
-copy_plugin /usr/lib/x86_64-linux-gnu/qt6/plugins/tls/libqcertonlybackend.so "${runtime}/plugins/tls/libqcertonlybackend.so"
-copy_plugin /usr/lib/x86_64-linux-gnu/qt6/plugins/tls/libqopensslbackend.so "${runtime}/plugins/tls/libqopensslbackend.so"
+qt_plugins=(
+  "${qt_plugin_root}/sqldrivers/libqsqlite.so"
+  "${qt_plugin_root}/tls/libqcertonlybackend.so"
+  "${qt_plugin_root}/tls/libqopensslbackend.so"
+)
+copy_plugin "${qt_plugins[0]}" "${runtime}/plugins/sqldrivers/libqsqlite.so"
+copy_plugin "${qt_plugins[1]}" "${runtime}/plugins/tls/libqcertonlybackend.so"
+copy_plugin "${qt_plugins[2]}" "${runtime}/plugins/tls/libqopensslbackend.so"
 
 declare -A scanned=()
 declare -A libraries=()
@@ -160,13 +189,13 @@ while ((${#queue[@]})); do
   while read -r soname resolved; do
     [[ -z "${soname}" || -z "${resolved}" ]] && continue
     case "${soname}" in
-      ld-linux-*.so.*|libc.so.*|libdl.so.*|libm.so.*|libpthread.so.*|librt.so.*) continue ;;
+      ld-linux-*.so.*|libc.so.*|libdl.so.*|libm.so.*|libpthread.so.*|libresolv.so.*|librt.so.*) continue ;;
     esac
     if [[ -z "${libraries[${soname}]:-}" ]]; then
       libraries["${soname}"]="${resolved}"
       install -m 644 -- "${resolved}" "${runtime}/lib/${soname}"
       queue+=("${runtime}/lib/${soname}")
-    elif [[ "$(realpath "${libraries[${soname}]}")" != "$(realpath "${resolved}")" ]]; then
+    elif ! cmp -s -- "${libraries[${soname}]}" "${resolved}"; then
       echo "Conflicting runtime library resolution for ${soname}" >&2
       exit 1
     fi
@@ -181,8 +210,26 @@ fi
 cp -- "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/upstream/COPYING" "${runtime}/licenses/qbittorrent-GPL-2.0.txt"
 cp -- "${checkout}/wildbuzzard/third_party/bsd3/libtorrent/upstream/COPYING" "${runtime}/licenses/libtorrent-BSD-3-Clause.txt"
 cp -- "${boost_source}/LICENSE_1_0.txt" "${runtime}/licenses/boost-BSL-1.0.txt"
-system_inputs=("${libraries[@]}" /usr/lib/x86_64-linux-gnu/qt6/plugins/sqldrivers/libqsqlite.so /usr/lib/x86_64-linux-gnu/qt6/plugins/tls/libqcertonlybackend.so /usr/lib/x86_64-linux-gnu/qt6/plugins/tls/libqopensslbackend.so)
-for package in $(dpkg-query -S "${system_inputs[@]}" 2>/dev/null | cut -d: -f1 | sort -u); do
+cp -- /usr/share/common-licenses/LGPL-3 "${runtime}/licenses/qt-LGPL-3.0.txt"
+cp -- /usr/share/common-licenses/GPL-2 "${runtime}/licenses/qt-GPL-2.0.txt"
+cp -- /usr/share/common-licenses/GPL-3 "${runtime}/licenses/qt-GPL-3.0.txt"
+package_owner() {
+  local target="$1"
+  local owner
+  owner="$(dpkg-query -S "${target}" 2>/dev/null | head -n 1 | sed 's/: \/.*//' || true)"
+  if [[ -z "${owner}" && "${target}" == /lib/* ]]; then
+    owner="$(dpkg-query -S "/usr${target}" 2>/dev/null | head -n 1 | sed 's/: \/.*//' || true)"
+  fi
+  owner="${owner%%:*}"
+  printf '%s' "${owner}"
+}
+
+declare -A system_packages=()
+for system_input in "${libraries[@]}" "${qt_plugins[@]}"; do
+  package="$(package_owner "${system_input}")"
+  [[ -n "${package}" ]] && system_packages["${package}"]=1
+done
+for package in $(printf '%s\n' "${!system_packages[@]}" | LC_ALL=C sort); do
   copyright="/usr/share/doc/${package}/copyright"
   [[ -f "${copyright}" ]] && install -m 644 -- "${copyright}" "${runtime}/licenses/system-${package}.copyright"
 done
@@ -196,6 +243,153 @@ git -C "${checkout}" archive --format=tar --prefix="wildbuzzard-qbittorrent-runt
   wildbuzzard/third_party/bsd3/libtorrent \
   wildbuzzard/third_party/gpl2/qbittorrent \
   wildbuzzard/upstreams.toml | xz --threads=1 --check=crc64 -9e >"${source_path}"
+
+component_inputs="${run_root}/component-inputs.tsv"
+: >"${component_inputs}"
+for plugin in "${qt_plugins[@]}"; do
+  relative="plugins/${plugin#"${qt_plugin_root}/"}"
+  printf '%s\t%s\t%s\t%s\n' "${relative}" "$(basename -- "${plugin}")" "Qt" "6.10.2" >>"${component_inputs}"
+done
+for soname in $(printf '%s\n' "${!libraries[@]}" | LC_ALL=C sort); do
+  source_library="${libraries[${soname}]}"
+  if [[ "${source_library}/" == "${qt_prefix}/"* ]]; then
+    component="Qt"
+    component_version="6.10.2"
+  else
+    owner="$(package_owner "${source_library}")"
+    component="${owner:-system-library}"
+    component_version="$(dpkg-query -W -f='${Version}' "${owner}" 2>/dev/null || echo unknown)"
+  fi
+  printf '%s\t%s\t%s\t%s\n' "lib/${soname}" "${soname}" "${component}" "${component_version}" >>"${component_inputs}"
+done
+
+python3 - "${runtime}" "${component_inputs}" "${commit}" "${source_date_epoch}" "${qt_lrelease_sha256}" <<'PY'
+import datetime
+import hashlib
+import json
+import pathlib
+import re
+import sys
+
+root = pathlib.Path(sys.argv[1])
+inputs = pathlib.Path(sys.argv[2])
+commit = sys.argv[3]
+epoch = int(sys.argv[4])
+lrelease_sha256 = sys.argv[5]
+
+components = []
+for line in inputs.read_text(encoding="utf-8").splitlines():
+    relative, soname, component, version = line.split("\t")
+    target = root / relative
+    components.append(
+        {
+            "path": relative,
+            "soname": soname,
+            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
+            "size": target.stat().st_size,
+            "component": component,
+            "componentVersion": version,
+        }
+    )
+components.sort(key=lambda entry: entry["path"])
+
+inventory = {
+    "schema": 1,
+    "component": "buzzard-torrent-runtime",
+    "platform": "linux-x64",
+    "qt": {
+        "version": "6.10.2",
+        "lreleaseSha256": lrelease_sha256,
+        "plugins": [entry for entry in components if entry["path"].startswith("plugins/")],
+    },
+    "runtimeLibraries": [entry for entry in components if entry["path"].startswith("lib/")],
+}
+inventory_path = root / "share" / "doc" / "buzzard-torrent" / "runtime-component-inventory.json"
+inventory_path.parent.mkdir(parents=True, exist_ok=True)
+inventory_path.write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+def spdx_id(name):
+    return "SPDXRef-Package-" + re.sub(r"[^A-Za-z0-9.-]", "-", name)
+
+packages = [
+    {
+        "name": "qBittorrent",
+        "SPDXID": "SPDXRef-Package-qBittorrent",
+        "versionInfo": "5.2.3",
+        "downloadLocation": "git+https://github.com/qbittorrent/qBittorrent.git@0b63c3d17373f6132ea211c9dcd4241284ccdfaf",
+        "filesAnalyzed": False,
+        "licenseConcluded": "GPL-3.0-or-later",
+        "licenseDeclared": "GPL-3.0-or-later",
+        "copyrightText": "NOASSERTION",
+    },
+    {
+        "name": "libtorrent",
+        "SPDXID": "SPDXRef-Package-libtorrent",
+        "versionInfo": "2.0.14",
+        "downloadLocation": "git+https://github.com/arvidn/libtorrent.git@aab2a10e2f60d9eac78e885a696736d043527794",
+        "filesAnalyzed": False,
+        "licenseConcluded": "BSD-3-Clause",
+        "licenseDeclared": "BSD-3-Clause",
+        "copyrightText": "NOASSERTION",
+    },
+    {
+        "name": "Boost",
+        "SPDXID": "SPDXRef-Package-Boost",
+        "versionInfo": "1.88.0",
+        "downloadLocation": "https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.bz2",
+        "filesAnalyzed": False,
+        "licenseConcluded": "BSL-1.0",
+        "licenseDeclared": "BSL-1.0",
+        "copyrightText": "NOASSERTION",
+        "checksums": [{"algorithm": "SHA256", "checksumValue": "46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b"}],
+    },
+    {
+        "name": "Qt",
+        "SPDXID": "SPDXRef-Package-Qt",
+        "versionInfo": "6.10.2",
+        "downloadLocation": "https://download.qt.io/official_releases/qt/6.10/6.10.2/",
+        "filesAnalyzed": False,
+        "licenseConcluded": "NOASSERTION",
+        "licenseDeclared": "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only",
+        "copyrightText": "Copyright (C) The Qt Company Ltd. and other contributors",
+    },
+]
+seen = {package["name"] for package in packages}
+for component in sorted({entry["component"] for entry in components} - seen):
+    version = next(entry["componentVersion"] for entry in components if entry["component"] == component)
+    packages.append(
+        {
+            "name": component,
+            "SPDXID": spdx_id(component),
+            "versionInfo": version,
+            "downloadLocation": "NOASSERTION",
+            "filesAnalyzed": False,
+            "licenseConcluded": "NOASSERTION",
+            "licenseDeclared": "NOASSERTION",
+            "copyrightText": "NOASSERTION",
+        }
+    )
+
+created = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+sbom = {
+    "spdxVersion": "SPDX-2.3",
+    "dataLicense": "CC0-1.0",
+    "SPDXID": "SPDXRef-DOCUMENT",
+    "name": f"buzzard-torrent-runtime-{commit[:12]}",
+    "documentNamespace": f"https://github.com/openresearchtools/wildbuzzard/sbom/buzzard-torrent/{commit}",
+    "creationInfo": {
+        "created": created,
+        "creators": ["Organization: Open Research Tools", "Tool: build-qbittorrent-runtime.sh"],
+    },
+    "packages": packages,
+    "relationships": [
+        {"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": package["SPDXID"]}
+        for package in packages
+    ],
+}
+sbom_path = root / "share" / "doc" / "buzzard-torrent" / "sbom.spdx.json"
+sbom_path.write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+PY
 
 python3 - "${runtime}" "${commit}" "${source_date_epoch}" <<'PY'
 import hashlib

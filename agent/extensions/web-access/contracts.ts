@@ -9,6 +9,7 @@ export const RESULT_TTL_MS = 60 * 60 * 1000;
 export const MAX_PAGE_CHARS = 30_000;
 
 export type RecencyFilter = "day" | "week" | "month" | "year";
+export type SearchSortOrder = "relevance" | "newest" | "oldest";
 
 export interface WebSearchInput {
   query?: string;
@@ -16,6 +17,7 @@ export interface WebSearchInput {
   numResults?: number;
   includeContent?: boolean;
   recencyFilter?: RecencyFilter;
+  sortOrder?: SearchSortOrder;
   domainFilter?: string[];
   provider?: "auto" | "searxng";
   workflow?: "none";
@@ -31,6 +33,7 @@ export interface NormalizedSearchInput {
   numResults: number;
   includeContent: boolean;
   recencyFilter?: RecencyFilter;
+  sortOrder: SearchSortOrder;
   domains: DomainFilters;
   provider: "searxng";
   workflow: "none";
@@ -174,6 +177,12 @@ export function normalizeSearchInput(
     throw new Error("recencyFilter must be day, week, month, or year");
   }
   if (
+    input.sortOrder !== undefined &&
+    !["relevance", "newest", "oldest"].includes(input.sortOrder)
+  ) {
+    throw new Error("sortOrder must be relevance, newest, or oldest");
+  }
+  if (
     input.provider !== undefined &&
     !["auto", "searxng"].includes(input.provider)
   ) {
@@ -187,6 +196,7 @@ export function normalizeSearchInput(
     numResults,
     includeContent: input.includeContent ?? false,
     recencyFilter: input.recencyFilter,
+    sortOrder: input.sortOrder ?? "relevance",
     domains: normalizeDomainFilters(input.domainFilter),
     provider: "searxng",
     workflow: "none",

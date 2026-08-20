@@ -4,7 +4,7 @@ import { defineTool, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
   callBrowserTool,
   type BrowserToolResult,
-} from "../browser-tools/bridge-client.ts";
+} from "./wildbuzzard-cli.ts";
 import {
   TorrentCommitParameters,
   TorrentControlParameters,

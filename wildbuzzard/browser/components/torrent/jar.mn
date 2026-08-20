@@ -1,6 +1,0 @@
-# SPDX-License-Identifier: AGPL-3.0-or-later
-
-browser.jar:
-    content/browser/torrents/torrents.css   (content/torrents.css)
-    content/browser/torrents/torrents.js    (content/torrents.js)
-    content/browser/torrents/torrents.xhtml (content/torrents.xhtml)

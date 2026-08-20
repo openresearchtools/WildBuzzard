@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-// New tab page: use the locally hosted Pi Web service.
+// New tab page: use the locally hosted Buzzard Agent Web service.
 pref("browser.newtabpage.activity-stream.asrouter.providers.cfr", "{}", locked);
 pref("browser.newtabpage.activity-stream.asrouter.providers.message-groups", "{}", locked);
 pref("browser.newtabpage.activity-stream.asrouter.providers.messaging-experiments", "{}", locked);

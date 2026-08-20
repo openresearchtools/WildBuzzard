@@ -80,7 +80,7 @@ const MAX_RENDER_CLEANUP_MS = 10000;
 const MAX_RENDER_CONCURRENCY = 2;
 const MAX_RENDER_OUTPUT_BYTES = 2 * 1024 * 1024;
 const RENDER_PDF_PREFIX = "data:application/pdf;base64,";
-const MAX_RENDER_DOM_NODES = 20000;
+const MAX_RENDER_DOM_NODES = 500000;
 const MAX_RENDER_REQUESTS = 256;
 const MAX_RENDER_REDIRECTS = 10;
 const MAX_RENDER_RESOURCE_BYTES = 4 * 1024 * 1024;
@@ -90,6 +90,7 @@ const RENDER_CONTEXT_ID_RANGE = 0x3fffffff;
 const RENDER_PROXY_FILTER_POSITION = 0xffffffff;
 const RENDER_BLOCKED_PROXY_HOST = "0.0.0.0";
 const RENDER_BLOCKED_PROXY_PORT = 1;
+const LOGPOINT_SHARED_DATA_KEY = "wildbuzzard:browser-control-logpoints";
 const RENDER_TEST_ROUTE_TOPIC = "wildbuzzard-gecko-render-route";
 const RENDER_HOST_URI = "chrome://global/content/win.xhtml";
 const TAB_OWNER_KEY = "wildbuzzard-agent-owner";
@@ -718,11 +719,6 @@ function renderErrorName(status) {
   }
 }
 
-function sendJson(socket, value) {
-  const bytes = new TextEncoder().encode(`${JSON.stringify(value)}\n`);
-  socket.send(bytes.buffer);
-}
-
 function cleanString(value) {
   return typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
 }
@@ -1294,7 +1290,10 @@ class GeckoRenderController {
     const context = Number.isInteger(contextId)
       ? BrowsingContext.get(contextId)
       : null;
-    return this.jobsByBrowsingContext.get(context?.top?.id ?? contextId);
+    return (
+      this.jobsByBrowsingContext.get(context?.top?.id ?? contextId) ??
+      this.jobsByUserContext.get(context?.originAttributes?.userContextId ?? 0)
+    );
   }
 
   recordNetworkRequest(job, request) {
@@ -1432,6 +1431,7 @@ class GeckoRenderController {
       await this.#createWindowless(job);
       this.jobsByBrowsingContext.set(job.browsingContext.id, job);
       await this.#navigate(job);
+      this.#refreshBrowsingContext(job);
       if (job.fatalError) {
         throw job.fatalError;
       }
@@ -1613,6 +1613,64 @@ class GeckoRenderController {
   }
 
   async #navigate(job) {
+    let status = await this.#navigateOnce(job, () => {
+      job.browser.loadURI(job.options.uri, {
+        loadFlags: Ci.nsIWebNavigation.LOAD_FLAGS_NONE,
+        triggeringPrincipal: Services.scriptSecurityManager.createNullPrincipal(
+          {
+            privateBrowsingId: 1,
+            userContextId: job.userContextId,
+          }
+        ),
+      });
+    });
+    this.#refreshBrowsingContext(job);
+    const responses = [...job.mainResponses.values()].sort(
+      (left, right) => right.sequence - left.sequence
+    );
+    const response = responses[0];
+    const currentUrl = job.browser.browsingContext.currentURI?.spec;
+    const capturedBinary = responses.some(record =>
+      /^(?:application\/pdf|application\/(?:x-)?gzip)(?:;|$)/i.test(
+        record.contentType ?? ""
+      )
+    );
+    if (
+      !capturedBinary &&
+      (currentUrl === "about:blank" ||
+        (/^text\/html(?:;|$)/i.test(response?.contentType ?? "") &&
+          currentUrl !== response.url))
+    ) {
+      const firstRedirects = job.redirects;
+      try {
+        job.browser.stop(Ci.nsIWebNavigation.STOP_ALL);
+      } catch {}
+      this.#cancelChannels(job);
+      await Promise.allSettled([...job.policyChecks]);
+      const actor = await this.#actorForJob(job);
+      status = await this.#navigateOnce(job, () =>
+        actor.sendQuery("geckoRenderNavigate", {
+          url: job.options.uri.spec,
+        })
+      );
+      job.redirects = Math.max(0, job.redirects - firstRedirects);
+      this.#refreshBrowsingContext(job);
+    }
+    if (job.controller.signal.aborted) {
+      throw job.controller.signal.reason;
+    }
+    const navigationError = renderErrorName(status);
+    if (navigationError) {
+      const noContent = [...job.mainResponses.values()].findLast(
+        record => record.status === 204
+      );
+      if (status !== Cr.NS_BINDING_ABORTED || !noContent) {
+        throw new Error(`navigation-error: ${navigationError}`);
+      }
+    }
+  }
+
+  async #navigateOnce(job, start) {
     const webProgress = job.browser.webProgress;
     const done = Promise.withResolvers();
     let settled = false;
@@ -1656,26 +1714,13 @@ class GeckoRenderController {
       Ci.nsIWebProgress.NOTIFY_STATE_NETWORK | Ci.nsIWebProgress.NOTIFY_LOCATION
     );
     job.controller.signal.addEventListener("abort", abort, { once: true });
-    job.browser.loadURI(job.options.uri, {
-      loadFlags: Ci.nsIWebNavigation.LOAD_FLAGS_NONE,
-      triggeringPrincipal: Services.scriptSecurityManager.createNullPrincipal({
-        privateBrowsingId: 1,
-        userContextId: job.userContextId,
-      }),
-    });
-    const status = await done.promise;
-    if (job.controller.signal.aborted) {
-      throw job.controller.signal.reason;
+    try {
+      await start();
+    } catch (error) {
+      finish(Cr.NS_BINDING_ABORTED);
+      throw error;
     }
-    const navigationError = renderErrorName(status);
-    if (navigationError) {
-      const response = [...job.mainResponses.values()].findLast(
-        record => record.status === 204
-      );
-      if (status !== Cr.NS_BINDING_ABORTED || !response) {
-        throw new Error(`navigation-error: ${navigationError}`);
-      }
-    }
+    return done.promise;
   }
 
   async #waitForPage(job) {
@@ -1701,6 +1746,7 @@ class GeckoRenderController {
         throw job.controller.signal.reason;
       }
       try {
+        this.#refreshBrowsingContext(job);
         return this.service.actorForBrowsingContext(job.browsingContext);
       } catch (error) {
         lastError = error;
@@ -1711,6 +1757,7 @@ class GeckoRenderController {
   }
 
   async #resultForJob(job) {
+    this.#refreshBrowsingContext(job);
     const currentUrl =
       job.browsingContext.currentURI?.spec || job.options.uri.spec;
     const response = await this.#waitForMainResponse(job, currentUrl);
@@ -1963,7 +2010,10 @@ class GeckoRenderController {
     const context = Number.isInteger(contextId)
       ? BrowsingContext.get(contextId)
       : null;
-    return (context?.id ?? contextId) === job.browsingContext?.id;
+    return (
+      context?.parent === null &&
+      context.originAttributes.userContextId === job.userContextId
+    );
   }
 
   #onModifyRequest(job, channel) {
@@ -2242,7 +2292,20 @@ class GeckoRenderController {
       return false;
     }
     const context = channel.loadInfo.browsingContext;
-    return context?.id === job.browsingContext?.id;
+    return (
+      context?.parent === null &&
+      context.originAttributes.userContextId === job.userContextId
+    );
+  }
+
+  #refreshBrowsingContext(job) {
+    const current = job.browser?.browsingContext;
+    if (!current || current === job.browsingContext) {
+      return;
+    }
+    this.jobsByBrowsingContext.delete(job.browsingContext?.id);
+    job.browsingContext = current;
+    this.jobsByBrowsingContext.set(current.id, job);
   }
 
   #isTestAllowedHost(host) {
@@ -2541,9 +2604,7 @@ class PageState {
   }
 }
 
-/**
- * Hosts authenticated Pi tool calls and dispatches them into browser chrome.
- */
+/** Dispatches native control calls into browser chrome. */
 class BrowserControlService {
   constructor() {
     this.pageIds = new WeakMap();
@@ -2554,8 +2615,6 @@ class BrowserControlService {
     this.rawNodeIdsByPage = new Map();
     this.nextRawNodeId = 1;
     this.nextPageId = 1;
-    this.connections = new Set();
-    this.activeRequests = new Map();
     this.downloadLock = Promise.resolve();
     this.logpoints = new Map();
     this.networkRecords = new Map();
@@ -2569,7 +2628,7 @@ class BrowserControlService {
 
   start() {
     if (this.started) {
-      return { port: this.server.localPort, token: this.token };
+      return { ready: true };
     }
     const actors = [
       [
@@ -2582,10 +2641,12 @@ class BrowserControlService {
           child: {
             esModuleURI:
               "chrome://remote/content/wildbuzzard/BrowserControlChild.sys.mjs",
+            events: {
+              DOMWindowCreated: {},
+            },
           },
           allFrames: true,
           includeChrome: true,
-          matches: ["*://*/*", "file://*/*", "about:*"],
         },
       ],
       [
@@ -2614,15 +2675,6 @@ class BrowserControlService {
     }
     this.geckoRenderer.start();
 
-    this.token =
-      Services.env.get("WILDBUZZARD_BROWSER_CONTROL_TOKEN") ||
-      `${Services.uuid.generateUUID()}-${crypto.randomUUID()}`;
-    this.server = new TCPServerSocket(
-      0,
-      { binaryType: "arraybuffer", loopbackOnly: true },
-      16
-    );
-    this.server.onconnect = event => this.#accept(event.socket);
     this.navigationManager = new lazy.NavigationManager();
     this.navigationManager.startMonitoring();
     this.networkDecodedBodySizeMap = new lazy.NetworkDecodedBodySizeMap();
@@ -2640,15 +2692,12 @@ class BrowserControlService {
     this.networkListener.on("response-completed", this.#onNetworkResponse);
     this.networkListener.startListening();
     this.started = true;
-    return { port: this.server.localPort, token: this.token };
+    return { ready: true };
   }
 
   stop() {
     if (!this.started) {
       return;
-    }
-    for (const socket of this.connections) {
-      socket.close();
     }
     this.geckoRenderer.stop();
     if (this.networkListener) {
@@ -2668,15 +2717,9 @@ class BrowserControlService {
     this.navigationManager = null;
     this.networkRecords.clear();
     this.logpoints.clear();
-    this.connections.clear();
-    for (const controller of this.activeRequests.values()) {
-      controller.abort();
-    }
-    this.activeRequests.clear();
+    this.#syncLogpoints();
     this.torrentAgentTools?.close().catch(() => {});
     this.torrentAgentTools = null;
-    this.server.close();
-    this.server = null;
     this.started = false;
   }
 
@@ -2861,60 +2904,6 @@ class BrowserControlService {
     this.#trimNetworkRecords();
   };
 
-  #accept(socket) {
-    this.connections.add(socket);
-    const decoder = new TextDecoder();
-    let buffer = "";
-    socket.ondata = event => {
-      buffer += decoder.decode(event.data, { stream: true });
-      let newline;
-      while ((newline = buffer.indexOf("\n")) !== -1) {
-        const line = buffer.slice(0, newline);
-        buffer = buffer.slice(newline + 1);
-        if (line) {
-          this.#handleLine(socket, line);
-        }
-      }
-    };
-    socket.onclose = () => this.connections.delete(socket);
-    socket.onerror = () => this.connections.delete(socket);
-  }
-
-  async #handleLine(socket, line) {
-    let request;
-    try {
-      request = JSON.parse(line);
-      if (request.token !== this.token) {
-        throw new Error("Browser-control authentication failed");
-      }
-      if (request.cancel) {
-        this.activeRequests.get(request.id)?.abort();
-        return;
-      }
-      const controller = new AbortController();
-      this.activeRequests.get(request.id)?.abort();
-      this.activeRequests.set(request.id, controller);
-      const result = await this.dispatch(
-        request.tool,
-        request.args ?? {},
-        request.cwd,
-        request.clientId,
-        controller.signal
-      );
-      sendJson(socket, { id: request.id, ok: true, result });
-    } catch (error) {
-      sendJson(socket, {
-        id: request?.id ?? "",
-        ok: false,
-        error: errorMessage(error),
-      });
-    } finally {
-      if (request?.id) {
-        this.activeRequests.delete(request.id);
-      }
-    }
-  }
-
   *windows() {
     for (const window of Services.wm.getEnumerator("navigator:browser")) {
       if (!window.closed && window.gBrowser) {
@@ -2974,6 +2963,16 @@ class BrowserControlService {
         this.pageStates.delete(page);
         this.pageOwners.delete(page);
       }
+    }
+    let logpointsChanged = false;
+    for (const [id, logpoint] of this.logpoints) {
+      if (!activePages.has(logpoint.page)) {
+        this.logpoints.delete(id);
+        logpointsChanged = true;
+      }
+    }
+    if (logpointsChanged) {
+      this.#syncLogpoints();
     }
   }
 
@@ -3189,8 +3188,9 @@ class BrowserControlService {
       if (!browsingContext || browsingContext.isDiscarded || truncated) {
         return;
       }
+      let frame;
       try {
-        const frame = await captureContext(browsingContext);
+        frame = await captureContext(browsingContext);
         if (!addFrame(frame)) {
           return;
         }
@@ -3209,7 +3209,11 @@ class BrowserControlService {
       if (frameDepth >= MAX_FRAME_DEPTH) {
         return;
       }
+      const embedded = new Set(frame?.embeddedBrowsingContextIds ?? []);
       for (const child of browsingContext.children ?? []) {
+        if (embedded.has(child.id)) {
+          continue;
+        }
         await visit(child, frameDepth + 1);
         if (truncated) {
           return;
@@ -3296,6 +3300,14 @@ class BrowserControlService {
       mode: options.mode ?? "full",
       ...(maxDepth === null ? {} : { depth: maxDepth }),
       refCount: state.refs.size,
+      refs: [...state.refs].map(([ref, entry]) => ({
+        ref,
+        role: entry.role,
+        name: entry.name,
+      })),
+      embeddedFrameErrors: frames.flatMap(
+        frame => frame.embeddedFrameErrors ?? []
+      ),
       truncated: frames.some(frame => frame.truncated),
     });
   }
@@ -3551,6 +3563,7 @@ class BrowserControlService {
     return pending;
   }
 
+  // eslint-disable-next-line complexity
   async act(pageId, args, signal) {
     if (args.kind === "dialog_accept" || args.kind === "dialog_dismiss") {
       const prompt = this.promptForPage(pageId);
@@ -3640,6 +3653,9 @@ class BrowserControlService {
         ["drag", "drag_at"].includes(args.kind) ? DRAG_SETTLE_MS : ACT_SETTLE_MS
       );
       let diff = await this.diff(pageId);
+      if (actionResult?.selectedValues) {
+        diff.details.selectedValues = actionResult.selectedValues;
+      }
       const activation = actionResult?.activation;
       if (
         diff.details?.changed === false &&
@@ -3670,6 +3686,9 @@ class BrowserControlService {
         }
         await delay(ACT_SETTLE_MS);
         diff = await this.diff(pageId);
+        if (actionResult?.selectedValues) {
+          diff.details.selectedValues = actionResult.selectedValues;
+        }
       }
       const consoleText = await this.readConsole(pageId, signalMark);
       if (consoleText) {
@@ -4194,9 +4213,21 @@ class BrowserControlService {
     for (const script of results.flatMap(result => result.value ?? [])) {
       const existing = byUrl.get(script.url);
       if (existing) {
+        if (script.startLine !== null && script.startLine !== undefined) {
+          existing.startLine =
+            existing.startLine === null || existing.startLine === undefined
+              ? script.startLine
+              : Math.min(existing.startLine, script.startLine);
+          existing.endLine =
+            existing.endLine === null || existing.endLine === undefined
+              ? script.endLine
+              : Math.max(existing.endLine, script.endLine);
+        }
         existing.possibleLines = [
           ...new Set([...existing.possibleLines, ...script.possibleLines]),
         ].sort((left, right) => left - right);
+        existing.possibleLinesComplete =
+          existing.possibleLinesComplete && script.possibleLinesComplete;
       } else {
         byUrl.set(script.url, structuredClone(script));
       }
@@ -4209,10 +4240,18 @@ class BrowserControlService {
           .map(script => {
             const first = script.possibleLines[0] ?? script.startLine;
             const last = script.possibleLines.at(-1) ?? script.startLine;
-            const range =
-              first === null || first === undefined
-                ? ""
-                : ` [executable lines ${first}${last !== first ? `-${last}` : ""}]`;
+            let range = "";
+            if (
+              script.possibleLinesComplete === false &&
+              script.startLine !== null &&
+              script.startLine !== undefined
+            ) {
+              const suffix =
+                script.endLine !== script.startLine ? `-${script.endLine}` : "";
+              range = ` [source lines ${script.startLine}${suffix}]`;
+            } else if (first !== null && first !== undefined) {
+              range = ` [executable lines ${first}${last !== first ? `-${last}` : ""}]`;
+            }
             return `${script.url}${range}`;
           })
           .join("\n")
@@ -4279,14 +4318,13 @@ class BrowserControlService {
   }
 
   async setLogpointTool(args) {
+    const id = `lp-${crypto.randomUUID()}`;
     const entries = await this.visitPageContexts(args.page, async context => {
       const result = await this.actorForBrowsingContext(context).sendQuery(
         "debuggerSetLogpoint",
-        args
+        { ...args, id }
       );
       return {
-        contextId: context.id,
-        id: result.id,
         installed: result.installed,
       };
     });
@@ -4297,14 +4335,15 @@ class BrowserControlService {
     if (!entries.length) {
       throw new Error(`Could not attach the debugger to page ${args.page}`);
     }
-    const id = `lp-${crypto.randomUUID()}`;
     this.logpoints.set(id, {
-      entries: entries.map(entry => entry.value),
       expression: args.expression,
+      id,
       line: args.line,
       page: args.page,
+      topContextId: this.pageForId(args.page).browser.browsingContext.id,
       url: args.url,
     });
+    this.#syncLogpoints();
     return textResult(`Logpoint set (id: ${id}, ${installed} live site(s))`, {
       page: args.page,
       logpoint: id,
@@ -4317,18 +4356,13 @@ class BrowserControlService {
     if (!logpoint || logpoint.page !== args.page) {
       throw new Error(`Logpoint ${args.logpoint} not found`);
     }
-    await Promise.all(
-      logpoint.entries.map(async entry => {
-        const context = BrowsingContext.get(entry.contextId);
-        if (!context || context.isDiscarded) {
-          return;
-        }
-        await this.actorForBrowsingContext(context)
-          .sendQuery("debuggerRemoveLogpoint", { id: entry.id })
-          .catch(() => {});
-      })
+    await this.visitPageContexts(args.page, context =>
+      this.actorForBrowsingContext(context)
+        .sendQuery("debuggerRemoveLogpoint", { id: args.logpoint })
+        .catch(() => {})
     );
     this.logpoints.delete(args.logpoint);
+    this.#syncLogpoints();
     return textResult(`Logpoint ${args.logpoint} removed`, {
       page: args.page,
       logpoint: args.logpoint,
@@ -4341,17 +4375,14 @@ class BrowserControlService {
       throw new Error(`Logpoint ${args.logpoint} not found`);
     }
     const results = [];
-    for (const entry of logpoint.entries) {
-      const context = BrowsingContext.get(entry.contextId);
-      if (!context || context.isDiscarded) {
-        continue;
-      }
+    const entries = await this.visitPageContexts(args.page, async context => {
       const values = await this.actorForBrowsingContext(context)
-        .sendQuery("debuggerGetLogpointResults", { id: entry.id })
+        .sendQuery("debuggerGetLogpointResults", { id: args.logpoint })
         .catch(() => null);
-      if (values) {
-        results.push(...values);
-      }
+      return values;
+    });
+    for (const entry of entries) {
+      results.push(...(entry.value ?? []));
     }
     results.sort(
       (left, right) =>
@@ -4372,6 +4403,20 @@ class BrowserControlService {
       results,
       count: results.length,
     });
+  }
+
+  #syncLogpoints() {
+    Services.ppmm.sharedData.set(
+      LOGPOINT_SHARED_DATA_KEY,
+      [...this.logpoints.values()].map(logpoint => ({
+        expression: logpoint.expression,
+        id: logpoint.id,
+        line: logpoint.line,
+        topContextId: logpoint.topContextId,
+        url: logpoint.url,
+      }))
+    );
+    Services.ppmm.sharedData.flush();
   }
 
   // eslint-disable-next-line complexity
@@ -4565,7 +4610,7 @@ class BrowserControlService {
   async nativeSearchTool(args, signal) {
     const details = await lazy.SearXNGManager.search(args, signal);
     return textResult(
-      wrapUntrusted(formatJson(details), "bundled-searxng"),
+      wrapUntrusted(formatJson(details), "buzzard-search"),
       details
     );
   }
@@ -4693,7 +4738,8 @@ class BrowserControlService {
                 triggeringPrincipal:
                   Services.scriptSecurityManager.getSystemPrincipal(),
               }),
-            signal
+            signal,
+            uri.spec
           );
         } catch (error) {
           window.gBrowser.removeTab(tab, { animate: false });
@@ -4861,22 +4907,41 @@ class BrowserControlService {
     }
     if (action === "create") {
       const window = await this.openWindow(Boolean(args.private));
-      const tab = window.gBrowser.selectedTab;
+      const startupTab = window.gBrowser.selectedTab;
+      const tab = window.gBrowser.addTrustedTab("about:blank", {
+        inBackground: false,
+        skipAnimation: true,
+      });
+      window.gBrowser.selectedTab = tab;
       const browser = tab.linkedBrowser;
       const page = this.pageIdFor(browser);
       this.pageOwners.set(page, clientId);
       lazy.SessionStore.setCustomTabValue(tab, TAB_OWNER_KEY, clientId);
-      if (args.url) {
-        const uri = agentNavigationURI(args.url);
-        await this.navigateAndWait(
-          browser,
-          () =>
-            browser.loadURI(uri, {
-              triggeringPrincipal:
-                Services.scriptSecurityManager.getSystemPrincipal(),
-            }),
-          signal
-        );
+      try {
+        if (args.url && args.url !== "about:blank") {
+          const uri = agentNavigationURI(args.url);
+          await this.navigateAndWait(
+            browser,
+            () =>
+              browser.loadURI(uri, {
+                triggeringPrincipal:
+                  Services.scriptSecurityManager.getSystemPrincipal(),
+              }),
+            signal,
+            uri.spec
+          );
+        }
+      } catch (error) {
+        window.close();
+        this.pageOwners.delete(page);
+        this.pageStates.delete(page);
+        throw error;
+      }
+      if (startupTab !== tab && startupTab.isConnected) {
+        window.gBrowser.removeTab(startupTab, {
+          animate: false,
+          skipPermitUnload: true,
+        });
       }
       window.focus();
       const item = {
@@ -4995,12 +5060,31 @@ class BrowserControlService {
         }
         group.addTabs(entries.map(entry => entry.tab));
       } else {
-        group = window.gBrowser.addTabGroup(
-          entries.map(entry => entry.tab),
-          { label: args.title ?? "" }
-        );
-        if (args.color) {
-          group.color = args.color;
+        const existing = entries[0].tab.group;
+        if (
+          existing &&
+          existing.tabs.length === entries.length &&
+          entries.every(entry => entry.tab.group === existing)
+        ) {
+          group = existing;
+          group.label = args.title ?? "";
+          if (args.color) {
+            group.color = args.color;
+          }
+        } else {
+          for (const { tab } of entries) {
+            if (tab.group) {
+              window.gBrowser.ungroupTab(tab);
+            }
+          }
+          group = window.gBrowser.addTabGroup(
+            entries.map(entry => entry.tab),
+            {
+              label: args.title ?? "",
+              ...(args.color ? { color: args.color } : {}),
+              insertBefore: entries[0].tab,
+            }
+          );
         }
       }
       const item = groupInfo({ group, window });
@@ -5313,7 +5397,12 @@ class BrowserControlService {
     }
     this.pageStates.get(args.page).reset();
     this.clearRawNodesForPage(args.page);
-    await this.navigateAndWait(browser, startNavigation, signal);
+    await this.navigateAndWait(
+      browser,
+      startNavigation,
+      signal,
+      action === "url" ? agentNavigationURI(args.url).spec : null
+    );
     if (captureSnapshot) {
       return this.snapshot(args.page);
     }
@@ -5355,8 +5444,9 @@ class BrowserControlService {
     return { window, tab: torTab, browser: torTab.linkedBrowser };
   }
 
-  async navigateAndWait(browser, startNavigation, signal) {
+  async navigateAndWait(browser, startNavigation, signal, expectedUrl = null) {
     throwIfAborted(signal);
+    const initialUrl = browser.currentURI?.spec ?? "about:blank";
     const listener = new lazy.ProgressListener(browser.webProgress, {
       expectNavigation: true,
       waitForExplicitStart: true,
@@ -5375,6 +5465,28 @@ class BrowserControlService {
       ]);
     } finally {
       listener.destroy();
+    }
+    if (expectedUrl && expectedUrl !== "about:blank") {
+      const deadline = Date.now() + 30000;
+      while (Date.now() < deadline) {
+        throwIfAborted(signal);
+        const currentUrl = browser.currentURI?.spec ?? "about:blank";
+        const changed = currentUrl !== initialUrl || currentUrl === expectedUrl;
+        if (
+          changed &&
+          currentUrl !== "about:blank" &&
+          !browser.webProgress.isLoadingDocument
+        ) {
+          break;
+        }
+        await abortableDelay(50, signal);
+      }
+      if (
+        (browser.currentURI?.spec ?? "about:blank") === "about:blank" ||
+        browser.webProgress.isLoadingDocument
+      ) {
+        throw new Error("Navigation timed out");
+      }
     }
     await abortableDelay(100, signal);
   }
@@ -6354,9 +6466,19 @@ class BrowserControlService {
     return {};
   }
 
-  async rawAccessibilityProtocol(page) {
+  async rawAccessibilityProtocol(page, params = {}) {
     this.clearRawNodesForPage(page);
-    const frames = await this.captureFrames(page, 100);
+    const requestedDepth = Number(params.maxDepth ?? params.depth ?? 100);
+    if (
+      !Number.isInteger(requestedDepth) ||
+      requestedDepth < 0 ||
+      requestedDepth > 100
+    ) {
+      throw new Error(
+        "Accessibility tree depth must be an integer from 0 to 100"
+      );
+    }
+    const frames = await this.captureFrames(page, requestedDepth);
     const nodes = [];
     let nextNodeId = 1;
     let registeredRefs = 0;
@@ -7122,7 +7244,7 @@ class BrowserControlService {
       method === "Accessibility.getPartialAXTree" ||
       method === "Accessibility.queryAXTree"
     ) {
-      return valueResult(await this.rawAccessibilityProtocol(page));
+      return valueResult(await this.rawAccessibilityProtocol(page, params));
     }
     if (method.startsWith("DOM.")) {
       return valueResult(await this.rawDomProtocol(args, page, cwd));

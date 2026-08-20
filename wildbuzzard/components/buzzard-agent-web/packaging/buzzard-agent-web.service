@@ -1,0 +1,16 @@
+[Unit]
+Description=Buzzard Agent Web UI and API
+Requires=buzzard-agent-web-sessiond.service
+After=network.target buzzard-agent-web-sessiond.service
+
+[Service]
+Type=simple
+EnvironmentFile=-%t/buzzard-agent-web/environment
+ExecStart=/usr/bin/buzzard-agent-web serve
+Restart=on-failure
+RestartSec=2
+KillMode=mixed
+LimitNOFILE=65536
+
+[Install]
+WantedBy=default.target

@@ -12,6 +12,13 @@ const LocalFile = Components.Constructor(
 );
 const MAX_TORRENT_SIZE = 12 * 1024 * 1024;
 
+function isByteArray(value) {
+  return (
+    ArrayBuffer.isView(value) &&
+    Object.prototype.toString.call(value) === "[object Uint8Array]"
+  );
+}
+
 function torrentFileError(reason) {
   return Object.assign(new Error(`Torrent file ${reason}`), {
     torrentFileError: reason,
@@ -214,7 +221,7 @@ class TorrentManagerImpl {
       this.drafts.set(draft.draftId, { source: magnet });
       return draft;
     }
-    if (!(torrent instanceof Uint8Array) || !torrent.length) {
+    if (!isByteArray(torrent) || !torrent.length) {
       throw new Error("Torrent metadata is required");
     }
     if (torrent.length > MAX_TORRENT_SIZE) {
@@ -273,7 +280,10 @@ class TorrentManagerImpl {
       });
     } else {
       const added = await this.addTorrentBytes(draft.torrent);
-      const addedId = added.ids[0] || id;
+      if (added.ids.length !== 1) {
+        throw new Error("qBittorrent did not identify the added torrent");
+      }
+      const addedId = added.ids[0];
       if (files) {
         const metadata = await this.getTorrentDraft(id);
         const selected = new Set(files);
@@ -296,7 +306,7 @@ class TorrentManagerImpl {
 
   #filePriorities(files, selectedFiles) {
     const selected = new Set(selectedFiles);
-    return files.map(file => (selected.has(file.index) ? 1 : 0)).join("|");
+    return files.map(file => (selected.has(file.index) ? 1 : 0)).join(",");
   }
 
   async cancelTorrentDraft(id) {
@@ -310,13 +320,14 @@ class TorrentManagerImpl {
     }
     await this.#post("/api/v2/torrents/add", {
       urls: source,
-      savepath: downloadPath || (await Downloads.getPreferredDownloadsDirectory()),
+      savepath:
+        downloadPath || (await Downloads.getPreferredDownloadsDirectory()),
     });
     return { added: true };
   }
 
   async addTorrentBytes(bytes, downloadPath) {
-    if (!(bytes instanceof Uint8Array) || !bytes.length) {
+    if (!isByteArray(bytes) || !bytes.length) {
       throw new Error("Torrent metadata is required");
     }
     if (bytes.length > MAX_TORRENT_SIZE) {
@@ -448,8 +459,7 @@ class TorrentManagerImpl {
     if (!torrent) {
       throw new Error("Torrent was not found");
     }
-    const key =
-      property === "sequential" ? "seq_dl" : "f_l_piece_prio";
+    const key = property === "sequential" ? "seq_dl" : "f_l_piece_prio";
     if (Boolean(torrent[key]) === enabled) {
       return;
     }
@@ -523,7 +533,10 @@ class TorrentManagerImpl {
     picker.init(browsingContext, title, Ci.nsIFilePicker.modeOpen);
     picker.appendFilter(filterTitle, "*.torrent");
     picker.appendRawFilter("application/x-bittorrent");
-    if ((await new Promise(resolve => picker.open(resolve))) !== Ci.nsIFilePicker.returnOK) {
+    if (
+      (await new Promise(resolve => picker.open(resolve))) !==
+      Ci.nsIFilePicker.returnOK
+    ) {
       return null;
     }
     const stat = await IOUtils.stat(picker.file.path).catch(() => null);
@@ -549,7 +562,10 @@ class TorrentManagerImpl {
       this.config?.downloadDirectory ||
         (await Downloads.getPreferredDownloadsDirectory())
     );
-    if ((await new Promise(resolve => picker.open(resolve))) !== Ci.nsIFilePicker.returnOK) {
+    if (
+      (await new Promise(resolve => picker.open(resolve))) !==
+      Ci.nsIFilePicker.returnOK
+    ) {
       return null;
     }
     await this.initialize();

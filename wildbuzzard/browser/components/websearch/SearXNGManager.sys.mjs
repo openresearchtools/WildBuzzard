@@ -18,13 +18,9 @@ const CryptoHash = Components.Constructor(
 
 const RUNTIME_VERSION = "2026.8.6+b023a28ba";
 const UPSTREAM_COMMIT = "b023a28bab8839dba9eac96e9a51cc91bbd0a267";
-const ARTIFACT_NAME =
-  "wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage";
-const ARTIFACT_SHA256 =
-  "22f7efdbe403ab1e43e7149718cd10c710ef4fe335a0992c9eaca033dd75466e";
+const DEFAULT_COMMAND = "/usr/bin/buzzard-search";
 const CATALOG_SHA256 =
   "7d054c87f25e2925f71c1a12fdff6973ffc735e2cfff71df744d2d3b14d786f1";
-const MAX_ARTIFACT_BYTES = 256 * 1024 * 1024;
 const MAX_LIFECYCLE_OUTPUT = 32 * 1024;
 const MAX_RECORD_BYTES = 32 * 1024;
 const MAX_QUERY_BYTES = 2048;
@@ -82,21 +78,12 @@ export function searXNGManagerPaths({
   runtimeHome,
 }) {
   const profileKey = searXNGProfileKey(profilePath);
-  const rootDirectory = PathUtils.join(
-    dataHome,
-    "wildbuzzard",
-    "search",
-    `profile-${profileKey}`
-  );
-  const cacheDirectory = PathUtils.join(
-    cacheHome,
-    "wildbuzzard",
-    "search",
-    `profile-${profileKey}`
-  );
+  const rootDirectory = PathUtils.join(dataHome, "buzzard", "search");
+  const cacheDirectory = PathUtils.join(cacheHome, "buzzard", "search");
   const stateDirectory = PathUtils.join(
     runtimeHome || "/tmp",
-    `wb-sx-${profileKey}`
+    "buzzard",
+    "search"
   );
   const socketPath = PathUtils.join(stateDirectory, "s");
   if (new TextEncoder().encode(socketPath).length > 107) {
@@ -130,33 +117,6 @@ function exactFields(value, expected) {
 
 function isDigest(value) {
   return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
-}
-
-async function privateDirectory(path) {
-  let directory = new LocalFile(path);
-  if (
-    directory.exists() &&
-    (!directory.isDirectory() || directory.isSymlink())
-  ) {
-    throw new Error(`Unsafe SearXNG directory: ${path}`);
-  }
-  await IOUtils.makeDirectory(path, {
-    createAncestors: true,
-    ignoreExisting: true,
-    permissions: 0o700,
-  });
-  await IOUtils.setPermissions(path, 0o700);
-  directory = new LocalFile(path);
-  directory.normalize();
-  if (
-    directory.path !== path ||
-    !directory.isDirectory() ||
-    directory.isSymlink() ||
-    (directory.permissions & 0o777) !== 0o700
-  ) {
-    throw new Error(`Unsafe SearXNG directory: ${path}`);
-  }
-  return directory;
 }
 
 async function readBoundedText(path, maximum) {
@@ -339,6 +299,7 @@ export function validateNativeSearchRequest(value) {
     "page",
     "query",
     "safeSearch",
+    "sortOrder",
     "timeRange",
   ]);
   if (
@@ -370,6 +331,8 @@ export function validateNativeSearchRequest(value) {
     (value.timeRange !== undefined &&
       !["day", "week", "month", "year"].includes(value.timeRange)) ||
     (value.safeSearch !== undefined && value.safeSearch !== 1) ||
+    (value.sortOrder !== undefined &&
+      !["relevance", "newest", "oldest"].includes(value.sortOrder)) ||
     (value.maxResults !== undefined &&
       (!Number.isInteger(value.maxResults) ||
         value.maxResults < 1 ||
@@ -449,14 +412,38 @@ export function normalizeNativeSearchResponse(
       .map(value => (Array.isArray(value) ? value[0] : undefined))
       .filter(value => typeof value === "string")
   );
+  let results = raw.results.map(normalizedResult).filter(Boolean);
+  const sortOrder = request.sortOrder ?? "relevance";
+  if (sortOrder !== "relevance") {
+    results = results
+      .map((result, index) => ({
+        index,
+        result,
+        timestamp:
+          typeof result.publishedDate === "string"
+            ? Date.parse(result.publishedDate)
+            : NaN,
+      }))
+      .sort((left, right) => {
+        const leftMissing = !Number.isFinite(left.timestamp);
+        const rightMissing = !Number.isFinite(right.timestamp);
+        if (leftMissing !== rightMissing) {
+          return leftMissing ? 1 : -1;
+        }
+        if (!leftMissing && left.timestamp !== right.timestamp) {
+          return sortOrder === "newest"
+            ? right.timestamp - left.timestamp
+            : left.timestamp - right.timestamp;
+        }
+        return left.index - right.index;
+      })
+      .map(entry => entry.result);
+  }
   return {
     schema: 1,
-    implementation: "bundled-searxng",
+    implementation: "buzzard-search",
     query: request.query,
-    results: raw.results
-      .map(normalizedResult)
-      .filter(Boolean)
-      .slice(0, request.maxResults ?? 20),
+    results: results.slice(0, request.maxResults ?? 20),
     answers: structuredItems(raw.answers, 50),
     corrections: structuredItems(raw.corrections, 50),
     suggestions: structuredItems(raw.suggestions, 50),
@@ -514,15 +501,14 @@ class SearchPermitPool {
   }
 }
 
-/** Supervises the bundled SearXNG executable and private UDS. */
+/** Connects the browser to the independently installed Buzzard Search package. */
 export class SearXNGManagerImpl {
   constructor({
     profilePath,
     dataHome,
     cacheHome,
     runtimeHome,
-    artifactPath,
-    artifactSha256 = ARTIFACT_SHA256,
+    commandPath,
     request = requestSearXNGUDS,
     synchronizeEngine = synchronizeManagedSearXNGEngine,
   } = {}) {
@@ -540,8 +526,7 @@ export class SearXNGManagerImpl {
       profilePath,
       runtimeHome,
     });
-    this.configuredArtifactPath = artifactPath;
-    this.expectedArtifactSha256 = artifactSha256;
+    this.configuredCommandPath = commandPath;
     this.request = request;
     this.synchronizeEngine = synchronizeEngine;
     this.initializationTask = null;
@@ -552,20 +537,15 @@ export class SearXNGManagerImpl {
     this.permits = new SearchPermitPool();
   }
 
-  artifactPath() {
+  commandPath() {
     return (
-      this.configuredArtifactPath ||
+      this.configuredCommandPath ||
       Services.prefs.getStringPref(
-        "wildbuzzard.search.searxngExecutable",
+        "wildbuzzard.search.command",
         ""
       ) ||
-      Services.env.get("WILDBUZZARD_SEARXNG_EXECUTABLE") ||
-      PathUtils.join(
-        Services.dirsvc.get("GreD", Ci.nsIFile).path,
-        "runtime",
-        "search",
-        ARTIFACT_NAME
-      )
+      Services.env.get("BUZZARD_SEARCH_COMMAND") ||
+      DEFAULT_COMMAND
     );
   }
 
@@ -574,75 +554,39 @@ export class SearXNGManagerImpl {
       return false;
     }
     try {
-      const artifact = new LocalFile(this.artifactPath());
-      return artifact.isFile() && !artifact.isSymlink();
+      const command = new LocalFile(this.commandPath());
+      return command.isFile() && !command.isSymlink() && command.isExecutable();
     } catch {
       return false;
     }
   }
 
-  async validateArtifact() {
-    const path = this.artifactPath();
-    const artifact = new LocalFile(path);
-    if (!artifact.isFile() || artifact.isSymlink()) {
-      throw new Error("The bundled SearXNG executable was not found");
-    }
-    const info = await IOUtils.stat(path);
-    if (
-      info.size < 1 ||
-      info.size > MAX_ARTIFACT_BYTES ||
-      (await IOUtils.computeHexDigest(path, "sha256")) !==
-        this.expectedArtifactSha256
-    ) {
-      throw new Error("The bundled SearXNG executable identity is invalid");
+  validateCommand() {
+    const path = this.commandPath();
+    const command = new LocalFile(path);
+    if (!command.isFile() || command.isSymlink() || !command.isExecutable()) {
+      throw new Error("The buzzard-search package is not installed");
     }
     return path;
   }
 
   async prepareDirectories() {
-    for (const path of [
-      this.paths.rootDirectory,
-      PathUtils.parent(this.paths.artifactInstallDirectory),
-      this.paths.cacheDirectory,
-      this.paths.stateDirectory,
-    ]) {
-      await privateDirectory(path);
-    }
+    return undefined;
   }
 
   lifecycleArguments(action) {
-    const common = [
-      "--install-dir",
-      this.paths.artifactInstallDirectory,
-      "--state-dir",
-      this.paths.stateDirectory,
-      "--connection-file",
-      this.paths.connectionPath,
-    ];
-    if (action === "start") {
-      common.push(
-        "--cache-dir",
-        this.paths.cacheDirectory,
-        "--socket",
-        this.paths.socketPath
-      );
-    }
-    return [action, ...common];
+    return [action];
   }
 
   async runLifecycle(action) {
-    const artifact = await this.validateArtifact();
+    const command = this.validateCommand();
     const process = await Subprocess.call({
-      command: artifact,
+      command,
       arguments: this.lifecycleArguments(action),
-      environmentAppend: false,
+      environmentAppend: true,
       environment: {
-        APPIMAGE_EXTRACT_AND_RUN: "1",
-        HOME: this.paths.rootDirectory,
         LANG: "C.UTF-8",
         LC_ALL: "C.UTF-8",
-        PATH: "/usr/bin:/bin",
-        TMPDIR: this.paths.cacheDirectory,
         TZ: "UTC",
       },
       stdin: "ignore",
@@ -692,7 +636,7 @@ export class SearXNGManagerImpl {
   async ensure() {
     if (AppConstants.platform !== "linux") {
       throw new Error(
-        "The bundled SearXNG executable currently supports Linux"
+        "The Buzzard Search package currently supports Linux"
       );
     }
     await this.prepareDirectories();
@@ -897,24 +841,14 @@ export class SearXNGManagerImpl {
   }
 
   async status() {
-    await this.prepareDirectories();
     const result = await this.runLifecycle("status");
-    if (result.exitCode === 3) {
-      return { running: false };
-    }
-    if (result.exitCode === 4) {
-      return { healthy: false, running: true };
-    }
     if (result.exitCode !== 0 || result.stderr.trim()) {
       throw new Error(result.stderr.trim() || "SearXNG status failed");
     }
-    const record = JSON.parse(result.stdout);
-    await validateSearXNGConnectionRecord(record, this.paths);
-    return { healthy: true, pid: record.pid, running: true };
+    return JSON.parse(result.stdout);
   }
 
   async stop() {
-    await this.prepareDirectories();
     const result = await this.runLifecycle("stop");
     if (result.exitCode !== 0 || result.stderr.trim()) {
       throw new Error(result.stderr.trim() || "SearXNG stop failed");
@@ -961,7 +895,7 @@ export const SearXNGManager = {
 };
 
 export const SearXNGManagerTestUtils = {
-  ARTIFACT_NAME,
+  DEFAULT_COMMAND,
   RECORD_FIELDS,
   RUNTIME_VERSION,
   UPSTREAM_COMMIT,

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
 [Desktop Entry]
-Name=WildBuzzard
+Name=Wild Buzzard
 Comment=Privacy-oriented browser for development agents
 Exec=wildbuzzard %u
 Icon=org.wildbuzzard.WildBuzzard

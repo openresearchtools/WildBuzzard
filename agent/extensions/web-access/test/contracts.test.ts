@@ -33,11 +33,20 @@ test("web search requires exactly one bounded query input", () => {
       }),
     /recencyFilter/
   );
+  assert.throws(
+    () =>
+      normalizeSearchInput({
+        query: "q",
+        sortOrder: "score" as "relevance",
+      }),
+    /sortOrder/
+  );
   assert.deepEqual(normalizeSearchInput({ query: " test " }), {
     queries: ["test"],
     numResults: 5,
     includeContent: false,
     recencyFilter: undefined,
+    sortOrder: "relevance",
     domains: { included: [], excluded: [] },
     provider: "searxng",
     workflow: "none",

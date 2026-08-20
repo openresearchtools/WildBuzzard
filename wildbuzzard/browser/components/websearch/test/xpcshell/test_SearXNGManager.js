@@ -5,6 +5,7 @@
 
 const {
   normalizeNativeSearchResponse,
+  SearXNGManagerImpl,
   searXNGManagerPaths,
   validateNativeSearchRequest,
 } = ChromeUtils.importESModule("resource:///modules/SearXNGManager.sys.mjs");
@@ -31,9 +32,28 @@ add_task(function test_profile_paths_are_private_and_bounded() {
     cacheHome: "/tmp/wildbuzzard-test-cache",
     runtimeHome: "/tmp",
   });
-  Assert.equal(paths.stateDirectory, `/tmp/wb-sx-${paths.profileKey}`);
+  Assert.equal(paths.stateDirectory, "/tmp/buzzard/search");
   Assert.less(new TextEncoder().encode(paths.socketPath).length, 108);
   Assert.equal(paths.connectionPath, `${paths.stateDirectory}/connection.json`);
+});
+
+add_task(async function test_manager_passes_socket_path_to_transport() {
+  const socketPath = "/tmp/buzzard/search/s";
+  const manager = new SearXNGManagerImpl({
+    profilePath: do_get_profile().path,
+    dataHome: "/tmp/wildbuzzard-test-data",
+    cacheHome: "/tmp/wildbuzzard-test-cache",
+    runtimeHome: "/tmp",
+    request: async socket => {
+      socket.QueryInterface(Ci.nsIFile);
+      Assert.equal(socket.path, socketPath);
+      return {
+        status: 200,
+        body: new TextEncoder().encode("OK"),
+      };
+    },
+  });
+  await manager.verifyHealth({ socketPath });
 });
 
 add_task(function test_search_submission_uses_stable_internal_route() {
@@ -82,6 +102,7 @@ add_task(function test_native_search_request_boundary() {
     timeRange: "year",
     safeSearch: 1,
     maxResults: 100,
+    sortOrder: "newest",
   });
   Assert.equal(request.engines.length, 2);
   for (const invalid of [
@@ -89,6 +110,7 @@ add_task(function test_native_search_request_boundary() {
     { query: "x", safeSearch: 0 },
     { query: "x", engines: ["github", "github"] },
     { query: "x", page: 11 },
+    { query: "x", sortOrder: "sideways" },
     { query: "x", extra: true },
   ]) {
     Assert.throws(() => validateNativeSearchRequest(invalid), /native_search/);

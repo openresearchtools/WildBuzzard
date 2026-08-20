@@ -15,12 +15,6 @@ usage() {
   echo "  --jobs NUMBER      parallel build jobs (default: all logical CPUs)"
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
   echo "  --working-tree     include tracked and untracked developer changes"
-  echo "  --pi-web-runtime FILE  Pi Web runtime ZIP to include in the browser package"
-  echo "  --torrent-runtime FILE  WebTorrent runtime ZIP to include in the browser package"
-  echo "  --jackett-mini-runtime FILE  Jackett Mini runtime ZIP to include in the browser package"
-  echo "  --searxng-executable FILE  Self-contained SearXNG executable to include"
-  echo "  --searxng-release-source FILE  SearXNG corresponding source release asset"
-  echo "  --searxng-release-sbom FILE  SearXNG CycloneDX SBOM release asset"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
   echo "  --bootstrap        force mach bootstrap before the requested action"
@@ -35,12 +29,6 @@ build_ref="HEAD"
 jobs="$(nproc)"
 run_bootstrap=false
 include_working_tree=false
-pi_web_runtime=""
-torrent_runtime=""
-jackett_mini_runtime=""
-searxng_executable=""
-searxng_release_source=""
-searxng_release_sbom=""
 arti_binary=""
 arti_provenance=""
 
@@ -66,30 +54,6 @@ while (($#)); do
       include_working_tree=true
       shift
       ;;
-    --pi-web-runtime)
-      pi_web_runtime="${2:?--pi-web-runtime requires a file}"
-      shift 2
-      ;;
-    --torrent-runtime)
-      torrent_runtime="${2:?--torrent-runtime requires a file}"
-      shift 2
-      ;;
-    --jackett-mini-runtime)
-      jackett_mini_runtime="${2:?--jackett-mini-runtime requires a file}"
-      shift 2
-      ;;
-    --searxng-executable)
-      searxng_executable="${2:?--searxng-executable requires a file}"
-      shift 2
-      ;;
-    --searxng-release-source)
-      searxng_release_source="${2:?--searxng-release-source requires a file}"
-      shift 2
-      ;;
-    --searxng-release-sbom)
-      searxng_release_sbom="${2:?--searxng-release-sbom requires a file}"
-      shift 2
-      ;;
     --arti-binary)
       arti_binary="${2:?--arti-binary requires a file}"
       shift 2
@@ -113,71 +77,6 @@ while (($#)); do
       ;;
   esac
 done
-
-if [[ -n "${pi_web_runtime}" ]]; then
-  pi_web_runtime="$(realpath -- "${pi_web_runtime}")"
-  if [[ ! -f "${pi_web_runtime}" ]]; then
-    echo "--pi-web-runtime must name a ZIP file" >&2
-    exit 2
-  fi
-fi
-
-if [[ -n "${torrent_runtime}" ]]; then
-  torrent_runtime="$(realpath -- "${torrent_runtime}")"
-  if [[ ! -f "${torrent_runtime}" ]]; then
-    echo "--torrent-runtime must name a ZIP file" >&2
-    exit 2
-  fi
-  python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
-    "${torrent_runtime}" \
-    --kind torrent \
-    --lock "${source_repo}/wildbuzzard/torrent-runtime-lock.json"
-fi
-
-if [[ -n "${jackett_mini_runtime}" ]]; then
-  jackett_mini_runtime="$(realpath -- "${jackett_mini_runtime}")"
-  if [[ ! -f "${jackett_mini_runtime}" ]]; then
-    echo "--jackett-mini-runtime must name a ZIP file" >&2
-    exit 2
-  fi
-  python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
-    "${jackett_mini_runtime}" \
-    --kind jackett-mini \
-    --lock "${source_repo}/wildbuzzard/jackett-mini-runtime-lock.json"
-fi
-
-if [[ -n "${searxng_executable}" ]]; then
-  if [[ -L "${searxng_executable}" || ! -f "${searxng_executable}" ]]; then
-    echo "--searxng-executable must name a regular file" >&2
-    exit 2
-  fi
-  if [[ "$(stat --format='%a' -- "${searxng_executable}")" != 755 ]]; then
-    echo "--searxng-executable must have mode 0755" >&2
-    exit 2
-  fi
-  searxng_executable="$(realpath -- "${searxng_executable}")"
-  python3 -I -B "${script_dir}/validate-searxng-executable.py" \
-    "${searxng_executable}" \
-    --lock "${source_repo}/wildbuzzard/third_party/agpl/searxng/executable-artifact.lock.json"
-fi
-
-if [[ -n "${searxng_release_source}" || -n "${searxng_release_sbom}" ]]; then
-  if [[ -z "${searxng_release_source}" || -z "${searxng_release_sbom}" ]]; then
-    echo "--searxng-release-source and --searxng-release-sbom must be supplied together" >&2
-    exit 2
-  fi
-  if [[ -L "${searxng_release_source}" || ! -f "${searxng_release_source}" || \
-    -L "${searxng_release_sbom}" || ! -f "${searxng_release_sbom}" ]]; then
-    echo "SearXNG source and SBOM inputs must be regular files" >&2
-    exit 2
-  fi
-  searxng_release_source="$(realpath -- "${searxng_release_source}")"
-  searxng_release_sbom="$(realpath -- "${searxng_release_sbom}")"
-  python3 -I -B "${script_dir}/validate-searxng-release-assets.py" \
-    --source "${searxng_release_source}" \
-    --sbom "${searxng_release_sbom}" \
-    --lock "${source_repo}/wildbuzzard/third_party/agpl/searxng/release-assets.lock.json"
-fi
 
 if [[ -n "${arti_binary}" || -n "${arti_provenance}" ]]; then
   if [[ -z "${arti_binary}" || -z "${arti_provenance}" ]]; then
@@ -208,18 +107,8 @@ esac
 
 case "${action}" in
   package|appimage|all)
-    if [[ -z "${searxng_executable}" ]]; then
-      echo "${action} requires --searxng-executable" >&2
-      exit 2
-    fi
-    if [[ -z "${searxng_release_source}" || -z "${searxng_release_sbom}" ]]; then
-      echo "${action} requires --searxng-release-source and --searxng-release-sbom" >&2
-      exit 2
-    fi
-    if [[ -z "${pi_web_runtime}" || -z "${torrent_runtime}" || \
-      -z "${jackett_mini_runtime}" || -z "${arti_binary}" || \
-      -z "${arti_provenance}" ]]; then
-      echo "${action} requires --pi-web-runtime, --torrent-runtime, --jackett-mini-runtime, --arti-binary, and --arti-provenance" >&2
+    if [[ -z "${arti_binary}" || -z "${arti_provenance}" ]]; then
+      echo "${action} requires --arti-binary and --arti-provenance" >&2
       exit 2
     fi
     ;;
@@ -311,12 +200,6 @@ fi
   echo "jobs=${jobs}"
   echo "action=${action}"
   echo "working_tree=${include_working_tree}"
-  echo "pi_web_runtime=${pi_web_runtime}"
-  echo "torrent_runtime=${torrent_runtime}"
-  echo "jackett_mini_runtime=${jackett_mini_runtime}"
-  echo "searxng_executable=${searxng_executable}"
-  echo "searxng_release_source=${searxng_release_source}"
-  echo "searxng_release_sbom=${searxng_release_sbom}"
   echo "arti_binary=${arti_binary}"
   echo "arti_provenance=${arti_provenance}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -363,7 +246,6 @@ run_product_tests() {
     component="${relative_manifest#wildbuzzard/browser/components/}"
     component="${component%%/*}"
     run_step "product-browser-${component}" env MOZ_HEADLESS=1 \
-      WILDBUZZARD_SEARXNG_TEST_EXECUTABLE="${searxng_executable}" \
       ./mach mochitest --flavor browser "${relative_manifest}"
   done < <(
     find "${checkout_dir}/wildbuzzard/browser/components" \
@@ -394,15 +276,6 @@ run_appimage_package() {
     --output-dir "${run_root}/artifacts"
 }
 
-stage_searxng_release_assets() {
-  run_step searxng-release-assets \
-    python3 -I -B ./wildbuzzard/scripts/validate-searxng-release-assets.py \
-    --source "${searxng_release_source}" \
-    --sbom "${searxng_release_sbom}" \
-    --lock ./wildbuzzard/third_party/agpl/searxng/release-assets.lock.json \
-    --output-dir "${run_root}/artifacts"
-}
-
 if [[ "${run_bootstrap}" == true || ! -x "${state_dir}/cbindgen/cbindgen" ]]; then
   run_step bootstrap ./mach --no-interactive bootstrap \
     --application-choice browser \
@@ -419,18 +292,6 @@ fi
   echo "ac_add_options --enable-optimize"
   echo "ac_add_options --disable-debug"
   echo "ac_add_options --disable-crashreporter"
-  if [[ -n "${pi_web_runtime}" ]]; then
-    echo "ac_add_options --with-wildbuzzard-pi-web-runtime=${pi_web_runtime}"
-  fi
-  if [[ -n "${torrent_runtime}" ]]; then
-    echo "ac_add_options --with-wildbuzzard-torrent-runtime=${torrent_runtime}"
-  fi
-  if [[ -n "${jackett_mini_runtime}" ]]; then
-    echo "ac_add_options --with-wildbuzzard-jackett-mini-runtime=${jackett_mini_runtime}"
-  fi
-  if [[ -n "${searxng_executable}" ]]; then
-    echo "ac_add_options --with-wildbuzzard-searxng-executable=${searxng_executable}"
-  fi
   if [[ -n "${arti_binary}" ]]; then
     echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"
     echo "ac_add_options --with-wildbuzzard-arti-provenance=${arti_provenance}"
@@ -459,13 +320,11 @@ case "${action}" in
     run_step package ./mach package
     run_deb_package
     run_appimage_package
-    stage_searxng_release_assets
     ;;
   appimage)
     run_step build ./mach build
     run_step package ./mach package
     run_appimage_package
-    stage_searxng_release_assets
     ;;
   all)
     run_step configure ./mach configure
@@ -475,7 +334,6 @@ case "${action}" in
     run_step package ./mach package
     run_deb_package
     run_appimage_package
-    stage_searxng_release_assets
     ;;
 esac
 

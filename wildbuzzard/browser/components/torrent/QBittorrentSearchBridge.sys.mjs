@@ -8,6 +8,7 @@ import { QBittorrentRuntime } from "resource:///modules/QBittorrentRuntime.sys.m
 const RESULT_PREFIX = "wildbuzzard-result:";
 const MAX_JOBS = 32;
 const MAX_RESULTS = 10_000;
+const MAX_RESOLVED_RESULTS = 10_000;
 const MAX_SOURCE_CONCURRENCY = 8;
 const RESULT_TTL_MS = 24 * 60 * 60 * 1000;
 const OPAQUE_ID = /^[A-Za-z0-9_-]{32}$/;
@@ -39,7 +40,11 @@ function contentTypeOf(requestHeaders) {
 }
 
 function formParameters(body, requestHeaders) {
-  if (!contentTypeOf(requestHeaders).startsWith("application/x-www-form-urlencoded")) {
+  if (
+    !contentTypeOf(requestHeaders).startsWith(
+      "application/x-www-form-urlencoded"
+    )
+  ) {
     throw new Error("Torrent search request uses unsupported form data");
   }
   return new URLSearchParams(new TextDecoder().decode(body));
@@ -95,6 +100,10 @@ function parseResultHandle(value) {
 }
 
 function searchRow(result) {
+  const publishedAt =
+    typeof result.publishedAt === "string"
+      ? Date.parse(result.publishedAt)
+      : NaN;
   return {
     fileName: result.name,
     fileUrl: resultHandle(result.resultId),
@@ -104,27 +113,55 @@ function searchRow(result) {
     engineName: "Jackett Mini",
     siteUrl: "",
     descrLink: "",
-    pubDate:
-      result.publishedAt === null
-        ? -1
-        : Math.floor(Date.parse(result.publishedAt) / 1000),
+    pubDate: Number.isFinite(publishedAt) ? Math.floor(publishedAt / 1000) : -1,
   };
 }
 
+function filePriorityGroups(value) {
+  if (!value) {
+    return [];
+  }
+  const priorities = value.split(",");
+  if (priorities.some(priority => !["0", "1", "6", "7"].includes(priority))) {
+    throw new Error("Invalid torrent file priorities");
+  }
+  return ["0", "1", "6", "7"]
+    .map(priority => ({
+      priority,
+      ids: priorities
+        .map((value, index) => (value === priority ? index : null))
+        .filter(index => index !== null),
+    }))
+    .filter(group => group.ids.length);
+}
+
 class QBittorrentSearchBridgeImpl {
-  async maybeRequest({ method, target, headers: requestHeaders, body, signal }) {
+  async maybeRequest({
+    method,
+    target,
+    headers: requestHeaders,
+    body,
+    signal,
+  }) {
     const url = new URL(target, "http://localhost");
+    await this.#cleanup();
     if (url.pathname === "/api/v2/torrents/fetchMetadata") {
       const parameters = formParameters(body, requestHeaders);
       const id = parseResultHandle(parameters.get("source"));
       return id ? this.#metadata(id, signal) : null;
     }
     if (url.pathname === "/api/v2/torrents/add") {
-      if (!contentTypeOf(requestHeaders).startsWith("application/x-www-form-urlencoded")) {
+      if (
+        !contentTypeOf(requestHeaders).startsWith(
+          "application/x-www-form-urlencoded"
+        )
+      ) {
         return null;
       }
       const parameters = formParameters(body, requestHeaders);
-      const sources = (parameters.get("urls") || "").split("\n").filter(Boolean);
+      const sources = (parameters.get("urls") || "")
+        .split("\n")
+        .filter(Boolean);
       return sources.some(parseResultHandle)
         ? this.#addSearchResults(sources, signal)
         : null;
@@ -132,7 +169,6 @@ class QBittorrentSearchBridgeImpl {
     if (!url.pathname.startsWith("/api/v2/search/")) {
       return null;
     }
-    await this.#cleanup();
     const action = url.pathname.slice("/api/v2/search/".length);
     if (method === "GET" && action === "plugins") {
       return response([
@@ -148,7 +184,9 @@ class QBittorrentSearchBridgeImpl {
     }
     if (method === "GET" && action === "status") {
       const requested = Number(url.searchParams.get("id") || 0);
-      const jobs = requested ? [this.jobs.get(requested)].filter(Boolean) : [...this.jobs.values()];
+      const jobs = requested
+        ? [this.jobs.get(requested)].filter(Boolean)
+        : [...this.jobs.values()];
       return response(
         jobs.map(job => ({
           id: job.id,
@@ -161,7 +199,11 @@ class QBittorrentSearchBridgeImpl {
       const id = Number(url.searchParams.get("id"));
       const job = this.jobs.get(id);
       if (!job) {
-        return response("Search job not found", 404, "text/plain; charset=UTF-8");
+        return response(
+          "Search job not found",
+          404,
+          "text/plain; charset=UTF-8"
+        );
       }
       const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
       const requestedLimit = Number(url.searchParams.get("limit"));
@@ -179,7 +221,11 @@ class QBittorrentSearchBridgeImpl {
     if (action === "start") {
       const pattern = (parameters.get("pattern") || "").trim();
       if (!pattern || pattern.length > 256 || /\p{Cc}/u.test(pattern)) {
-        return response("Invalid search pattern", 400, "text/plain; charset=UTF-8");
+        return response(
+          "Invalid search pattern",
+          400,
+          "text/plain; charset=UTF-8"
+        );
       }
       const job = this.#createJob(pattern);
       this.#run(job).catch(() => {
@@ -191,7 +237,11 @@ class QBittorrentSearchBridgeImpl {
       const id = Number(parameters.get("id"));
       const job = this.jobs.get(id);
       if (!job) {
-        return response("Search job not found", 404, "text/plain; charset=UTF-8");
+        return response(
+          "Search job not found",
+          404,
+          "text/plain; charset=UTF-8"
+        );
       }
       job.controller.abort();
       job.running = false;
@@ -203,21 +253,44 @@ class QBittorrentSearchBridgeImpl {
     if (action === "commit") {
       const id = parseResultHandle(parameters.get("urls"));
       if (!id) {
-        return response("Invalid torrent result", 400, "text/plain; charset=UTF-8");
+        return response(
+          "Invalid torrent result",
+          400,
+          "text/plain; charset=UTF-8"
+        );
       }
       return this.#commit(id, parameters, signal);
     }
     if (action === "downloadTorrent") {
       const id = parseResultHandle(parameters.get("torrentUrl"));
       if (!id) {
-        return response("Invalid torrent result", 400, "text/plain; charset=UTF-8");
+        return response(
+          "Invalid torrent result",
+          400,
+          "text/plain; charset=UTF-8"
+        );
       }
       return this.#addSearchResults([`${RESULT_PREFIX}${id}`], signal);
     }
-    if (["enablePlugin", "installPlugin", "uninstallPlugin", "updatePlugins"].includes(action)) {
-      return response("The bundled torrent search provider is immutable", 403, "text/plain; charset=UTF-8");
+    if (
+      [
+        "enablePlugin",
+        "installPlugin",
+        "uninstallPlugin",
+        "updatePlugins",
+      ].includes(action)
+    ) {
+      return response(
+        "The bundled torrent search provider is immutable",
+        403,
+        "text/plain; charset=UTF-8"
+      );
     }
-    return response("Search action not found", 404, "text/plain; charset=UTF-8");
+    return response(
+      "Search action not found",
+      404,
+      "text/plain; charset=UTF-8"
+    );
   }
 
   #createJob(pattern) {
@@ -291,11 +364,15 @@ class QBittorrentSearchBridgeImpl {
   }
 
   async #resolved(id, signal) {
+    await this.#cleanup();
     const cached = this.resolved.get(id);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.value;
     }
     const value = await TorrentDiscoveryManager.resolve(id, signal);
+    while (this.resolved.size >= MAX_RESOLVED_RESULTS) {
+      this.resolved.delete(this.resolved.keys().next().value);
+    }
     this.resolved.set(id, { expiresAt: Date.now() + RESULT_TTL_MS, value });
     return value;
   }
@@ -341,16 +418,61 @@ class QBittorrentSearchBridgeImpl {
       });
     }
     parameters.delete("urls");
+    const priorityGroups = filePriorityGroups(parameters.get("filePriorities"));
+    parameters.delete("filePriorities");
     const { body, contentType } = multipartTorrent(
       resolved.torrent,
       parameters
     );
-    return QBittorrentRuntime.request("/api/v2/torrents/add", {
+    const added = await QBittorrentRuntime.request("/api/v2/torrents/add", {
       method: "POST",
       headers: { "Content-Type": contentType },
       body,
       signal,
     });
+    if (added.status < 200 || added.status >= 300 || !priorityGroups.length) {
+      return added;
+    }
+    let addedIds;
+    try {
+      addedIds = JSON.parse(
+        new TextDecoder().decode(added.body)
+      ).added_torrent_ids;
+    } catch {
+      addedIds = null;
+    }
+    if (
+      !Array.isArray(addedIds) ||
+      addedIds.length !== 1 ||
+      typeof addedIds[0] !== "string" ||
+      !addedIds[0]
+    ) {
+      return response(
+        "qBittorrent did not identify the added torrent",
+        502,
+        "text/plain; charset=UTF-8"
+      );
+    }
+    for (const group of priorityGroups) {
+      const fields = new URLSearchParams({
+        hash: addedIds[0],
+        id: group.ids.join("|"),
+        priority: group.priority,
+      });
+      const prioritized = await QBittorrentRuntime.request(
+        "/api/v2/torrents/filePrio",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: formBody(fields),
+          signal,
+        }
+      );
+      if (prioritized.status < 200 || prioritized.status >= 300) {
+        return prioritized;
+      }
+    }
+    return added;
   }
 
   async #addSearchResults(sources, signal) {
@@ -358,7 +480,11 @@ class QBittorrentSearchBridgeImpl {
     for (const source of sources) {
       const id = parseResultHandle(source);
       if (!id) {
-        return response("Invalid torrent result", 400, "text/plain; charset=UTF-8");
+        return response(
+          "Invalid torrent result",
+          400,
+          "text/plain; charset=UTF-8"
+        );
       }
       const resolved = await this.#resolved(id, signal);
       if (resolved.kind === "magnet") {
@@ -394,6 +520,7 @@ export const QBittorrentSearchBridge = new QBittorrentSearchBridgeImpl();
 export const QBittorrentSearchBridgeTestUtils = Object.freeze({
   formParameters,
   multipartTorrent,
+  filePriorityGroups,
   parseResultHandle,
   resultHandle,
   searchRow,

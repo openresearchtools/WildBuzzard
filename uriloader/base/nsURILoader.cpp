@@ -418,6 +418,26 @@ nsresult nsDocumentOpenInfo::DispatchContent(nsIRequest* request) {
   bool forceExternalHandling =
       NS_SUCCEEDED(rv) && disposition == nsIChannel::DISPOSITION_ATTACHMENT;
 
+  if (mContentType.EqualsLiteral("application/x-bittorrent") ||
+      mContentType.EqualsLiteral("application/vnd.bittorrent")) {
+    nsAutoCString handlerContractID(NS_CONTENT_HANDLER_CONTRACTID_PREFIX);
+    handlerContractID += mContentType;
+    nsCOMPtr<nsIContentHandler> contentHandler =
+        do_CreateInstance(handlerContractID.get());
+    if (contentHandler) {
+      rv = contentHandler->HandleContent(mContentType.get(), m_originalContext,
+                                         request);
+      if (rv != NS_ERROR_WONT_HANDLE_CONTENT) {
+        if (NS_FAILED(rv)) {
+          request->Cancel(rv);
+        } else {
+          mUsedContentHandler = true;
+        }
+        return rv;
+      }
+    }
+  }
+
   LOG(("  forceExternalHandling: %s", forceExternalHandling ? "yes" : "no"));
   LOG(("  IsSandboxed: %s", IsSandboxed(aChannel) ? "yes" : "no"));
   LOG(("  IsContentPDF: %s",

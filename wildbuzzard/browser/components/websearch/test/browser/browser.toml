@@ -11,5 +11,9 @@ environment = [
 
 ["browser_gecko_render.js"]
 
+["browser_logpoint_reload.js"]
+
+["browser_window_create.js"]
+
 ["browser_searxng_integration.js"]
 run-if = ["os == 'linux'"]

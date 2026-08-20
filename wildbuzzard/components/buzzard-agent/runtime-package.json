@@ -1,0 +1,37 @@
+{
+  "name": "buzzard-agent-runtime",
+  "version": "0.84.1",
+  "description": "Runtime for the Buzzard Agent coding assistant",
+  "type": "module",
+  "piConfig": {
+    "name": "buzzard-agent",
+    "configDir": ".buzzard-agent"
+  },
+  "bin": {
+    "buzzard-agent": "dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./rpc-entry": {
+      "import": "./dist/rpc-entry.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js"
+    }
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "buzzardAgentUpstream": {
+    "package": "@earendil-works/pi-coding-agent",
+    "version": "0.84.1",
+    "repository": "https://github.com/earendil-works/pi.git",
+    "commit": "53fa77ccd8a279eb87e92294ef3687b03ff80112"
+  }
+}

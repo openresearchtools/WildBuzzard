@@ -113,3 +113,5 @@ remote.jar:
   content/wildbuzzard/BrowserControlChild.sys.mjs (wildbuzzard/BrowserControlChild.sys.mjs)
   content/wildbuzzard/BrowserControlParent.sys.mjs (wildbuzzard/BrowserControlParent.sys.mjs)
   content/wildbuzzard/TorrentAgentTools.sys.mjs (wildbuzzard/TorrentAgentTools.sys.mjs)
+  content/wildbuzzard/WildBuzzardWorkflow.sys.mjs (wildbuzzard/WildBuzzardWorkflow.sys.mjs)
+  content/wildbuzzard/WildBuzzardWorkflowWorker.js (wildbuzzard/WildBuzzardWorkflowWorker.js)

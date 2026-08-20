@@ -1,6 +1,6 @@
 # qBittorrent backend handoff
 
-Date: 2026-08-13
+Date: 2026-08-17
 
 ## Authoritative resume point
 
@@ -20,27 +20,28 @@ Do not resume from the dirty shared checkout at `/home/user/Downloads/WildBuzzar
 
 ## Intended product architecture
 
-WildBuzzard embeds the mature headless qBittorrent/libtorrent client instead of maintaining a separate WebTorrent client. qBittorrent keeps responsibility for torrent persistence, magnet metadata resolution, TCP, UDP, uTP, DHT, trackers, peers, queueing, file priorities, recheck, reannounce, pause/resume and removal.
+The independent `buzzard-torrent` Debian package provides the mature headless qBittorrent/libtorrent client instead of Wild Buzzard maintaining a separate WebTorrent client. qBittorrent keeps responsibility for torrent persistence, magnet metadata resolution, TCP, UDP, uTP, DHT, trackers, peers, queueing, file priorities, recheck, reannounce, pause/resume and removal.
 
-The browser starts qBittorrent with a private Unix-domain socket and a mode-0600 bearer-key file. The patched qBittorrent WebUI and WebAPI do not listen on a product TCP port. Firefox exposes the UI at `about:torrents`, backed by the parent-process `moz-torrent://local/` protocol and a restricted UDS transport. The UI is generically titled **Torrents**, has qBittorrent product promotion removed, and follows system light/dark colours and fonts. Legal source and licence attribution remains in the bundled runtime.
+The browser calls `/usr/bin/buzzard-torrent`, whose package starts qBittorrent with a private Unix-domain socket and a mode-0600 bearer-key file. The patched qBittorrent WebUI and WebAPI do not listen on a product TCP port. Firefox exposes the UI at `about:torrents`, backed by the restricted `moz-torrent://local/` protocol and a parent actor that owns UDS requests. The UI is generically titled **Torrents**, has qBittorrent product promotion removed, and follows system light/dark colours and fonts. Legal source and licence attribution remains in the component package.
 
 Jackett Mini remains the credential-free public search source. `QBittorrentSearchBridge.sys.mjs` presents it through qBittorrent's normal search API, starts one request per enabled public source, appends results as each source completes, hides source failures from the main results table, sorts initially by seeders, and uses opaque result handles so tracker URLs are not exposed. Torrent and magnet additions go to qBittorrent; metadata continues resolving after an item is added.
 
-Pi/Agent uses the existing browser-control connection rather than opening another service port. The simple model-facing tools are `torrent_search`, `torrent_resolve`, `torrent_add`, `torrent_status`, `torrent_action`, `torrent_files`, `torrent_trackers`, `torrent_peers`, plus the new typed `torrent_list`, `torrent_details` and `torrent_control` operations.
+Agents use the installed `buzzard-torrent-mcp` server or the browser-control connection rather than opening another service port. The model-facing tools cover search, resolve, add, list, details, status, files, trackers, peers and typed controls.
 
 ## Key source layout
 
 - `wildbuzzard/third_party/gpl2/qbittorrent/`: pristine pinned qBittorrent source, provenance and the downstream patch.
 - `wildbuzzard/third_party/bsd3/libtorrent/`: pristine pinned libtorrent source and Boost source lock.
-- `wildbuzzard/scripts/build-qbittorrent-runtime.sh`: host-native runtime builder. Product builds must not use containers.
-- `wildbuzzard/browser/components/torrent/QBittorrentRuntime.sys.mjs`: extraction, private state and persistent process lifecycle.
+- `wildbuzzard/scripts/build-qbittorrent-runtime.sh`: pinned Ubuntu runtime builder used by the product build pipeline.
+- `wildbuzzard/components/buzzard-torrent/`: standalone CLI, MCP, Debian metadata and package-owned lifecycle.
+- `wildbuzzard/browser/components/torrent/QBittorrentRuntime.sys.mjs`: thin `/usr/bin/buzzard-torrent` lifecycle client and connection validation.
 - `wildbuzzard/browser/components/torrent/QBittorrentUDSTransport.sys.mjs`: bounded HTTP-over-AF_UNIX client.
 - `wildbuzzard/browser/components/torrent/QBittorrentWebBridge.sys.mjs`: restricted WebUI request bridge.
 - `wildbuzzard/browser/components/torrent/QBittorrentProtocolHandler.sys.mjs`: `moz-torrent://local/` protocol.
 - `wildbuzzard/browser/components/torrent/QBittorrentSearchBridge.sys.mjs`: progressive Jackett-to-qBittorrent search adapter.
 - `wildbuzzard/browser/components/torrent/TorrentManager.sys.mjs`: qBittorrent WebAPI adapter used by browser and agent tools.
 - `remote/wildbuzzard/TorrentAgentTools.sys.mjs`: browser-control torrent tools.
-- `agent/extensions/web-access/torrent-contracts.ts` and `torrent.ts`: Pi tool contracts and registrations.
+- `wildbuzzard/components/buzzard-torrent/src/`: reusable CLI and stdio MCP contracts.
 
 ## Completed in this checkpoint
 
@@ -51,37 +52,35 @@ Pi/Agent uses the existing browser-control connection rather than opening anothe
 - `about:torrents` redirects to the qBittorrent UI.
 - Browser-side runtime, UDS, WebUI, protocol, search and torrent-manager adapters are implemented.
 - Jackett searches are concurrent and progressive; failed sources are ignored in the main result stream.
-- Browser-control and Pi contracts include list, detail, peer/tracker/file and advanced control operations.
-- A direct host build completed at `/home/user/Downloads/wildbuzzard-qbt-build/qbittorrent-clean/qbittorrent-nox` with SHA-256 `0f2f5d48d518c0cb6d3cf2a6c0465525fbe42ed744243e1b89b03792058388ea`. This Ubuntu-linked binary is test evidence only and should be rebuilt on Debian.
-- The last smoke daemon was stopped before this handoff.
+- Browser-control and standalone MCP contracts include list, detail, peer/tracker/file and advanced control operations.
+- The real WebUI runs as normal browser content in `about:torrents`; browser agents can inspect its DOM/accessibility tree, click controls, type queries, read rows and operate the qBittorrent add-torrent dialog.
+- The browser-side ZIP inventory/hash validator and its obsolete locks were removed. The browser does not contain, download, unpack, inventory or hash the qBittorrent payload. Provenance, SBOM and reproducibility validation belong to the independent Debian package's Ubuntu build pipeline.
+- Relative URL, native event, unavailable local-storage and iframe resource behavior are adapted in the downstream WebUI patch without replacing qBittorrent's UI.
+- Search result caches are bounded and expire, uploaded-torrent file priorities are applied after add, and sequential/first-last controls require exactly one torrent ID.
+- The obsolete custom torrent page, tests and locale were removed after the real qBittorrent UI browser test passed.
+- A clean Ubuntu 24.04 container build completed from snapshot `c500f3d8d59b` at `/workspace/qbittorrent-runtime-builds/runs/20260817T195507Z-c500f3d8d59b-353106`.
 
 ## Known unfinished release gates
 
-This is a source checkpoint, not a release-ready torrent package.
+The standalone `buzzard-torrent` package is reproducible and passes the supported distribution smoke matrix. Remaining full-product release gates are:
 
-1. Replace the old WebTorrent assumptions in `validate-host-native-runtime-archive.py`, `torrent-runtime-lock.json` and the torrent runtime-manifest test with the qBittorrent manifest/source/SBOM contract.
-2. Finish SBOM and pinned Qt runtime inventory generation in `build-qbittorrent-runtime.sh`.
-3. Commit first, then run the builder twice from two different external roots and require byte-identical ZIP files. Update `torrent-runtime-lock.json` only from that final artifact.
-4. Rebuild the Jackett Mini runtime because its patch now keeps result handles for 24 hours and permits larger progressive result sets. Update its lock after the reproducibility check.
-5. Apply file priorities after a resolved `.torrent` upload. The magnet path already carries priorities; the uploaded-torrent path still needs the post-add `filePrio` call.
-6. Bound/expire the opaque resolved-result map even when no new search endpoint is called.
-7. Require exactly one torrent ID for sequential and first/last-piece agent controls.
-8. Replace the asynchronous predicate in `test_qbittorrent_search_bridge.js` with explicit polling compatible with `TestUtils.waitForCondition`.
-9. Add and run xpcshell coverage for the UDS parser, runtime ownership/modes/PID validation, protocol principal restrictions, cancellation, process restart and cleanup.
-10. Remove the no-longer-used custom torrent UI resources after the real qBittorrent UI passes browser tests.
-11. Build WildBuzzard externally, run the torrent xpcshell/browser manifests, open `about:torrents`, and verify a real public Linux-distribution torrent end to end: magnet metadata, `.torrent` upload, file selection, restart/resume, peers, TCP/UDP/uTP, pause/start/force-start/reannounce/recheck and remove-with/without-data.
-12. Run the Pi tools against that same packaged browser and verify that tool actions and UI state stay identical.
+1. Extend xpcshell coverage for runtime ownership/modes/PID validation, protocol-principal rejection, cancellation, process restart and cleanup. UDS framing, search bridging and torrent-manager coverage now exist.
+2. Build and package Wild Buzzard on Ubuntu CI, then run the torrent manifests and a real public Linux-distribution torrent end to end: magnet metadata, `.torrent` upload, file selection, restart/resume, peers, TCP/UDP/uTP, pause/start/force-start/reannounce/recheck and remove-with/without-data.
+3. Run the generic MCP tools against that same packaged browser and verify that tool actions and UI state stay identical.
 
 ## Verification already performed
 
-- The downstream patch applied with `patch --fuzz=0` to pristine qBittorrent source.
-- The patched qBittorrent host build completed successfully.
-- `agent/extensions/web-access` TypeScript typecheck passed.
-- The focused torrent contract test passed 2/2.
-- The full Node suite reached 65 passing tests but its existing direct Node loader cannot import the Firefox `resource://` module used by `torrent-agent-tools.test.sys.mjs`; run that test in xpcshell or with the repository's Firefox module loader rather than claiming the full suite green.
-- No integrated Firefox build, xpcshell run, browser test or packaged end-to-end run has completed for this checkpoint.
+- The downstream patch applies with zero fuzz to pristine qBittorrent 5.2.3 source, and the clean Ubuntu 24.04 qBittorrent/libtorrent build completes.
+- The integrated Ubuntu Firefox build was relinked after the component changes.
+- `agent/extensions/web-access` TypeScript typecheck passes and its complete Node suite passes 76/76, including the qBittorrent agent contracts and SearXNG date sorting.
+- Focused qBittorrent/SearXNG xpcshell tests pass 4/4.
+- The real qBittorrent browser test passes 7/7: transfer view, debranding restrictions, browser-backed search result rendering and magnet add dialog.
+- `./mach format` and `git diff --check` pass.
+- Two independent Ubuntu 24.04 builds produced byte-identical qBittorrent runtimes and byte-identical `buzzard-torrent` packages.
+- The exact package passes rootless service and WebUI smokes on Ubuntu 24.04, Ubuntu 26.04 and Debian 13.
+- A packaged full-browser real-network torrent smoke remains a release gate.
 
-## Debian resume commands
+## Ubuntu builder resume commands
 
 ```bash
 git clone https://github.com/openresearchtools/WildBuzzard.git
@@ -99,6 +98,6 @@ sha256sum /path/to/boost_1_88_0.tar.bz2
   --ref HEAD
 ```
 
-The Boost digest must be `46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b`. The builder currently requires Qt `lrelease` 6.10.2 exactly. Install the matching Debian build dependencies or deliberately update and re-pin the Qt toolchain before rebuilding; do not silently accept a different toolchain.
+The Boost digest must be `46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b`. The builder currently requires Qt `lrelease` 6.10.2 exactly. Use the pinned Ubuntu build image or deliberately update and re-pin the Qt toolchain; do not silently accept a different toolchain.
 
-After the runtime validator and lock migration is complete, use the normal external WildBuzzard build driver with the new qBittorrent runtime ZIP, Pi runtime, Jackett Mini runtime, SearXNG executable and Arti inputs. Keep all object directories and generated artifacts outside the source checkout.
+Build the qBittorrent artifact with this builder, then build `wildbuzzard/components/buzzard-torrent` as an independent Debian package. The `wildbuzzard` package declares `buzzard-torrent` as a normal dependency and never copies its files into the browser package. Keep all object directories and generated artifacts outside the source checkout.

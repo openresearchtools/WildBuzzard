@@ -7,8 +7,8 @@ and the contract is the Rust `browseros-mcp` implementation at commit
 
 Status meanings:
 
-- **Verified**: exercised through the packaged Pi extension and a built
-  WildBuzzard browser.
+- **Verified**: exercised through the packaged `wildbuzzard` CLI and a built
+  Wild Buzzard browser.
 - **Implemented**: the contract is present but its full edge-case matrix has
   not yet been exercised.
 - **Partial**: useful behavior exists, but a known BrowserOS contract or
@@ -32,7 +32,7 @@ Status meanings:
 | `wait` | text/selector/time, 2s defaults, 30s cap, signal validation | Verified | Text, selector, time, timeout, cancellation, argument validation and invalid-selector behavior are exercised. |
 | `windows` | list, create, close | Verified | List/create/close, startup readiness, cleanup, response field names, and required `windowId` validation are exercised. Private windows are an intentional WildBuzzard extension. |
 | `evaluate` | async body, 30s cap, by-value result, exceptions, untrusted boundary, large output file | Verified | Async values, exceptions, timeout semantics, non-serializable/circular results and the BrowserOS 5,000-character output spill are covered. Evaluation runs with Gecko's native user-input state, matching BrowserOS `userGesture: true`, while `navigator.webdriver` remains false. |
-| `run` | bounded JavaScript runtime; 64 MiB heap; 512 KiB stack; 30s cap; log/value caps; complete browser SDK | Verified | The source-built QuickJS runner is process-isolated from Pi, applies BrowserOS heap/stack/time/log/value limits, interrupts infinite loops, contains out-of-memory failures, exposes no Node/Bun/network globals and preserves concurrent SDK calls. The packaged SDK matrix exercises pages, snapshots/diffs/refs, all SDK input helpers, navigation, evaluate/read/grep/wait, annotated screenshots, upload/download/PDF, groups, windows and raw compatibility calls. “Raw compatibility” means the BrowserOS SDK/CDP methods used by these tools; it does not claim that Gecko implements every unrelated Chromium CDP domain. |
+| `run` | bounded JavaScript runtime; 64 MiB heap; 512 KiB stack; 30s cap; log/value caps; complete browser SDK | Verified | The source-built QuickJS runner is process-isolated from the CLI, applies BrowserOS heap/stack/time/log/value limits, interrupts infinite loops, contains out-of-memory failures, exposes no Node/Bun/network globals and preserves concurrent SDK calls. The packaged SDK matrix exercises pages, snapshots/diffs/refs, all SDK input helpers, navigation, evaluate/read/grep/wait, annotated screenshots, upload/download/PDF, groups, windows and raw compatibility calls. “Raw compatibility” means the BrowserOS SDK/CDP methods used by these tools; it does not claim that Gecko implements every unrelated Chromium CDP domain. |
 
 ## Gecko-side acceptance
 
@@ -57,8 +57,8 @@ model-facing tool contract.
 
 The default build does not start the Marionette or WebDriver BiDi listeners.
 Those modules are called in-process where useful; the only listener used by the
-Agent is the authenticated loopback bridge. Remote UI access is separately
-scoped to Agent sessions and does not publish tab-control transport.
+CLI is the private loopback connection. Remote UI access is separately scoped
+to agent sessions and does not publish tab-control transport.
 
 The current post-build identity check returns
 `navigator.userActivation.isActive === true` during Agent evaluation and
@@ -67,7 +67,7 @@ Firefox-compatible user agent rather than an automation user agent.
 
 ## Raw BrowserOS compatibility surface
 
-The Pi `run` SDK uses a Gecko adapter for the BrowserOS/Chromium calls its
+The `wildbuzzard run` SDK uses Gecko for the BrowserOS/Chromium calls its
 public helpers require. Implemented domains include browser windows, tabs and
 groups; page navigation, frame trees, layout, dialogs, screenshots and PDF;
 accessibility full/partial/query trees; DOM query/describe/resolve/geometry,
@@ -76,8 +76,8 @@ properties and object lifetimes; native mouse, key and text input; and recent
 history.
 
 Public model-facing refs remain BrowserOS-style `eN` values. Gecko
-`BrowsingContext`, accessibility and DevTools identifiers stay private to the
-adapter except for the documented raw `{ backendNodeId, sessionId }` escape
+`BrowsingContext`, accessibility and DevTools identifiers stay private to Wild
+Buzzard except for the documented raw `{ backendNodeId, sessionId }` escape
 hatch. No Marionette, WebDriver BiDi or DevTools socket is opened.
 
 ## Validation gates
@@ -85,7 +85,7 @@ hatch. No Marionette, WebDriver BiDi or DevTools socket is opened.
 - Gecko parent/child lint: 0 errors and 0 warnings.
 - Incremental Firefox build: successful with 0 compiler warnings.
 - Snapshot/diff TypeScript tests: 5/5 passing.
-- Packaged Pi TypeScript validation: passing.
+- Packaged CLI TypeScript validation: passing.
 - Packaged BrowserOS SDK end-to-end matrix: passing.
 - Widevine/GMP endpoint and policy xpcshell test: 55/55 passing.
 
@@ -93,8 +93,8 @@ hatch. No Marionette, WebDriver BiDi or DevTools socket is opened.
 
 BrowserOS does not define separate source-debugging tools, so the same Pi
 extension also exposes the useful developer subset from the pinned Mozilla
-Firefox DevTools MCP contract. These calls use WildBuzzard page IDs and the
-same in-process Gecko bridge; they do not open another MCP/BiDi transport.
+Firefox DevTools MCP contract. These direct CLI calls use Wild Buzzard page IDs
+and the same in-process Gecko bridge; they do not open an MCP/BiDi transport.
 
 | Tool | Status | Verified behavior |
 |---|---|---|

@@ -1,20 +1,21 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-const TORRENTS_URL = "moz-torrent://local/";
+const BOOTSTRAP_URL = "resource:///modules/torrent-bootstrap.html";
+const WEBUI_PRINCIPAL_URL = "https://torrent.wildbuzzard.invalid/";
 
-/** Implements the privileged about:torrents page. */
 export class AboutTorrents {
-  classID = Components.ID("{75897cdd-45d8-4d8c-872f-1b603fb55d9a}");
   QueryInterface = ChromeUtils.generateQI(["nsIAboutModule"]);
 
   newChannel(uri, loadInfo) {
-    const suffix = `${uri.query ? `?${uri.query}` : ""}${uri.ref ? `#${uri.ref}` : ""}`;
     const channel = Services.io.newChannelFromURIWithLoadInfo(
-      Services.io.newURI(`${TORRENTS_URL}${suffix}`),
+      Services.io.newURI(BOOTSTRAP_URL),
       loadInfo
     );
     channel.originalURI = uri;
-    channel.owner = Services.scriptSecurityManager.getSystemPrincipal();
+    channel.owner = Services.scriptSecurityManager.createContentPrincipal(
+      Services.io.newURI(WEBUI_PRINCIPAL_URL),
+      loadInfo.originAttributes
+    );
     return channel;
   }
 
@@ -28,6 +29,6 @@ export class AboutTorrents {
   }
 
   getChromeURI() {
-    return Services.io.newURI(TORRENTS_URL);
+    return Services.io.newURI(BOOTSTRAP_URL);
   }
 }

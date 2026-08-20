@@ -1,36 +1,20 @@
-# WildBuzzard Agent Integration
+# Buzzard Agent integration
 
-WildBuzzard uses a separately versioned Pi Web fork for its coding-agent UI,
-server, session daemon, and Pi dependency. Pi source is not vendored in the
-Firefox repository.
+The browser, agent harness and web UI are independently packaged modules:
 
-The browser-control service and its thin Pi adapter remain here because they
-are WildBuzzard browser functionality. Pi Web can keep running without the
-browser; the adapter reconnects whenever WildBuzzard publishes a fresh local
-browser-control connection.
+- `wildbuzzard` owns the browser and its direct native CLI;
+- `buzzard-agent` owns the debranded Pi-compatible coding-agent harness;
+- `buzzard-agent-web` owns the web UI, server and session daemon.
 
-## Building the Pi Web runtime
+The browser invokes `/usr/bin/buzzard-agent-web` through its documented JSON
+CLI and passes private browser-control and service-identity files. It does not
+embed, extract, hash or supervise the web UI runtime. The package owns its
+systemd user units and can continue serving active sessions when the browser is
+closed.
 
-Build from a clean, committed local Pi Web fork into an external directory:
+`agent/integrations/buzzard-capabilities` connects to the independently
+installed search and torrent services. Browser work uses `wildbuzzard`
+directly; there is no browser MCP or agent-specific browser adapter.
 
-```sh
-./wildbuzzard/scripts/build-pi-web-runtime.sh \
-  --fork ../WildBuzzard-pi-web \
-  --ref HEAD
-```
-
-The resulting ZIP contains Pi Web, Pi, a verified Node.js runtime, and the
-browser-tools adapter. Pass it to the external Firefox build:
-
-```sh
-./wildbuzzard/scripts/build-linux-external.sh \
-  --working-tree \
-  --pi-web-runtime /path/to/wildbuzzard-pi-web-runtime-linux-x64.zip
-```
-
-The built-in extension extracts the bundle into the browser profile and uses
-Pi Web's native per-user services. Closing WildBuzzard does not stop Pi Web or
-its active sessions.
-
-The browser-control architecture, licensing, and acceptance scope are
-documented in [`BROWSER-CONTROL.md`](BROWSER-CONTROL.md).
+The browser-control architecture, licensing and acceptance scope are documented
+in [`BROWSER-CONTROL.md`](BROWSER-CONTROL.md).

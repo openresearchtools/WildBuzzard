@@ -56,19 +56,21 @@ A successful reference-only run exits 2 and records
 `reference-passed-gecko-gated`. This is intentionally not a parity pass.
 
 For the release side-by-side gate, start a fresh externally built WildBuzzard
-under `MOZ_AUTOMATION=1` with an ephemeral profile, wait for its mode-0600
-`browser-control.json`, and pass it to the same command:
+under `MOZ_AUTOMATION=1` with an ephemeral profile and pass the native
+`wildbuzzard` executable to the same command:
 
 ```sh
 python3 wildbuzzard/tests/original-services/firecrawl/compare_firecrawl.py \
-  --gecko-connection /absolute/path/to/browser-control.json \
+  --wildbuzzard /usr/bin/wildbuzzard \
   --artifacts /absolute/external/path/firecrawl-gecko-comparison
 ```
 
-The automation-only browser-control arguments accept only canonical HTTP
+The automation-only Gecko renderer arguments accept only canonical HTTP
 loopback origins with explicit ports. They are serialized, restored after
 success, error, timeout, and cancellation, and are rejected outside Firefox
-automation. Cleanup evidence contains only counts and failure flags.
+automation. Cleanup evidence contains only counts and failure flags. Killing
+the short-lived CLI process exercises cancellation through the native Unix
+socket and the running browser process.
 
 The corpus covers static and JavaScript-mutated HTML, delayed content,
 redirects, status and content-type variants, encoding, CSP, iframe behavior,
@@ -77,7 +79,7 @@ timeout, cancellation, and concurrency. HTML comparison requires exact status,
 content type, and logical final URL, matching title, ordered headings and link
 targets, and at least 95 percent multiset visible-text token recall.
 The full gate also requires bounded Gecko failures for the stress corpus and
-cancels a live Gecko fixture request through the browser-control protocol
+cancels a live Gecko fixture request through the native `wildbuzzard` command
 before checking cleanup diagnostics and lock reuse.
 Both Firecrawl and Gecko cancellation probes use a five-second fixture but
 pass only when renderer and fixture activity clear in less than the fixed

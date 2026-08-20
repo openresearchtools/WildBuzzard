@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 /* Derived from pi-web-access. Copyright (c) 2025 Nico Bailon. */
 
-import { callBrowserTool } from "../browser-tools/bridge-client.ts";
+import { callBrowserTool } from "./wildbuzzard-cli.ts";
 import {
   buildSearchQuery,
   matchesDomainFilters,
@@ -9,6 +9,7 @@ import {
   type NormalizedSearchInput,
   type QueryResponse,
   type SearchResult,
+  type SearchSortOrder,
 } from "./contracts.ts";
 import { redactSensitiveText } from "./safe-output.ts";
 
@@ -87,6 +88,7 @@ const RESULT_FIELDS = new Set([
 ]);
 const MAX_CATALOG_ENTRIES = 4_096;
 const MAX_STRUCTURED_ITEMS = 50;
+const MAX_SORTABLE_RESULTS = 100;
 
 function recordWithFields(
   value: unknown,
@@ -309,6 +311,37 @@ function normalizeResult(
   };
 }
 
+export function sortSearchResults(
+  results: SearchResult[],
+  order: SearchSortOrder
+): SearchResult[] {
+  if (order === "relevance") {
+    return results;
+  }
+  return results
+    .map((result, index) => ({
+      result,
+      index,
+      timestamp: result.date ? Date.parse(result.date) : Number.NaN,
+    }))
+    .sort((left, right) => {
+      const leftValid = Number.isFinite(left.timestamp);
+      const rightValid = Number.isFinite(right.timestamp);
+      if (leftValid !== rightValid) {
+        return leftValid ? -1 : 1;
+      }
+      if (!leftValid) {
+        return left.index - right.index;
+      }
+      const difference =
+        order === "newest"
+          ? right.timestamp - left.timestamp
+          : left.timestamp - right.timestamp;
+      return difference || left.index - right.index;
+    })
+    .map(({ result }) => result);
+}
+
 export function nativeSearchRequest(
   query: string,
   input: NormalizedSearchInput
@@ -317,7 +350,10 @@ export function nativeSearchRequest(
     query: buildSearchQuery(query, input.domains),
     ...(input.recencyFilter ? { timeRange: input.recencyFilter } : {}),
     safeSearch: 1,
-    maxResults: input.numResults,
+    maxResults:
+      input.sortOrder === "relevance"
+        ? input.numResults
+        : MAX_SORTABLE_RESULTS,
   };
   if (
     [...request.query].length > 512 ||
@@ -353,12 +389,15 @@ export async function searchSearXNG(
     throw error;
   }
   const raw = validateResponse(response.details, request);
-  const results = raw.results
+  const normalizedResults = raw.results
     .map(value => normalizeResult(value, input.includeContent))
     .filter((value): value is SearchResult =>
       Boolean(value && matchesDomainFilters(value.url, input.domains))
-    )
-    .slice(0, input.numResults);
+    );
+  const results = sortSearchResults(normalizedResults, input.sortOrder).slice(
+    0,
+    input.numResults
+  );
   return {
     query,
     implementation: raw.implementation,

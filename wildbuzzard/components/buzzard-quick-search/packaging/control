@@ -1,0 +1,11 @@
+Package: buzzard-quick-search
+Version: 0.1.0
+Section: net
+Priority: optional
+Architecture: amd64
+Maintainer: Wild Buzzard Project
+Depends: ca-certificates, git, libc6 (>= 2.39)
+Homepage: https://github.com/openresearchtools/wildbuzzard
+Description: standalone model-ready quick web search and MCP server
+ Provides an independently reusable web-search executable with a CLI and MCP
+ stdio surface. Python and Python package dependencies are bundled.

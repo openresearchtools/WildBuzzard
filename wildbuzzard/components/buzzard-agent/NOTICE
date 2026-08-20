@@ -1,0 +1,12 @@
+Buzzard Agent is an independently packaged, modified distribution of the Pi
+coding-agent source from https://github.com/earendil-works/pi.
+
+Upstream version: 0.84.1
+Upstream commit: 53fa77ccd8a279eb87e92294ef3687b03ff80112
+Upstream copyright: Copyright (c) 2025 Mario Zechner
+Upstream license: MIT
+
+The Buzzard Agent name, executable, configuration directory, network identity,
+and Debian integration are downstream changes. The original MIT license and
+upstream attribution are installed with the runtime and retained in the
+pristine corresponding source tree.

@@ -16,24 +16,17 @@ const LocalFile = Components.Constructor(
   "nsIFile",
   "initWithPath"
 );
-const ARTIFACT_ENV = "WILDBUZZARD_SEARXNG_TEST_EXECUTABLE";
+const COMMAND_ENV = "BUZZARD_SEARCH_TEST_COMMAND";
 const LIVE_SEARCH_ENV = "WILDBUZZARD_SEARXNG_LIVE_TEST";
-const EXECUTABLE_PREF = "wildbuzzard.search.searxngExecutable";
+const COMMAND_PREF = "wildbuzzard.search.command";
 const MIGRATION_PREF = "wildbuzzard.search.searxngMigrationVersion";
 
-async function packagedArtifactPath() {
-  const override = Services.env.get(ARTIFACT_ENV);
-  const path =
-    override ||
-    PathUtils.join(
-      Services.dirsvc.get("GreD", Ci.nsIFile).path,
-      "runtime",
-      "search",
-      SearXNGManagerTestUtils.ARTIFACT_NAME
-    );
+async function packagedCommandPath() {
+  const override = Services.env.get(COMMAND_ENV);
+  const path = override || SearXNGManagerTestUtils.DEFAULT_COMMAND;
   try {
-    const artifact = new LocalFile(path);
-    if (artifact.isFile() && !artifact.isSymlink()) {
+    const command = new LocalFile(path);
+    if (command.isFile() && !command.isSymlink() && command.isExecutable()) {
       return path;
     }
   } catch {}
@@ -124,8 +117,8 @@ async function runLiveNativeSearch() {
   is(result.details.schema, 1, "native_search returns the stable schema");
   is(
     result.details.implementation,
-    "bundled-searxng",
-    "native_search used the bundled implementation"
+    "buzzard-search",
+    "native_search used the installed Buzzard Search package"
   );
   is(
     result.details.query,
@@ -163,11 +156,11 @@ async function runLiveNativeSearch() {
 
 add_task(async function test_packaged_searxng_integration() {
   requestLongerTimeout(6);
-  const artifactPath = await packagedArtifactPath();
-  if (!artifactPath) {
+  const commandPath = await packagedCommandPath();
+  if (!commandPath) {
     ok(
       true,
-      `Skipped: set ${ARTIFACT_ENV} or install the bundled SearXNG executable`
+      `Skipped: set ${COMMAND_ENV} or install buzzard-search`
     );
     return;
   }
@@ -175,11 +168,11 @@ add_task(async function test_packaged_searxng_integration() {
   const paths = managerPaths();
   let pid = null;
   let tab = null;
-  Services.prefs.setStringPref(EXECUTABLE_PREF, artifactPath);
+  Services.prefs.setStringPref(COMMAND_PREF, commandPath);
   try {
     const ready = await SearXNGManager.initialize();
     pid = ready.pid;
-    ok(ready.ready, "The real bundled SearXNG runtime initialized");
+    ok(ready.ready, "The installed Buzzard Search runtime initialized");
     is(ready.socket, "private", "The manager publishes only a private socket");
     is(
       ready.catalogSha256,
@@ -229,7 +222,7 @@ add_task(async function test_packaged_searxng_integration() {
     await SearXNGManager.stop().catch(error =>
       info(`SearXNG cleanup stop failed: ${error}`)
     );
-    Services.prefs.clearUserPref(EXECUTABLE_PREF);
+    Services.prefs.clearUserPref(COMMAND_PREF);
     Services.prefs.clearUserPref(MIGRATION_PREF);
     if (pid) {
       await TestUtils.waitForCondition(

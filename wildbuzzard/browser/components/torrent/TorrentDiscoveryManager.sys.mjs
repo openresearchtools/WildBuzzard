@@ -1,13 +1,100 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { JackettMiniRuntime } from "resource:///modules/JackettMiniRuntime.sys.mjs";
-import { ServiceRequest } from "resource://gre/modules/ServiceRequest.sys.mjs";
+import { Subprocess } from "resource://gre/modules/Subprocess.sys.mjs";
+
+const LocalFile = Components.Constructor(
+  "@mozilla.org/file/local;1",
+  "nsIFile",
+  "initWithPath"
+);
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 const MAX_TORRENT_BYTES = 12 * 1024 * 1024;
 const OPAQUE_ID = /^[A-Za-z0-9_-]{32}$/;
 const BTIH_MAGNET =
   /^magnet:\?xt=urn:btih:(?:[A-Fa-f0-9]{40}|[A-Za-z2-7]{32})(?:&|$)/;
+const DEFAULT_COMMAND = "/usr/bin/buzzard-torrent-search";
+const MAX_LIFECYCLE_OUTPUT = 64 * 1024;
+
+async function readPipe(pipe, maximum = MAX_LIFECYCLE_OUTPUT) {
+  let output = "";
+  for (let chunk; (chunk = await pipe.readString()); ) {
+    output += chunk;
+    if (output.length > maximum) {
+      throw new Error("buzzard-torrent-search output exceeded its limit");
+    }
+  }
+  return output;
+}
+
+function torrentSearchCommand() {
+  const command =
+    Services.prefs.getStringPref("wildbuzzard.torrent.searchCommand", "") ||
+    Services.env.get("BUZZARD_TORRENT_SEARCH_COMMAND") ||
+    DEFAULT_COMMAND;
+  const executable = new LocalFile(command);
+  if (
+    !executable.isFile() ||
+    executable.isSymlink() ||
+    !executable.isExecutable()
+  ) {
+    throw new Error("The buzzard-torrent-search package is not installed");
+  }
+  return command;
+}
+
+async function callTorrentSearchPackage(tool, args, signal, activeProcesses) {
+  const command = torrentSearchCommand();
+  const process = await Subprocess.call({
+    command,
+    arguments: ["call", tool, JSON.stringify(args)],
+    environmentAppend: true,
+    environment: { LANG: "C.UTF-8", LC_ALL: "C.UTF-8", TZ: "UTC" },
+    stdin: "ignore",
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  let cancelled = false;
+  const onAbort = () => {
+    cancelled = true;
+    process.kill();
+  };
+  const activeProcess = { cancel: onAbort };
+  activeProcesses?.add(activeProcess);
+  if (signal?.aborted) {
+    onAbort();
+  } else {
+    signal?.addEventListener("abort", onAbort, { once: true });
+  }
+  try {
+    const settled = await Promise.allSettled([
+      readPipe(process.stdout, MAX_RESPONSE_BYTES),
+      readPipe(process.stderr),
+      process.wait(),
+    ]);
+    if (cancelled) {
+      throw Object.assign(new Error("Torrent search cancelled"), {
+        cancelled: true,
+      });
+    }
+    const failure = settled.find(entry => entry.status === "rejected");
+    if (failure) {
+      throw failure.reason;
+    }
+    const [stdout, stderr, result] = settled.map(entry => entry.value);
+    if (result.exitCode !== 0 || stderr.trim()) {
+      throw new Error("buzzard-torrent-search command failed");
+    }
+    try {
+      return JSON.parse(stdout);
+    } catch {
+      throw invalidResponse();
+    }
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    activeProcesses?.delete(activeProcess);
+  }
+}
 
 function invalidResponse() {
   return new Error("Torrent search returned an invalid response");
@@ -139,141 +226,12 @@ function sanitizeSearch(response) {
   };
 }
 
-/** Owns the privileged Jackett Mini product connection. */
+/** Connects the browser to the independently packaged torrent search CLI. */
 class TorrentDiscoveryManagerImpl {
-  async initialize() {
-    if (this.connection) {
-      return;
-    }
-    if (this.initializeTask) {
-      await this.initializeTask;
-      return;
-    }
-    this.initializeTask = this.#initialize().catch(error => {
-      this.initializeTask = null;
-      throw Object.assign(error, { serviceUnavailable: true });
-    });
-    await this.initializeTask;
-  }
-
-  async #initialize() {
-    const configured = Services.env.get("WILDBUZZARD_JACKETT_MINI_CONNECTION");
-    const connection = configured
-      ? await IOUtils.readJSON(configured).catch(() => null)
-      : await new JackettMiniRuntime().ensure();
-    if (
-      connection?.address !== "127.0.0.1" ||
-      !Number.isInteger(connection.port) ||
-      connection.port < 1 ||
-      connection.port > 65535 ||
-      typeof connection.capability !== "string" ||
-      connection.capability.length < 32
-    ) {
-      throw new Error("The torrent search connection record is invalid");
-    }
-    this.connection = connection;
-    try {
-      await this.#request("GET", "/v1/health", null, 3000);
-    } catch (error) {
-      this.connection = null;
-      throw error;
-    }
-  }
-
-  #request(method, path, body = null, timeout = 35000, signal) {
-    return new Promise((resolve, reject) => {
-      const request = new ServiceRequest({ mozAnon: true });
-      let settled = false;
-      request.mozBackgroundRequest = true;
-      request.open(method, `http://127.0.0.1:${this.connection.port}${path}`, {
-        bypassProxy: true,
-      });
-      request.responseType = "text";
-      request.timeout = timeout;
-      request.setRequestHeader(
-        "Authorization",
-        `Bearer ${this.connection.capability}`
-      );
-      request.setRequestHeader("Cache-Control", "no-store");
-      if (body !== null) {
-        request.setRequestHeader("Content-Type", "application/json");
-      }
-      const finish = error => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        signal?.removeEventListener("abort", onAbort);
-        this.activeRequests?.delete(request);
-        if (error) {
-          if (error.serviceUnavailable) {
-            this.connection = null;
-            this.initializeTask = null;
-          }
-          reject(error);
-          return;
-        }
-        const length = new TextEncoder().encode(request.responseText).length;
-        if (length > MAX_RESPONSE_BYTES) {
-          reject(new Error("Torrent search response exceeded its limit"));
-          return;
-        }
-        let response;
-        try {
-          response = JSON.parse(request.responseText);
-        } catch {
-          reject(invalidResponse());
-          return;
-        }
-        if (request.status < 200 || request.status >= 300) {
-          reject(
-            new Error(
-              response.error || `Torrent search failed (${request.status})`
-            )
-          );
-          return;
-        }
-        resolve(response);
-      };
-      const onAbort = () => request.abort();
-      request.addEventListener("load", () => finish());
-      request.addEventListener("error", () =>
-        finish(
-          Object.assign(new Error("Torrent search service request failed"), {
-            serviceUnavailable: true,
-          })
-        )
-      );
-      request.addEventListener("timeout", () =>
-        finish(new Error("Torrent search request timed out"))
-      );
-      request.addEventListener("abort", () =>
-        finish(
-          Object.assign(new Error("Torrent search cancelled"), {
-            cancelled: true,
-          })
-        )
-      );
-      if (path === "/v1/search") {
-        this.activeRequests ??= new Set();
-        this.activeRequests.add(request);
-      }
-      if (signal?.aborted) {
-        finish(
-          Object.assign(new Error("Torrent search cancelled"), {
-            cancelled: true,
-          })
-        );
-        return;
-      }
-      signal?.addEventListener("abort", onAbort, { once: true });
-      request.send(body === null ? null : JSON.stringify(body));
-    });
-  }
-
   async getSources() {
-    await this.initialize();
-    return sanitizeSources(await this.#request("GET", "/v1/sources"));
+    return sanitizeSources(
+      await callTorrentSearchPackage("torrent_sources", {})
+    );
   }
 
   async search({ query, sourceIds, limit = 200, isPrivate = false, signal }) {
@@ -297,15 +255,19 @@ class TorrentDiscoveryManagerImpl {
       }
       body.sourceIds = sourceIds;
     }
-    await this.initialize();
     return sanitizeSearch(
-      await this.#request("POST", "/v1/search", body, 35000, signal)
+      await callTorrentSearchPackage(
+        "torrent_search",
+        body,
+        signal,
+        (this.activeProcesses ??= new Set())
+      )
     );
   }
 
   cancelSearch() {
-    for (const request of this.activeRequests ?? []) {
-      request.abort();
+    for (const process of this.activeProcesses ?? []) {
+      process.cancel();
     }
   }
 
@@ -313,12 +275,9 @@ class TorrentDiscoveryManagerImpl {
     if (!OPAQUE_ID.test(resultId || "")) {
       throw new Error("The torrent result identifier is invalid");
     }
-    await this.initialize();
-    const response = await this.#request(
-      "POST",
-      `/v1/results/${encodeURIComponent(resultId)}/resolve`,
-      {},
-      35000,
+    const response = await callTorrentSearchPackage(
+      "torrent_resolve",
+      { resultId },
       signal
     );
     if (

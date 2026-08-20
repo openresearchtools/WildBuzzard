@@ -393,6 +393,19 @@ add_task(async function test_javascript_dom_status_and_final_url() {
   assertClean("successful HTML render");
 });
 
+add_task(async function test_cross_origin_opener_policy_context_swap() {
+  const result = await render(`${FIXTURE}?mode=html-coop`, {
+    waitForSelector: "#ready",
+  });
+  is(result.pageError, null, "COOP render succeeds");
+  is(result.finalUrl, `${FIXTURE}?mode=html-coop`, "COOP URL is retained");
+  ok(
+    result.content.includes("JavaScript mutated DOM"),
+    "COOP DOM is serialized"
+  );
+  assertClean("COOP render");
+});
+
 add_task(async function test_static_mode_does_not_execute_page_javascript() {
   const result = await render(`${FIXTURE}?mode=html`, { javascript: false });
   is(result.pageError, null, "static Gecko load succeeds");

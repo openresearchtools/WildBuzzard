@@ -1,14 +1,31 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import assert from "node:assert/strict";
+import { Buffer } from "node:buffer";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
-import {
+
+const source = await readFile(
+  new URL(
+    "../../../../remote/wildbuzzard/TorrentAgentTools.sys.mjs",
+    import.meta.url
+  ),
+  "utf8"
+);
+const nodeSource = source.replace(
+  'import { clearTimeout, setTimeout } from "resource://gre/modules/Timer.sys.mjs";',
+  "const { clearTimeout, setTimeout } = globalThis;"
+);
+assert.notEqual(nodeSource, source);
+const {
   TorrentAgentToolController,
   validateTorrentControlArgs,
   validateTorrentDetailsArgs,
   validateTorrentListArgs,
   validateTorrentSearchArgs,
-} from "../../../../remote/wildbuzzard/TorrentAgentTools.sys.mjs";
+} = await import(
+  `data:text/javascript;base64,${Buffer.from(nodeSource).toString("base64")}`
+);
 
 function fixture() {
   let nextId = 1;
@@ -220,6 +237,24 @@ test("qBittorrent list, details, and controls use bounded typed contracts", asyn
   assert.equal(
     validateTorrentControlArgs({ ids: [id], action: "reannounce" }).action,
     "reannounce"
+  );
+  assert.throws(
+    () =>
+      validateTorrentControlArgs({
+        ids: [id, "b".repeat(40)],
+        action: "sequential",
+        enabled: true,
+      }),
+    /accepts one torrent ID/
+  );
+  assert.throws(
+    () =>
+      validateTorrentControlArgs({
+        ids: [id, "b".repeat(40)],
+        action: "firstLastPiece",
+        enabled: false,
+      }),
+    /accepts one torrent ID/
   );
 });
 

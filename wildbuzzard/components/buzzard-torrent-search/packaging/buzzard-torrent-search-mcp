@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/lib/buzzard-torrent-search/node/bin/node /usr/lib/buzzard-torrent-search/app/mcp.mjs "$@"

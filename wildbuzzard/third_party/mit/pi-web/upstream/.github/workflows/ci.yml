@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify and package (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Report Linux and Windows results independently instead of cancelling
+      # the matrix on the first failure.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify
+        run: npm run verify
+
+      - name: Build
+        run: npm run build
+
+      - name: Smoke test npm 12 global package install
+        if: runner.os == 'Linux'
+        run: npm run smoke:package-install
+
+      - name: Check npm package contents
+        run: npm run pack:dry

@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self' moz-torrent://local; style-src 'self' 'unsafe-inline' moz-torrent://local; img-src 'self' data: moz-torrent://local; script-src 'self' 'unsafe-inline' moz-torrent://local; object-src 'none'; form-action 'self' moz-torrent://local; frame-src 'self' blob: moz-torrent://local"
+    />
+    <title>Torrents</title>
+  </head>
+  <body>
+    <script>
+      function installTorrentBridge() {
+        const pending = new Map();
+        let sequence = 0;
+        addEventListener("WildBuzzardTorrentResponse", event => {
+          const entry = pending.get(String(event.detail?.id));
+          if (!entry) {
+            return;
+          }
+          pending.delete(String(event.detail.id));
+          entry.signal?.removeEventListener("abort", entry.onAbort);
+          if (event.detail.error) {
+            entry.reject(new Error(event.detail.error));
+          } else {
+            entry.resolve(event.detail.response);
+          }
+        });
+        window.WildBuzzardTorrentRequest = (request, signal) =>
+          new Promise((resolve, reject) => {
+            if (signal?.aborted) {
+              reject(new DOMException("The request was aborted", "AbortError"));
+              return;
+            }
+            const id = String(++sequence);
+            const onAbort = () => {
+              pending.delete(id);
+              reject(new DOMException("The request was aborted", "AbortError"));
+            };
+            pending.set(id, { onAbort, reject, resolve, signal });
+            signal?.addEventListener("abort", onAbort, { once: true });
+            document.dispatchEvent(
+              new CustomEvent("WildBuzzardTorrentRequest", {
+                bubbles: true,
+                detail: { id, request },
+              })
+            );
+          });
+      }
+
+      function installTorrentDownloadRoute() {
+        const requestedDownload = new URLSearchParams(location.hash.slice(1))
+          .get("download")
+          ?.trim();
+        if (
+          !requestedDownload ||
+          requestedDownload.length > 8192 ||
+          window.WildBuzzardTorrentDownloadRouted
+        ) {
+          return;
+        }
+        let url;
+        try {
+          url = new URL(requestedDownload);
+        } catch {
+          return;
+        }
+        if (
+          url.protocol !== "magnet:" &&
+          url.protocol !== "http:" &&
+          url.protocol !== "https:"
+        ) {
+          return;
+        }
+        const route = () => {
+          const createAddTorrentWindow =
+            window.qBittorrent?.Client?.createAddTorrentWindow;
+          if (typeof createAddTorrentWindow !== "function") {
+            return false;
+          }
+          window.WildBuzzardTorrentDownloadRouted = true;
+          createAddTorrentWindow(requestedDownload, requestedDownload);
+          try {
+            history.replaceState(
+              null,
+              "",
+              `${location.pathname}${location.search}`
+            );
+          } catch {}
+          return true;
+        };
+        const start = () => {
+          if (route()) {
+            return;
+          }
+          let attempts = 0;
+          const interval = setInterval(() => {
+            attempts++;
+            if (route() || attempts === 200) {
+              clearInterval(interval);
+            }
+          }, 25);
+        };
+        if (document.readyState === "loading") {
+          addEventListener("DOMContentLoaded", start, { once: true });
+        } else {
+          start();
+        }
+      }
+
+      (async () => {
+        installTorrentBridge();
+        const response = await window.WildBuzzardTorrentRequest({
+          method: "GET",
+          target: `/${location.search}`,
+          headers: { Accept: "text/html" },
+          body: new Uint8Array(),
+        });
+        if (response.status < 200 || response.status >= 300) {
+          throw new Error(`qBittorrent WebUI failed (${response.status})`);
+        }
+        const bridge = `<script>(${installTorrentBridge.toString()})();<\/script>`;
+        const route = `<script>(${installTorrentDownloadRoute.toString()})();<\/script>`;
+        const source = new TextDecoder()
+          .decode(response.body)
+          .replace(
+            "<head>",
+            `<head><base href="moz-torrent://local/">${bridge}${route}`
+          );
+        document.open();
+        // eslint-disable-next-line no-unsanitized/method
+        document.write(source);
+        document.close();
+      })().catch(error => {
+        console.error("Failed to initialize the torrent manager", error);
+        document.body.textContent = "The torrent manager could not be started.";
+      });
+    </script>
+  </body>
+</html>

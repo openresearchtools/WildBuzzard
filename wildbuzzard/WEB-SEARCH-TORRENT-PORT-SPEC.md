@@ -88,11 +88,11 @@ or torrent stack:
 
 | Concern | Existing integration |
 | --- | --- |
-| Pi tools | `agent/extensions/browser-tools/` |
+| Native browser CLI | `wildbuzzard/components/wildbuzzard-cli/` |
 | Browser-control parent | `remote/wildbuzzard/BrowserControl.sys.mjs` |
 | Browser-control actors | `remote/wildbuzzard/BrowserControlChild.sys.mjs`, `BrowserControlParent.sys.mjs` |
 | Pi Web supervisor | `wildbuzzard/browser/extensions/agent-sidebar/experiment-apis/wildbuzzardAgent.js` |
-| Pi runtime build | `wildbuzzard/scripts/build-pi-web-runtime.sh` |
+| Agent packages | `wildbuzzard/components/buzzard-agent/`, `wildbuzzard/components/buzzard-agent-web/` |
 | Torrent parent manager | `wildbuzzard/browser/components/torrent/TorrentManager.sys.mjs` |
 | Torrent service | `wildbuzzard/torrent-runtime/service.mjs` |
 | Torrent UI | `wildbuzzard/browser/components/torrent/content/torrents.xhtml`, `torrents.js`, `torrents.css` |
@@ -102,7 +102,7 @@ or torrent stack:
 | Runtime packaging | `wildbuzzard/moz.build` and `wildbuzzard/scripts/package-appimage.sh` |
 | Upstream pins | `wildbuzzard/upstreams.toml` |
 
-`browser-tools` already discovers extension skills through its
+The `wildbuzzard` CLI ships its browser workflow skill through its
 `resources_discover` result. The web-search and torrent-discovery skills must
 use that mechanism rather than being injected into every system prompt.
 

@@ -1,0 +1,21 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: Buzzard Torrent Search
+Source: https://github.com/openresearchtools/wildbuzzard
+
+Files: *
+Copyright: 2026 Open Research Tools
+License: AGPL-3+
+ On Debian systems the complete text of the GNU Affero General Public License
+ version 3 is available in /usr/share/common-licenses/AGPL-3.
+
+Files: usr/lib/buzzard-torrent-search/runtime/*
+Copyright: Jackett contributors and bundled dependency authors
+License: GPL-2.0-only and other bundled licenses
+ The runtime carries its complete corresponding source, SBOM, provenance and
+ license notices.
+
+Files: usr/lib/buzzard-torrent-search/node/*
+Copyright: Node.js contributors
+License: MIT and other bundled licenses
+ The complete Node.js license and third-party notices are installed beside the
+ private runtime.

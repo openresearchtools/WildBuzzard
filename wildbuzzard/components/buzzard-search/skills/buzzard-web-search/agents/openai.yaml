@@ -1,0 +1,4 @@
+interface:
+  display_name: "Buzzard Web Search"
+  short_description: "Search snippets and save complete pages"
+  default_prompt: "Use $buzzard-web-search to research this topic and inspect the strongest sources."

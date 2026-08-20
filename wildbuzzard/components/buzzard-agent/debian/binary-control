@@ -1,0 +1,12 @@
+Package: buzzard-agent
+Version: 0.84.1+wildbuzzard1
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: openresearchtools <openresearchtools@gmail.com>
+Depends: buzzard-search, buzzard-torrent-search, buzzard-torrent, buzzard-quick-search
+Recommends: wildbuzzard
+Homepage: https://github.com/openresearchtools/wildbuzzard
+Description: modular coding agent for Wild Buzzard and other applications
+ Buzzard Agent is a debranded coding-agent runtime with independently packaged
+ browser, search, torrent, and quick-search capabilities.

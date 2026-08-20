@@ -66,6 +66,10 @@ if [[ -z "${package_archive}" ]]; then
 fi
 
 package_archive="$(realpath -- "${package_archive}")"
+if [[ -z "${appimagetool_path}" ]]; then
+  echo "Executable appimagetool was not found; install it or pass --appimagetool FILE" >&2
+  exit 2
+fi
 appimagetool_path="$(realpath -- "${appimagetool_path}")"
 if [[ ! -f "${package_archive}" || ! -x "${appimagetool_path}" ]]; then
   echo "A release archive and executable appimagetool are required" >&2
@@ -89,33 +93,18 @@ if [[ -z "${browser_root}" ]]; then
 fi
 
 cp -a -- "${browser_root}" "${app_dir}/usr/lib/wildbuzzard"
-searxng_executable="${app_dir}/usr/lib/wildbuzzard/runtime/search/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage"
-for obsolete_path in \
-  "runtime/search/wildbuzzard-searxng-runtime.zip" \
-  "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz" \
-  "notices/source/searxng-release.cdx.json"; do
-  if [[ -e "${app_dir}/usr/lib/wildbuzzard/${obsolete_path}" || \
-    -L "${app_dir}/usr/lib/wildbuzzard/${obsolete_path}" ]]; then
-    echo "Release archive contains obsolete SearXNG payload: ${obsolete_path}" >&2
-    exit 1
+for component_path in \
+  "runtime/search" \
+  "runtime/pi-web" \
+  "runtime/torrent" \
+  "runtime/jackett-mini"; do
+  target="${app_dir}/usr/lib/wildbuzzard/${component_path}"
+  if [[ -e "${target}" || -L "${target}" ]]; then
+    rm -r -- "${target}"
   fi
 done
-if [[ ! -f "${searxng_executable}" || -L "${searxng_executable}" ]]; then
-  echo "Release archive is missing the required SearXNG executable" >&2
-  exit 1
-fi
-if [[ "$(stat --format='%a' -- "${searxng_executable}")" != 755 ]]; then
-  echo "Release archive SearXNG executable must have mode 0755" >&2
-  exit 1
-fi
-python3 -I -B "${product_dir}/scripts/validate-searxng-executable.py" \
-  "${searxng_executable}" \
-  --lock "${product_dir}/third_party/agpl/searxng/executable-artifact.lock.json"
 
 required_runtime_files=(
-  "runtime/pi-web/wildbuzzard-pi-web-runtime.zip"
-  "runtime/torrent/wildbuzzard-torrent-runtime.zip"
-  "runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip"
   "runtime/tor/arti"
   "runtime/tor/arti.toml"
   "notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
@@ -127,17 +116,6 @@ for relative_path in "${required_runtime_files[@]}"; do
     exit 1
   fi
 done
-python3 -I -B "${product_dir}/scripts/validate-pi-web-runtime-archive.py" \
-  "${app_dir}/usr/lib/wildbuzzard/runtime/pi-web/wildbuzzard-pi-web-runtime.zip" \
-  --lock "${product_dir}/pi-web-runtime-lock.json"
-python3 -I -B "${product_dir}/scripts/validate-host-native-runtime-archive.py" \
-  "${app_dir}/usr/lib/wildbuzzard/runtime/torrent/wildbuzzard-torrent-runtime.zip" \
-  --kind torrent \
-  --lock "${product_dir}/torrent-runtime-lock.json"
-python3 -I -B "${product_dir}/scripts/validate-host-native-runtime-archive.py" \
-  "${app_dir}/usr/lib/wildbuzzard/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip" \
-  --kind jackett-mini \
-  --lock "${product_dir}/jackett-mini-runtime-lock.json"
 python3 -I -B "${product_dir}/scripts/arti-runtime-provenance.py" validate \
   --binary "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti" \
   --pin-config "${product_dir}/third_party/arti.toml" \

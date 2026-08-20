@@ -10,7 +10,6 @@ const { FileUtils } = ChromeUtils.importESModule(
   "resource://gre/modules/FileUtils.sys.mjs"
 );
 const {
-  exactSystemdUnit,
   privateDirectory,
   readPrivateJSON,
   writePrivateJSON,
@@ -87,55 +86,12 @@ add_task(async function test_private_directory_does_not_follow_symlink() {
   await symlink(target, path);
   await Assert.rejects(
     privateDirectory(path),
-    /Unsafe Pi Web state directory|exists/,
+    /Unsafe Buzzard Agent Web state directory|exists/,
     "a state-directory symlink is rejected"
   );
   Assert.equal(
     (await IOUtils.stat(target)).permissions & 0o777,
     0o755,
     "the symlink target permissions are not changed"
-  );
-});
-
-add_task(function test_systemd_unit_requires_exact_identity() {
-  const environment = {
-    PI_WEB_CONFIG: "/config/%h\nnot-a-directive",
-    PI_WEB_DATA_DIR: "/data",
-    WILDBUZZARD_PI_WEB_IDENTITY_FILE: "/identity.json",
-  };
-  const unit = `[Unit]
-Description=PI WEB server
-After=wildbuzzard-agent-sessiond.service
-Wants=wildbuzzard-agent-sessiond.service
-[Service]
-Type=simple
-Environment="PI_WEB_CONFIG=/config/%%h\\nnot-a-directive"
-Environment="PI_WEB_DATA_DIR=/data"
-Environment="WILDBUZZARD_PI_WEB_IDENTITY_FILE=/identity.json"
-ExecStart=/usr/bin/env "/bin/bash" -lc "exec '/runtime/bin/pi-web-server'"
-Restart=on-failure
-RestartSec=2
-
-[Install]
-WantedBy=default.target
-`;
-  const options = {
-    environment,
-    executable: "/runtime/bin/pi-web-server",
-    web: true,
-  };
-  Assert.ok(exactSystemdUnit(unit, options));
-  Assert.ok(!exactSystemdUnit(`${unit}# ignored-looking suffix\n`, options));
-  Assert.ok(
-    !exactSystemdUnit(
-      unit.replace("/runtime/bin/pi-web-server", "/tmp/pi-web-server"),
-      options
-    )
-  );
-  Assert.ok(
-    !exactSystemdUnit(unit, {
-      ...options,
-      environment: { ...environment, PI_WEB_DATA_DIR: "/other" },
-    })
   );
 });

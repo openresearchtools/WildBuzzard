@@ -29,6 +29,7 @@ const MAX_SNAPSHOT_BYTES = 2 * 1024 * 1024;
 const MAX_SNAPSHOT_FIELD_CHARS = 4000;
 const RENDER_CONTEXT_ID_MIN = 0x40000000;
 const RENDER_CONTEXT_ID_MAX = 0x7ffffffe;
+const LOGPOINT_SHARED_DATA_KEY = "wildbuzzard:browser-control-logpoints";
 const TEXT_CONTENT_ROLES = new Set([
   "alert",
   "log",
@@ -204,11 +205,26 @@ function referenceNode(node) {
   return node;
 }
 
-function snapshotAccessible(accessible, service, depth, maxDepth, budget) {
+function snapshotAccessible(
+  accessible,
+  service,
+  document,
+  depth,
+  maxDepth,
+  budget
+) {
   if (!accessible || depth > maxDepth || !takeSnapshotNode(budget)) {
     return null;
   }
-  const node = referenceNode(accessible.DOMNode);
+  const accessibleNode = accessible.DOMNode;
+  if (
+    accessibleNode &&
+    accessibleNode !== document &&
+    accessibleNode.ownerDocument !== document
+  ) {
+    return null;
+  }
+  const node = referenceNode(accessibleNode);
   const actions = [];
   for (let index = 0; index < Math.min(accessible.actionCount, 20); index++) {
     actions.push(accessible.getActionDescription(index));
@@ -226,6 +242,7 @@ function snapshotAccessible(accessible, service, depth, maxDepth, budget) {
       const item = snapshotAccessible(
         child,
         service,
+        document,
         depth + 1,
         maxDepth,
         budget
@@ -280,6 +297,15 @@ function isAccessibleStale(accessible) {
   const extraState = {};
   accessible.getState({}, extraState);
   return Boolean(extraState.value & Ci.nsIAccessibleStates.EXT_STATE_STALE);
+}
+
+function isAccessibleForDocument(accessible, document) {
+  try {
+    const node = accessible?.DOMNode;
+    return node === document || node?.ownerDocument === document;
+  } catch {
+    return false;
+  }
 }
 
 // eslint-disable-next-line complexity
@@ -403,6 +429,61 @@ function snapshotDom(node, depth, maxDepth, budget) {
     interactive,
     children,
   };
+}
+
+function snapshotEmbeddedFrames(document, depth, maxDepth, budget) {
+  const roots = [];
+  const browsingContextIds = [];
+  const errors = [];
+  for (const frameElement of document.querySelectorAll("iframe, frame")) {
+    try {
+      const frameDocument = frameElement.contentDocument;
+      if (!frameDocument?.documentElement) {
+        continue;
+      }
+      const child = snapshotDom(
+        frameDocument.documentElement,
+        depth + 1,
+        maxDepth,
+        budget
+      );
+      if (!child) {
+        continue;
+      }
+      if (child.reference?.browsingContextId) {
+        browsingContextIds.push(child.reference.browsingContextId);
+      }
+      const nested = snapshotEmbeddedFrames(
+        frameDocument,
+        depth + 2,
+        maxDepth,
+        budget
+      );
+      child.children.push(...nested.roots);
+      browsingContextIds.push(...nested.browsingContextIds);
+      errors.push(...nested.errors);
+      roots.push({
+        role: "iframe",
+        name: snapshotText(frameDocument.URL, budget, 8000),
+        value: "",
+        description: "",
+        states: [],
+        actions: [],
+        attributes: {},
+        tag: frameElement.tagName.toLowerCase(),
+        reference: ContentDOMReference.get(frameElement),
+        bounds: boundsFor(frameElement),
+        interactive: false,
+        children: [child],
+      });
+    } catch (error) {
+      errors.push({
+        url: frameElement.src,
+        message: String(error),
+      });
+    }
+  }
+  return { roots, browsingContextIds, errors };
 }
 
 function countSnapshotInteractives(node) {
@@ -1153,7 +1234,17 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
       this.#consoleListener.on(level, this.#onJavaScriptMessage);
     }
     this.#consoleListener.startListening();
+
+    for (const definition of Services.cpmm.sharedData.get(
+      LOGPOINT_SHARED_DATA_KEY
+    ) ?? []) {
+      if (definition.topContextId === this.browsingContext.top.id) {
+        this.#setLogpoint(definition);
+      }
+    }
   }
+
+  handleEvent() {}
 
   didDestroy() {
     if (this.#consoleAPIListener) {
@@ -1261,6 +1352,8 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
         return this.#evaluate(message.data);
       case "wait":
         return this.#wait(message.data);
+      case "geckoRenderNavigate":
+        return this.#geckoRenderNavigate(message.data);
       case "geckoRenderWait":
         return this.#geckoRenderWait(message.data);
       case "geckoRenderSnapshot":
@@ -1357,9 +1450,7 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
   }
 
   #installLogpointOnScript(script, logpoint) {
-    const positions = script
-      .getPossibleBreakpoints()
-      .filter(position => position.lineNumber === logpoint.line);
+    const positions = script.getPossibleBreakpoints({ line: logpoint.line });
     if (!positions.length) {
       return;
     }
@@ -1413,21 +1504,30 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
       if (!script.url) {
         continue;
       }
-      const possibleLines = [
-        ...new Set(
-          script.getPossibleBreakpoints().map(position => position.lineNumber)
-        ),
-      ].sort((left, right) => left - right);
+      const startLine = script.startLine ?? null;
+      const endLine =
+        startLine === null
+          ? null
+          : startLine + Math.max(1, script.lineCount ?? 1) - 1;
       const existing = scripts.get(script.url);
       if (existing) {
-        existing.possibleLines = [
-          ...new Set([...existing.possibleLines, ...possibleLines]),
-        ].sort((left, right) => left - right);
+        if (startLine !== null) {
+          existing.startLine =
+            existing.startLine === null
+              ? startLine
+              : Math.min(existing.startLine, startLine);
+          existing.endLine =
+            existing.endLine === null
+              ? endLine
+              : Math.max(existing.endLine, endLine);
+        }
       } else {
         scripts.set(script.url, {
           url: script.url,
-          startLine: script.startLine ?? possibleLines[0] ?? null,
-          possibleLines,
+          startLine,
+          endLine,
+          possibleLines: [],
+          possibleLinesComplete: false,
         });
       }
     }
@@ -1446,22 +1546,33 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
     }
     const possibleLines = [
       ...new Set(
-        scripts.flatMap(script =>
-          script.getPossibleBreakpoints().map(position => position.lineNumber)
-        )
+        scripts.map(script => script.startLine).filter(Number.isInteger)
       ),
     ].sort((left, right) => left - right);
+    const startLine = Math.min(...possibleLines);
+    const endLine = Math.max(
+      ...scripts
+        .filter(script => Number.isInteger(script.startLine))
+        .map(
+          script => script.startLine + Math.max(1, script.lineCount ?? 1) - 1
+        )
+    );
     return {
       source: source.slice(0, MAX_CHILD_TEXT_CHARS),
       truncated: source.length > MAX_CHILD_TEXT_CHARS,
-      startLine: scripts[0].startLine ?? possibleLines[0] ?? null,
+      startLine: Number.isFinite(startLine) ? startLine : null,
+      endLine: Number.isFinite(endLine) ? endLine : null,
       possibleLines,
+      possibleLinesComplete: false,
     };
   }
 
-  #setLogpoint({ url, line, expression }) {
+  #setLogpoint({ id = crypto.randomUUID(), url, line, expression }) {
     this.#enableDebugger();
-    const id = crypto.randomUUID();
+    const existing = this.#debuggerLogpoints.get(id);
+    if (existing) {
+      return { id, installed: existing.live.length };
+    }
     const logpoint = {
       expression,
       id,
@@ -1506,15 +1617,21 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
       );
       let accessible = service.getAccessibleFor(document);
       const deadline = Date.now() + 2000;
-      while (isAccessibleStale(accessible) && Date.now() < deadline) {
+      while (
+        (isAccessibleStale(accessible) ||
+          !isAccessibleForDocument(accessible, document)) &&
+        Date.now() < deadline
+      ) {
         await new Promise(resolve =>
           this.contentWindow.setTimeout(resolve, 50)
         );
         accessible = service.getAccessibleFor(document);
       }
-      root = isAccessibleStale(accessible)
-        ? domSnapshot()
-        : snapshotAccessible(accessible, service, 0, depth, budget);
+      root =
+        isAccessibleStale(accessible) ||
+        !isAccessibleForDocument(accessible, document)
+          ? domSnapshot()
+          : snapshotAccessible(accessible, service, document, 0, depth, budget);
       root ??= domSnapshot();
       if (
         countDomInteractives(document.documentElement) >
@@ -1525,6 +1642,8 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
     } catch {
       root = domSnapshot();
     }
+    const embeddedFrames = snapshotEmbeddedFrames(document, 0, depth, budget);
+    root.children.push(...embeddedFrames.roots);
     return {
       url: snapshotText(document.URL, budget, 8000),
       title: snapshotText(document.title, budget, 4000),
@@ -1534,6 +1653,8 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
         16000
       ),
       browsingContextId: this.browsingContext.id,
+      embeddedBrowsingContextIds: embeddedFrames.browsingContextIds,
+      embeddedFrameErrors: embeddedFrames.errors,
       truncated: budget.truncated,
       root,
     };
@@ -1696,7 +1817,23 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
                 ? Boolean(target.checked)
                 : target.getAttribute("aria-checked") === "true";
             if (checked !== desired) {
-              await lazy.interaction.clickElement(target, false, true);
+              const clickTarget =
+                [...(target.labels ?? [])].find(label => {
+                  const rect = label.getBoundingClientRect();
+                  const style = label.documentGlobal.getComputedStyle(label);
+                  return (
+                    rect.width > 0 &&
+                    rect.height > 0 &&
+                    style.display !== "none" &&
+                    style.visibility !== "hidden"
+                  );
+                }) ?? target;
+              clickTarget.scrollIntoView({
+                block: "center",
+                inline: "center",
+                behavior: "instant",
+              });
+              await lazy.interaction.clickElement(clickTarget, false, true);
             }
             const updated =
               "checked" in target
@@ -1922,13 +2059,23 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
     return { matched: false };
   }
 
+  #geckoRenderNavigate({ url }) {
+    const navigation = this.docShell.QueryInterface(Ci.nsIWebNavigation);
+    navigation.stop(Ci.nsIWebNavigation.STOP_ALL);
+    navigation.loadURI(Services.io.newURI(url), {
+      loadFlags: Ci.nsIWebNavigation.LOAD_FLAGS_STOP_CONTENT,
+      triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
+    });
+    return true;
+  }
+
   #geckoRenderSnapshot({ maxBytes, maxNodes }) {
     const document = this.contentWindow.document;
     const byteLimit = Math.min(
       Math.max(Number(maxBytes), 1),
       MAX_CHILD_TEXT_CHARS
     );
-    const nodeLimit = Math.min(Math.max(Number(maxNodes), 1), 50000);
+    const nodeLimit = Math.min(Math.max(Number(maxNodes), 1), 500000);
     const walker = document.createTreeWalker(
       document,
       this.contentWindow.NodeFilter.SHOW_ALL

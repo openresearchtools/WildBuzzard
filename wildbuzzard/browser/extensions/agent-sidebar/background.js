@@ -4,7 +4,7 @@
 
 /* global browser */
 
-async function startPiWeb() {
+async function startAgentWeb() {
   const status = await browser.wildbuzzardAgent.initialize();
   const tabs = await browser.tabs.query({});
   await Promise.allSettled(
@@ -16,6 +16,6 @@ async function startPiWeb() {
   );
 }
 
-startPiWeb().catch(error => {
-  console.error("Pi Web failed to initialize", error);
+startAgentWeb().catch(error => {
+  console.error("Buzzard Agent Web failed to initialize", error);
 });

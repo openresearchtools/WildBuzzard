@@ -1,0 +1,22 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	BUZZARD_AGENT_WEB_BUILD_ROOT=$(CURDIR)/build \
+	BUZZARD_AGENT_WEB_DIST_ROOT=$(CURDIR)/debian/dist \
+	./scripts/build-deb.sh
+
+override_dh_auto_test:
+	python3 -m unittest discover -s tests -p 'test_*.py'
+
+override_dh_auto_install:
+	dpkg-deb -x debian/dist/buzzard-agent-web_1.202608.0+wildbuzzard1_amd64.deb \
+		debian/buzzard-agent-web
+
+override_dh_dwz:
+
+override_dh_strip:
+

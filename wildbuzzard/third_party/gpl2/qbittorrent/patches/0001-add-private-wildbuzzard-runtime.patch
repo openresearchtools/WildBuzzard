@@ -600,7 +600,7 @@ index fc177d56bfec06c3da5d07f39d244f9b2cd48306..3d7a021d960d93da0d61c86fce255762
 +
 +    bool validWildBuzzardConfiguration(const QString &socketPath, const bool socketIsOwned)
 +    {
-+        if (socketPath.toUtf8().size() > 100 || (QFileInfo::exists(socketPath) && !socketIsOwned)
++        if (socketPath.toUtf8().size() >= 100 || (QFileInfo::exists(socketPath) && !socketIsOwned)
 +            || !privatePath(QFileInfo(socketPath).absolutePath(), true))
 +        {
 +            return false;
@@ -772,6 +772,18 @@ index 718fbfa4e8fd24e7e70886ffaf879d54d835c17e..fccdda433abb2c73e8d9040331318cf7
          <input type="hidden" id="urls" name="urls">
          <input type="hidden" id="filePriorities" name="filePriorities">
          <input type="hidden" id="downloader" name="downloader" disabled>
+diff --git a/src/webui/www/private/scripts/addtorrent.js b/src/webui/www/private/scripts/addtorrent.js
+--- a/src/webui/www/private/scripts/addtorrent.js
++++ b/src/webui/www/private/scripts/addtorrent.js
+@@ -311,4 +311,7 @@ window.qBittorrent.AddTorrent ??= (() => {
+-        document.getElementById("filePriorities").value = table.getFileTreeArray()
++        const priorities = table.getFileTreeArray()
+             .filter((node) => !node.isFolder)
+             .sort((node1, node2) => (node1.fileId - node2.fileId))
+             .map((node) => node.priority);
++        const filePriorities = document.getElementById("filePriorities");
++        filePriorities.disabled = priorities.length === 0;
++        filePriorities.value = priorities;
 diff --git a/src/webui/www/private/css/style.css b/src/webui/www/private/css/style.css
 index caa0067da4eb694a1975996f9d2433eee6839e67..f8428bd880358adca68840eeac69b6a2f7183b87 100644
 --- a/src/webui/www/private/css/style.css
@@ -920,6 +932,120 @@ index 5579dadeca706ab1588575eaa02b88d7e1cf57f1..fcb11fc2851ba1f0ecf6ee6c16fb1e67
  
      document.getElementById("showFiltersSidebarLink").addEventListener("click", (e) => {
          showFiltersSidebar = !showFiltersSidebar;
+@@ -1954,3 +1951,44 @@ window.addEventListener("load", async (event) => {
++    const requestedDownload = new URLSearchParams(location.hash.slice(1)).get("download")?.trim();
++    if (requestedDownload?.startsWith("magnet:") && (requestedDownload.length <= 8192) && !window.WildBuzzardTorrentDownloadRouted) {
++        window.qBittorrent.Client.createAddTorrentWindow(requestedDownload, requestedDownload);
++        return;
++    }
++    if (requestedDownload && (requestedDownload.length <= 8192) && !window.WildBuzzardTorrentDownloadRouted) {
++        try {
++            const url = new URL(requestedDownload);
++            if ((url.protocol === "http:") || (url.protocol === "https:")) {
++                window.WildBuzzardTorrentDownloadRouted = true;
++                window.qBittorrent.Client.createAddTorrentWindow(requestedDownload, requestedDownload);
++                return;
++            }
++        }
++        catch {}
++    }
++
++    const requestedSearch = new URLSearchParams(location.search).get("search")?.trim();
++    if (requestedSearch && (requestedSearch.length <= 256)) {
++        if (!window.qBittorrent.Client.isShowSearchEngine())
++            document.getElementById("showSearchEngineLink").click();
++        document.getElementById("searchTabLink").click();
++        let attempts = 0;
++        const startRequestedSearch = () => {
++            const input = document.getElementById("searchPattern");
++            const button = document.getElementById("startSearchButton");
++            const category = document.getElementById("categorySelect");
++            const plugins = document.getElementById("pluginsSelect");
++            if (!input || !button || !category?.value || !plugins?.value || button.disabled || !window.qBittorrent.Search) {
++                if (++attempts < 100)
++                    setTimeout(startRequestedSearch, 100);
++                return;
++            }
++            input.value = requestedSearch;
++            input.dispatchEvent(new CustomEvent("input", { bubbles: true }));
++            button.click();
++        };
++        startRequestedSearch();
++        return;
++    }
++
+     // switch to previously used tab
+     const previouslyUsedTab = localPreferences.get("selected_window_tab", "transfers");
+     switch (previouslyUsedTab) {
+diff --git a/src/webui/www/private/scripts/localpreferences.js b/src/webui/www/private/scripts/localpreferences.js
+--- a/src/webui/www/private/scripts/localpreferences.js
++++ b/src/webui/www/private/scripts/localpreferences.js
+@@ -30,41 +30,54 @@
+ "use strict";
+-
++
++const wildBuzzardLocalPreferences = new Map();
++
+ window.qBittorrent ??= {};
+ window.qBittorrent.LocalPreferences ??= (() => {
+     const exports = () => {
+         return {
+             LocalPreferences: LocalPreferences,
+             upgrade: upgrade
+         };
+     };
+-
++
+     class LocalPreferences {
+         get(key, defaultValue) {
+-            const value = localStorage.getItem(key);
++            let value;
++            try {
++                value = localStorage.getItem(key);
++            }
++            catch {
++                value = wildBuzzardLocalPreferences.get(key) ?? null;
++            }
+             return ((value === null) && (defaultValue !== undefined))
+                 ? defaultValue
+                 : value;
+         }
+-
++
+         set(key, value) {
+             try {
+                 localStorage.setItem(key, value);
+             }
+-            catch (err) {
+-                console.error(err);
++            catch {
++                wildBuzzardLocalPreferences.set(key, String(value));
+             }
+         }
+-
++
+         size() {
+-            return localStorage.length;
++            try {
++                return localStorage.length;
++            }
++            catch {
++                return wildBuzzardLocalPreferences.size;
++            }
+         }
+-
++
+         remove(key) {
+             try {
+                 localStorage.removeItem(key);
+             }
+-            catch (err) {
+-                console.error(err);
++            catch {
++                wildBuzzardLocalPreferences.delete(key);
+             }
+         }
+     }
 diff --git a/src/webui/www/private/scripts/dynamicTable.js b/src/webui/www/private/scripts/dynamicTable.js
 index c33ed0e5b31b9c65f7594d23ececaee3937c293a..3b86ebda742b3cfe691b18512656207beb3f63d6 100644
 --- a/src/webui/www/private/scripts/dynamicTable.js
@@ -1224,6 +1350,201 @@ index a9e748c1e91a52fdff628d6bed5a8a99b62785c8..7b3ef65f674f6f0e7988514c53540dc0
          <div id="formplace" class="col">
              <form id="loginform">
                  <div class="row">
+diff --git a/src/webui/www/private/scripts/wildbuzzard-bridge.js b/src/webui/www/private/scripts/wildbuzzard-bridge.js
+new file mode 100644
+--- /dev/null
++++ b/src/webui/www/private/scripts/wildbuzzard-bridge.js
+@@ -0,0 +1,190 @@
++"use strict";
++
++(() => {
++    const NativeFetch = window.fetch.bind(window);
++    const NativeEvent = window.Event;
++    const NativeRequest = window.Request;
++    const NativeURL = window.URL;
++    const TorrentRequest = (...args) => (window.WildBuzzardTorrentRequest
++        ?? window.parent.WildBuzzardTorrentRequest)(...args);
++
++    class BridgeURL extends NativeURL {
++        constructor(input, base) {
++            super(input, String(base).startsWith("about:torrents") ? document.baseURI : base);
++        }
++    }
++    window.URL = BridgeURL;
++
++    const requestURL = (input) => new URL(
++        input instanceof NativeRequest ? input.url : String(input),
++        document.baseURI
++    );
++
++    const bridgeFetch = async (input, init) => {
++        const url = requestURL(input);
++        const request = new NativeRequest(url, init);
++        if ((url.protocol !== "moz-torrent:") || (url.host !== "local"))
++            return NativeFetch(request);
++
++        const body = ["GET", "HEAD"].includes(request.method)
++            ? new Uint8Array()
++            : new Uint8Array(await request.arrayBuffer());
++        const result = await TorrentRequest({
++            method: request.method,
++            target: `${url.pathname}${url.search}`,
++            headers: Object.fromEntries(request.headers),
++            body,
++        }, request.signal);
++        if ((request.method === "POST") && (result.status >= 200) && (result.status < 300)) {
++            for (const delay of [0, 250, 1000, 2500])
++                window.parent.setTimeout(() => window.parent.updateMainData?.(), delay);
++        }
++        return new Response(result.body.length ? result.body : null, {
++            status: result.status,
++            headers: result.headers,
++        });
++    };
++
++    window.fetch = bridgeFetch;
++
++    class BridgeXMLHttpRequest extends EventTarget {
++        constructor() {
++            super();
++            this.readyState = BridgeXMLHttpRequest.UNSENT;
++            this.response = null;
++            this.responseText = "";
++            this.responseType = "";
++            this.responseURL = "";
++            this.status = 0;
++            this.statusText = "";
++            this.timeout = 0;
++            this.upload = new EventTarget();
++            this.withCredentials = false;
++            this.requestHeaders = new Headers();
++            this.responseHeaders = new Headers();
++            this.controller = null;
++            this.aborted = false;
++            this.timedOut = false;
++        }
++
++        open(method, url, async = true) {
++            if (!async)
++                throw new DOMException("Synchronous requests are unavailable", "NotSupportedError");
++            this.method = String(method).toUpperCase();
++            this.url = requestURL(url).href;
++            this.readyState = BridgeXMLHttpRequest.OPENED;
++            this.emit("readystatechange");
++        }
++
++        setRequestHeader(name, value) {
++            if (this.readyState !== BridgeXMLHttpRequest.OPENED)
++                throw new DOMException("The request is not open", "InvalidStateError");
++            this.requestHeaders.append(name, value);
++        }
++
++        getResponseHeader(name) {
++            return this.responseHeaders.get(name);
++        }
++
++        getAllResponseHeaders() {
++            return [...this.responseHeaders]
++                .map(([name, value]) => `${name}: ${value}\r\n`)
++                .join("");
++        }
++
++        overrideMimeType() {}
++
++        abort() {
++            this.aborted = true;
++            this.controller?.abort();
++        }
++
++        async send(body = null) {
++            if (this.readyState !== BridgeXMLHttpRequest.OPENED)
++                throw new DOMException("The request is not open", "InvalidStateError");
++            this.controller = new AbortController();
++            this.aborted = false;
++            this.timedOut = false;
++            this.emit("loadstart");
++            let timer = null;
++            if (this.timeout > 0) {
++                timer = setTimeout(() => {
++                    this.timedOut = true;
++                    this.controller.abort();
++                }, this.timeout);
++            }
++            try {
++                const result = await bridgeFetch(this.url, {
++                    method: this.method,
++                    headers: this.requestHeaders,
++                    body: ["GET", "HEAD"].includes(this.method) ? null : body,
++                    signal: this.controller.signal,
++                });
++                this.status = result.status;
++                this.statusText = result.statusText;
++                this.responseURL = this.url;
++                this.responseHeaders = new Headers(result.headers);
++                this.readyState = BridgeXMLHttpRequest.HEADERS_RECEIVED;
++                this.emit("readystatechange");
++                const bytes = await result.arrayBuffer();
++                this.readyState = BridgeXMLHttpRequest.LOADING;
++                this.emit("readystatechange");
++                if (this.responseType === "arraybuffer") {
++                    this.response = bytes;
++                }
++                else if (this.responseType === "blob") {
++                    this.response = new Blob([bytes], {
++                        type: this.responseHeaders.get("content-type") ?? "",
++                    });
++                }
++                else {
++                    this.responseText = new TextDecoder().decode(bytes);
++                    this.response = this.responseType === "json"
++                        ? JSON.parse(this.responseText)
++                        : this.responseText;
++                }
++                this.readyState = BridgeXMLHttpRequest.DONE;
++                this.emit("readystatechange");
++                this.emit("load");
++            }
++            catch (error) {
++                this.status = 0;
++                this.readyState = BridgeXMLHttpRequest.DONE;
++                this.emit("readystatechange");
++                if (this.timedOut)
++                    this.emit("timeout");
++                else if (this.aborted)
++                    this.emit("abort");
++                else
++                    this.emit("error");
++            }
++            finally {
++                if (timer !== null)
++                    clearTimeout(timer);
++                this.emit("loadend");
++            }
++        }
++
++        emit(type) {
++            const event = new NativeEvent(type);
++            this.dispatchEvent(event);
++            this[`on${type}`]?.call(this, event);
++        }
++    }
++
++    Object.assign(BridgeXMLHttpRequest, {
++        UNSENT: 0,
++        OPENED: 1,
++        HEADERS_RECEIVED: 2,
++        LOADING: 3,
++        DONE: 4,
++    });
++    Object.assign(BridgeXMLHttpRequest.prototype, {
++        UNSENT: 0,
++        OPENED: 1,
++        HEADERS_RECEIVED: 2,
++        LOADING: 3,
++        DONE: 4,
++    });
++    window.XMLHttpRequest = BridgeXMLHttpRequest;
++})();
 diff --git a/src/webui/www/webui.qrc b/src/webui/www/webui.qrc
 index b85e8d53a582a394bed731b5db8da3ac06953bcc..e8c6815ceff518cafe63d053d7b4424615f2363f 100644
 --- a/src/webui/www/webui.qrc

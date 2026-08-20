@@ -1,6 +1,6 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { callBrowserTool } from "../browser-tools/bridge-client.ts";
+import { callBrowserTool } from "./wildbuzzard-cli.ts";
 
 export interface GeckoRenderOptions {
   waitMs?: number;

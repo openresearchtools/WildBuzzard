@@ -65,6 +65,13 @@ const SearchParameters = Type.Object(
         Type.Literal("year"),
       ])
     ),
+    sortOrder: Type.Optional(
+      Type.Union([
+        Type.Literal("relevance"),
+        Type.Literal("newest"),
+        Type.Literal("oldest"),
+      ])
+    ),
     domainFilter: Type.Optional(
       Type.Array(Type.String({ maxLength: 300 }), { maxItems: 32 })
     ),
@@ -273,6 +280,13 @@ export default function webAccess(pi: ExtensionAPI) {
               Type.Literal("year"),
             ])
           ),
+          sortOrder: Type.Optional(
+            Type.Union([
+              Type.Literal("relevance"),
+              Type.Literal("newest"),
+              Type.Literal("oldest"),
+            ])
+          ),
         },
         { additionalProperties: false }
       ),
@@ -289,6 +303,7 @@ export default function webAccess(pi: ExtensionAPI) {
                 numResults: params.numResults,
                 domainFilter: params.domainFilter,
                 recencyFilter: params.recencyFilter,
+                sortOrder: params.sortOrder,
                 provider: "searxng",
                 workflow: "none",
               },

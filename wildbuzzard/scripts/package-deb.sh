@@ -69,7 +69,8 @@ fi
 
 deb_version="$(printf '%s' "${version}" | sed -E 's/esr/~esr/g; s/[^0-9A-Za-z.+:~_-]/-/g')"
 stage="$(mktemp -d --tmpdir="${output_dir}" wildbuzzard-deb.XXXXXXXX)"
-trap 'rm -rf -- "${stage}"' EXIT
+cli_build="$(mktemp -d --tmpdir="${output_dir}" wildbuzzard-cli.XXXXXXXX)"
+trap 'rm -r -- "${stage}" "${cli_build}"' EXIT
 
 mkdir -p -- \
   "${stage}/DEBIAN" \
@@ -87,52 +88,16 @@ fi
 if [[ "${product_dir}" != "${stage}/opt/wildbuzzard" ]]; then
   mv -- "${product_dir}" "${stage}/opt/wildbuzzard"
 fi
-searxng_executable="${stage}/opt/wildbuzzard/runtime/search/wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage"
-for obsolete_path in \
-  "runtime/search/wildbuzzard-searxng-runtime.zip" \
-  "notices/source/wildbuzzard-searxng-2026.8.6+b023a28ba-source.tar.xz" \
-  "notices/source/searxng-release.cdx.json"; do
-  if [[ -e "${stage}/opt/wildbuzzard/${obsolete_path}" || \
-    -L "${stage}/opt/wildbuzzard/${obsolete_path}" ]]; then
-    echo "Release archive contains obsolete SearXNG payload: ${obsolete_path}" >&2
-    exit 1
+for component_path in \
+  "runtime/search" \
+  "runtime/pi-web" \
+  "runtime/torrent" \
+  "runtime/jackett-mini"; do
+  target="${stage}/opt/wildbuzzard/${component_path}"
+  if [[ -e "${target}" || -L "${target}" ]]; then
+    rm -r -- "${target}"
   fi
 done
-if [[ ! -f "${searxng_executable}" || -L "${searxng_executable}" ]]; then
-  echo "Release archive is missing the required SearXNG executable" >&2
-  exit 1
-fi
-if [[ "$(stat --format='%a' -- "${searxng_executable}")" != 755 ]]; then
-  echo "Release archive SearXNG executable must have mode 0755" >&2
-  exit 1
-fi
-python3 -I -B "${script_dir}/validate-searxng-executable.py" \
-  "${searxng_executable}" \
-  --lock "${script_dir}/../third_party/agpl/searxng/executable-artifact.lock.json"
-
-pi_web_runtime="${stage}/opt/wildbuzzard/runtime/pi-web/wildbuzzard-pi-web-runtime.zip"
-torrent_runtime="${stage}/opt/wildbuzzard/runtime/torrent/wildbuzzard-torrent-runtime.zip"
-jackett_runtime="${stage}/opt/wildbuzzard/runtime/jackett-mini/wildbuzzard-jackett-mini-runtime.zip"
-for runtime_file in \
-  "${pi_web_runtime}" \
-  "${torrent_runtime}" \
-  "${jackett_runtime}"; do
-  if [[ ! -f "${runtime_file}" || -L "${runtime_file}" ]]; then
-    echo "Release archive is missing a required host-native runtime" >&2
-    exit 1
-  fi
-done
-python3 -I -B "${script_dir}/validate-pi-web-runtime-archive.py" \
-  "${pi_web_runtime}" \
-  --lock "${script_dir}/../pi-web-runtime-lock.json"
-python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
-  "${torrent_runtime}" \
-  --kind torrent \
-  --lock "${script_dir}/../torrent-runtime-lock.json"
-python3 -I -B "${script_dir}/validate-host-native-runtime-archive.py" \
-  "${jackett_runtime}" \
-  --kind jackett-mini \
-  --lock "${script_dir}/../jackett-mini-runtime-lock.json"
 
 arti_binary="${stage}/opt/wildbuzzard/runtime/tor/arti"
 arti_config="${stage}/opt/wildbuzzard/runtime/tor/arti.toml"
@@ -149,7 +114,24 @@ python3 -I -B "${script_dir}/arti-runtime-provenance.py" validate \
   --installed-config "${arti_config}" \
   --provenance "${arti_provenance}"
 
-ln -s /opt/wildbuzzard/wildbuzzard "${stage}/usr/bin/wildbuzzard"
+cp -a -- "${script_dir}/../components/wildbuzzard-cli/." "${cli_build}/"
+(
+  cd -- "${cli_build}"
+  cargo test --locked --manifest-path runner/Cargo.toml
+  cargo build --locked --release --manifest-path runner/Cargo.toml
+)
+install -d -m 0755 \
+  "${stage}/usr/share/doc/wildbuzzard" \
+  "${stage}/usr/share/wildbuzzard/skills/wildbuzzard"
+install -m 0755 \
+  "${cli_build}/runner/target/release/wildbuzzard-native-client" \
+  "${stage}/usr/bin/wildbuzzard"
+install -m 0644 \
+  "${script_dir}/../components/wildbuzzard-cli/NOTICE" \
+  "${stage}/usr/share/doc/wildbuzzard/cli-NOTICE"
+install -m 0644 \
+  "${script_dir}/../components/wildbuzzard-cli/skills/wildbuzzard/SKILL.md" \
+  "${stage}/usr/share/wildbuzzard/skills/wildbuzzard/SKILL.md"
 install -m 0644 \
   wildbuzzard/browser/installer/linux/wildbuzzard.desktop \
   "${stage}/usr/share/applications/org.wildbuzzard.WildBuzzard.desktop"
@@ -157,7 +139,7 @@ install -m 0644 \
   wildbuzzard/browser/branding/content/about-logo.svg \
   "${stage}/usr/share/icons/hicolor/scalable/apps/org.wildbuzzard.WildBuzzard.svg"
 
-installed_size="$(du -sk "${stage}/opt/wildbuzzard" | cut -f1)"
+installed_size="$(du -sk "${stage}/opt" "${stage}/usr" | awk '{ total += $1 } END { print total }')"
 cat >"${stage}/DEBIAN/control" <<EOF
 Package: wildbuzzard
 Version: ${deb_version}
@@ -167,10 +149,15 @@ Architecture: amd64
 Installed-Size: ${installed_size}
 Maintainer: WildBuzzard contributors
 Homepage: https://github.com/openresearchtools/WildBuzzard
-Depends: libasound2 | libasound2t64, libdbus-glib-1-2, libgtk-3-0 | libgtk-3-0t64
+Depends: libasound2t64 | libasound2, libdbus-glib-1-2, libgtk-3-0 | libgtk-3-0t64, libx11-xcb1, buzzard-search, buzzard-torrent-search, buzzard-torrent
+Recommends: buzzard-agent-web
+Provides: wild-buzzard
+Replaces: wild-buzzard
+Breaks: wild-buzzard
 Description: privacy-oriented Firefox ESR browser for development agents
- WildBuzzard combines a Firefox ESR browser with native content blocking,
- developer tooling, and project-owned browser integrations.
+ Wild Buzzard combines a Firefox ESR browser with native content blocking,
+ developer tooling, native shell control, and independently
+ packaged search and torrent integrations.
 EOF
 
 package_path="${output_dir}/wildbuzzard_${deb_version}_amd64.deb"

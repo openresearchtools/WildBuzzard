@@ -1,0 +1,13 @@
+Package: buzzard-agent-web
+Version: 1.202608.0+wildbuzzard1
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: openresearchtools <openresearchtools@gmail.com>
+Depends: buzzard-agent, libc6 (>= 2.39), libgcc-s1, libstdc++6, ca-certificates
+Recommends: dbus-user-session
+Homepage: https://github.com/openresearchtools/wildbuzzard
+Description: independent web UI and session daemon for Buzzard Agent
+ Buzzard Agent Web provides a local web UI, HTTP API, and persistent-session
+ daemon for a Pi-compatible coding agent. It defaults to Buzzard Agent when
+ installed, owns a pinned Node.js runtime, and exposes stable control commands.
