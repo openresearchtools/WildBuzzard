@@ -111,6 +111,14 @@ class FeatureOwnershipTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn('provider: "ddgs"', constants)
 
+    def test_removed_managed_search_has_no_uri_fixup_exception(self):
+        source = (ROOT / "docshell" / "base" / "URIFixup.sys.mjs").read_text(
+            encoding="utf-8"
+        )
+        self.assertNotIn("isWildBuzzardInternalSearch", source)
+        self.assertNotIn("about:searxng", source)
+        self.assertNotIn('engine.id === "searxng"', source)
+
     def test_browser_packagers_enforce_component_boundary(self):
         packagers = [
             ROOT / "wildbuzzard" / "scripts" / "package-appimage.sh",

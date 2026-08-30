@@ -89,15 +89,6 @@ const COMMON_PROTOCOLS = ["http", "https", "file"];
 
 const HTTPISH = new Set(["http", "https"]);
 
-function isWildBuzzardInternalSearch(engine, uri) {
-  return (
-    AppConstants.MOZ_APP_BASENAME === "WildBuzzard" &&
-    engine.id === "searxng" &&
-    uri.scheme === "about" &&
-    /^about:searxng\?q=[^&#]*$/.test(uri.spec)
-  );
-}
-
 // Regex used to identify user:password tokens in url strings.
 // This is not a strict valid characters check, because we try to fixup this
 // part of the url too.
@@ -526,8 +517,7 @@ URIFixup.prototype = {
       !submission ||
       // For security reasons (avoid redirecting to file, data, or other unsafe
       // protocols) we only allow fixup to http/https search engines.
-      (!HTTPISH.has(submission.uri.scheme) &&
-        !isWildBuzzardInternalSearch(engine, submission.uri))
+      !HTTPISH.has(submission.uri.scheme)
     ) {
       throw new Components.Exception(
         "Invalid search submission uri",
