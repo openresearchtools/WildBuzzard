@@ -340,26 +340,46 @@ def verify_firefox_release_provenance(repository, commit):
         r"[0-9a-f]{40}", release_commit
     ):
         raise SystemExit("Firefox is not pinned to an exact ESR release")
-    try:
-        resolved_commit = git(repository, "rev-parse", f"{release_ref}^{{commit}}")
-    except subprocess.CalledProcessError as error:
-        raise SystemExit("Firefox release tag is unavailable") from error
-    if resolved_commit != release_commit:
-        raise SystemExit("Firefox release tag does not match its pinned commit")
-    ancestor = subprocess.run(
-        [
-            "git",
-            "-C",
-            str(repository),
-            "merge-base",
-            "--is-ancestor",
-            release_commit,
-            commit,
-        ],
-        check=False,
+    shallow = git(repository, "rev-parse", "--is-shallow-repository") == "true"
+    tag_available = (
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repository),
+                "show-ref",
+                "--verify",
+                "--quiet",
+                f"refs/tags/{release_ref}",
+            ],
+            check=False,
+        ).returncode
+        == 0
     )
-    if ancestor.returncode != 0:
-        raise SystemExit("WildBuzzard does not contain the pinned Firefox release")
+    if tag_available:
+        try:
+            resolved_commit = git(repository, "rev-parse", f"{release_ref}^{{commit}}")
+        except subprocess.CalledProcessError as error:
+            raise SystemExit("Firefox release tag is unavailable") from error
+        if resolved_commit != release_commit:
+            raise SystemExit("Firefox release tag does not match its pinned commit")
+    elif not shallow:
+        raise SystemExit("Firefox release tag is unavailable")
+    if not shallow:
+        ancestor = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(repository),
+                "merge-base",
+                "--is-ancestor",
+                release_commit,
+                commit,
+            ],
+            check=False,
+        )
+        if ancestor.returncode != 0:
+            raise SystemExit("WildBuzzard does not contain the pinned Firefox release")
     display_version = (
         (repository / "browser" / "config" / "version_display.txt")
         .read_text(encoding="utf-8")

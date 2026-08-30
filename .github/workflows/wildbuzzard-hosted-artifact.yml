@@ -1,0 +1,260 @@
+name: WildBuzzard Ubuntu 24.04 hosted artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      buzzard_search_commit:
+        description: Exact 40-character buzzard-search commit
+        required: true
+        type: string
+      buzzard_minijtt_commit:
+        description: Exact 40-character buzzard-minijtt commit
+        required: true
+        type: string
+      extensions_commit:
+        description: Exact 40-character wildbuzzard-extensions commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wildbuzzard-hosted-artifact-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  artifact:
+    name: Build amd64 Debian artifact
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Validate immutable component refs
+        env:
+          BUZZARD_MINIJTT_COMMIT: ${{ inputs.buzzard_minijtt_commit }}
+          BUZZARD_SEARCH_COMMIT: ${{ inputs.buzzard_search_commit }}
+          EXTENSIONS_COMMIT: ${{ inputs.extensions_commit }}
+        run: |
+          set -Eeuo pipefail
+          for value in \
+            "${BUZZARD_MINIJTT_COMMIT}" \
+            "${BUZZARD_SEARCH_COMMIT}" \
+            "${EXTENSIONS_COMMIT}"; do
+            if [[ ! "${value}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Every component ref must be a lowercase 40-character commit SHA" >&2
+              exit 2
+            fi
+          done
+
+      - name: Prepare artifact directories
+        id: paths
+        run: |
+          set -Eeuo pipefail
+          release_root="${RUNNER_TEMP}/wildbuzzard-hosted-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p -- "${release_root}/artifacts" "${release_root}/logs" "${release_root}/work"
+          echo "WILDBUZZARD_RELEASE_ROOT=${release_root}" >>"${GITHUB_ENV}"
+          echo "release_root=${release_root}" >>"${GITHUB_OUTPUT}"
+
+      - name: Reclaim hosted runner disk
+        run: |
+          set -Eeuo pipefail
+          disk_log="${WILDBUZZARD_RELEASE_ROOT}/logs/host-disk.txt"
+          {
+            echo "Before cleanup"
+            df -h
+            docker system df || true
+          } | tee "${disk_log}"
+
+          if ! docker system prune --all --force --volumes; then
+            echo "Warning: Docker cleanup did not complete" | tee -a "${disk_log}"
+          fi
+          if ! docker builder prune --all --force; then
+            echo "Warning: Docker builder cleanup did not complete" | tee -a "${disk_log}"
+          fi
+
+          package_patterns=(
+            azure-cli
+            cabal-install
+            'dotnet-*'
+            firefox
+            ghc
+            google-chrome-stable
+            google-cloud-cli
+            microsoft-edge-stable
+            'mono-*'
+            'mysql-*'
+            'openjdk-*-jdk*'
+            'postgresql-*'
+            powershell
+            'temurin-*'
+            'clang-*'
+            'llvm-*'
+          )
+          for pattern in "${package_patterns[@]}"; do
+            mapfile -t packages < <(
+              dpkg-query --show --showformat='${db:Status-Abbrev} ${binary:Package}\n' \
+                "${pattern}" 2>/dev/null |
+                awk '$1 == "ii" { print $2 }' || true
+            )
+            if ((${#packages[@]})) &&
+              ! sudo apt-get purge --yes "${packages[@]}"; then
+              echo "Warning: could not purge package pattern ${pattern}" | tee -a "${disk_log}"
+            fi
+          done
+
+          remove_path() {
+            local target="$1"
+            if sudo test -e "${target}" &&
+              ! sudo rm -rf --one-file-system -- "${target}"; then
+              echo "Warning: could not remove ${target}" | tee -a "${disk_log}"
+            fi
+          }
+
+          cleanup_paths=(
+            /opt/az
+            /opt/ghc
+            /opt/google
+            /opt/hostedtoolcache
+            /opt/microsoft
+            /opt/pipx
+            /usr/local/aws-cli
+            /usr/local/aws-sam-cli
+            /usr/local/.ghcup
+            /usr/local/lib/android
+            /usr/local/lib/node_modules
+            /usr/local/share/boost
+            /usr/local/share/chromium
+            /usr/local/share/powershell
+            /usr/local/share/vcpkg
+            /usr/local/swift
+            /usr/share/dotnet
+            /usr/share/miniconda
+            /usr/share/swift
+          )
+          for target in "${cleanup_paths[@]}"; do
+            remove_path "${target}"
+          done
+          while IFS= read -r -d '' target; do
+            remove_path "${target}"
+          done < <(sudo find /usr/local -mindepth 1 -maxdepth 1 -type d -name 'julia*' -print0 2>/dev/null || true)
+
+          sudo apt-get clean || echo "Warning: apt cache cleanup did not complete" | tee -a "${disk_log}"
+          sudo rm -rf --one-file-system -- /var/lib/apt/lists/* /var/cache/apt/archives/* ||
+            echo "Warning: apt metadata cleanup did not complete" | tee -a "${disk_log}"
+
+          {
+            echo "After cleanup"
+            df -h
+            docker system df || true
+          } | tee -a "${disk_log}"
+
+      - name: Checkout WildBuzzard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source/wildbuzzard
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout buzzard-search
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openresearchtools/buzzard-search
+          ref: ${{ inputs.buzzard_search_commit }}
+          path: source/buzzard-search
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout buzzard-minijtt
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openresearchtools/buzzard-minijtt
+          ref: ${{ inputs.buzzard_minijtt_commit }}
+          path: source/buzzard-minijtt
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout extensions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openresearchtools/wildbuzzard-extensions
+          ref: ${{ inputs.extensions_commit }}
+          path: source/wildbuzzard-extensions
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Record flattened source size
+        run: |
+          set -Eeuo pipefail
+          {
+            echo "After checkout"
+            du -sh "${GITHUB_WORKSPACE}/source"
+            du -sh --exclude=.git "${GITHUB_WORKSPACE}/source/wildbuzzard"
+            df -h
+          } | tee -a "${WILDBUZZARD_RELEASE_ROOT}/logs/host-disk.txt"
+
+      - name: Build pinned Ubuntu 24.04 toolchain image
+        run: |
+          set -Eeuo pipefail
+          docker build \
+            --force-rm \
+            --build-arg "BUILDER_UID=$(id -u)" \
+            --build-arg "BUILDER_GID=$(id -g)" \
+            --tag "wildbuzzard-hosted-builder:${GITHUB_RUN_ID}" \
+            --file source/wildbuzzard/wildbuzzard/ci/ubuntu-24.04/Containerfile \
+            source/wildbuzzard/wildbuzzard/ci/ubuntu-24.04 \
+            2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/container-image-build.log"
+          docker builder prune --all --force || true
+
+      - name: Build, test, and package in the pinned container
+        env:
+          BUZZARD_MINIJTT_COMMIT: ${{ inputs.buzzard_minijtt_commit }}
+          BUZZARD_SEARCH_COMMIT: ${{ inputs.buzzard_search_commit }}
+          EXTENSIONS_COMMIT: ${{ inputs.extensions_commit }}
+        run: |
+          set -Eeuo pipefail
+          docker run --rm \
+            --shm-size 2g \
+            --volume "${GITHUB_WORKSPACE}/source:/workspace/source:rw" \
+            --volume "${WILDBUZZARD_RELEASE_ROOT}/artifacts:/workspace/artifacts:rw" \
+            --volume "${WILDBUZZARD_RELEASE_ROOT}/work:/workspace/work:rw" \
+            --env CI=1 \
+            "wildbuzzard-hosted-builder:${GITHUB_RUN_ID}" \
+            /workspace/source/wildbuzzard/wildbuzzard/ci/build-release.sh \
+              --wildbuzzard /workspace/source/wildbuzzard \
+              --wildbuzzard-commit "${GITHUB_SHA}" \
+              --buzzard-search /workspace/source/buzzard-search \
+              --buzzard-search-commit "${BUZZARD_SEARCH_COMMIT}" \
+              --buzzard-minijtt /workspace/source/buzzard-minijtt \
+              --buzzard-minijtt-commit "${BUZZARD_MINIJTT_COMMIT}" \
+              --extensions /workspace/source/wildbuzzard-extensions \
+              --extensions-commit "${EXTENSIONS_COMMIT}" \
+              --work-dir /workspace/work \
+              --artifact-dir /workspace/artifacts \
+            2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/release-build.log"
+
+      - name: Upload WildBuzzard Debian artifact and evidence
+        if: success()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-amd64-deb-${{ github.sha }}
+          path: |
+            ${{ steps.paths.outputs.release_root }}/artifacts/wildbuzzard_*_amd64.deb
+            ${{ steps.paths.outputs.release_root }}/artifacts/*-build-manifest.txt
+            ${{ steps.paths.outputs.release_root }}/artifacts/release-manifest.json
+            ${{ steps.paths.outputs.release_root }}/artifacts/SHA256SUMS
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload build logs
+        if: always() && steps.paths.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-hosted-build-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.paths.outputs.release_root }}/logs/**
+            ${{ steps.paths.outputs.release_root }}/work/**/logs/**
+            ${{ steps.paths.outputs.release_root }}/work/**/*.log
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7

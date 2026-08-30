@@ -173,6 +173,52 @@ class BuildProvenanceTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 MANIFEST.verify_firefox_release_provenance(repository, head)
 
+    def test_accepts_depth_one_checkout_without_ancestry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            repository, _ = self.firefox_repository(root)
+            shallow = root / "shallow"
+            subprocess.run(
+                [
+                    "git",
+                    "clone",
+                    "-q",
+                    "--depth",
+                    "1",
+                    repository.resolve().as_uri(),
+                    str(shallow),
+                ],
+                check=True,
+            )
+            head = subprocess.run(
+                ["git", "-C", str(shallow), "rev-parse", "HEAD"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(
+                subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(shallow),
+                        "rev-parse",
+                        "--is-shallow-repository",
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                ).stdout.strip(),
+                "true",
+            )
+            MANIFEST.verify_firefox_release_provenance(shallow, head)
+            subprocess.run(
+                ["git", "-C", str(shallow), "tag", "FIREFOX_153_1_0esr_RELEASE"],
+                check=True,
+            )
+            with self.assertRaises(SystemExit):
+                MANIFEST.verify_firefox_release_provenance(shallow, head)
+
     def test_rejects_firefox_version_or_tag_commit_mismatch(self):
         with tempfile.TemporaryDirectory() as directory:
             repository, head = self.firefox_repository(pathlib.Path(directory))

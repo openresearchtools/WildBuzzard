@@ -69,3 +69,18 @@ All participating repositories must be readable with the workflow's standard
 read-only `GITHUB_TOKEN`; the workflow does not require signing keys, package
 registry credentials, or other repository secrets. Signing and publishing to
 an APT repository are intentionally separate release-authority steps.
+
+The `WildBuzzard Ubuntu 24.04 hosted artifact` workflow is the artifact-only
+GitHub-hosted trial path. It reclaims host disk, checks out each exact commit at
+depth one, and performs the complete build inside the same pinned Ubuntu 24.04
+container. It uploads the amd64 `wildbuzzard` Debian package, release evidence,
+and build logs through Actions artifacts. It does not sign, publish, create a
+GitHub release, or push repository changes. A shallow checkout still validates
+the exact repository commit, clean tree, pinned ESR tag/commit/version metadata,
+and all source hashes; only the unavailable Firefox ancestry traversal is
+skipped.
+
+If the GitHub-hosted runner's hard disk or time limit proves insufficient, the
+fallback is to build independently owned Rust and external components on
+separate runners and consume verified artifacts. That multi-runner fallback is
+documented architecture only and is not implemented by this workflow.

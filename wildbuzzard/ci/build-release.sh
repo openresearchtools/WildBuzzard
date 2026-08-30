@@ -117,12 +117,24 @@ if [[ ! "${firefox_ref}" =~ ^FIREFOX_[0-9_]+esr_RELEASE$ ]] ||
   echo "Firefox must be pinned to an exact ESR release tag and commit" >&2
   exit 2
 fi
-resolved_firefox_commit="$(git -C "${wildbuzzard}" rev-parse "${firefox_ref}^{commit}")"
-if [[ "${resolved_firefox_commit}" != "${firefox_commit}" ]] ||
-  ! git -C "${wildbuzzard}" merge-base --is-ancestor \
-    "${firefox_commit}" "${wildbuzzard_commit}"; then
-  echo "WildBuzzard does not contain the exact pinned Firefox ESR release" >&2
-  exit 2
+if [[ "$(git -C "${wildbuzzard}" rev-parse --is-shallow-repository)" == true ]]; then
+  if git -C "${wildbuzzard}" show-ref --verify --quiet "refs/tags/${firefox_ref}"; then
+    if ! resolved_firefox_commit="$(
+      git -C "${wildbuzzard}" rev-parse --verify "${firefox_ref}^{commit}" 2>/dev/null
+    )" || [[ "${resolved_firefox_commit}" != "${firefox_commit}" ]]; then
+      echo "WildBuzzard has an unexpected commit for ${firefox_ref}" >&2
+      exit 2
+    fi
+  fi
+  echo "WildBuzzard is a shallow checkout; pinned Firefox ancestry is unavailable"
+else
+  resolved_firefox_commit="$(git -C "${wildbuzzard}" rev-parse "${firefox_ref}^{commit}")"
+  if [[ "${resolved_firefox_commit}" != "${firefox_commit}" ]] ||
+    ! git -C "${wildbuzzard}" merge-base --is-ancestor \
+      "${firefox_commit}" "${wildbuzzard_commit}"; then
+    echo "WildBuzzard does not contain the exact pinned Firefox ESR release" >&2
+    exit 2
+  fi
 fi
 if [[ "$(<"${wildbuzzard}/browser/config/version_display.txt")" != "${firefox_version}" ]] ||
   [[ "$(<"${wildbuzzard}/browser/config/version.txt")esr" != "${firefox_version}" ]]; then
