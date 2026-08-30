@@ -43,21 +43,21 @@ dist_dir="$(cd -- "${dist_dir}" && pwd -P)"
 mkdir -p -- "${output_dir}"
 output_dir="$(cd -- "${output_dir}" && pwd -P)"
 
-archive=""
-for candidate in \
-  "${dist_dir}"/wildbuzzard-*.tar.xz \
-  "${dist_dir}"/wildbuzzard-*.tar.bz2 \
-  "${dist_dir}"/wildbuzzard-*.tar.gz; do
-  if [[ -f "${candidate}" ]]; then
-    archive="${candidate}"
-    break
-  fi
-done
+shopt -s nullglob
+archives=(
+  "${dist_dir}"/wildbuzzard-*.tar.xz
+  "${dist_dir}"/wildbuzzard-*.tar.bz2
+  "${dist_dir}"/wildbuzzard-*.tar.gz
+)
+shopt -u nullglob
 
-if [[ -z "${archive}" ]]; then
-  echo "No WildBuzzard Linux package archive found in ${dist_dir}" >&2
+if ((${#archives[@]} != 1)); then
+  echo \
+    "Expected exactly one WildBuzzard Linux package archive in ${dist_dir}; found ${#archives[@]}" \
+    >&2
   exit 1
 fi
+archive="${archives[0]}"
 
 version="$(
   basename -- "${archive}" |
@@ -89,6 +89,8 @@ fi
 if [[ "${product_dir}" != "${stage}/opt/wildbuzzard" ]]; then
   mv -- "${product_dir}" "${stage}/opt/wildbuzzard"
 fi
+python3 -I -B "${script_dir}/../ci/create-release-manifest.py" \
+  --verify-browser-runtime-root "${stage}/opt"
 for component_path in \
   "runtime/search" \
   "runtime/pi-web" \

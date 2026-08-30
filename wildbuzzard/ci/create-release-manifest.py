@@ -680,7 +680,7 @@ def safe_browser_symlink_target(path, target):
     return destination == root or root in destination.parents
 
 
-def verify_browser_debian_runtime_members(members):
+def verify_browser_debian_runtime_members(members, *, archive_only=False):
     invalid = []
     external_directories = external_parent_directories()
     for path, kinds in members.items():
@@ -727,11 +727,10 @@ def verify_browser_debian_runtime_members(members):
                 invalid.append(path)
             continue
         invalid.append(path)
-    missing = sorted(
-        path
-        for path in BROWSER_DEB_REQUIRED_RUNTIME_FILES
-        if members.get(path) != ["file"]
-    )
+    required = BROWSER_DEB_REQUIRED_RUNTIME_FILES
+    if archive_only:
+        required = {path for path in required if path.startswith("opt/")}
+    missing = sorted(path for path in required if members.get(path) != ["file"])
     if invalid or missing:
         details = []
         if invalid:
@@ -739,6 +738,24 @@ def verify_browser_debian_runtime_members(members):
         if missing:
             details.append("missing runtime: " + ", ".join(missing))
         raise SystemExit("invalid wildbuzzard Debian payload: " + "; ".join(details))
+
+
+def verify_browser_runtime_root(root):
+    if root.is_symlink() or not root.is_dir() or root.name != "opt":
+        raise SystemExit(f"invalid WildBuzzard browser runtime root: {root}")
+    members = {"opt": ["directory"]}
+    for path in root.rglob("*"):
+        name = (PurePosixPath("opt") / path.relative_to(root).as_posix()).as_posix()
+        if path.is_symlink():
+            kind = ("symlink", str(path.readlink()))
+        elif path.is_dir():
+            kind = "directory"
+        elif path.is_file():
+            kind = "file"
+        else:
+            kind = "other"
+        members.setdefault(name, []).append(kind)
+    verify_browser_debian_runtime_members(members, archive_only=True)
 
 
 def verify_browser_debian_legal_payload(path):
@@ -979,10 +996,23 @@ def verify_torrent_package_size(path, metadata):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--artifact-dir", required=True)
+    parser.add_argument("--artifact-dir")
+    parser.add_argument("--verify-browser-runtime-root")
     parser.add_argument("--repository", action="append", default=[])
     parser.add_argument("--build-manifest", action="append", default=[])
     arguments = parser.parse_args()
+
+    if arguments.verify_browser_runtime_root:
+        if arguments.artifact_dir or arguments.repository or arguments.build_manifest:
+            parser.error(
+                "--verify-browser-runtime-root cannot be combined with release options"
+            )
+        verify_browser_runtime_root(
+            Path(arguments.verify_browser_runtime_root).resolve(strict=True)
+        )
+        return
+    if not arguments.artifact_dir:
+        parser.error("--artifact-dir is required")
 
     artifact_dir = Path(arguments.artifact_dir).resolve()
     repositories = parse_mapping(arguments.repository, "--repository")

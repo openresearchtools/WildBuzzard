@@ -2,6 +2,8 @@
 
 import json
 import pathlib
+import subprocess
+import tempfile
 import unittest
 
 import tomllib
@@ -152,6 +154,43 @@ class FeatureOwnershipTests(unittest.TestCase):
         self.assertNotIn("buzzard-search", depends)
         self.assertNotIn("buzzard-minijtt", depends)
         self.assertEqual(suggests, "Suggests: buzzard-search, buzzard-minijtt")
+
+    def test_browser_deb_requires_exactly_one_browser_archive(self):
+        script = ROOT / "wildbuzzard" / "scripts" / "package-deb.sh"
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            dist = root / "dist"
+            output = root / "output"
+            dist.mkdir()
+            for version in ("153.1.0", "153.1.1"):
+                (dist / f"wildbuzzard-{version}.en-US.linux-x86_64.tar.xz").touch()
+            result = subprocess.run(
+                [
+                    "bash",
+                    str(script),
+                    "--dist-dir",
+                    str(dist),
+                    "--output-dir",
+                    str(output),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Expected exactly one", result.stderr)
+
+    def test_browser_deb_gates_extracted_runtime_before_cli_build(self):
+        source = (ROOT / "wildbuzzard" / "scripts" / "package-deb.sh").read_text(
+            encoding="utf-8"
+        )
+        extraction = source.index('tar -xf "${archive}"')
+        gate = source.index("--verify-browser-runtime-root")
+        cli_build = source.index(
+            'cp -a -- "${script_dir}/../components/wildbuzzard-cli/."'
+        )
+        self.assertLess(extraction, gate)
+        self.assertLess(gate, cli_build)
 
     def test_project_package_identity_is_authenticated(self):
         identity = (

@@ -661,6 +661,17 @@ class ReleasePayloadTests(unittest.TestCase):
         ] = ["file"]
         MANIFEST.verify_browser_debian_runtime_members(valid)
 
+    def test_archive_only_gate_reuses_browser_runtime_policy(self):
+        runtime = {
+            path: kinds
+            for path, kinds in self.browser_debian_members().items()
+            if not path or path == "opt" or path.startswith("opt/")
+        }
+        MANIFEST.verify_browser_debian_runtime_members(runtime, archive_only=True)
+        runtime["opt/wildbuzzard/node_modules/package/index.js"] = ["file"]
+        with self.assertRaises(SystemExit):
+            MANIFEST.verify_browser_debian_runtime_members(runtime, archive_only=True)
+
     def test_rejects_source_tests_fixtures_build_caches_and_dev_tools(self):
         forbidden = [
             "opt/wildbuzzard/tests/test_browser.py",
