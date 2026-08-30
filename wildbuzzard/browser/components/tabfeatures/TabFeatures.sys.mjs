@@ -90,7 +90,6 @@ export const TabFeatures = {
         .addEventListener("popupshowing", event => this.onMenuShowing(event));
     }
 
-    this._initNewTabFocus(win);
     this._initCopyShortcut(win);
   },
 
@@ -134,19 +133,6 @@ export const TabFeatures = {
       .map(browser => browser.currentURI.spec)
       .filter(spec => !/^about:/i.test(spec));
     clipboard.copyString(urls.join("\n").trim());
-  },
-
-  _initNewTabFocus(win) {
-    win.gBrowser.tabContainer.addEventListener("TabOpen", event => {
-      const browser = win.gBrowser.getBrowserForTab(event.target);
-      browser.addEventListener(
-        "load",
-        () => {
-          win.setTimeout(() => browser.contentWindow?.focus(), 0);
-        },
-        { once: true }
-      );
-    });
   },
 
   _initCopyShortcut(win) {
