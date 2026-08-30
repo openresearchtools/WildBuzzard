@@ -4,8 +4,8 @@ schema = 1
 
 [firefox]
 remote = "https://github.com/mozilla-firefox/firefox.git"
-ref = "esr153"
-commit = "1c7282e73f12cb9bc63ae9920e9c77d935804cc8"
+ref = "FIREFOX_153_1_0esr_RELEASE"
+commit = "468445e58d3acc7e4e059be99856daff1f2ae8f1"
 version = "153.1.0esr"
 tracking_branch = "mozilla/esr153"
 initial_release_ref = "FIREFOX_153_0esr_RELEASE"
