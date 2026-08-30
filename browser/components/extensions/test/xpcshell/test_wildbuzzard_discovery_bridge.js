@@ -246,6 +246,19 @@ add_task(function test_torrent_cli_v1_is_reduced_to_public_contract() {
     limit: 25,
     source: "source.one",
   });
+  const allSourcesRequest = Bridge.normalizeTorrentSearchRequest({
+    schemaVersion: 1,
+    operationId: OPERATION_ID,
+    query: "linux iso",
+    source: null,
+    limit: 25,
+  });
+  Assert.deepEqual(allSourcesRequest.body, {
+    schemaVersion: 1,
+    query: "linux iso",
+    limit: 25,
+  });
+  Assert.equal(allSourcesRequest.source, undefined);
   Assert.deepEqual(
     Bridge.sanitizeTorrentSources({
       schemaVersion: 1,

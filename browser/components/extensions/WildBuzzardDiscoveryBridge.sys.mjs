@@ -794,6 +794,7 @@ function normalizeTorrentSearchRequest(value) {
     () => torrentError("INVALID_REQUEST")
   );
   const query = typeof value.query === "string" ? value.query.trim() : "";
+  const source = value.source == null ? undefined : value.source;
   if (
     value.schemaVersion !== 1 ||
     !UUID_V4.test(value.operationId || "") ||
@@ -803,7 +804,8 @@ function normalizeTorrentSearchRequest(value) {
     !Number.isInteger(value.limit) ||
     value.limit < 1 ||
     value.limit > 50 ||
-    (value.source !== undefined && !SOURCE_ID.test(value.source))
+    (source !== undefined &&
+      (typeof source !== "string" || !SOURCE_ID.test(source)))
   ) {
     throw torrentError("INVALID_REQUEST");
   }
@@ -812,12 +814,12 @@ function normalizeTorrentSearchRequest(value) {
       schemaVersion: 1,
       query,
       limit: value.limit,
-      ...(value.source === undefined ? {} : { source: value.source }),
+      ...(source === undefined ? {} : { source }),
     },
     limit: value.limit,
     operationId: value.operationId,
     query,
-    source: value.source,
+    source,
   };
 }
 
