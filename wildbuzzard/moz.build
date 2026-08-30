@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-DIRS += ["browser"]
+DIRS += ["browser", "third_party/arti-crates"]
 
 PYTHON_UNITTEST_MANIFESTS += ["scripts/tests/python.toml"]
 
@@ -15,14 +15,6 @@ FINAL_TARGET_FILES.notices += [
 
 FINAL_TARGET_FILES.notices["blocker"] += [
     "/browser/components/blocker/assets/SOURCES.lock.json",
-]
-
-FINAL_TARGET_FILES.notices["arti-crates"] += [
-    "third_party/arti-crates/THIRD-PARTY.json",
-]
-
-FINAL_TARGET_FILES.notices["arti-crates"]["licenses"] += [
-    "third_party/arti-crates/licenses/*",
 ]
 
 FINAL_TARGET_FILES.notices["wildbuzzard-cli"] += [
