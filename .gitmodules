@@ -1,0 +1,3 @@
+[submodule "arti-corpora"]
+	path = third_party/arti/arti-corpora
+	url = https://gitlab.torproject.org/tpo/core/arti-corpora.git
