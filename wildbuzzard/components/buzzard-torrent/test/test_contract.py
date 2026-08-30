@@ -26,6 +26,11 @@ class TorrentContractTest(unittest.TestCase):
             MODULE.paths()["runtime"], pathlib.Path("/usr/lib/buzzard-torrent/runtime")
         )
 
+    def test_qbittorrent_home_is_owned_by_buzzard(self) -> None:
+        owned = MODULE.paths()
+        self.assertEqual(owned["home"], owned["data"] / "home")
+        self.assertNotEqual(owned["home"], pathlib.Path.home())
+
     def test_list_validation_rejects_passthrough_arguments(self) -> None:
         self.assertEqual(MODULE.validate_list({})["limit"], 50)
         with self.assertRaises(ValueError):

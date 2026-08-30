@@ -175,6 +175,22 @@
 @BINPATH@/runtime/tor/arti.toml
 @BINPATH@/notices/source/wildbuzzard-arti-2.5.1-provenance.zip
 #endif
+@BINPATH@/notices/BLOCKER-ASSET-SOURCE-NOTICE
+@BINPATH@/notices/COPYING
+@BINPATH@/notices/LICENSE
+@BINPATH@/notices/MOZILLA-MCP-LICENSE
+@BINPATH@/notices/NOTICE
+@BINPATH@/notices/SOURCE-NOTICE
+@BINPATH@/notices/blocker/SOURCES.lock.json
+@BINPATH@/notices/arti-crates/THIRD-PARTY.json
+@BINPATH@/notices/arti-crates/licenses/*
+@BINPATH@/notices/wildbuzzard-cli/THIRD-PARTY.json
+@BINPATH@/notices/wildbuzzard-cli/licenses/Apache-2.0.txt
+@BINPATH@/notices/wildbuzzard-cli/licenses/MIT-dtolnay-serde.txt
+@BINPATH@/notices/wildbuzzard-cli/licenses/Unicode-3.0.txt
+@BINPATH@/notices/wildbuzzard-cli/licenses/Unlicense.txt
+@BINPATH@/notices/wildbuzzard-cli/licenses/memchr-COPYING.txt
+@BINPATH@/notices/wildbuzzard-cli/licenses/memchr-MIT.txt
 @RESPATH@/application.ini
 #ifdef MOZ_UPDATER
 # update-settings.ini has been removed on macOS.

@@ -25,6 +25,14 @@ static mozilla::LazyLogModule sRemoteLm("nsDBusRemoteClient");
 
 using namespace mozilla;
 
+#ifdef MOZ_WILDBUZZARD
+#  define DBUS_NAMESPACE "org.wildbuzzard"
+#  define DBUS_OBJECT_NAMESPACE "/org/wildbuzzard"
+#else
+#  define DBUS_NAMESPACE "org.mozilla"
+#  define DBUS_OBJECT_NAMESPACE "/org/mozilla"
+#endif
+
 nsDBusRemoteClient::nsDBusRemoteClient(nsACString& aStartupToken)
     : mStartupToken(aStartupToken) {
   LOG("nsDBusRemoteClient::nsDBusRemoteClient");
@@ -73,14 +81,14 @@ bool nsDBusRemoteClient::GetRemoteDestinationName(const char* aProgram,
   mozilla::XREAppData::SanitizeNameForDBus(profileName);
 
   aDestinationName =
-      nsPrintfCString("org.mozilla.%s.%s", aProgram, profileName.get());
+      nsPrintfCString(DBUS_NAMESPACE ".%s.%s", aProgram, profileName.get());
   if (aDestinationName.Length() > DBUS_MAXIMUM_NAME_LENGTH)
     aDestinationName.Truncate(DBUS_MAXIMUM_NAME_LENGTH);
 
   if (!g_dbus_is_name(aDestinationName.get())) {
     // We don't have a valid busName yet - try to create a default one.
     aDestinationName =
-        nsPrintfCString("org.mozilla.%s.%s", aProgram, "default");
+        nsPrintfCString(DBUS_NAMESPACE ".%s.%s", aProgram, "default");
     if (!g_dbus_is_name(aDestinationName.get())) {
       // We failed completely to get a valid bus name - just quit.
       LOG("  failed to validate profile DBus name");
@@ -110,7 +118,8 @@ nsresult nsDBusRemoteClient::DoSendDBusCommandLine(const char* aProfile,
   }
 
   nsAutoCString pathName;
-  pathName = nsPrintfCString("/org/mozilla/%s/Remote", appName.get());
+  pathName =
+      nsPrintfCString(DBUS_OBJECT_NAMESPACE "/%s/Remote", appName.get());
 
   if (!g_variant_is_object_path(pathName.get())) {
     LOG("  failed to validate path name");
@@ -118,7 +127,8 @@ nsresult nsDBusRemoteClient::DoSendDBusCommandLine(const char* aProfile,
   }
 
   nsAutoCString remoteInterfaceName;
-  remoteInterfaceName = nsPrintfCString("org.mozilla.%s", appName.get());
+  remoteInterfaceName =
+      nsPrintfCString(DBUS_NAMESPACE ".%s", appName.get());
 
   LOG("  DBus destination: %s\n", destinationName.get());
   LOG("  DBus path: %s\n", pathName.get());

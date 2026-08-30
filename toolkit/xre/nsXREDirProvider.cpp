@@ -115,7 +115,14 @@ static const char* GetAppName() {
   }
   return nullptr;
 }
+
 #endif
+
+static bool IsWildBuzzardApp() {
+  return gAppData && gAppData->vendor && gAppData->name &&
+         !strcmp(gAppData->vendor, "WildBuzzard") &&
+         !strcmp(gAppData->name, "WildBuzzard");
+}
 
 #ifdef XP_MACOSX
 static const char* GetAppVendor() {
@@ -328,8 +335,8 @@ nsresult nsXREDirProvider::GetBackgroundTasksProfilesRootDir(
  * Get the directory that is the parent of the system-wide directories
  * for extensions and native manifests.
  *
- * On OSX this is /Library/Application Support/Mozilla
- * On Linux this is /usr/{lib,lib64}/mozilla
+ * On OSX this is /Library/Application Support/<vendor>
+ * On Linux this is /usr/{lib,lib64}/<vendor>
  *   (for 32- and 64-bit systems respsectively)
  */
 static nsresult GetSystemParentDirectory(nsIFile** aFile) {
@@ -339,18 +346,21 @@ static nsresult GetSystemParentDirectory(nsIFile** aFile) {
   rv = GetOSXFolderType(kOnSystemDisk, kApplicationSupportFolderType,
                         getter_AddRefs(localDir));
   if (NS_SUCCEEDED(rv)) {
-    rv = localDir->AppendNative("Mozilla"_ns);
+    rv = localDir->AppendNative(IsWildBuzzardApp() ? "WildBuzzard"_ns
+                                                   : "Mozilla"_ns);
   }
 #  else
-  constexpr auto dirname =
 #    ifdef HAVE_USR_LIB64_DIR
-      "/usr/lib64/mozilla"_ns
+  constexpr auto wildBuzzardDir = "/usr/lib64/wildbuzzard"_ns;
+  constexpr auto mozillaDir = "/usr/lib64/mozilla"_ns;
 #    elif defined(__OpenBSD__) || defined(__FreeBSD__)
-      "/usr/local/lib/mozilla"_ns
+  constexpr auto wildBuzzardDir = "/usr/local/lib/wildbuzzard"_ns;
+  constexpr auto mozillaDir = "/usr/local/lib/mozilla"_ns;
 #    else
-      "/usr/lib/mozilla"_ns
+  constexpr auto wildBuzzardDir = "/usr/lib/wildbuzzard"_ns;
+  constexpr auto mozillaDir = "/usr/lib/mozilla"_ns;
 #    endif
-      ;
+  const auto dirname = IsWildBuzzardApp() ? wildBuzzardDir : mozillaDir;
   rv = NS_NewNativeLocalFile(dirname, getter_AddRefs(localDir));
 #  endif
 
@@ -417,15 +427,19 @@ nsXREDirProvider::GetFile(const char* aProperty, bool* aPersistent,
   else if (!strcmp(aProperty, XRE_SYS_NATIVE_MANIFESTS)) {
     rv = ::GetSystemParentDirectory(getter_AddRefs(file));
   } else if (!strcmp(aProperty, XRE_USER_NATIVE_MANIFESTS)) {
-    // Keep forcing the legacy path for compatibility
-    rv = GetUserDataDirectoryHome(getter_AddRefs(file), /* aLocal */ false,
-                                  /* aForceLegacy */ true);
-    NS_ENSURE_SUCCESS(rv, rv);
+    if (IsWildBuzzardApp()) {
+      rv = GetUserAppDataDirectory(getter_AddRefs(file));
+    } else {
+      // Keep forcing the legacy path for compatibility
+      rv = GetUserDataDirectoryHome(getter_AddRefs(file), /* aLocal */ false,
+                                    /* aForceLegacy */ true);
+      NS_ENSURE_SUCCESS(rv, rv);
 #  if defined(XP_MACOSX)
-    rv = file->AppendNative("Mozilla"_ns);
+      rv = file->AppendNative("Mozilla"_ns);
 #  else   // defined(XP_MACOSX)
-    rv = file->AppendNative(".mozilla"_ns);
+      rv = file->AppendNative(".mozilla"_ns);
 #  endif  // defined(XP_MACOSX)
+    }
   }
 #endif  // defined(XP_UNIX) || defined(XP_MACOSX)
   else if (!strcmp(aProperty, XRE_UPDATE_ROOT_DIR)) {
@@ -454,9 +468,13 @@ nsXREDirProvider::GetFile(const char* aProperty, bool* aPersistent,
   else if (!strcmp(aProperty, XRE_SYS_SHARE_EXTENSION_PARENT_DIR)) {
 #  ifdef ENABLE_SYSTEM_EXTENSION_DIRS
 #    if defined(__OpenBSD__) || defined(__FreeBSD__)
-    static const char* const sysLExtDir = "/usr/local/share/mozilla/extensions";
+    const char* const sysLExtDir = IsWildBuzzardApp()
+                                      ? "/usr/local/share/wildbuzzard/extensions"
+                                      : "/usr/local/share/mozilla/extensions";
 #    else
-    static const char* const sysLExtDir = "/usr/share/mozilla/extensions";
+    const char* const sysLExtDir = IsWildBuzzardApp()
+                                      ? "/usr/share/wildbuzzard/extensions"
+                                      : "/usr/share/mozilla/extensions";
 #    endif
     rv = NS_NewNativeLocalFile(nsDependentCString(sysLExtDir),
                                getter_AddRefs(file));
@@ -1188,6 +1206,15 @@ nsresult nsXREDirProvider::GetUserDataDirectoryHome(nsIFile** aFile,
 
 nsresult nsXREDirProvider::GetSysUserExtensionsDirectory(nsIFile** aFile) {
   nsCOMPtr<nsIFile> localDir;
+  if (IsWildBuzzardApp()) {
+    nsresult rv = GetUserAppDataDirectory(getter_AddRefs(localDir));
+    NS_ENSURE_SUCCESS(rv, rv);
+    rv = localDir->AppendNative("extensions"_ns);
+    NS_ENSURE_SUCCESS(rv, rv);
+    localDir.forget(aFile);
+    return NS_OK;
+  }
+
   nsresult rv = GetUserDataDirectoryHome(
       getter_AddRefs(localDir), /* aLocal */ false, /* aForceLegacy */ true);
   NS_ENSURE_SUCCESS(rv, rv);

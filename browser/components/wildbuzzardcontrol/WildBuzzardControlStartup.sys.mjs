@@ -79,11 +79,11 @@ function defaultSocketDirectory() {
     return PathUtils.join(runtimeDirectory, "wildbuzzard", "profiles");
   }
   const homeDirectory = Services.dirsvc.get("Home", Ci.nsIFile).path;
-  const dataDirectory = Services.env.get("XDG_DATA_HOME");
+  const stateDirectory = Services.env.get("XDG_STATE_HOME");
   const base =
-    dataDirectory && PathUtils.isAbsolute(dataDirectory)
-      ? dataDirectory
-      : PathUtils.join(homeDirectory, ".local", "share");
+    stateDirectory && PathUtils.isAbsolute(stateDirectory)
+      ? stateDirectory
+      : PathUtils.join(homeDirectory, ".local", "state");
   return PathUtils.join(base, "wildbuzzard", "run", "profiles");
 }
 

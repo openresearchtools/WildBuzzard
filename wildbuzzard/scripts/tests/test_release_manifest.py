@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+import contextlib
 import importlib.util
+import json
 import pathlib
 import subprocess
 import tempfile
 import unittest
+from unittest import mock
 
 HERE = pathlib.Path(__file__).resolve().parent
 SPEC = importlib.util.spec_from_file_location(
@@ -200,21 +203,28 @@ class BuildProvenanceTests(unittest.TestCase):
             "arti": root / "arti-2.5.1-linux-x86_64",
             "artiProvenance": root / "wildbuzzard-arti-2.5.1-provenance.zip",
             "artiSource": root / "wildbuzzard-arti-2.5.1-source.tar.xz",
+            "artiCargoVendor": root / "wildbuzzard-arti-2.5.1-cargo-vendor.tar.xz",
         }
         contents = {
             "arti": b"binary",
             "artiProvenance": b"provenance",
             "artiSource": b"source",
+            "artiCargoVendor": b"cargo vendor",
         }
         for name, path in artifacts.items():
             path.write_bytes(contents[name])
         digests = {name: MANIFEST.digest(path) for name, path in artifacts.items()}
+        inventory = pin_directory / "arti-crates" / "THIRD-PARTY.json"
+        inventory.parent.mkdir()
+        inventory.write_text("{}\n", encoding="utf-8")
         (pin_directory / "arti.toml").write_text(
             "\n".join([
                 'tag = "arti-v2.5.1"',
                 f'commit = "{"a" * 40}"',
                 f'tree = "{"b" * 40}"',
                 f'source_sha256 = "{digests["artiSource"]}"',
+                f'cargo_vendor_sha256 = "{digests["artiCargoVendor"]}"',
+                f'cargo_license_inventory_sha256 = "{MANIFEST.digest(inventory)}"',
                 f'linux_x86_64_binary_sha256 = "{digests["arti"]}"',
             ])
             + "\n",
@@ -230,6 +240,10 @@ class BuildProvenanceTests(unittest.TestCase):
                 f"binary_sha256={digests['arti']}",
                 f"source={artifacts['artiSource']}",
                 f"source_sha256={digests['artiSource']}",
+                f"cargo_vendor={artifacts['artiCargoVendor']}",
+                f"cargo_vendor_sha256={digests['artiCargoVendor']}",
+                f"cargo_license_inventory={inventory}",
+                f"cargo_license_inventory_sha256={MANIFEST.digest(inventory)}",
                 f"provenance={artifacts['artiProvenance']}",
                 f"provenance_sha256={digests['artiProvenance']}",
             ])
@@ -241,7 +255,12 @@ class BuildProvenanceTests(unittest.TestCase):
     def test_arti_artifacts_match_the_exact_source_build_and_pins(self):
         with tempfile.TemporaryDirectory() as directory:
             release = self.arti_release(pathlib.Path(directory))
-            MANIFEST.verify_arti_build_provenance(*release)
+            with mock.patch.object(
+                MANIFEST.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0, "", ""),
+            ):
+                MANIFEST.verify_arti_build_provenance(*release)
 
     def test_rejects_arti_source_that_differs_from_the_build_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -284,6 +303,62 @@ class ReleasePayloadTests(unittest.TestCase):
                 source,
             )
 
+    def test_release_uses_native_minijtt_gate_and_external_source(self):
+        source = (HERE.parents[1] / "ci" / "build-release.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("./ci/verify-release.sh", source)
+        self.assertIn("buzzard-minijtt-*-source-license.tar.xz", source)
+        self.assertNotIn("BUZZARD_NODE_ROOT", source)
+        self.assertNotIn("process.test.mjs", source)
+        self.assertEqual(
+            MANIFEST.REQUIRED_ARTIFACTS["minijttSource"],
+            "buzzard-minijtt-*-source-license.tar.xz",
+        )
+        self.assertNotIn("minijttRuntime", MANIFEST.REQUIRED_ARTIFACTS)
+
+    def test_release_uses_search_package_gate_and_external_source(self):
+        source = (HERE.parents[1] / "ci" / "build-release.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("BUZZARD_SEARCH_CI_RUN_ROOT", source)
+        self.assertIn("buzzard-search-*-source-license.tar.xz", source)
+        self.assertEqual(
+            MANIFEST.REQUIRED_ARTIFACTS["searchSource"],
+            "buzzard-search-*-source-license.tar.xz",
+        )
+
+    def test_minijtt_source_artifact_uses_the_sibling_verifier(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            repository = root / "repository"
+            verifier = repository / "scripts/verify-source-license-artifact.py"
+            verifier.parent.mkdir(parents=True)
+            verifier.write_text("", encoding="utf-8")
+            archive_path = root / "buzzard-minijtt-0.1.0-source-license.tar.xz"
+            archive_path.write_bytes(b"source")
+            success = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(
+                MANIFEST.subprocess, "run", return_value=success
+            ) as run:
+                MANIFEST.verify_minijtt_source(archive_path, repository)
+            run.assert_called_once_with(
+                [
+                    MANIFEST.sys.executable,
+                    "-I",
+                    "-B",
+                    str(verifier),
+                    str(archive_path),
+                ],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            failure = subprocess.CompletedProcess([], 1, "", "invalid source")
+            with mock.patch.object(MANIFEST.subprocess, "run", return_value=failure):
+                with self.assertRaisesRegex(SystemExit, "invalid source"):
+                    MANIFEST.verify_minijtt_source(archive_path, repository)
+
     def browser_debian_members(self):
         members = {
             path: ["file"] for path in MANIFEST.BROWSER_DEB_REQUIRED_RUNTIME_FILES
@@ -296,11 +371,272 @@ class ReleasePayloadTests(unittest.TestCase):
         members[""] = ["directory"]
         return members
 
+    def torrent_debian_members(self):
+        files = MANIFEST.TORRENT_DEB_FIXED_FILES | {
+            MANIFEST.TORRENT_DEB_RUNTIME_ROOT + "/wildbuzzard-qbittorrent-runtime.json",
+            MANIFEST.TORRENT_DEB_RUNTIME_ROOT + "/bin/qbittorrent-nox",
+        }
+        members = {path: ["file"] for path in files}
+        for filename in files:
+            parent = pathlib.PurePosixPath(filename).parent
+            while parent.as_posix() != ".":
+                members.setdefault(parent.as_posix(), ["directory"])
+                parent = parent.parent
+        members[""] = ["directory"]
+        return members
+
+    def build_torrent_deb(
+        self, root, *, extra_file=None, maintainer=MANIFEST.EXPECTED_MAINTAINER
+    ):
+        stage = root / "stage"
+        (stage / "DEBIAN").mkdir(parents=True)
+        (stage / "DEBIAN/control").write_text(
+            "Package: buzzard-torrent\n"
+            "Version: 1\n"
+            "Architecture: amd64\n"
+            "Installed-Size: 1\n"
+            f"Maintainer: {maintainer}\n"
+            "Description: test\n",
+            encoding="utf-8",
+        )
+        for path in MANIFEST.TORRENT_DEB_FIXED_FILES:
+            destination = stage / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text("runtime package\n", encoding="utf-8")
+        runtime = stage / MANIFEST.TORRENT_DEB_RUNTIME_ROOT
+        (runtime / "bin").mkdir(parents=True)
+        (runtime / "bin/qbittorrent-nox").write_text("binary\n", encoding="utf-8")
+        external = {
+            "boost": {"name": "boost", "sha256": "a" * 64, "size": 1},
+            "qt": {"name": "qt", "sha256": "b" * 64, "size": 2},
+            "system": {"name": "system", "sha256": "c" * 64, "size": 3},
+        }
+        (runtime / "wildbuzzard-qbittorrent-runtime.json").write_text(
+            json.dumps({"externalSourceArtifacts": external}), encoding="utf-8"
+        )
+        if extra_file:
+            destination = stage / extra_file
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_text("unexpected\n", encoding="utf-8")
+        package = root / "buzzard-torrent_1_amd64.deb"
+        subprocess.run(
+            ["dpkg-deb", "--root-owner-group", "--build", str(stage), str(package)],
+            check=True,
+            capture_output=True,
+        )
+        return package, external
+
+    def test_debian_metadata_requires_authenticated_maintainer(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package, _ = self.build_torrent_deb(pathlib.Path(directory))
+            metadata = MANIFEST.debian_metadata(package, "buzzard-torrent")
+            self.assertEqual(metadata["maintainer"], MANIFEST.EXPECTED_MAINTAINER)
+        with tempfile.TemporaryDirectory() as directory:
+            package, _ = self.build_torrent_deb(
+                pathlib.Path(directory), maintainer="test <test@example.invalid>"
+            )
+            with self.assertRaises(SystemExit):
+                MANIFEST.debian_metadata(package, "buzzard-torrent")
+
     def test_requires_arti_corresponding_source(self):
         self.assertEqual(
             MANIFEST.REQUIRED_ARTIFACTS["artiSource"],
             "wildbuzzard-arti-*-source.tar.xz",
         )
+        self.assertEqual(
+            MANIFEST.REQUIRED_ARTIFACTS["artiCargoVendor"],
+            "wildbuzzard-arti-*-cargo-vendor.tar.xz",
+        )
+
+    def test_arti_legal_payload_is_exact_in_browser_and_documentation(self):
+        repository = HERE.parents[2]
+        with contextlib.ExitStack() as stack:
+            for name in (
+                "BROWSER_DEB_LEGAL_PATHS",
+                "BROWSER_DEB_EXTERNAL_FILES",
+                "BROWSER_DEB_REQUIRED_RUNTIME_FILES",
+            ):
+                stack.enter_context(
+                    mock.patch.object(
+                        MANIFEST,
+                        name,
+                        set(getattr(MANIFEST, name)),
+                    )
+                )
+            MANIFEST.configure_arti_legal_paths(repository)
+            members = {path: ["file"] for path in MANIFEST.BROWSER_DEB_LEGAL_PATHS}
+            MANIFEST.verify_browser_debian_legal_members(members)
+            members["opt/wildbuzzard/notices/arti-crates/tests/fixture"] = ["file"]
+            with self.assertRaises(SystemExit):
+                MANIFEST.verify_browser_debian_legal_members(members)
+
+    def test_torrent_package_size_limits_are_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            package = pathlib.Path(directory) / "buzzard-torrent.deb"
+            package.write_bytes(b"package")
+            MANIFEST.verify_torrent_package_size(
+                package, {"installedSizeKiB": 128 * 1024}
+            )
+            with self.assertRaises(SystemExit):
+                MANIFEST.verify_torrent_package_size(
+                    package, {"installedSizeKiB": 128 * 1024 + 1}
+                )
+            with package.open("wb") as stream:
+                stream.truncate(96 * 1024 * 1024 + 1)
+            with self.assertRaises(SystemExit):
+                MANIFEST.verify_torrent_package_size(package, {"installedSizeKiB": 1})
+
+    def test_requires_blocker_corresponding_source(self):
+        self.assertEqual(
+            MANIFEST.REQUIRED_ARTIFACTS["blockerAssetSource"],
+            "wildbuzzard-blocker-assets-source.tar.xz",
+        )
+
+    def test_requires_runner_crate_corresponding_source(self):
+        self.assertEqual(
+            MANIFEST.REQUIRED_ARTIFACTS["runnerCratesSource"],
+            "wildbuzzard-runner-crates-source.tar.xz",
+        )
+        for relative in MANIFEST.RUNNER_CRATE_LEGAL_RELATIVE_PATHS:
+            self.assertIn(
+                f"opt/wildbuzzard/notices/wildbuzzard-cli/{relative}",
+                MANIFEST.BROWSER_DEB_LEGAL_PATHS,
+            )
+            self.assertIn(
+                f"usr/share/doc/wildbuzzard/runner-third-party/{relative}",
+                MANIFEST.BROWSER_DEB_LEGAL_PATHS,
+            )
+
+    def test_requires_and_cross_checks_qbittorrent_source_artifacts(self):
+        release_builder = (HERE.parents[1] / "ci" / "build-release.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "--qt-source-archive /opt/wildbuzzard-inputs/qtbase-everywhere-src-6.10.2.tar.xz",
+            release_builder,
+        )
+        for field in ("core_source", "boost_source", "qt_source", "system_source"):
+            self.assertIn(
+                f"copy_artifact \"$(sed -n 's/^{field}=//p'",
+                release_builder,
+            )
+        self.assertEqual(
+            {
+                name: MANIFEST.REQUIRED_ARTIFACTS[name]
+                for name in (
+                    "qbittorrentCoreSource",
+                    "qbittorrentBoostSource",
+                    "qbittorrentQtSource",
+                    "qbittorrentSystemSource",
+                )
+            },
+            {
+                "qbittorrentCoreSource": "wildbuzzard-qbittorrent-runtime-*-source.tar.xz",
+                "qbittorrentBoostSource": "wildbuzzard-qbittorrent-boost-1.88.0-source.tar.bz2",
+                "qbittorrentQtSource": "wildbuzzard-qbittorrent-qtbase-6.10.2-source.tar.xz",
+                "qbittorrentSystemSource": "wildbuzzard-qbittorrent-ubuntu-24.04-system-sources-*.tar.xz",
+            },
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            artifacts = {
+                "qbittorrentCoreSource": root
+                / "wildbuzzard-qbittorrent-runtime-abc123def456-source.tar.xz",
+                "qbittorrentBoostSource": root
+                / "wildbuzzard-qbittorrent-boost-1.88.0-source.tar.bz2",
+                "qbittorrentQtSource": root
+                / "wildbuzzard-qbittorrent-qtbase-6.10.2-source.tar.xz",
+                "qbittorrentSystemSource": root
+                / "wildbuzzard-qbittorrent-ubuntu-24.04-system-sources-abc123def456.tar.xz",
+                "qbittorrentRuntime": root
+                / "wildbuzzard-qbittorrent-runtime-linux-x64-abc123def456.zip",
+            }
+            for index, path in enumerate(artifacts.values(), start=1):
+                path.write_bytes(f"artifact {index}\n".encode())
+            manifest = root / "qbittorrent-build-manifest.txt"
+            manifest.write_text(
+                "\n".join([
+                    f"core_source={artifacts['qbittorrentCoreSource']}",
+                    f"core_source_sha256={MANIFEST.digest(artifacts['qbittorrentCoreSource'])}",
+                    f"boost_source={artifacts['qbittorrentBoostSource']}",
+                    f"boost_source_sha256={MANIFEST.digest(artifacts['qbittorrentBoostSource'])}",
+                    f"qt_source={artifacts['qbittorrentQtSource']}",
+                    f"qt_source_sha256={MANIFEST.digest(artifacts['qbittorrentQtSource'])}",
+                    f"system_source={artifacts['qbittorrentSystemSource']}",
+                    f"system_source_sha256={MANIFEST.digest(artifacts['qbittorrentSystemSource'])}",
+                    f"runtime_zip={artifacts['qbittorrentRuntime']}",
+                    f"runtime_sha256={MANIFEST.digest(artifacts['qbittorrentRuntime'])}",
+                    f"runtime_size={artifacts['qbittorrentRuntime'].stat().st_size}",
+                ])
+                + "\n",
+                encoding="utf-8",
+            )
+            external = {
+                component: {
+                    "name": artifacts[name].name,
+                    "sha256": MANIFEST.digest(artifacts[name]),
+                    "size": artifacts[name].stat().st_size,
+                }
+                for component, name in {
+                    "core": "qbittorrentCoreSource",
+                    "boost": "qbittorrentBoostSource",
+                    "qt": "qbittorrentQtSource",
+                    "system": "qbittorrentSystemSource",
+                }.items()
+            }
+            external["boost"]["url"] = (
+                "https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.bz2"
+            )
+            external["qt"]["url"] = (
+                "https://download.qt.io/official_releases/qt/6.10/6.10.2/submodules/qtbase-everywhere-src-6.10.2.tar.xz"
+            )
+            external["system"]["platform"] = "ubuntu-24.04"
+            MANIFEST.verify_qbittorrent_sources(manifest, artifacts, external)
+            external["qt"]["sha256"] = "0" * 64
+            with self.assertRaises(SystemExit):
+                MANIFEST.verify_qbittorrent_sources(manifest, artifacts, external)
+            external["qt"]["sha256"] = MANIFEST.digest(artifacts["qbittorrentQtSource"])
+            external["core"]["unexpected"] = True
+            with self.assertRaises(SystemExit):
+                MANIFEST.verify_qbittorrent_sources(manifest, artifacts, external)
+
+    def test_torrent_debian_payload_allows_only_wrappers_docs_and_runtime(self):
+        valid = self.torrent_debian_members()
+        MANIFEST.verify_torrent_debian_runtime_members(valid)
+        for path, kind in (
+            ("usr/share/buzzard-torrent/tests/fixture.json", "file"),
+            ("usr/lib/buzzard-torrent/source/Cargo.toml", "file"),
+            ("usr/bin/unrelated", "file"),
+            ("usr/lib/buzzard-torrent/runtime/link", "symlink"),
+        ):
+            with self.subTest(path=path):
+                members = self.torrent_debian_members()
+                members[path] = [kind]
+                with self.assertRaises(SystemExit):
+                    MANIFEST.verify_torrent_debian_runtime_members(members)
+        missing = self.torrent_debian_members()
+        missing.pop("usr/bin/buzzard-torrent")
+        with self.assertRaises(SystemExit):
+            MANIFEST.verify_torrent_debian_runtime_members(missing)
+
+    def test_torrent_debian_archive_is_extracted_and_gated(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            package, external = self.build_torrent_deb(root)
+            verifier_result = subprocess.CompletedProcess([], 0, "", "")
+            with mock.patch.object(
+                MANIFEST.subprocess, "run", return_value=verifier_result
+            ):
+                self.assertEqual(
+                    MANIFEST.verify_torrent_debian_payload(package, root), external
+                )
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            package, _ = self.build_torrent_deb(
+                root, extra_file="usr/share/buzzard-torrent/tests/fixture.json"
+            )
+            with self.assertRaises(SystemExit):
+                MANIFEST.verify_torrent_debian_payload(package, root)
 
     def test_requires_each_browser_legal_file_once_as_a_regular_file(self):
         valid = {path: ["file"] for path in MANIFEST.BROWSER_DEB_LEGAL_PATHS}
@@ -333,6 +669,8 @@ class ReleasePayloadTests(unittest.TestCase):
             "opt/wildbuzzard/.cache/compiler/state",
             "opt/wildbuzzard/browser/devtools/source.map",
             "opt/wildbuzzard/Cargo.toml",
+            "opt/wildbuzzard/notices/wildbuzzard-cli/crates/serde-1.0.228.crate",
+            "opt/wildbuzzard/notices/wildbuzzard-cli/source/serde/src/lib.rs",
             "opt/wildbuzzard/xpcshell",
         ]
         for path in forbidden:

@@ -165,50 +165,6 @@ const WILDBUZZARD_ONBOARDING = {
       }),
     },
     {
-      id: "AW_WILDBUZZARD_IMPORT",
-      content: splitContent({
-        hide_secondary_section: "responsive",
-        logo: {},
-        tiles: {
-          type: "migration-wizard",
-          migration_wizard_options: {
-            migrator_key: "firefox-import",
-            force_show_import_all: true,
-            selection_header_string: "",
-            hide_option_expander_subtitle: true,
-            checkbox_margin_block: "4px",
-            header_font_size: "1em",
-            header_font_weight: "var(--font-weight-heading)",
-            header_margin_block: "0 var(--space-medium)",
-            subheader_font_size: "0.9em",
-            subheader_margin_block: "0 var(--space-medium)",
-          },
-        },
-        title: {
-          string_id: "wildbuzzard-onboarding-import-title",
-        },
-        subtitle: {
-          string_id: "wildbuzzard-onboarding-import-subtitle",
-        },
-        migrate_start: {
-          action: {},
-        },
-        migrate_close: {
-          action: {
-            navigate: true,
-          },
-        },
-        secondary_button: {
-          label: {
-            string_id: "wildbuzzard-onboarding-skip-button",
-          },
-          action: {
-            navigate: true,
-          },
-        },
-      }),
-    },
-    {
       id: "AW_WILDBUZZARD_STYLE",
       content: splitContent({
         logo: {},

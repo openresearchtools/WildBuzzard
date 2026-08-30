@@ -1,0 +1,315 @@
+{
+  "cargoLock": {
+    "path": "Cargo.lock",
+    "sha256": "9130588d852d2d47d98923f3cac52d247f37a9a7d221672ccbebcc54e60a81b9"
+  },
+  "packages": [
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "itoa",
+      "repository": "https://github.com/dtolnay/itoa",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682",
+        "url": "https://static.crates.io/crates/itoa/itoa-1.0.18.crate"
+      },
+      "vcs": {
+        "commit": "af77385d0daf4d0e949e81f2588be2e44f69f086",
+        "path": ""
+      },
+      "version": "1.0.18"
+    },
+    {
+      "license": "Unlicense OR MIT",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/memchr-COPYING.txt",
+          "sha256": "01c266bced4a434da0051174d6bee16a4c82cf634e2679b6155d40d75012390f",
+          "sourcePath": "COPYING"
+        },
+        {
+          "installedPath": "licenses/memchr-MIT.txt",
+          "sha256": "0f96a83840e146e43c0ec96a22ec1f392e0680e6c1226e6f3ba87e0740af850f",
+          "sourcePath": "LICENSE-MIT"
+        },
+        {
+          "installedPath": "licenses/Unlicense.txt",
+          "sha256": "7e12e5df4bae12cb21581ba157ced20e1986a0508dd10d0e8a4ab9a4cf94e85c",
+          "sourcePath": "UNLICENSE"
+        }
+      ],
+      "name": "memchr",
+      "repository": "https://github.com/BurntSushi/memchr",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98",
+        "url": "https://static.crates.io/crates/memchr/memchr-2.8.3.crate"
+      },
+      "vcs": {
+        "commit": "5fdb40c054e1fff359a2f7bdf7f87a13b34b465d",
+        "path": ""
+      },
+      "version": "2.8.3"
+    },
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "proc-macro2",
+      "repository": "https://github.com/dtolnay/proc-macro2",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "985e7ec9bb745e6ce6535b544d84d6cd6f7ad8bd711c398938ae983b91a766d9",
+        "url": "https://static.crates.io/crates/proc-macro2/proc-macro2-1.0.107.crate"
+      },
+      "vcs": {
+        "commit": "ed8a5497669cd63db33bf24646f261b012bbbc4a",
+        "path": ""
+      },
+      "version": "1.0.107"
+    },
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "quote",
+      "repository": "https://github.com/dtolnay/quote",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001",
+        "url": "https://static.crates.io/crates/quote/quote-1.0.47.crate"
+      },
+      "vcs": {
+        "commit": "723dcb47d3f0ddc896e17287c8a8d3f2ea2317d5",
+        "path": ""
+      },
+      "version": "1.0.47"
+    },
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "serde",
+      "repository": "https://github.com/serde-rs/serde",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "9a8e94ea7f378bd32cbbd37198a4a91436180c5bb472411e48b5ec2e2124ae9e",
+        "url": "https://static.crates.io/crates/serde/serde-1.0.228.crate"
+      },
+      "vcs": {
+        "commit": "a866b336f14aa57a07f0d0be9f8762746e64ecb4",
+        "path": "serde"
+      },
+      "version": "1.0.228"
+    },
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "serde_core",
+      "repository": "https://github.com/serde-rs/serde",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "41d385c7d4ca58e59fc732af25c3983b67ac852c1a25000afe1175de458b67ad",
+        "url": "https://static.crates.io/crates/serde_core/serde_core-1.0.228.crate"
+      },
+      "vcs": {
+        "commit": "a866b336f14aa57a07f0d0be9f8762746e64ecb4",
+        "path": "serde_core"
+      },
+      "version": "1.0.228"
+    },
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "serde_derive",
+      "repository": "https://github.com/serde-rs/serde",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "d540f220d3187173da220f885ab66608367b6574e925011a9353e4badda91d79",
+        "url": "https://static.crates.io/crates/serde_derive/serde_derive-1.0.228.crate"
+      },
+      "vcs": {
+        "commit": "a866b336f14aa57a07f0d0be9f8762746e64ecb4",
+        "path": "serde_derive"
+      },
+      "version": "1.0.228"
+    },
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "serde_json",
+      "repository": "https://github.com/serde-rs/json",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86",
+        "url": "https://static.crates.io/crates/serde_json/serde_json-1.0.149.crate"
+      },
+      "vcs": {
+        "commit": "4f6dbfac79647d032b0997b5ab73022340c6dab7",
+        "path": ""
+      },
+      "version": "1.0.149"
+    },
+    {
+      "license": "MIT OR Apache-2.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "syn",
+      "repository": "https://github.com/dtolnay/syn",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "872831b642d1a07999a962a351ed35b955ea2cfc8f3862091e2a240a84f17297",
+        "url": "https://static.crates.io/crates/syn/syn-2.0.119.crate"
+      },
+      "vcs": {
+        "commit": "3295f9e9841785ac88a5e558c884854d5fb7d67f",
+        "path": ""
+      },
+      "version": "2.0.119"
+    },
+    {
+      "license": "(MIT OR Apache-2.0) AND Unicode-3.0",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/Apache-2.0.txt",
+          "sha256": "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a",
+          "sourcePath": "LICENSE-APACHE"
+        },
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        },
+        {
+          "installedPath": "licenses/Unicode-3.0.txt",
+          "sha256": "f7db81051789b729fea528a63ec4c938fdcb93d9d61d97dc8cc2e9df6d47f2a1",
+          "sourcePath": "LICENSE-UNICODE"
+        }
+      ],
+      "name": "unicode-ident",
+      "repository": "https://github.com/dtolnay/unicode-ident",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75",
+        "url": "https://static.crates.io/crates/unicode-ident/unicode-ident-1.0.24.crate"
+      },
+      "vcs": {
+        "commit": "5b54a632702b5744a1c40ea01c127c0ac0498172",
+        "path": ""
+      },
+      "version": "1.0.24"
+    },
+    {
+      "license": "MIT",
+      "licenseFiles": [
+        {
+          "installedPath": "licenses/MIT-dtolnay-serde.txt",
+          "sha256": "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3",
+          "sourcePath": "LICENSE-MIT"
+        }
+      ],
+      "name": "zmij",
+      "repository": "https://github.com/dtolnay/zmij",
+      "source": "registry+https://github.com/rust-lang/crates.io-index",
+      "sourceArchive": {
+        "sha256": "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b",
+        "url": "https://static.crates.io/crates/zmij/zmij-1.0.23.crate"
+      },
+      "vcs": {
+        "commit": "7b7cc48b58028e8af7be87e94c0c1c8936f1a57c",
+        "path": ""
+      },
+      "version": "1.0.23"
+    }
+  ],
+  "schema": 1,
+  "sourceBundle": {
+    "file": "wildbuzzard-runner-crates-source.tar.xz",
+    "sha256": "e9fbcdb39cfc5d2f076eb108f8a452092daa8b5482234915d921c21aac42d3a6"
+  }
+}

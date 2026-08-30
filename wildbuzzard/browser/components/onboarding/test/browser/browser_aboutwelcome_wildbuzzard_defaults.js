@@ -66,7 +66,6 @@ const ACTION_PREFS = [
 
 const WILDBUZZARD_SCREEN_IDS = [
   "AW_WILDBUZZARD_WELCOME",
-  "AW_WILDBUZZARD_IMPORT",
   "AW_WILDBUZZARD_STYLE",
   "AW_WILDBUZZARD_THEME_COLOR",
   "AW_WILDBUZZARD_TABS",
@@ -243,32 +242,6 @@ add_task(async function test_wildbuzzard_defaults_shape() {
     );
     Assert.ok(screen.content.background, `${screen.id} has a split background`);
   }
-
-  const importScreen = getScreen(defaults, "AW_WILDBUZZARD_IMPORT");
-  Assert.equal(
-    importScreen.content.tiles.type,
-    "migration-wizard",
-    "Import screen embeds the migration wizard"
-  );
-  Assert.equal(
-    importScreen.content.tiles.migration_wizard_options.migrator_key,
-    "firefox-import",
-    "Import screen defaults to the Firefox import migrator"
-  );
-  Assert.equal(
-    importScreen.content.tiles.migration_wizard_options.force_show_import_all,
-    true,
-    "Import screen keeps the import all option available"
-  );
-  Assert.equal(
-    importScreen.content.tiles.migration_wizard_options.selection_header_string,
-    "",
-    "Import screen uses the about:welcome title instead of a second wizard title"
-  );
-  Assert.ok(
-    !importScreen.content.primary_button,
-    "Import screen uses the embedded wizard controls"
-  );
 
   const styleScreen = getScreen(defaults, "AW_WILDBUZZARD_STYLE");
   const [styleTiles, densityTiles] = styleScreen.content.tiles;
@@ -711,7 +684,7 @@ add_task(async function test_wildbuzzard_defaults_render_first_screen() {
         "div.steps",
         "button.primary",
       ],
-      ["main.AW_WILDBUZZARD_IMPORT"]
+      ["main.AW_WILDBUZZARD_STYLE"]
     );
   } finally {
     await cleanup();

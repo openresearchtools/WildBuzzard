@@ -8,6 +8,7 @@ import os
 import pathlib
 import socket
 import struct
+import subprocess
 import sys
 import tempfile
 import types
@@ -269,6 +270,8 @@ class AptInstallTests(unittest.TestCase):
             if command[:2] == ["apt-get", "install"]
         )
         self.assertIn("--no-install-recommends", install)
+        for dependency in guest.TEST_DEPENDENCIES:
+            self.assertIn(dependency, install)
         self.assertEqual(
             {
                 pathlib.Path(value).name
@@ -835,6 +838,10 @@ class EvidenceHelperTests(unittest.TestCase):
                 self.assertEqual(
                     response.headers.get_content_type(), "application/x-bittorrent"
                 )
+                self.assertEqual(
+                    response.headers.get("Content-Disposition"),
+                    'attachment; filename="wildbuzzard-release-validation.torrent"',
+                )
                 self.assertEqual(response.read(), fixture.torrent)
 
         self.assertIn('id="torrent"', page)
@@ -843,6 +850,41 @@ class EvidenceHelperTests(unittest.TestCase):
         self.assertIn(
             urllib.parse.quote(fixture.announce_url, safe=""), source["magnet"]
         )
+
+    def test_minijtt_fixture_stub_is_deterministic_and_loopback_only(self):
+        magnet = (
+            f"magnet:?xt=urn:btih:{'a' * 40}"
+            "&dn=release&tr=http%3A%2F%2F127.0.0.1%3A49000%2Fannounce"
+        )
+        with temporary_directory() as directory:
+            script = pathlib.Path(directory) / "buzzard-minijtt-fixture"
+            script.write_text(guest.minijtt_fixture_stub(magnet), encoding="utf-8")
+
+            def call(arguments, request=None):
+                result = subprocess.run(
+                    [sys.executable, script, *arguments],
+                    input=None if request is None else json.dumps(request),
+                    capture_output=True,
+                    check=True,
+                    text=True,
+                )
+                return json.loads(result.stdout)
+
+            self.assertEqual(call(["version"])["package"], "buzzard-minijtt")
+            sources = call(["call", "torrent_sources", "-"], {"schemaVersion": 1})
+            self.assertEqual(sources["sources"][0]["id"], "release.fixture")
+            searched = call(
+                ["call", "torrent_search", "-"],
+                {"schemaVersion": 1, "query": "release fixture", "limit": 5},
+            )
+            resolved = call(
+                ["call", "torrent_resolve", "-"],
+                {
+                    "schemaVersion": 1,
+                    "resultId": searched["results"][0]["resultId"],
+                },
+            )
+            self.assertEqual(resolved["payload"], {"kind": "magnet", "value": magnet})
 
     def test_fixture_server_is_loopback_http_and_png_validation_is_strict(self):
         body = b"<!doctype html><title>fixture</title>"

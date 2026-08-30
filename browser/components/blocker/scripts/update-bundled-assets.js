@@ -11,6 +11,7 @@
 const path = require("node:path");
 const os = require("node:os");
 const fs = require("node:fs/promises");
+const { createHash } = require("node:crypto");
 const { spawn } = require("node:child_process");
 const { pathToFileURL } = require("node:url");
 
@@ -48,8 +49,7 @@ const FILTERS_DIR = path.join(ASSETS_DIR, "filters");
 const RESOURCES_DIR = path.join(ASSETS_DIR, "resources");
 
 const CATALOG_PATH = path.join(ASSETS_DIR, "list_catalog.json");
-const SUPPLEMENTARY_RESOURCE_URL =
-  "https://raw.githubusercontent.com/brave/adblock-resources/refs/heads/master/dist/resources.json";
+const SOURCE_LOCK_PATH = path.join(ASSETS_DIR, "SOURCES.lock.json");
 const SUPPLEMENTARY_OUTPUT_PATH = path.join(RESOURCES_DIR, "resources.json");
 const UBO_SCRIPTLET_OUTPUT_PATH = path.join(
   RESOURCES_DIR,
@@ -75,7 +75,6 @@ const REDIRECT_RESOURCE_MIME_BY_NAME = Object.freeze({
 const AUTO_UBLOCK_DIR = path.join(os.tmpdir(), "wildbuzzard-blocker-ublock");
 const RESOURCES_ONLY_ARG = "--resources-only";
 const UBLOCK_GIT_URL = "https://github.com/gorhill/uBlock.git";
-const UBLOCK_RELEASE_TAG_RE = /^refs\/tags\/(\d+\.\d+\.\d+)$/;
 const DOWNLOAD_TIMEOUT_MS = 90_000;
 const DOWNLOAD_ATTEMPTS = 3;
 const DOWNLOAD_RETRY_BASE_MS = 2_000;
@@ -287,6 +286,41 @@ async function fileStatsLine(filePath) {
   return `${size} bytes, ${lines} lines`;
 }
 
+async function sha256File(filePath) {
+  return createHash("sha256")
+    .update(await fs.readFile(filePath))
+    .digest("hex");
+}
+
+async function readSourceLock() {
+  const lock = JSON.parse(await fs.readFile(SOURCE_LOCK_PATH, "utf8"));
+  const brave = lock?.sources?.braveAdblockResources;
+  const uBlock = lock?.sources?.uBlockOrigin;
+  if (
+    lock?.schemaVersion !== 1 ||
+    lock.nodeVersion !== process.version ||
+    !/^[0-9a-f]{40}$/.test(brave?.commit ?? "") ||
+    !/^[0-9a-f]{64}$/.test(brave?.resourcesSha256 ?? "") ||
+    !/^\d+\.\d+\.\d+$/.test(uBlock?.tag ?? "") ||
+    !/^[0-9a-f]{40}$/.test(uBlock?.commit ?? "")
+  ) {
+    throw new Error(
+      `invalid blocker source lock or Node version (requires ${lock?.nodeVersion}): ${SOURCE_LOCK_PATH}`
+    );
+  }
+  return lock;
+}
+
+async function assertLockedFile(filePath, expected) {
+  const stats = await fs.stat(filePath);
+  const digest = await sha256File(filePath);
+  if (stats.size !== expected.size || digest !== expected.sha256) {
+    throw new Error(
+      `locked output mismatch: ${filePath} (${stats.size} bytes, ${digest})`
+    );
+  }
+}
+
 /**
  * Download URL to destination atomically, one attempt.
  *
@@ -438,70 +472,19 @@ async function readDefaultEnabledSources(catalogPath) {
 }
 
 /**
- * Compare dotted version number arrays.
- *
- * @param {number[]} a
- * @param {number[]} b
- * @returns {number}
- */
-function compareVersions(a, b) {
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const diff = (a[i] ?? 0) - (b[i] ?? 0);
-    if (diff !== 0) {
-      return diff;
-    }
-  }
-  return 0;
-}
-
-/**
- * Resolve the latest stable uBlock release tag over the git protocol,
- * avoiding GitHub API rate limits.
- *
- * @returns {Promise<string>}
- */
-async function resolveLatestUblockTag() {
-  const output = await runCommand(
-    "git",
-    ["ls-remote", "--tags", "--refs", UBLOCK_GIT_URL],
-    { capture: true }
-  );
-
-  let bestTag = null;
-  let bestVersion = null;
-  for (const line of output.split("\n")) {
-    const ref = line.split("\t")[1];
-    const match = ref ? UBLOCK_RELEASE_TAG_RE.exec(ref) : null;
-    if (!match) {
-      continue;
-    }
-    const version = match[1].split(".").map(Number);
-    if (!bestVersion || compareVersions(version, bestVersion) > 0) {
-      bestVersion = version;
-      bestTag = match[1];
-    }
-  }
-
-  if (!bestTag) {
-    throw new Error("no stable uBlock release tag found via git ls-remote");
-  }
-  return bestTag;
-}
-
-/**
  * Ensure the managed uBlock checkout matches the release tag.
  *
- * @param {string} tag
+ * @param {{tag: string, commit: string}} source
  * @returns {Promise<string>} Commit sha of the checkout.
  */
-async function ensureUblockCheckout(tag) {
+async function ensureUblockCheckout(source) {
   if (await pathExists(AUTO_UBLOCK_DIR)) {
-    const current = await runCommand(
+    const currentCommit = await runCommand(
       "git",
-      ["-C", AUTO_UBLOCK_DIR, "describe", "--tags", "--exact-match"],
+      ["-C", AUTO_UBLOCK_DIR, "rev-parse", "HEAD"],
       { capture: true }
     ).catch(() => "");
-    if (current.trim() !== tag) {
+    if (currentCommit.trim() !== source.commit) {
       await fs.rm(AUTO_UBLOCK_DIR, { recursive: true, force: true });
     }
   }
@@ -512,7 +495,7 @@ async function ensureUblockCheckout(tag) {
       "--depth",
       "1",
       "--branch",
-      tag,
+      source.tag,
       UBLOCK_GIT_URL,
       AUTO_UBLOCK_DIR,
     ]);
@@ -523,7 +506,12 @@ async function ensureUblockCheckout(tag) {
     ["-C", AUTO_UBLOCK_DIR, "rev-parse", "HEAD"],
     { capture: true }
   );
-  return sha.trim();
+  if (sha.trim() !== source.commit) {
+    throw new Error(
+      `uBlock tag ${source.tag} resolved to ${sha.trim()}, expected ${source.commit}`
+    );
+  }
+  return source.commit;
 }
 
 /**
@@ -702,15 +690,23 @@ async function updateDefaultFilters() {
  * Update supplementary redirect resources.
  *
  * @param {string} uBlockRoot
+ * @param {{commit: string, resourcesPath: string, resourcesSha256: string}} braveSource
  * @returns {Promise<void>}
  */
-async function updateSupplementaryResources(uBlockRoot) {
+async function updateSupplementaryResources(uBlockRoot, braveSource) {
   console.log();
   console.log("→ Updating supplementary resources.json...");
 
   const braveResourcesPath = `${SUPPLEMENTARY_OUTPUT_PATH}.brave.tmp`;
   try {
-    await downloadToFile(SUPPLEMENTARY_RESOURCE_URL, braveResourcesPath);
+    const url = `https://raw.githubusercontent.com/brave/adblock-resources/${braveSource.commit}/${braveSource.resourcesPath}`;
+    await downloadToFile(url, braveResourcesPath);
+    const braveDigest = await sha256File(braveResourcesPath);
+    if (braveDigest !== braveSource.resourcesSha256) {
+      throw new Error(
+        `Brave resources digest ${braveDigest} does not match source lock`
+      );
+    }
     const braveResources = JSON.parse(
       await fs.readFile(braveResourcesPath, "utf8")
     );
@@ -796,28 +792,36 @@ async function updateScriptletResources(uBlockRoot) {
  */
 async function main() {
   const resourcesOnly = process.argv.includes(RESOURCES_ONLY_ARG);
+  const sourceLock = await readSourceLock();
 
   await assertExists(CATALOG_PATH, "catalog");
 
   await fs.mkdir(FILTERS_DIR, { recursive: true });
   await fs.mkdir(RESOURCES_DIR, { recursive: true });
 
-  const uBlockTag = await resolveLatestUblockTag();
-  const uBlockSha = await ensureUblockCheckout(uBlockTag);
+  const uBlockSource = sourceLock.sources.uBlockOrigin;
+  const uBlockSha = await ensureUblockCheckout(uBlockSource);
   console.log(
-    `→ Using uBlock ${uBlockTag} (${uBlockSha}) at ${AUTO_UBLOCK_DIR}`
+    `→ Using uBlock ${uBlockSource.tag} (${uBlockSha}) at ${AUTO_UBLOCK_DIR}`
   );
 
   if (!resourcesOnly) {
     await updateDefaultFilters();
   }
 
-  await updateSupplementaryResources(AUTO_UBLOCK_DIR);
+  await updateSupplementaryResources(
+    AUTO_UBLOCK_DIR,
+    sourceLock.sources.braveAdblockResources
+  );
 
   if (!resourcesOnly) {
     console.log();
     console.log("→ Updating bundled uBO scriptlet resources...");
     await updateScriptletResources(AUTO_UBLOCK_DIR);
+  }
+
+  for (const [relative, expected] of Object.entries(sourceLock.outputs)) {
+    await assertLockedFile(path.join(ASSETS_DIR, relative), expected);
   }
 
   console.log();
@@ -830,7 +834,14 @@ async function main() {
   console.log(`  git status -- ${FILTERS_DIR} ${RESOURCES_DIR}`);
 }
 
-main().catch(error => {
-  console.error(`error: ${toErrorMessage(error)}`);
-  process.exit(1);
-});
+module.exports = {
+  buildScriptletResources,
+  buildUblockRedirectResources,
+};
+
+if (require.main === module) {
+  main().catch(error => {
+    console.error(`error: ${toErrorMessage(error)}`);
+    process.exit(1);
+  });
+}

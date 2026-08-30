@@ -7,9 +7,35 @@ PYTHON_UNITTEST_MANIFESTS += ["scripts/tests/python.toml"]
 FINAL_TARGET_FILES.notices += [
     "/COPYING",
     "/LICENSE",
-    "SOURCE-NOTICE",
+    "BLOCKER-ASSET-SOURCE-NOTICE",
     "components/wildbuzzard-cli/MOZILLA-MCP-LICENSE",
     "components/wildbuzzard-cli/NOTICE",
+    "SOURCE-NOTICE",
+]
+
+FINAL_TARGET_FILES.notices["blocker"] += [
+    "/browser/components/blocker/assets/SOURCES.lock.json",
+]
+
+FINAL_TARGET_FILES.notices["arti-crates"] += [
+    "third_party/arti-crates/THIRD-PARTY.json",
+]
+
+FINAL_TARGET_FILES.notices["arti-crates"]["licenses"] += [
+    "third_party/arti-crates/licenses/*",
+]
+
+FINAL_TARGET_FILES.notices["wildbuzzard-cli"] += [
+    "components/wildbuzzard-cli/runner/third_party/THIRD-PARTY.json",
+]
+
+FINAL_TARGET_FILES.notices["wildbuzzard-cli"]["licenses"] += [
+    "components/wildbuzzard-cli/runner/third_party/licenses/Apache-2.0.txt",
+    "components/wildbuzzard-cli/runner/third_party/licenses/memchr-COPYING.txt",
+    "components/wildbuzzard-cli/runner/third_party/licenses/memchr-MIT.txt",
+    "components/wildbuzzard-cli/runner/third_party/licenses/MIT-dtolnay-serde.txt",
+    "components/wildbuzzard-cli/runner/third_party/licenses/Unicode-3.0.txt",
+    "components/wildbuzzard-cli/runner/third_party/licenses/Unlicense.txt",
 ]
 
 if CONFIG["WILDBUZZARD_ARTI"]:
@@ -23,7 +49,9 @@ if CONFIG["WILDBUZZARD_ARTI"]:
         "%" + CONFIG["WILDBUZZARD_ARTI"],
         "%" + CONFIG["WILDBUZZARD_ARTI_PROVENANCE"],
         "scripts/arti-runtime-provenance.py",
+        "scripts/arti_crate_provenance.py",
         "third_party/arti.toml",
+        "third_party/arti-crates/THIRD-PARTY.json",
     ]
     arti_provenance = GENERATED_FILES[arti_provenance_name]
     arti_provenance.script = "copy_file.py"

@@ -2,10 +2,8 @@
 
 import hashlib
 import importlib.util
-import io
 import json
 import stat
-import tarfile
 import tempfile
 import unittest
 import zipfile
@@ -50,32 +48,65 @@ class ArtiRuntimePackagingTests(unittest.TestCase):
 
     def fixture(self, root):
         binary_bytes = b"source-built arti binary"
-        cargo_lock = b"""version = 4
-
-[[package]]
-name = "arti"
-version = "2.5.1"
-
-[[package]]
-name = "subtle"
-version = "2.6.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-"""
-        source_buffer = io.BytesIO()
-        with tarfile.open(fileobj=source_buffer, mode="w:xz") as archive:
-            cargo_entry = tarfile.TarInfo(f"arti-{MODULE.VERSION}/Cargo.lock")
-            cargo_entry.size = len(cargo_lock)
-            cargo_entry.mode = 0o644
-            archive.addfile(cargo_entry, io.BytesIO(cargo_lock))
-        source_bytes = source_buffer.getvalue()
+        source_bytes = b"Arti source archive"
+        vendor_bytes = b"Cargo vendor source archive"
+        cargo_lock_digest = "c" * 64
+        inventory_value = {
+            "schema": 1,
+            "cargoLock": {"path": "Cargo.lock", "sha256": cargo_lock_digest},
+            "sourceArtifacts": {
+                "arti": {
+                    "file": MODULE.ARTI_SOURCE,
+                    "sha256": sha256(source_bytes),
+                },
+                "cargoVendor": {
+                    "file": MODULE.CARGO_VENDOR_SOURCE,
+                    "sha256": sha256(vendor_bytes),
+                },
+            },
+            "packages": [
+                {
+                    "cargoChecksum": None,
+                    "cargoSource": None,
+                    "homepage": None,
+                    "license": "MIT OR Apache-2.0",
+                    "licenseFile": None,
+                    "licenseFiles": [],
+                    "name": "arti",
+                    "repository": "https://example.invalid/arti",
+                    "sourceArtifact": "arti",
+                    "sourceDirectory": "crates/arti",
+                    "version": MODULE.VERSION,
+                },
+                {
+                    "cargoChecksum": "b" * 64,
+                    "cargoSource": "registry+https://github.com/rust-lang/crates.io-index",
+                    "homepage": None,
+                    "license": "MIT",
+                    "licenseFile": None,
+                    "licenseFiles": [],
+                    "name": "subtle",
+                    "repository": "https://example.invalid/subtle",
+                    "sourceArtifact": "cargoVendor",
+                    "sourceDirectory": "subtle-2.6.1",
+                    "version": "2.6.1",
+                },
+            ],
+        }
+        inventory_bytes = (
+            json.dumps(inventory_value, indent=2, sort_keys=True) + "\n"
+        ).encode()
         apache_bytes = b"Apache license"
         mit_bytes = b"MIT license"
         binary = root / "arti"
         binary.write_bytes(binary_bytes)
         binary.chmod(0o755)
-        source = root / "source.tar.xz"
+        source = root / MODULE.ARTI_SOURCE
         source.write_bytes(source_bytes)
+        cargo_vendor = root / MODULE.CARGO_VENDOR_SOURCE
+        cargo_vendor.write_bytes(vendor_bytes)
+        inventory = root / "THIRD-PARTY.json"
+        inventory.write_bytes(inventory_bytes)
         pin_config = root / "wildbuzzard" / "third_party" / "arti.toml"
         pin_config.parent.mkdir(parents=True)
         licenses = root / "third_party" / "arti"
@@ -97,7 +128,9 @@ checksum = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
                 'build_cargo = "cargo test"',
                 'license = "MIT OR Apache-2.0"',
                 f'source_sha256 = "{sha256(source_bytes)}"',
-                f'cargo_lock_sha256 = "{sha256(cargo_lock)}"',
+                f'cargo_lock_sha256 = "{cargo_lock_digest}"',
+                f'cargo_vendor_sha256 = "{sha256(vendor_bytes)}"',
+                f'cargo_license_inventory_sha256 = "{sha256(inventory_bytes)}"',
                 f'license_apache_sha256 = "{sha256(apache_bytes)}"',
                 f'license_mit_sha256 = "{sha256(mit_bytes)}"',
                 f'linux_x86_64_binary_sha256 = "{sha256(binary_bytes)}"',
@@ -106,8 +139,21 @@ checksum = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
             encoding="utf-8",
         )
         provenance = root / "provenance.zip"
-        MODULE.create(binary, pin_config, source, provenance, 1_785_790_436)
-        return binary, pin_config, provenance
+        MODULE.create(
+            binary,
+            pin_config,
+            source,
+            cargo_vendor,
+            inventory,
+            provenance,
+            1_785_790_436,
+        )
+        return binary, pin_config, inventory, source, cargo_vendor, provenance
+
+    def validate(self, binary, config, inventory, provenance, installed=None):
+        return MODULE.validate(
+            binary, config, installed or config, inventory, provenance
+        )
 
     def rewrite(self, archive_path, *, replace=None, omit=(), extra=None):
         replace = replace or {}
@@ -131,19 +177,23 @@ checksum = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
     def test_create_and_validate_pinned_provenance(self):
         with tempfile.TemporaryDirectory() as temporary:
-            binary, config, provenance = self.fixture(Path(temporary))
-            manifest = MODULE.validate(binary, config, config, provenance)
+            binary, config, inventory, _, _, provenance = self.fixture(Path(temporary))
+            manifest = self.validate(binary, config, inventory, provenance)
             self.assertEqual(manifest["component"], "arti")
-            self.assertEqual(manifest["correspondingSource"], MODULE.SOURCE)
-            self.assertEqual(manifest["sbom"], MODULE.SBOM)
-            self.assertEqual(manifest["licenseLocations"], list(MODULE.LICENSES))
+            self.assertEqual(manifest["schemaVersion"], 2)
+            self.assertEqual(
+                [entry["name"] for entry in manifest["externalSourceArtifacts"]],
+                [MODULE.ARTI_SOURCE, MODULE.CARGO_VENDOR_SOURCE],
+            )
             with zipfile.ZipFile(provenance) as archive:
-                sbom = archive.read(MODULE.SBOM)
-            components = json.loads(sbom)["components"]
+                self.assertNotIn(MODULE.ARTI_SOURCE, archive.namelist())
+                self.assertNotIn(MODULE.CARGO_VENDOR_SOURCE, archive.namelist())
+                components = json.loads(archive.read(MODULE.SBOM))["components"]
             self.assertEqual(
                 [component["bom-ref"] for component in components],
                 [
-                    "wildbuzzard-arti-source-2.5.1",
+                    "wildbuzzard-arti-source-1",
+                    "wildbuzzard-arti-source-2",
                     "pkg:cargo/arti@2.5.1",
                     "pkg:cargo/subtle@2.6.1",
                 ],
@@ -152,70 +202,111 @@ checksum = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
     def test_provenance_archive_is_reproducible(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            binary, config, first = self.fixture(root)
-            source = root / "source.tar.xz"
+            binary, config, inventory, source, vendor, first = self.fixture(root)
             second = root / "second.zip"
-            MODULE.create(binary, config, source, second, 1_785_790_436)
+            MODULE.create(
+                binary,
+                config,
+                source,
+                vendor,
+                inventory,
+                second,
+                1_785_790_436,
+            )
             self.assertEqual(first.read_bytes(), second.read_bytes())
 
-    def test_rejects_tampered_binary(self):
+    def test_rejects_tampered_binary_inventory_and_external_sources(self):
         with tempfile.TemporaryDirectory() as temporary:
-            binary, config, provenance = self.fixture(Path(temporary))
+            binary, config, inventory, source, vendor, provenance = self.fixture(
+                Path(temporary)
+            )
             binary.write_bytes(b"tampered")
             with self.assertRaisesRegex(ValueError, "binary differs"):
-                MODULE.validate(binary, config, config, provenance)
+                self.validate(binary, config, inventory, provenance)
+            binary.write_bytes(b"source-built arti binary")
+            inventory.write_bytes(inventory.read_bytes() + b"tampered")
+            with self.assertRaisesRegex(ValueError, "inventory differs"):
+                self.validate(binary, config, inventory, provenance)
+            inventory.write_bytes(inventory.read_bytes().removesuffix(b"tampered"))
+            source.write_bytes(b"tampered")
+            with self.assertRaisesRegex(ValueError, "source artifact differs"):
+                MODULE.create(
+                    binary,
+                    config,
+                    source,
+                    vendor,
+                    inventory,
+                    Path(temporary) / "other.zip",
+                    1_785_790_436,
+                )
 
-    def test_rejects_non_executable_binary(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            binary, config, provenance = self.fixture(Path(temporary))
-            binary.chmod(0o644)
-            with self.assertRaisesRegex(ValueError, "not executable"):
-                MODULE.validate(binary, config, config, provenance)
-
-    def test_rejects_tampered_installed_config(self):
+    def test_rejects_non_executable_binary_or_tampered_config(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            binary, config, provenance = self.fixture(root)
+            binary, config, inventory, _, _, provenance = self.fixture(root)
+            binary.chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "not executable"):
+                self.validate(binary, config, inventory, provenance)
+            binary.chmod(0o755)
             installed = root / "installed.toml"
             installed.write_bytes(config.read_bytes() + b"tampered\n")
             with self.assertRaisesRegex(ValueError, "installed Arti pin metadata"):
-                MODULE.validate(binary, config, installed, provenance)
+                self.validate(binary, config, inventory, provenance, installed)
 
-    def test_rejects_tampered_source(self):
+    def test_binary_uses_the_runtime_size_cap(self):
         with tempfile.TemporaryDirectory() as temporary:
-            binary, config, provenance = self.fixture(Path(temporary))
-            self.rewrite(provenance, replace={MODULE.SOURCE: b"tampered"})
-            with self.assertRaisesRegex(ValueError, "source differs"):
-                MODULE.validate(binary, config, config, provenance)
+            root = Path(temporary)
+            binary, config, inventory, source, vendor, _ = self.fixture(root)
+            value = b"\x7fELF" + b"\0" * MODULE.MAX_MEMBER_SIZE
+            binary.write_bytes(value)
+            config.write_text(
+                config.read_text(encoding="utf-8").replace(
+                    sha256(b"source-built arti binary"), sha256(value)
+                ),
+                encoding="utf-8",
+            )
+            provenance = root / "large-binary-provenance.zip"
+            MODULE.create(
+                binary,
+                config,
+                source,
+                vendor,
+                inventory,
+                provenance,
+                1_785_790_436,
+            )
+            self.validate(binary, config, inventory, provenance)
+            with binary.open("r+b") as stream:
+                stream.truncate(MODULE.MAX_BINARY_SIZE + 1)
+            with self.assertRaisesRegex(ValueError, "unsafe Arti input"):
+                self.validate(binary, config, inventory, provenance)
 
-    def test_rejects_tampered_sbom(self):
+    def test_rejects_tampered_sbom_missing_license_or_unsafe_member(self):
         with tempfile.TemporaryDirectory() as temporary:
-            binary, config, provenance = self.fixture(Path(temporary))
+            binary, config, inventory, _, _, provenance = self.fixture(Path(temporary))
             self.rewrite(provenance, replace={MODULE.SBOM: b"{}\n"})
             with self.assertRaisesRegex(ValueError, "manifest differs"):
-                MODULE.validate(binary, config, config, provenance)
-
-    def test_rejects_missing_license(self):
+                self.validate(binary, config, inventory, provenance)
         with tempfile.TemporaryDirectory() as temporary:
-            binary, config, provenance = self.fixture(Path(temporary))
+            binary, config, inventory, _, _, provenance = self.fixture(Path(temporary))
             self.rewrite(provenance, omit=(MODULE.LICENSES[0],))
             with self.assertRaisesRegex(ValueError, "archive layout"):
-                MODULE.validate(binary, config, config, provenance)
-
-    def test_rejects_unexpected_or_unsafe_member(self):
+                self.validate(binary, config, inventory, provenance)
         for name in ("unexpected", "../escape"):
             with self.subTest(name=name), tempfile.TemporaryDirectory() as temporary:
-                binary, config, provenance = self.fixture(Path(temporary))
+                binary, config, inventory, _, _, provenance = self.fixture(
+                    Path(temporary)
+                )
                 self.rewrite(provenance, extra=(name, b"tampered"))
                 with self.assertRaisesRegex(ValueError, "archive layout"):
-                    MODULE.validate(binary, config, config, provenance)
+                    self.validate(binary, config, inventory, provenance)
 
     def test_rejects_noncanonical_archive_bytes(self):
         with tempfile.TemporaryDirectory() as temporary:
-            binary, config, provenance = self.fixture(Path(temporary))
+            binary, config, inventory, _, _, provenance = self.fixture(Path(temporary))
             provenance.write_bytes(provenance.read_bytes() + b"tampered")
             with self.assertRaisesRegex(ValueError, "not canonical"):
-                MODULE.validate(binary, config, config, provenance)
+                self.validate(binary, config, inventory, provenance)
 
     def test_shipping_integration_declares_provenance_gate(self):
         root = SCRIPTS.parent

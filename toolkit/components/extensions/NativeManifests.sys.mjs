@@ -24,55 +24,6 @@ const NATIVE_MANIFEST_SCHEMA =
 
 const REGPATH = "Software\\Mozilla";
 
-const MOZILLA_DIR_NAME = "mozilla";
-const DOT_MOZILLA_DIR_NAME = `.${MOZILLA_DIR_NAME}`;
-
-/** @type {Record<string, Record<string, string>>} */
-const COMPAT_DIR_NAMES = {
-  linux: {
-    ".wildbuzzard": DOT_MOZILLA_DIR_NAME,
-    wildbuzzard: MOZILLA_DIR_NAME,
-  },
-  macosx: {
-    WildBuzzard: "Mozilla",
-  },
-};
-
-/**
- * @param {string[]} paths
- * @param {string | null} path
- */
-function addUniquePath(paths, path) {
-  if (path && !paths.includes(path)) {
-    paths.push(path);
-  }
-}
-
-/**
- * @param {string} path
- * @returns {string | null}
- */
-function getCompatibilityPath(path) {
-  let dirName =
-    COMPAT_DIR_NAMES[AppConstants.platform]?.[PathUtils.filename(path)];
-  let parent = PathUtils.parent(path);
-  return dirName && parent ? PathUtils.join(parent, dirName) : null;
-}
-
-/**
- * @returns {string[]}
- */
-function getNativeManifestDirs() {
-  /** @type {string[]} */
-  let dirs = [];
-  for (let property of ["XREUserNativeManifests", "XRESysNativeManifests"]) {
-    let path = Services.dirsvc.get(property, Ci.nsIFile).path;
-    addUniquePath(dirs, path);
-    addUniquePath(dirs, getCompatibilityPath(path));
-  }
-  return dirs;
-}
-
 export var NativeManifests = {
   _initializePromise: null,
   _lookup: null,
@@ -83,7 +34,10 @@ export var NativeManifests = {
       if (platform == "win") {
         this._lookup = this._winLookup;
       } else if (platform == "macosx" || platform == "linux") {
-        let dirs = getNativeManifestDirs();
+        let dirs = [
+          Services.dirsvc.get("XREUserNativeManifests", Ci.nsIFile).path,
+          Services.dirsvc.get("XRESysNativeManifests", Ci.nsIFile).path,
+        ];
         this._lookup = (type, name, context) =>
           this._tryPaths(type, name, dirs, context);
       } else {

@@ -17,6 +17,14 @@
 
 using namespace mozilla;
 
+#ifdef MOZ_WILDBUZZARD
+#  define DBUS_NAMESPACE "org.wildbuzzard"
+#  define DBUS_OBJECT_NAMESPACE "/org/wildbuzzard"
+#else
+#  define DBUS_NAMESPACE "org.mozilla"
+#  define DBUS_OBJECT_NAMESPACE "/org/mozilla"
+#endif
+
 // Mozilla has old GIO version in build roots
 #define G_BUS_NAME_OWNER_FLAGS_DO_NOT_QUEUE GBusNameOwnerFlags(1 << 2)
 
@@ -25,7 +33,7 @@ static const char* introspect_template =
     "1.0//EN\"\n"
     "\"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n"
     "<node>\n"
-    " <interface name=\"org.mozilla.%s\">\n"
+    " <interface name=\"" DBUS_NAMESPACE ".%s\">\n"
     "   <method name=\"OpenURL\">\n"
     "     <arg name=\"url\" direction=\"in\" type=\"ay\"/>\n"
     "   </method>\n"
@@ -35,7 +43,7 @@ static const char* introspect_template =
 bool nsDBusRemoteServer::HandleOpenURL(const gchar* aInterfaceName,
                                        const gchar* aMethodName,
                                        Span<const gchar> aParam) {
-  nsPrintfCString ourInterfaceName("org.mozilla.%s", mAppName.get());
+  nsPrintfCString ourInterfaceName(DBUS_NAMESPACE ".%s", mAppName.get());
 
   if ((strcmp("OpenURL", aMethodName) != 0) ||
       (strcmp(ourInterfaceName.get(), aInterfaceName) != 0)) {
@@ -128,7 +136,8 @@ static const GDBusInterfaceVTable gInterfaceVTable = {
     HandleMethodCall, HandleGetProperty, HandleSetProperty};
 
 void nsDBusRemoteServer::OnBusAcquired(GDBusConnection* aConnection) {
-  mPathName = nsPrintfCString("/org/mozilla/%s/Remote", mAppName.get());
+  mPathName = nsPrintfCString(DBUS_OBJECT_NAMESPACE "/%s/Remote",
+                              mAppName.get());
   if (!g_variant_is_object_path(mPathName.get())) {
     g_warning("nsDBusRemoteServer: object path is not valid");
     return;
@@ -187,8 +196,7 @@ nsresult nsDBusRemoteServer::Startup(const char* aAppName,
   // Don't even try to start without any profile name
   if (!aProfileName || aProfileName[0] == '\0') return NS_ERROR_INVALID_ARG;
 
-  // aAppName is remoting name which can be something like org.mozilla.appname
-  // or so.
+  // aAppName is the application remoting name.
   // For DBus service we rather use general application DBus identifier
   // which is shared by all DBus services.
   gAppData->GetDBusAppName(mAppName);
@@ -199,7 +207,7 @@ nsresult nsDBusRemoteServer::Startup(const char* aAppName,
 
   mozilla::XREAppData::SanitizeNameForDBus(profileName);
 
-  nsPrintfCString busName("org.mozilla.%s.%s", mAppName.get(),
+  nsPrintfCString busName(DBUS_NAMESPACE ".%s.%s", mAppName.get(),
                           profileName.get());
   if (busName.Length() > DBUS_MAXIMUM_NAME_LENGTH) {
     busName.Truncate(DBUS_MAXIMUM_NAME_LENGTH);
@@ -207,7 +215,8 @@ nsresult nsDBusRemoteServer::Startup(const char* aAppName,
 
   // We don't have a valid busName yet - try to create a default one.
   if (!g_dbus_is_name(busName.get())) {
-    busName = nsPrintfCString("org.mozilla.%s.%s", mAppName.get(), "default");
+    busName = nsPrintfCString(DBUS_NAMESPACE ".%s.%s", mAppName.get(),
+                              "default");
     if (!g_dbus_is_name(busName.get())) {
       // We failed completely to get a valid bus name - just quit.
       g_warning("nsDBusRemoteServer: couldn't get a valid bus name!");

@@ -202,7 +202,11 @@ static void DoRegisterHostApp() {
 
   GVariantBuilder builder;
   g_variant_builder_init(&builder, G_VARIANT_TYPE("(sa{sv})"));
+#ifdef MOZ_WILDBUZZARD
+  g_variant_builder_add(&builder, "s", "org.wildbuzzard.WildBuzzard");
+#else
   g_variant_builder_add(&builder, "s", "org.mozilla.firefox");
+#endif
   GVariantBuilder dict_builder;
   g_variant_builder_init(&dict_builder, G_VARIANT_TYPE("a{sv}"));
   g_variant_builder_add_value(&builder, g_variant_builder_end(&dict_builder));

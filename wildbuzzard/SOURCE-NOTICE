@@ -11,8 +11,22 @@ Complete source and build inputs for bundled third-party code are carried in
 the repository or in the source and provenance artifacts named by the same
 release manifest.
 
+The Rust crates statically linked into the WildBuzzard browser-control client
+are locked by runner/Cargo.lock and the installed THIRD-PARTY.json. Their exact
+crates.io source distributions are published together as
+wildbuzzard-runner-crates-source.tar.xz in the same release set.
+
 The independently installed buzzard-search, buzzard-minijtt, and
 buzzard-torrent releases publish their own license, provenance, and
-corresponding-source artifacts. Those sources are not browser payload. The
-Arti source archive corresponding to the bundled runtime is distributed next
-to the browser packages in the same release set.
+corresponding-source artifacts. Those sources are not browser payload.
+
+Arti's workspace and local-crate source is distributed as
+wildbuzzard-arti-2.5.1-source.tar.xz. The exact `cargo vendor --locked
+--versioned-dirs` source for all registry packages in Arti's Cargo.lock is
+distributed as wildbuzzard-arti-2.5.1-cargo-vendor.tar.xz. Both are external
+release artifacts bound by the installed Arti provenance and
+notices/arti-crates/THIRD-PARTY.json; neither source archive is installed in
+the browser package.
+The exact Brave adblock-resources and uBlock Origin corresponding source used
+to generate the bundled blocker assets is distributed as
+wildbuzzard-blocker-assets-source.tar.xz in that release set.

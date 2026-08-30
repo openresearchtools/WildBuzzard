@@ -43,28 +43,31 @@ function getL10n() {
   return gL10n;
 }
 
-const FIREFOX_REFRESH_MIGRATOR_KEYS = new Set([
-  "firefox",
-  "firefox-selectable-profile",
-]);
+const FIREFOX_REFRESH_MIGRATOR_KEYS = AppConstants.MOZ_PROFILE_MIGRATOR
+  ? new Set(["firefox", "firefox-selectable-profile"])
+  : new Set();
 
 const MIGRATOR_MODULES = Object.freeze({
   EdgeProfileMigrator: {
     moduleURI: "resource:///modules/EdgeProfileMigrator.sys.mjs",
     platforms: ["win"],
   },
-  FirefoxImportMigrator: {
-    moduleURI: "resource:///modules/FirefoxImportMigrator.sys.mjs",
-    platforms: ["linux", "macosx", "win"],
-  },
-  FirefoxProfileMigrator: {
-    moduleURI: "resource:///modules/FirefoxProfileMigrator.sys.mjs",
-    platforms: ["linux", "macosx", "win"],
-  },
-  FirefoxSelectableProfileMigrator: {
-    moduleURI: "resource:///modules/FirefoxSelectableProfileMigrator.sys.mjs",
-    platforms: ["linux", "macosx", "win"],
-  },
+  ...(AppConstants.MOZ_PROFILE_MIGRATOR
+    ? {
+        FirefoxImportMigrator: {
+          moduleURI: "resource:///modules/FirefoxImportMigrator.sys.mjs",
+          platforms: ["linux", "macosx", "win"],
+        },
+        FirefoxProfileMigrator: {
+          moduleURI: "resource:///modules/FirefoxProfileMigrator.sys.mjs",
+          platforms: ["linux", "macosx", "win"],
+        },
+        FirefoxSelectableProfileMigrator: {
+          moduleURI: "resource:///modules/FirefoxSelectableProfileMigrator.sys.mjs",
+          platforms: ["linux", "macosx", "win"],
+        },
+      }
+    : {}),
   SafariProfileMigrator: {
     moduleURI: "resource:///modules/SafariProfileMigrator.sys.mjs",
     platforms: ["macosx"],
@@ -512,8 +515,12 @@ class MigrationUtils {
       "Internet Explorer": "ie",
       "Microsoft Edge": "edge",
       Safari: "safari",
-      Firefox: "firefox-import",
-      Nightly: "firefox-import",
+      ...(AppConstants.MOZ_PROFILE_MIGRATOR
+        ? {
+            Firefox: "firefox-import",
+            Nightly: "firefox-import",
+          }
+        : {}),
       Opera: "opera",
       Vivaldi: "vivaldi",
       "Opera GX": "opera-gx",
@@ -533,7 +540,11 @@ class MigrationUtils {
         .getApplicationDescription("http");
       key = APP_DESC_TO_KEY[browserDesc] || "";
       // Handle devedition, as well as "FirefoxNightly" on OS X.
-      if (!key && browserDesc.startsWith("Firefox")) {
+      if (
+        AppConstants.MOZ_PROFILE_MIGRATOR &&
+        !key &&
+        browserDesc.startsWith("Firefox")
+      ) {
         key = "firefox-import";
       }
     } catch (ex) {
@@ -1165,8 +1176,12 @@ class MigrationUtils {
    */
   #SOURCE_NAME_TO_ID_MAPPING_ENUM = Object.freeze({
     nothing: 1,
-    firefox: 2,
-    "firefox-import": 2,
+    ...(AppConstants.MOZ_PROFILE_MIGRATOR
+      ? {
+          firefox: 2,
+          "firefox-import": 2,
+        }
+      : {}),
     edge: 3,
     ie: 4,
     chrome: 5,

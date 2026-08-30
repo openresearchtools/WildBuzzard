@@ -3,10 +3,14 @@
 # Keep Firefox in the user-agent for website compatibility while giving the
 # installed application, profile, and package their own WildBuzzard identity.
 imply_option("MOZ_APP_UA_NAME", "Firefox")
-imply_option("MOZ_APP_PROFILE", "WildBuzzard")
+imply_option("MOZ_APP_REMOTINGNAME", "org.wildbuzzard.WildBuzzard")
 imply_option("MOZ_TELEMETRY_REPORTING", False)
 imply_option("--with-app-basename", "WildBuzzard")
 imply_option("--with-distribution-id", "org.wildbuzzard")
+imply_option("--allow-addon-sideload", False)
+imply_option("--enable-system-extension-dirs", False)
+imply_option("--enable-crashreporter", False)
+set_define("MOZ_WILDBUZZARD", True)
 
 option(
     "--with-wildbuzzard-arti",
@@ -31,7 +35,7 @@ set_config("WILDBUZZARD_ARTI", wildbuzzard_arti)
 option(
     "--with-wildbuzzard-arti-provenance",
     nargs=1,
-    help="Path to the pinned Arti source, SBOM, and license provenance ZIP",
+    help="Path to the pinned Arti SBOM, source binding, and license provenance ZIP",
 )
 
 
@@ -54,6 +58,13 @@ def wildbuzzard_arti_provenance(value, binary, topsrcdir):
     validator = os.path.join(
         topsrcdir, "wildbuzzard", "scripts", "arti-runtime-provenance.py"
     )
+    inventory = os.path.join(
+        topsrcdir,
+        "wildbuzzard",
+        "third_party",
+        "arti-crates",
+        "THIRD-PARTY.json",
+    )
     check_cmd_output(
         sys.executable,
         "-I",
@@ -68,6 +79,8 @@ def wildbuzzard_arti_provenance(value, binary, topsrcdir):
         config,
         "--provenance",
         path,
+        "--inventory",
+        inventory,
         onerror=lambda: die("Arti runtime provenance does not match the release pin"),
     )
     return path

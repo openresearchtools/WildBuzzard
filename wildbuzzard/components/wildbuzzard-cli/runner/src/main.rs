@@ -203,11 +203,11 @@ fn socket_directory() -> Result<PathBuf, String> {
         .map(PathBuf::from)
         .filter(|path| is_normalized_absolute_path(path))
         .ok_or_else(|| "HOME must be a normalized absolute path".to_string())?;
-    let data = env::var_os("XDG_DATA_HOME")
+    let state = env::var_os("XDG_STATE_HOME")
         .map(PathBuf::from)
         .filter(|path| is_normalized_absolute_path(path))
-        .unwrap_or_else(|| home.join(".local/share"));
-    Ok(data.join("wildbuzzard/run/profiles"))
+        .unwrap_or_else(|| home.join(".local/state"));
+    Ok(state.join("wildbuzzard/run/profiles"))
 }
 
 fn socket_target() -> Result<SocketTarget, String> {
@@ -481,12 +481,12 @@ mod tests {
         unsafe {
             env::remove_var("WILDBUZZARD_CONTROL_SOCKET");
             env::remove_var("XDG_RUNTIME_DIR");
-            env::remove_var("XDG_DATA_HOME");
+            env::remove_var("XDG_STATE_HOME");
             env::set_var("HOME", "/tmp/wildbuzzard-home");
         }
         assert_eq!(
             socket_directory().unwrap(),
-            PathBuf::from("/tmp/wildbuzzard-home/.local/share/wildbuzzard/run/profiles")
+            PathBuf::from("/tmp/wildbuzzard-home/.local/state/wildbuzzard/run/profiles")
         );
     }
 

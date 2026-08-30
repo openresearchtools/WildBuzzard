@@ -57,14 +57,21 @@ The same script writes `assets/resources/ubo-scriptlets.json`. Runtime code
 loads only these bundled copies; it has no WildBuzzard or Waterfox resource
 update endpoint.
 
+`assets/SOURCES.lock.json` pins the exact Brave and uBlock commits, upstream
+archive and input hashes, generator Node version, and output hashes. The
+generator refuses a different revision, runtime, or output. Release builds use
+`wildbuzzard/scripts/blocker_asset_provenance.py` to reproduce the outputs and
+publish `wildbuzzard-blocker-assets-source.tar.xz` with both complete upstream
+source archives, licences, generators, lock, and generated data.
+
 ## Licensing
 
 | Item | Source | Licence or notice | Notes |
 | --- | --- | --- | --- |
 | `adblock-rs` (v0.12.1) | Brave | MPL-2.0 | Core blocking engine |
 | Brave entries in `resources/resources.json` | Brave (`adblock-resources`) | MPL-2.0 | Redirect and script resources |
-| uBO redirect entries in `resources/resources.json` | `gorhill/uBlock` | GPL-3.0 | Generated offline and bundled as data |
-| Generated `resources/ubo-scriptlets.json` | `gorhill/uBlock` | GPL-3.0 | Generated offline and bundled as data |
+| uBO redirect entries in `resources/resources.json` | `gorhill/uBlock` | GPL-3.0-only | Generated offline and bundled as data |
+| Generated `resources/ubo-scriptlets.json` | `gorhill/uBlock` | GPL-3.0-only | Generated offline and bundled as data |
 | uBO fallback filter files | `uBlockOrigin/uAssets` | GPL-3.0 | Files named `ublock-*.txt` in `assets/filters/` |
 | AdGuard tracking parameter fallback list | `AdguardTeam/AdGuardFilters` | GPL-3.0 | `assets/filters/adguard-tracking-protection.txt` |
 | EasyList and EasyPrivacy fallback lists | EasyList authors | GPL-3.0-or-later or CC BY-SA-3.0-or-later | WildBuzzard uses the GPL-3.0 option in `about:license` |

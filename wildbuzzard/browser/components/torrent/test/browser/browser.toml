@@ -5,5 +5,8 @@ support-files = ["file_torrent.sjs"]
 ["browser_qbittorrent_ui.js"]
 skip-if = ["os != 'linux'"]
 
+["browser_torrent_extension_popup.js"]
+skip-if = ["os != 'linux'"]
+
 ["browser_torrent_ingress.js"]
 skip-if = ["os != 'linux'"]

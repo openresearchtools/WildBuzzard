@@ -4096,12 +4096,14 @@ with only_when(compile_environment):
 # ==============================================================
 with only_when(compile_environment):
 
-    @depends(target)
-    def default_user_appdir(target):
+    @depends(target, "MOZ_APP_VENDOR")
+    def default_user_appdir(target, app_vendor):
         if target.kernel in ("WINNT", "Darwin"):
             return "Mozilla"
         elif target.os == "Android":
             return ".mozilla"
+        elif app_vendor and app_vendor[0] == "WildBuzzard":
+            return "wildbuzzard"
         return "mozilla"
 
     option(

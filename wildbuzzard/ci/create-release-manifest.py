@@ -8,8 +8,11 @@ import hashlib
 import json
 import posixpath
 import re
+import shutil
 import subprocess
+import sys
 import tarfile
+import tempfile
 from pathlib import Path, PurePosixPath
 
 import tomllib
@@ -18,30 +21,78 @@ REQUIRED_ARTIFACTS = {
     "arti": "arti-*-linux-x86_64",
     "artiProvenance": "wildbuzzard-arti-*-provenance.zip",
     "artiSource": "wildbuzzard-arti-*-source.tar.xz",
+    "artiCargoVendor": "wildbuzzard-arti-*-cargo-vendor.tar.xz",
     "browserAppImage": "WildBuzzard-*-x86_64.AppImage",
     "browserArchive": "wildbuzzard-*.en-US.linux-x86_64.tar.*",
+    "blockerAssetSource": "wildbuzzard-blocker-assets-source.tar.xz",
     "browserDeb": "wildbuzzard_*_amd64.deb",
     "minijttDeb": "buzzard-minijtt_*_amd64.deb",
-    "minijttRuntime": "buzzard-minijtt-runtime.zip",
+    "minijttSource": "buzzard-minijtt-*-source-license.tar.xz",
     "qbittorrentRuntime": "wildbuzzard-qbittorrent-runtime-linux-x64-*.zip",
+    "qbittorrentCoreSource": "wildbuzzard-qbittorrent-runtime-*-source.tar.xz",
+    "qbittorrentBoostSource": "wildbuzzard-qbittorrent-boost-1.88.0-source.tar.bz2",
+    "qbittorrentQtSource": "wildbuzzard-qbittorrent-qtbase-6.10.2-source.tar.xz",
+    "qbittorrentSystemSource": "wildbuzzard-qbittorrent-ubuntu-24.04-system-sources-*.tar.xz",
+    "runnerCratesSource": "wildbuzzard-runner-crates-source.tar.xz",
     "searchDeb": "buzzard-search_*_amd64.deb",
+    "searchSource": "buzzard-search-*-source-license.tar.xz",
     "torrentDeb": "buzzard-torrent_*_amd64.deb",
     "torrentSearchXpi": "wildbuzzard-torrent-search-*.xpi",
     "webSearchXpi": "wildbuzzard-web-search-*.xpi",
 }
 
-BROWSER_DEB_LEGAL_PATHS = {
-    "opt/wildbuzzard/notices/COPYING",
-    "opt/wildbuzzard/notices/LICENSE",
-    "opt/wildbuzzard/notices/MOZILLA-MCP-LICENSE",
-    "opt/wildbuzzard/notices/NOTICE",
-    "opt/wildbuzzard/notices/SOURCE-NOTICE",
-    "usr/share/doc/wildbuzzard/COPYING",
-    "usr/share/doc/wildbuzzard/LICENSE",
-    "usr/share/doc/wildbuzzard/MOZILLA-MCP-LICENSE",
-    "usr/share/doc/wildbuzzard/SOURCE-NOTICE",
-    "usr/share/doc/wildbuzzard/cli-NOTICE",
+EXPECTED_MAINTAINER = (
+    "openresearchtools <229047507+openresearchtools@users.noreply.github.com>"
+)
+
+TORRENT_DEB_FIXED_FILES = {
+    "usr/bin/buzzard-torrent",
+    "usr/bin/buzzard-torrent-mcp",
+    "usr/lib/buzzard-torrent/buzzard_torrent.py",
+    "usr/lib/buzzard-torrent/buzzard_torrent_mcp.py",
+    "usr/share/doc/buzzard-torrent/LICENSE.packaging",
+    "usr/share/doc/buzzard-torrent/README.md",
+    "usr/share/doc/buzzard-torrent/changelog.Debian.gz",
+    "usr/share/doc/buzzard-torrent/copyright",
 }
+TORRENT_DEB_RUNTIME_ROOT = "usr/lib/buzzard-torrent/runtime"
+
+RUNNER_CRATE_LEGAL_RELATIVE_PATHS = {
+    "THIRD-PARTY.json",
+    "licenses/Apache-2.0.txt",
+    "licenses/MIT-dtolnay-serde.txt",
+    "licenses/Unicode-3.0.txt",
+    "licenses/Unlicense.txt",
+    "licenses/memchr-COPYING.txt",
+    "licenses/memchr-MIT.txt",
+}
+
+BROWSER_DEB_LEGAL_PATHS = (
+    {
+        "opt/wildbuzzard/notices/BLOCKER-ASSET-SOURCE-NOTICE",
+        "opt/wildbuzzard/notices/COPYING",
+        "opt/wildbuzzard/notices/LICENSE",
+        "opt/wildbuzzard/notices/MOZILLA-MCP-LICENSE",
+        "opt/wildbuzzard/notices/NOTICE",
+        "opt/wildbuzzard/notices/SOURCE-NOTICE",
+        "opt/wildbuzzard/notices/blocker/SOURCES.lock.json",
+        "usr/share/doc/wildbuzzard/BLOCKER-ASSET-SOURCE-NOTICE",
+        "usr/share/doc/wildbuzzard/COPYING",
+        "usr/share/doc/wildbuzzard/LICENSE",
+        "usr/share/doc/wildbuzzard/MOZILLA-MCP-LICENSE",
+        "usr/share/doc/wildbuzzard/SOURCE-NOTICE",
+        "usr/share/doc/wildbuzzard/blocker/SOURCES.lock.json",
+        "usr/share/doc/wildbuzzard/cli-NOTICE",
+    }
+    | {
+        f"opt/wildbuzzard/notices/wildbuzzard-cli/{path}"
+        for path in RUNNER_CRATE_LEGAL_RELATIVE_PATHS
+    }
+    | {
+        f"usr/share/doc/wildbuzzard/runner-third-party/{path}"
+        for path in RUNNER_CRATE_LEGAL_RELATIVE_PATHS
+    }
+)
 
 BROWSER_DEB_EXTERNAL_FILES = {
     path for path in BROWSER_DEB_LEGAL_PATHS if path.startswith("usr/")
@@ -131,6 +182,7 @@ BROWSER_DEB_FORBIDDEN_SUFFIXES = {
     ".cc",
     ".cmake",
     ".cpp",
+    ".crate",
     ".cxx",
     ".dwo",
     ".dwp",
@@ -170,6 +222,15 @@ EXPECTED_BUILD_MANIFESTS = {
     "arti": "arti-build-manifest.txt",
     "browser": "browser-build-manifest.txt",
     "qbittorrent": "qbittorrent-build-manifest.txt",
+}
+
+EXACT_BROWSER_LEGAL_ROOTS = {
+    "opt/wildbuzzard/notices/arti-crates",
+    "opt/wildbuzzard/notices/blocker",
+    "opt/wildbuzzard/notices/wildbuzzard-cli",
+    "usr/share/doc/wildbuzzard/arti-third-party",
+    "usr/share/doc/wildbuzzard/blocker",
+    "usr/share/doc/wildbuzzard/runner-third-party",
 }
 
 
@@ -215,6 +276,37 @@ def parse_build_manifest(path):
             raise SystemExit(f"invalid or duplicate field in {path.name}: {name}")
         values[name] = value
     return values
+
+
+def configure_arti_legal_paths(repository):
+    verifier = repository / "wildbuzzard/scripts/arti_crate_provenance.py"
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", str(verifier), "verify"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            "invalid Arti crate legal payload: "
+            + (message or f"verifier exited {result.returncode}")
+        )
+    inventory_path = repository / "wildbuzzard/third_party/arti-crates/THIRD-PARTY.json"
+    inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
+    relative = {"THIRD-PARTY.json"}
+    relative.update(
+        license_file["installedPath"]
+        for package in inventory["packages"]
+        for license_file in package["licenseFiles"]
+    )
+    browser_paths = {f"opt/wildbuzzard/notices/arti-crates/{path}" for path in relative}
+    documentation_paths = {
+        f"usr/share/doc/wildbuzzard/arti-third-party/{path}" for path in relative
+    }
+    BROWSER_DEB_LEGAL_PATHS.update(browser_paths | documentation_paths)
+    BROWSER_DEB_EXTERNAL_FILES.update(documentation_paths)
+    BROWSER_DEB_REQUIRED_RUNTIME_FILES.update(browser_paths | documentation_paths)
 
 
 def verify_wildbuzzard_build_provenance(build_manifests, commit):
@@ -297,6 +389,11 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
         "arti": ("artifact", "binary_sha256", "linux_x86_64_binary_sha256"),
         "artiProvenance": ("provenance", "provenance_sha256", None),
         "artiSource": ("source", "source_sha256", "source_sha256"),
+        "artiCargoVendor": (
+            "cargo_vendor",
+            "cargo_vendor_sha256",
+            "cargo_vendor_sha256",
+        ),
     }
     for name, (path_field, digest_field, pin_field) in expectations.items():
         artifact = artifacts[name]
@@ -307,6 +404,208 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
             raise SystemExit(f"Arti {name} digest does not match its build manifest")
         if pin_field and declared_digest != pins.get(pin_field):
             raise SystemExit(f"Arti {name} digest does not match the source pin")
+    inventory = repository / "wildbuzzard/third_party/arti-crates/THIRD-PARTY.json"
+    if (
+        Path(manifest.get("cargo_license_inventory", "")) != inventory
+        or manifest.get("cargo_license_inventory_sha256")
+        != pins.get("cargo_license_inventory_sha256")
+        or digest(inventory) != pins.get("cargo_license_inventory_sha256")
+    ):
+        raise SystemExit("Arti crate license inventory differs from its build manifest")
+    validator = repository / "wildbuzzard/scripts/arti-runtime-provenance.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            str(validator),
+            "validate",
+            "--binary",
+            str(artifacts["arti"]),
+            "--pin-config",
+            str(repository / "wildbuzzard/third_party/arti.toml"),
+            "--installed-config",
+            str(repository / "wildbuzzard/third_party/arti.toml"),
+            "--inventory",
+            str(inventory),
+            "--provenance",
+            str(artifacts["artiProvenance"]),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            "invalid Arti runtime provenance: "
+            + (message or f"verifier exited {result.returncode}")
+        )
+    source_validator = repository / "wildbuzzard/scripts/arti_crate_provenance.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            str(source_validator),
+            "verify",
+            "--source-bundle",
+            str(artifacts["artiCargoVendor"]),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            "invalid Arti Cargo vendor source: "
+            + (message or f"verifier exited {result.returncode}")
+        )
+
+
+def verify_runner_crate_source(path, repository):
+    verifier = repository / "wildbuzzard" / "scripts" / "runner_crate_provenance.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            str(verifier),
+            "verify",
+            "--source-bundle",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            "invalid WildBuzzard CLI corresponding source: "
+            + (message or f"verifier exited {result.returncode}")
+        )
+
+
+def verify_search_source(path, repository):
+    verifier = repository / "scripts/verify_source_bundle.py"
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", str(verifier), str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            "invalid buzzard-search source/license artifact: "
+            + (message or f"verifier exited {result.returncode}")
+        )
+
+
+def verify_minijtt_source(path, repository):
+    verifier = repository / "scripts/verify-source-license-artifact.py"
+    result = subprocess.run(
+        [sys.executable, "-I", "-B", str(verifier), str(path)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            "invalid buzzard-minijtt source/license artifact: "
+            + (message or f"verifier exited {result.returncode}")
+        )
+
+
+def verify_blocker_asset_source(path, repository):
+    verifier = repository / "wildbuzzard" / "scripts" / "blocker_asset_provenance.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            str(verifier),
+            "verify",
+            "--repository",
+            str(repository),
+            "--source-bundle",
+            str(path),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        message = result.stderr.strip() or result.stdout.strip()
+        raise SystemExit(
+            "invalid blocker corresponding source: "
+            + (message or f"verifier exited {result.returncode}")
+        )
+
+
+def verify_qbittorrent_sources(build_manifest, artifacts, external_sources):
+    manifest = parse_build_manifest(build_manifest)
+    expectations = {
+        "core": (
+            "qbittorrentCoreSource",
+            "core_source",
+            {"name", "sha256", "size"},
+        ),
+        "boost": (
+            "qbittorrentBoostSource",
+            "boost_source",
+            {"name", "sha256", "size", "url"},
+        ),
+        "qt": (
+            "qbittorrentQtSource",
+            "qt_source",
+            {"name", "sha256", "size", "url"},
+        ),
+        "system": (
+            "qbittorrentSystemSource",
+            "system_source",
+            {"name", "sha256", "size", "platform"},
+        ),
+    }
+    if set(external_sources) != set(expectations):
+        raise SystemExit("qBittorrent runtime lacks exact external source classes")
+    for component, (artifact_name, field, record_fields) in expectations.items():
+        artifact = artifacts[artifact_name]
+        record = external_sources[component]
+        if (
+            not isinstance(record, dict)
+            or set(record) != record_fields
+            or record["name"] != artifact.name
+            or record["sha256"] != digest(artifact)
+            or record["size"] != artifact.stat().st_size
+        ):
+            raise SystemExit(
+                f"qBittorrent {component} source differs from its runtime source offer"
+            )
+    if (
+        external_sources["boost"]["url"]
+        != "https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.bz2"
+        or external_sources["qt"]["url"]
+        != "https://download.qt.io/official_releases/qt/6.10/6.10.2/submodules/qtbase-everywhere-src-6.10.2.tar.xz"
+        or external_sources["system"]["platform"] != "ubuntu-24.04"
+    ):
+        raise SystemExit("qBittorrent external source identity differs")
+        if Path(manifest.get(field, "")).name != artifact.name or manifest.get(
+            f"{field}_sha256"
+        ) != digest(artifact):
+            raise SystemExit(
+                f"qBittorrent {component} source differs from its build manifest"
+            )
+    runtime = artifacts["qbittorrentRuntime"]
+    if (
+        Path(manifest.get("runtime_zip", "")).name != runtime.name
+        or manifest.get("runtime_sha256") != digest(runtime)
+        or manifest.get("runtime_size") != str(runtime.stat().st_size)
+    ):
+        raise SystemExit("qBittorrent runtime differs from its build manifest")
 
 
 def exactly_one(files, pattern):
@@ -327,6 +626,17 @@ def verify_browser_debian_legal_members(members):
             "wildbuzzard Debian package lacks exact regular legal files: "
             + ", ".join(invalid)
         )
+    for root in EXACT_BROWSER_LEGAL_ROOTS:
+        expected = {
+            path for path in BROWSER_DEB_LEGAL_PATHS if path.startswith(root + "/")
+        }
+        actual = {
+            path
+            for path, kinds in members.items()
+            if path.startswith(root + "/") and kinds == ["file"]
+        }
+        if actual != expected:
+            raise SystemExit(f"wildbuzzard Debian legal directory is not exact: {root}")
 
 
 def archive_member_name(name):
@@ -468,27 +778,182 @@ def verify_browser_debian_legal_payload(path):
     verify_browser_debian_runtime_members(members)
 
 
+def torrent_parent_directories():
+    directories = set()
+    for filename in TORRENT_DEB_FIXED_FILES | {TORRENT_DEB_RUNTIME_ROOT}:
+        parent = PurePosixPath(filename).parent
+        while parent.as_posix() != ".":
+            directories.add(parent.as_posix())
+            parent = parent.parent
+    return directories
+
+
+def verify_torrent_debian_runtime_members(members):
+    invalid = []
+    parents = torrent_parent_directories()
+    for path, kinds in members.items():
+        if not path:
+            if kinds != ["directory"]:
+                invalid.append(path)
+            continue
+        if len(kinds) != 1:
+            invalid.append(path)
+            continue
+        kind = kinds[0]
+        if path in TORRENT_DEB_FIXED_FILES:
+            if kind != "file":
+                invalid.append(path)
+            continue
+        if path == TORRENT_DEB_RUNTIME_ROOT:
+            if kind != "directory":
+                invalid.append(path)
+            continue
+        if path.startswith(TORRENT_DEB_RUNTIME_ROOT + "/"):
+            if kind not in {"directory", "file"}:
+                invalid.append(path)
+            continue
+        if path in parents:
+            if kind != "directory":
+                invalid.append(path)
+            continue
+        invalid.append(path)
+    missing = sorted(
+        path for path in TORRENT_DEB_FIXED_FILES if members.get(path) != ["file"]
+    )
+    runtime_manifest = (
+        TORRENT_DEB_RUNTIME_ROOT + "/wildbuzzard-qbittorrent-runtime.json"
+    )
+    if members.get(runtime_manifest) != ["file"]:
+        missing.append(runtime_manifest)
+    if invalid or missing:
+        details = []
+        if invalid:
+            details.append("forbidden or non-runtime: " + ", ".join(sorted(invalid)))
+        if missing:
+            details.append("missing runtime: " + ", ".join(sorted(missing)))
+        raise SystemExit(
+            "invalid buzzard-torrent Debian payload: " + "; ".join(details)
+        )
+
+
+def verify_torrent_debian_payload(path, repository):
+    verifier = (
+        repository
+        / "wildbuzzard"
+        / "components"
+        / "buzzard-torrent"
+        / "scripts"
+        / "verify-runtime.py"
+    )
+    with tempfile.TemporaryDirectory(prefix="wildbuzzard-torrent-deb-") as directory:
+        root = Path(directory)
+        process = subprocess.Popen(
+            ["dpkg-deb", "--fsys-tarfile", str(path)],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        members = {}
+        try:
+            with tarfile.open(fileobj=process.stdout, mode="r|*") as archive:
+                for member in archive:
+                    name = archive_member_name(member.name)
+                    if member.mode & 0o7000:
+                        kind = "other"
+                    elif member.isdir():
+                        kind = "directory"
+                    elif member.isfile():
+                        kind = "file"
+                    else:
+                        kind = "other"
+                    if name in members:
+                        members[name].append(kind)
+                        continue
+                    members[name] = [kind]
+                    destination = root / name
+                    if kind == "directory":
+                        destination.mkdir(parents=True, exist_ok=True)
+                    elif kind == "file":
+                        destination.parent.mkdir(parents=True, exist_ok=True)
+                        extracted = archive.extractfile(member)
+                        if extracted is None:
+                            raise SystemExit(f"unreadable Debian payload file: {name}")
+                        with extracted, destination.open("xb") as output:
+                            shutil.copyfileobj(extracted, output)
+                        destination.chmod(member.mode & 0o777)
+        except SystemExit:
+            process.kill()
+            process.wait()
+            process.stderr.close()
+            raise
+        except (OSError, tarfile.TarError) as error:
+            process.kill()
+            process.wait()
+            process.stderr.close()
+            raise SystemExit(
+                f"could not inspect Debian payload: {path.name}"
+            ) from error
+        finally:
+            process.stdout.close()
+        stderr = process.stderr.read().decode(errors="replace").strip()
+        process.stderr.close()
+        returncode = process.wait()
+        if returncode:
+            raise SystemExit(
+                f"could not inspect Debian payload: {path.name}: "
+                + (stderr or f"dpkg-deb exited {returncode}")
+            )
+        verify_torrent_debian_runtime_members(members)
+        runtime = root / TORRENT_DEB_RUNTIME_ROOT
+        result = subprocess.run(
+            [sys.executable, "-I", "-B", str(verifier), "--runtime", str(runtime)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode:
+            message = result.stderr.strip() or result.stdout.strip()
+            raise SystemExit(
+                "invalid buzzard-torrent runtime: "
+                + (message or f"verifier exited {result.returncode}")
+            )
+        runtime_manifest = json.loads(
+            (runtime / "wildbuzzard-qbittorrent-runtime.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        return runtime_manifest.get("externalSourceArtifacts")
+
+
 def debian_metadata(path, expected_name):
     fields = subprocess.run(
         [
             "dpkg-deb",
             "--show",
-            "--showformat=${Package}\n${Version}\n${Architecture}\n${Depends}\n${Suggests}\nEND\n",
+            "--showformat=${Package}\n${Version}\n${Architecture}\n${Depends}\n${Suggests}\n${Maintainer}\n${Installed-Size}\nEND\n",
             str(path),
         ],
         check=True,
         capture_output=True,
         text=True,
     ).stdout.splitlines()
-    if len(fields) != 6 or fields[-1] != "END":
+    if len(fields) != 8 or fields[-1] != "END":
         raise SystemExit(f"could not read Debian metadata from {path.name}")
-    package, version, architecture, dependencies, suggestions, _ = fields
-    if package != expected_name or architecture != "amd64":
+    package, version, architecture, dependencies, suggestions, maintainer, size, _ = (
+        fields
+    )
+    if (
+        package != expected_name
+        or architecture != "amd64"
+        or maintainer != EXPECTED_MAINTAINER
+        or not size.isdigit()
+    ):
         raise SystemExit(f"unexpected Debian identity in {path.name}")
     return {
         "architecture": architecture,
         "depends": dependencies,
         "file": path.name,
+        "installedSizeKiB": int(size),
+        "maintainer": maintainer,
         "package": package,
         "suggests": suggestions,
         "version": version,
@@ -502,6 +967,14 @@ def debian_dependency_names(value):
         for alternative in group.split("|")
         if alternative.strip()
     }
+
+
+def verify_torrent_package_size(path, metadata):
+    if (
+        path.stat().st_size > 96 * 1024 * 1024
+        or metadata["installedSizeKiB"] > 128 * 1024
+    ):
+        raise SystemExit("buzzard-torrent Debian package exceeds its hard size limits")
 
 
 def main():
@@ -527,6 +1000,7 @@ def main():
     for name, repository in repositories.items():
         if git(repository, "status", "--porcelain=v1", "--untracked-files=all"):
             raise SystemExit(f"repository checkout is dirty: {name}")
+    configure_arti_legal_paths(repositories["wildbuzzard"])
     wildbuzzard_commit = git(repositories["wildbuzzard"], "rev-parse", "HEAD")
     verify_firefox_release_provenance(repositories["wildbuzzard"], wildbuzzard_commit)
     verify_wildbuzzard_build_provenance(build_manifests, wildbuzzard_commit)
@@ -543,6 +1017,14 @@ def main():
     verify_arti_build_provenance(
         build_manifests["arti"], resolved, repositories["wildbuzzard"]
     )
+    verify_runner_crate_source(
+        resolved["runnerCratesSource"], repositories["wildbuzzard"]
+    )
+    verify_search_source(resolved["searchSource"], repositories["buzzard-search"])
+    verify_minijtt_source(resolved["minijttSource"], repositories["buzzard-minijtt"])
+    verify_blocker_asset_source(
+        resolved["blockerAssetSource"], repositories["wildbuzzard"]
+    )
     for name, expected_name in EXPECTED_BUILD_MANIFESTS.items():
         path = build_manifests[name]
         if (
@@ -557,6 +1039,12 @@ def main():
         package: exactly_one(files, pattern)
         for package, pattern in EXPECTED_PACKAGES.items()
     }
+    qbittorrent_external_sources = verify_torrent_debian_payload(
+        package_paths["buzzard-torrent"], repositories["wildbuzzard"]
+    )
+    verify_qbittorrent_sources(
+        build_manifests["qbittorrent"], resolved, qbittorrent_external_sources
+    )
     unexpected_debs = sorted(
         path.name
         for path in files
@@ -569,6 +1057,10 @@ def main():
     packages = [
         debian_metadata(path, package) for package, path in package_paths.items()
     ]
+    torrent_package = next(
+        package for package in packages if package["package"] == "buzzard-torrent"
+    )
+    verify_torrent_package_size(package_paths["buzzard-torrent"], torrent_package)
     browser_package = next(
         package for package in packages if package["package"] == "wildbuzzard"
     )

@@ -34,25 +34,38 @@ void DBusService::Run() {
 // Mozilla has old GIO version in build roots
 #define G_BUS_NAME_OWNER_FLAGS_DO_NOT_QUEUE GBusNameOwnerFlags(1 << 2)
 
-#define DBUS_BUS_NAME_TEMPLATE "org.mozilla.%s"
-#define DBUS_OBJECT_PATH_TEMPLATE "/org/mozilla/%s"
+#ifdef MOZ_WILDBUZZARD
+#  define DBUS_BUS_NAME_TEMPLATE "org.wildbuzzard.WildBuzzard"
+#  define DBUS_OBJECT_PATH_TEMPLATE "/org/wildbuzzard/WildBuzzard"
+#else
+#  define DBUS_BUS_NAME_TEMPLATE "org.mozilla.%s"
+#  define DBUS_OBJECT_PATH_TEMPLATE "/org/mozilla/%s"
+#endif
 
 static const char* GetDBusBusName() {
   static const char* name = []() {
+#ifdef MOZ_WILDBUZZARD
+    return ToNewCString(nsLiteralCString(DBUS_BUS_NAME_TEMPLATE));
+#else
     nsAutoCString appName;
     gAppData->GetDBusAppName(appName);
     return ToNewCString(nsPrintfCString(DBUS_BUS_NAME_TEMPLATE,
                                         appName.get()));  // Intentionally leak
+#endif
   }();
   return name;
 }
 
 static const char* GetDBusObjectPath() {
   static const char* path = []() {
+#ifdef MOZ_WILDBUZZARD
+    return ToNewCString(nsLiteralCString(DBUS_OBJECT_PATH_TEMPLATE));
+#else
     nsAutoCString appName;
     gAppData->GetDBusAppName(appName);
     return ToNewCString(nsPrintfCString(DBUS_OBJECT_PATH_TEMPLATE,
                                         appName.get()));  // Intentionally leak
+#endif
   }();
   return path;
 }
@@ -155,8 +168,7 @@ void DBusService::HandleFreedesktopActivateAction(
   // TODO: Read av params and pass them to LaunchApp?
 
   // actionName matches desktop action defined in .desktop file.
-  // We implement it for .desktop file shipped by flatpak
-  // (taskcluster/docker/firefox-flatpak/org.mozilla.firefox.desktop)
+  // We implement it for the installed desktop file.
   bool ret = false;
   if (!strcmp(actionName, "new-window")) {
     ret = LaunchApp(nullptr, nullptr, 0);
@@ -283,8 +295,7 @@ bool DBusService::StartFreedesktopListener() {
   }
 
   mDBusID = g_bus_own_name(
-      // if org.mozilla.Firefox is taken it means we're already running
-      // so use G_BUS_NAME_OWNER_FLAGS_DO_NOT_QUEUE and quit.
+      // If the application name is taken we're already running, so don't queue.
       G_BUS_TYPE_SESSION, GetDBusBusName(), G_BUS_NAME_OWNER_FLAGS_DO_NOT_QUEUE,
       [](GDBusConnection* aConnection, const gchar*,
          gpointer aUserData) -> void {

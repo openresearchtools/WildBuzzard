@@ -39,6 +39,7 @@ this.torrentSearch = class extends ExtensionAPI {
             isHandlingUserInput:
               context.callContextData?.isHandlingUserInput === true,
             isPrivate: context.incognito,
+            viewType: context.viewType,
             window: context.currentWindow,
           }),
       },

@@ -24,15 +24,19 @@ EXTRA_JS_MODULES += [
     "ChromeMigrationUtils.sys.mjs",
     "ChromeProfileMigrator.sys.mjs",
     "FileMigrators.sys.mjs",
-    "FirefoxImportMigrator.sys.mjs",
-    "FirefoxProfileLoginCrypto.sys.mjs",
-    "FirefoxProfileMigrator.sys.mjs",
-    "FirefoxSelectableProfileMigrator.sys.mjs",
     "InternalTestingProfileMigrator.sys.mjs",
     "MigrationUtils.sys.mjs",
     "MigratorBase.sys.mjs",
     "ProfileMigrator.sys.mjs",
 ]
+
+if CONFIG["MOZ_PROFILE_MIGRATOR"]:
+    EXTRA_JS_MODULES += [
+        "FirefoxImportMigrator.sys.mjs",
+        "FirefoxProfileLoginCrypto.sys.mjs",
+        "FirefoxProfileMigrator.sys.mjs",
+        "FirefoxSelectableProfileMigrator.sys.mjs",
+    ]
 
 FINAL_TARGET_FILES.actors = [
     "MigrationWizardChild.sys.mjs",

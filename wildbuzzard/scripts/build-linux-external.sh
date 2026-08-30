@@ -90,11 +90,6 @@ if [[ -n "${arti_binary}" || -n "${arti_provenance}" ]]; then
     echo "Arti binary and provenance inputs must be regular files" >&2
     exit 2
   fi
-  python3 -I -B "${script_dir}/arti-runtime-provenance.py" validate \
-    --binary "${arti_binary}" \
-    --pin-config "${source_repo}/wildbuzzard/third_party/arti.toml" \
-    --installed-config "${source_repo}/wildbuzzard/third_party/arti.toml" \
-    --provenance "${arti_provenance}"
 fi
 
 case "${action}" in

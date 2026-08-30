@@ -566,6 +566,47 @@ class CacheXREAppDir_NoEnv : public BaseXREAppDir {
   }
 };
 
+#if defined(XP_UNIX) && !defined(XP_MACOSX)
+class WildBuzzardXDGIsolation : public BaseXREAppDir {
+ protected:
+  void SetUp() override {
+    BaseXREAppDir::SetUp();
+    MkHomeSubdir(".mozilla", mBaitDir);
+    MkHomeSubdir(".mozilla/firefox", mBaitDir);
+    MkHomeSubdir(".xdgConfigDir", mXdgConfigDir);
+    MkHomeSubdir(".xdgCacheDir", mXdgCacheDir);
+    UnsetEnv("MOZ_LEGACY_HOME");
+    SetEnv("XDG_CONFIG_HOME", mXdgConfigDir.get());
+    SetEnv("XDG_CACHE_HOME", mXdgCacheDir.get());
+    SwitchFakeAppDataOn();
+    mFakeAppData.profile = nullptr;
+    mFakeAppData.name = "WildBuzzard";
+    mFakeAppData.vendor = "WildBuzzard";
+  }
+
+  nsCString mBaitDir;
+  nsCString mXdgConfigDir;
+  nsCString mXdgCacheDir;
+};
+
+TEST_F(WildBuzzardXDGIsolation, ProductDirectoriesDoNotUseMozillaRoots) {
+  nsCString configRoot =
+      mXdgConfigDir + "/wildbuzzard/wildbuzzard"_ns;
+  nsCString cacheRoot = mXdgCacheDir + "/wildbuzzard/wildbuzzard"_ns;
+
+  ASSERT_EQ(configRoot, GetUserAppDataDirectory());
+  ASSERT_EQ(configRoot, GetUserProfilesRootDir());
+  ASSERT_EQ(cacheRoot, GetUserProfilesLocalDir());
+  ASSERT_EQ(configRoot,
+            GetFromXREDirProvider(XRE_USER_NATIVE_MANIFESTS));
+
+  nsCString systemManifests =
+      GetFromXREDirProvider(XRE_SYS_NATIVE_MANIFESTS);
+  ASSERT_TRUE(systemManifests.EndsWith("/wildbuzzard"_ns));
+  ASSERT_FALSE(systemManifests.Contains("mozilla"_ns));
+}
+#endif
+
 // GetUserAppDataDirectory
 
 // Check if '$HOME/.mozilla' is used when it exists.

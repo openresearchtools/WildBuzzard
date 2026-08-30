@@ -27,8 +27,8 @@ Regional and optional catalog entries can be downloaded through the blocker list
 | Asset | Upstream | Licence or notice |
 | --- | --- | --- |
 | Brave entries in `resources/resources.json` | Brave `adblock-resources` | MPL-2.0 |
-| uBO redirect entries in `resources/resources.json` | `gorhill/uBlock` | GPL-3.0 |
-| `resources/ubo-scriptlets.json` | `gorhill/uBlock` | GPL-3.0 |
+| uBO redirect entries in `resources/resources.json` | `gorhill/uBlock` | GPL-3.0-only |
+| `resources/ubo-scriptlets.json` | `gorhill/uBlock` | GPL-3.0-only |
 | `ublock-*.txt` fallback filters | `uBlockOrigin/uAssets` | GPL-3.0 |
 | `adguard-tracking-protection.txt` | `AdguardTeam/AdGuardFilters` | GPL-3.0 |
 | `easylist.txt` and `easyprivacy.txt` | EasyList authors | GPL-3.0-or-later or CC BY-SA-3.0-or-later. WildBuzzard uses the GPL-3.0 option in `about:license`. |
@@ -40,13 +40,15 @@ Regional and optional catalog entries can be downloaded through the blocker list
 
 When refreshing bundled blocker assets:
 
-1. Regenerate or replace only the intended files under `assets/`.
-2. Check each refreshed file's leading metadata for title, source, licence, and
+1. Update only intended fields in `assets/SOURCES.lock.json`, including exact
+   commits, source archive and input hashes, Node version, and expected outputs.
+2. Regenerate only the intended files with `scripts/update-bundled-assets.js`.
+   The generator must reproduce every locked output byte-for-byte.
+3. Check each refreshed file's leading metadata for title, source, licence, and
    policy URLs.
-3. Update `browser/components/blocker/README.md` if the asset set or
+4. Update `browser/components/blocker/README.md` if the asset set or
    licence handling changes.
-4. Update `toolkit/content/license.html` for any notices that changed in the product.
-5. Regenerate the bundled `resources.json` and `ubo-scriptlets.json` outputs.
-   WildBuzzard does not fetch a vendor resource bundle at runtime.
-6. Record the source URLs, revisions, and validation in the migration or release
-   notes for the change.
+5. Update `toolkit/content/license.html` for any notices that changed in the product.
+6. Build and verify `wildbuzzard-blocker-assets-source.tar.xz` with
+   `wildbuzzard/scripts/blocker_asset_provenance.py`. Release validation rejects
+   a source artifact that differs from the lock or generated outputs.

@@ -1,0 +1,8 @@
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+The bundled blocker resources are reproduced from the immutable Brave
+adblock-resources and uBlock Origin source revisions recorded in
+notices/blocker/SOURCES.lock.json. Complete upstream source, licenses, the
+generator, generated outputs, and a checksummed manifest are distributed in
+wildbuzzard-blocker-assets-source.tar.xz beside the browser packages in the
+same release set.

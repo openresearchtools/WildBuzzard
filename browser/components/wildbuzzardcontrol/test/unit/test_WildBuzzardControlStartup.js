@@ -17,6 +17,7 @@ const { WildBuzzardControlStartupTestUtils, wildBuzzardControlSocketPath } =
 
 const originalOverride = Services.env.get(CONTROL_SOCKET_ENV);
 const originalRuntimeDirectory = Services.env.get("XDG_RUNTIME_DIR");
+const originalStateDirectory = Services.env.get("XDG_STATE_HOME");
 
 add_setup(function () {
   Services.env.set(CONTROL_SOCKET_ENV, "");
@@ -24,7 +25,23 @@ add_setup(function () {
   registerCleanupFunction(() => {
     Services.env.set(CONTROL_SOCKET_ENV, originalOverride);
     Services.env.set("XDG_RUNTIME_DIR", originalRuntimeDirectory);
+    Services.env.set("XDG_STATE_HOME", originalStateDirectory);
   });
+});
+
+add_task(function test_fallback_path_uses_product_state_directory() {
+  const stateDirectory = PathUtils.join(do_get_tempdir().path, "state");
+  Services.env.set("XDG_RUNTIME_DIR", "");
+  Services.env.set("XDG_STATE_HOME", stateDirectory);
+  try {
+    Assert.equal(
+      WildBuzzardControlStartupTestUtils.defaultSocketDirectory(),
+      PathUtils.join(stateDirectory, "wildbuzzard", "run", "profiles")
+    );
+  } finally {
+    Services.env.set("XDG_RUNTIME_DIR", do_get_tempdir().path);
+    Services.env.set("XDG_STATE_HOME", originalStateDirectory);
+  }
 });
 
 add_task(function test_default_paths_are_profile_and_process_specific() {

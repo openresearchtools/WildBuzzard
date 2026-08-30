@@ -6,7 +6,6 @@ DIRS += [
     "aboutcfg",
     "aboutpasswords",
     "extensions",
-    "migration",
     "onboarding",
     "privatetab",
     "remotesettings",

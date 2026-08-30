@@ -85,6 +85,7 @@ def paths() -> dict[str, pathlib.Path]:
     )
     return {
         "data": data,
+        "home": data / "home",
         "profile": data / "profile",
         "state": state,
         "socket": state / "q",
@@ -273,7 +274,7 @@ def read_lock(executable: pathlib.Path) -> dict[str, Any]:
 
 def ensure() -> dict[str, Any]:
     owned = paths()
-    for key in ("data", "profile", "state"):
+    for key in ("data", "home", "profile", "state"):
         private_directory(owned[key])
     with launch_lock(owned["state"]):
         existing = read_connection()
@@ -285,7 +286,7 @@ def ensure() -> dict[str, Any]:
         owned["connection"].unlink(missing_ok=True)
         owned["socket"].unlink(missing_ok=True)
         environment = {
-            "HOME": str(pathlib.Path.home()),
+            "HOME": str(owned["home"]),
             "LANG": "C.UTF-8",
             "LC_ALL": "C.UTF-8",
             "PATH": "/usr/bin:/bin",

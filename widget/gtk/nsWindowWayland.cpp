@@ -2017,7 +2017,12 @@ void nsWindowWayland::MaybeCreatePipResources() {
   mPipResources.mPipSurface = xx_pip_shell_v1_get_pip(
       WaylandDisplayGet()->GetPipShell(), mPipResources.mXdgSurface);
   xx_pip_v1_add_listener(mPipResources.mPipSurface, &pip_listener, this);
+#ifdef MOZ_WILDBUZZARD
+  xx_pip_v1_set_app_id(mPipResources.mPipSurface,
+                       "org.wildbuzzard.WildBuzzard");
+#else
   xx_pip_v1_set_app_id(mPipResources.mPipSurface, "org.mozilla." MOZ_APP_NAME);
+#endif
   wl_surface_commit(surf);
 }
 

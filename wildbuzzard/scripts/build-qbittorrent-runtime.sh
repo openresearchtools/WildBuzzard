@@ -5,10 +5,11 @@ set -Eeuo pipefail
 umask 022
 
 usage() {
-  echo "Usage: $0 --boost-archive FILE [options]"
+  echo "Usage: $0 --boost-archive FILE --qt-source-archive FILE [options]"
   echo
   echo "Options:"
   echo "  --boost-archive FILE  pinned Boost 1.88.0 source archive"
+  echo "  --qt-source-archive FILE  pinned Qt 6.10.2 source archive"
   echo "  --build-root DIR      external build root"
   echo "  --lrelease FILE       Qt 6 lrelease executable"
   echo "  --ref REF             committed WildBuzzard ref (default: HEAD)"
@@ -21,6 +22,7 @@ build_root="$(dirname -- "${source_repo}")/wildbuzzard-qbittorrent-builds"
 build_ref="HEAD"
 include_working_tree=false
 boost_archive=""
+qt_source_archive=""
 lrelease="$(command -v lrelease || true)"
 
 while (($#)); do
@@ -31,6 +33,10 @@ while (($#)); do
       ;;
     --build-root)
       build_root="${2:?--build-root requires a directory}"
+      shift 2
+      ;;
+    --qt-source-archive)
+      qt_source_archive="${2:?--qt-source-archive requires a file}"
       shift 2
       ;;
     --lrelease)
@@ -61,12 +67,21 @@ if [[ -z "${boost_archive}" || ! -f "${boost_archive}" ]]; then
   echo "--boost-archive must name the pinned Boost source archive" >&2
   exit 2
 fi
+if [[ -z "${qt_source_archive}" || ! -f "${qt_source_archive}" ]]; then
+  echo "--qt-source-archive must name the pinned Qt source archive" >&2
+  exit 2
+fi
 if [[ -z "${lrelease}" || ! -x "${lrelease}" ]]; then
   echo "--lrelease must name an executable Qt 6 lrelease" >&2
   exit 2
 fi
 if [[ "$(sha256sum "${boost_archive}" | awk '{print $1}')" != "46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b" ]]; then
   echo "Boost source archive differs from the pin" >&2
+  exit 1
+fi
+qt_source_sha256="aeb78d29291a2b5fd53cb55950f8f5065b4978c25fb1d77f627d695ab9adf21e"
+if [[ "$(sha256sum "${qt_source_archive}" | awk '{print $1}')" != "${qt_source_sha256}" ]]; then
+  echo "Qt source archive differs from the pin" >&2
   exit 1
 fi
 qt_lrelease_sha256="e9f9f468f45fe73b1fe56a235438d802d51fd45dd55b52f06b212029bce458b8"
@@ -125,10 +140,12 @@ git -C "${checkout}" checkout --detach "${commit}"
 snapshot_paths=(
   COPYING
   wildbuzzard/scripts/build-qbittorrent-runtime.sh
+  wildbuzzard/scripts/generate-qbittorrent-runtime-provenance.py
   wildbuzzard/scripts/generate-torrent-document-sources.py
   wildbuzzard/browser/components/torrent
   wildbuzzard/third_party/bsd3/libtorrent
   wildbuzzard/third_party/gpl2/qbittorrent
+  wildbuzzard/third_party/lgpl3/qt/source.lock.json
   wildbuzzard/upstreams.toml
 )
 if [[ "${include_working_tree}" == true ]]; then
@@ -348,188 +365,61 @@ fi
 cp -- "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/upstream/COPYING" "${runtime}/licenses/qbittorrent-COPYING.txt"
 cp -- "${checkout}/wildbuzzard/third_party/bsd3/libtorrent/upstream/COPYING" "${runtime}/licenses/libtorrent-BSD-3-Clause.txt"
 cp -- "${boost_source}/LICENSE_1_0.txt" "${runtime}/licenses/boost-BSL-1.0.txt"
-cp -- /usr/share/common-licenses/LGPL-3 "${runtime}/licenses/qt-LGPL-3.0.txt"
-cp -- /usr/share/common-licenses/GPL-2 "${runtime}/licenses/qt-GPL-2.0.txt"
-cp -- /usr/share/common-licenses/GPL-3 "${runtime}/licenses/qt-GPL-3.0.txt"
-package_owner() {
-  local target="$1"
-  local owner
-  owner="$(dpkg-query -S "${target}" 2>/dev/null | head -n 1 | sed 's/: \/.*//' || true)"
-  if [[ -z "${owner}" && "${target}" == /lib/* ]]; then
-    owner="$(dpkg-query -S "/usr${target}" 2>/dev/null | head -n 1 | sed 's/: \/.*//' || true)"
+for qt_license in LGPL-3.0-only GPL-2.0-only GPL-3.0-only; do
+  qt_license_member="$(
+    tar -tf "${qt_source_archive}" |
+      awk -v suffix="/LICENSES/${qt_license}.txt" '$0 ~ suffix "$" { print }'
+  )"
+  if [[ -z "${qt_license_member}" || "${qt_license_member}" == *$'\n'* ]]; then
+    echo "Qt source archive lacks one exact ${qt_license} license file" >&2
+    exit 1
   fi
-  owner="${owner%%:*}"
-  printf '%s' "${owner}"
-}
-
-declare -A system_packages=()
-for system_input in "${libraries[@]}" "${qt_plugins[@]}"; do
-  package="$(package_owner "${system_input}")"
-  [[ -n "${package}" ]] && system_packages["${package}"]=1
+  tar -xOf "${qt_source_archive}" "${qt_license_member}" >"${runtime}/licenses/qt-${qt_license}.txt"
 done
-for package in $(printf '%s\n' "${!system_packages[@]}" | LC_ALL=C sort); do
-  copyright="/usr/share/doc/${package}/copyright"
-  [[ -f "${copyright}" ]] && install -m 644 -- "${copyright}" "${runtime}/licenses/system-${package}.copyright"
-done
+install -m 644 -- \
+  "${checkout}/wildbuzzard/third_party/lgpl3/qt/source.lock.json" \
+  "${runtime}/licenses/qt-source.lock.json"
 
 source_name="wildbuzzard-qbittorrent-runtime-${short_commit}-source.tar.xz"
-source_path="${runtime}/share/wildbuzzard/qbittorrent/${source_name}"
-mkdir -p -- "$(dirname -- "${source_path}")"
+source_path="${artifacts}/${source_name}"
 git -C "${checkout}" archive --format=tar --prefix="wildbuzzard-qbittorrent-runtime-${commit}/" "${commit}" -- \
   COPYING \
   wildbuzzard/scripts/build-qbittorrent-runtime.sh \
+  wildbuzzard/scripts/generate-qbittorrent-runtime-provenance.py \
   wildbuzzard/scripts/generate-torrent-document-sources.py \
   wildbuzzard/browser/components/torrent/TorrentDocumentSources.sys.mjs \
   wildbuzzard/third_party/bsd3/libtorrent \
   wildbuzzard/third_party/gpl2/qbittorrent \
+  wildbuzzard/third_party/lgpl3/qt/source.lock.json \
   wildbuzzard/upstreams.toml | xz --threads=1 --check=crc64 -9e >"${source_path}"
 
 component_inputs="${run_root}/component-inputs.tsv"
 : >"${component_inputs}"
 for plugin in "${qt_plugins[@]}"; do
   relative="plugins/${plugin#"${qt_plugin_root}/"}"
-  printf '%s\t%s\t%s\t%s\n' "${relative}" "$(basename -- "${plugin}")" "Qt" "6.10.2" >>"${component_inputs}"
+  printf '%s\t%s\t%s\t%s\n' "${relative}" "$(basename -- "${plugin}")" "${plugin}" "qt" >>"${component_inputs}"
 done
 for soname in $(printf '%s\n' "${!libraries[@]}" | LC_ALL=C sort); do
   source_library="${libraries[${soname}]}"
   if [[ "${source_library}/" == "${qt_prefix}/"* ]]; then
-    component="Qt"
-    component_version="6.10.2"
+    component_kind="qt"
   else
-    owner="$(package_owner "${source_library}")"
-    component="${owner:-system-library}"
-    component_version="$(dpkg-query -W -f='${Version}' "${owner}" 2>/dev/null || echo unknown)"
+    component_kind="debian"
   fi
-  printf '%s\t%s\t%s\t%s\n' "lib/${soname}" "${soname}" "${component}" "${component_version}" >>"${component_inputs}"
+  printf '%s\t%s\t%s\t%s\n' "lib/${soname}" "${soname}" "${source_library}" "${component_kind}" >>"${component_inputs}"
 done
 
-python3 - "${runtime}" "${component_inputs}" "${commit}" "${source_date_epoch}" "${qt_lrelease_sha256}" <<'PY'
-import datetime
-import hashlib
-import json
-import pathlib
-import re
-import sys
-
-root = pathlib.Path(sys.argv[1])
-inputs = pathlib.Path(sys.argv[2])
-commit = sys.argv[3]
-epoch = int(sys.argv[4])
-lrelease_sha256 = sys.argv[5]
-
-components = []
-for line in inputs.read_text(encoding="utf-8").splitlines():
-    relative, soname, component, version = line.split("\t")
-    target = root / relative
-    components.append(
-        {
-            "path": relative,
-            "soname": soname,
-            "sha256": hashlib.sha256(target.read_bytes()).hexdigest(),
-            "size": target.stat().st_size,
-            "component": component,
-            "componentVersion": version,
-        }
-    )
-components.sort(key=lambda entry: entry["path"])
-
-inventory = {
-    "schema": 1,
-    "component": "buzzard-torrent-runtime",
-    "platform": "linux-x64",
-    "qt": {
-        "version": "6.10.2",
-        "lreleaseSha256": lrelease_sha256,
-        "plugins": [entry for entry in components if entry["path"].startswith("plugins/")],
-    },
-    "runtimeLibraries": [entry for entry in components if entry["path"].startswith("lib/")],
-}
-inventory_path = root / "share" / "doc" / "buzzard-torrent" / "runtime-component-inventory.json"
-inventory_path.parent.mkdir(parents=True, exist_ok=True)
-inventory_path.write_text(json.dumps(inventory, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-
-def spdx_id(name):
-    return "SPDXRef-Package-" + re.sub(r"[^A-Za-z0-9.-]", "-", name)
-
-packages = [
-    {
-        "name": "qBittorrent",
-        "SPDXID": "SPDXRef-Package-qBittorrent",
-        "versionInfo": "5.2.3",
-        "downloadLocation": "git+https://github.com/qbittorrent/qBittorrent.git@0b63c3d17373f6132ea211c9dcd4241284ccdfaf",
-        "filesAnalyzed": False,
-        "licenseConcluded": "GPL-3.0-or-later",
-        "licenseDeclared": "GPL-3.0-or-later",
-        "copyrightText": "NOASSERTION",
-    },
-    {
-        "name": "libtorrent",
-        "SPDXID": "SPDXRef-Package-libtorrent",
-        "versionInfo": "2.0.14",
-        "downloadLocation": "git+https://github.com/arvidn/libtorrent.git@aab2a10e2f60d9eac78e885a696736d043527794",
-        "filesAnalyzed": False,
-        "licenseConcluded": "BSD-3-Clause",
-        "licenseDeclared": "BSD-3-Clause",
-        "copyrightText": "NOASSERTION",
-    },
-    {
-        "name": "Boost",
-        "SPDXID": "SPDXRef-Package-Boost",
-        "versionInfo": "1.88.0",
-        "downloadLocation": "https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.bz2",
-        "filesAnalyzed": False,
-        "licenseConcluded": "BSL-1.0",
-        "licenseDeclared": "BSL-1.0",
-        "copyrightText": "NOASSERTION",
-        "checksums": [{"algorithm": "SHA256", "checksumValue": "46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b"}],
-    },
-    {
-        "name": "Qt",
-        "SPDXID": "SPDXRef-Package-Qt",
-        "versionInfo": "6.10.2",
-        "downloadLocation": "https://download.qt.io/official_releases/qt/6.10/6.10.2/",
-        "filesAnalyzed": False,
-        "licenseConcluded": "NOASSERTION",
-        "licenseDeclared": "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only",
-        "copyrightText": "Copyright (C) The Qt Company Ltd. and other contributors",
-    },
-]
-seen = {package["name"] for package in packages}
-for component in sorted({entry["component"] for entry in components} - seen):
-    version = next(entry["componentVersion"] for entry in components if entry["component"] == component)
-    packages.append(
-        {
-            "name": component,
-            "SPDXID": spdx_id(component),
-            "versionInfo": version,
-            "downloadLocation": "NOASSERTION",
-            "filesAnalyzed": False,
-            "licenseConcluded": "NOASSERTION",
-            "licenseDeclared": "NOASSERTION",
-            "copyrightText": "NOASSERTION",
-        }
-    )
-
-created = datetime.datetime.fromtimestamp(epoch, datetime.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-sbom = {
-    "spdxVersion": "SPDX-2.3",
-    "dataLicense": "CC0-1.0",
-    "SPDXID": "SPDXRef-DOCUMENT",
-    "name": f"buzzard-torrent-runtime-{commit[:12]}",
-    "documentNamespace": f"https://github.com/openresearchtools/wildbuzzard/sbom/buzzard-torrent/{commit}",
-    "creationInfo": {
-        "created": created,
-        "creators": ["Organization: openresearchtools", "Tool: build-qbittorrent-runtime.sh"],
-    },
-    "packages": packages,
-    "relationships": [
-        {"spdxElementId": "SPDXRef-DOCUMENT", "relationshipType": "DESCRIBES", "relatedSpdxElement": package["SPDXID"]}
-        for package in packages
-    ],
-}
-sbom_path = root / "share" / "doc" / "buzzard-torrent" / "sbom.spdx.json"
-sbom_path.write_text(json.dumps(sbom, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-PY
+python3 "${checkout}/wildbuzzard/scripts/generate-qbittorrent-runtime-provenance.py" \
+  --runtime "${runtime}" \
+  --artifacts "${artifacts}" \
+  --component-inputs "${component_inputs}" \
+  --core-source-archive "${source_path}" \
+  --qt-source-archive "${qt_source_archive}" \
+  --boost-source-archive "${boost_archive}" \
+  --commit "${commit}" \
+  --source-date-epoch "${source_date_epoch}" \
+  --lrelease-sha256 "${qt_lrelease_sha256}" \
+  >"${run_root}/qbittorrent-provenance.json"
 
 python3 - "${runtime}" "${commit}" "${source_date_epoch}" <<'PY'
 import hashlib
@@ -562,9 +452,13 @@ payload = "".join(
     f"{entry['path']}\0{entry['size']}\0{entry['sha256']}\0{1 if entry['executable'] else 0}\n"
     for entry in files
 ).encode()
-source = next(entry for entry in files if entry["path"].endswith("-source.tar.xz"))
+source_offer = json.loads(
+    (root / "share" / "doc" / "buzzard-torrent" / "source-offer.json").read_text(
+        encoding="utf-8"
+    )
+)
 manifest = {
-    "schema": 1,
+    "schema": 2,
     "component": "wildbuzzard-qbittorrent-runtime",
     "version": "5.2.3",
     "protocolVersion": 1,
@@ -573,10 +467,11 @@ manifest = {
     "libtorrentCommit": "aab2a10e2f60d9eac78e885a696736d043527794",
     "boostVersion": "1.88.0",
     "boostArchiveSha256": "46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b",
+    "qtVersion": "6.10.2",
+    "qtSourceArchiveSha256": "aeb78d29291a2b5fd53cb55950f8f5065b4978c25fb1d77f627d695ab9adf21e",
     "platform": "linux-x64",
     "architecture": "x86_64",
-    "correspondingSource": source["path"],
-    "sourceSha256": source["sha256"],
+    "externalSourceArtifacts": source_offer["correspondingSource"]["externalArtifacts"],
     "payloadSha256": hashlib.sha256(payload).hexdigest(),
     "files": files,
 }
@@ -594,6 +489,17 @@ archive_list="${run_root}/runtime-files.txt"
 )
 sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
 
+boost_source_artifact="${artifacts}/wildbuzzard-qbittorrent-boost-1.88.0-source.tar.bz2"
+core_source_artifact="${artifacts}/${source_name}"
+qt_source_artifact="${artifacts}/wildbuzzard-qbittorrent-qtbase-6.10.2-source.tar.xz"
+system_source_artifact="${artifacts}/wildbuzzard-qbittorrent-ubuntu-24.04-system-sources-${short_commit}.tar.xz"
+for source_artifact in "${core_source_artifact}" "${boost_source_artifact}" "${qt_source_artifact}" "${system_source_artifact}"; do
+  if [[ ! -f "${source_artifact}" || -L "${source_artifact}" ]]; then
+    echo "Missing qBittorrent corresponding-source artifact: ${source_artifact}" >&2
+    exit 1
+  fi
+done
+
 {
   echo "wildbuzzard_commit=${commit}"
   echo "base_commit=${base_commit}"
@@ -604,6 +510,14 @@ sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
   echo "runtime_zip=${runtime_zip}"
   echo "runtime_sha256=$(sha256sum "${runtime_zip}" | awk '{print $1}')"
   echo "runtime_size=$(stat -c %s "${runtime_zip}")"
+  echo "core_source=${core_source_artifact}"
+  echo "core_source_sha256=$(sha256sum "${core_source_artifact}" | awk '{print $1}')"
+  echo "boost_source=${boost_source_artifact}"
+  echo "boost_source_sha256=$(sha256sum "${boost_source_artifact}" | awk '{print $1}')"
+  echo "qt_source=${qt_source_artifact}"
+  echo "qt_source_sha256=$(sha256sum "${qt_source_artifact}" | awk '{print $1}')"
+  echo "system_source=${system_source_artifact}"
+  echo "system_source_sha256=$(sha256sum "${system_source_artifact}" | awk '{print $1}')"
 } >"${run_root}/build-manifest.txt"
 
 echo "qBittorrent runtime built from ${commit}"

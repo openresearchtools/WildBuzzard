@@ -3,9 +3,19 @@ subsuite = "wildbuzzard"
 
 ["test_builtin_search_extensions.py"]
 
+["test_blocker_asset_provenance.py"]
+
+["test_arti_crate_provenance.py"]
+
+["test_arti_runtime_packaging.py"]
+
 ["test_feature_ownership.py"]
 
 ["test_legal_payload.py"]
+
+["test_product_namespace_isolation.py"]
+
+["test_runner_crate_provenance.py"]
 
 ["test_installable_extension_xpis.py"]
 

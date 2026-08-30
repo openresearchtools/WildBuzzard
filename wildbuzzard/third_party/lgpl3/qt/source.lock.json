@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "component": "Qt Base",
+  "version": "6.10.2",
+  "archive": "qtbase-everywhere-src-6.10.2.tar.xz",
+  "url": "https://download.qt.io/official_releases/qt/6.10/6.10.2/submodules/qtbase-everywhere-src-6.10.2.tar.xz",
+  "sha256": "aeb78d29291a2b5fd53cb55950f8f5065b4978c25fb1d77f627d695ab9adf21e",
+  "license": "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only",
+  "role": "bundled-qbittorrent-runtime-libraries-and-plugins"
+}

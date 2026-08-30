@@ -114,6 +114,7 @@ python3 -I -B "${script_dir}/arti-runtime-provenance.py" validate \
   --binary "${arti_binary}" \
   --pin-config "${script_dir}/../third_party/arti.toml" \
   --installed-config "${arti_config}" \
+  --inventory "${stage}/opt/wildbuzzard/notices/arti-crates/THIRD-PARTY.json" \
   --provenance "${arti_provenance}"
 python3 -I -B "${script_dir}/verify_browser_legal_payload.py" \
   --source-root "${source_root}" \
@@ -127,6 +128,9 @@ cp -a -- "${script_dir}/../components/wildbuzzard-cli/." "${cli_build}/"
 )
 install -d -m 0755 \
   "${stage}/usr/share/doc/wildbuzzard" \
+  "${stage}/usr/share/doc/wildbuzzard/arti-third-party" \
+  "${stage}/usr/share/doc/wildbuzzard/blocker" \
+  "${stage}/usr/share/doc/wildbuzzard/runner-third-party/licenses" \
   "${stage}/usr/share/wildbuzzard/skills/wildbuzzard"
 install -m 0755 \
   "${cli_build}/runner/target/release/wildbuzzard-native-client" \
@@ -134,10 +138,35 @@ install -m 0755 \
 install -m 0644 \
   "${stage}/opt/wildbuzzard/notices/NOTICE" \
   "${stage}/usr/share/doc/wildbuzzard/cli-NOTICE"
-for legal_file in COPYING LICENSE MOZILLA-MCP-LICENSE SOURCE-NOTICE; do
+for legal_file in \
+  BLOCKER-ASSET-SOURCE-NOTICE \
+  COPYING \
+  LICENSE \
+  MOZILLA-MCP-LICENSE \
+  SOURCE-NOTICE; do
   install -m 0644 \
     "${stage}/opt/wildbuzzard/notices/${legal_file}" \
     "${stage}/usr/share/doc/wildbuzzard/${legal_file}"
+done
+install -m 0644 \
+  "${stage}/opt/wildbuzzard/notices/blocker/SOURCES.lock.json" \
+  "${stage}/usr/share/doc/wildbuzzard/blocker/SOURCES.lock.json"
+cp -a -- \
+  "${stage}/opt/wildbuzzard/notices/arti-crates/." \
+  "${stage}/usr/share/doc/wildbuzzard/arti-third-party/"
+runner_legal_files=(
+  "THIRD-PARTY.json"
+  "licenses/Apache-2.0.txt"
+  "licenses/MIT-dtolnay-serde.txt"
+  "licenses/Unicode-3.0.txt"
+  "licenses/Unlicense.txt"
+  "licenses/memchr-COPYING.txt"
+  "licenses/memchr-MIT.txt"
+)
+for legal_file in "${runner_legal_files[@]}"; do
+  install -m 0644 \
+    "${stage}/opt/wildbuzzard/notices/wildbuzzard-cli/${legal_file}" \
+    "${stage}/usr/share/doc/wildbuzzard/runner-third-party/${legal_file}"
 done
 install -m 0644 \
   "${script_dir}/../components/wildbuzzard-cli/skills/wildbuzzard/SKILL.md" \

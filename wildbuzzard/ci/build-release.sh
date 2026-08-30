@@ -231,12 +231,31 @@ python3 "${wildbuzzard}/wildbuzzard/scripts/sync_builtin_search_extensions.py" \
 (
   cd -- "${wildbuzzard}"
   python3 -m unittest -v \
+    wildbuzzard/scripts/tests/test_arti_crate_provenance.py \
+    wildbuzzard/scripts/tests/test_arti_runtime_packaging.py \
+    wildbuzzard/scripts/tests/test_blocker_asset_provenance.py \
     wildbuzzard/scripts/tests/test_builtin_search_extensions.py \
     wildbuzzard/scripts/tests/test_feature_ownership.py \
     wildbuzzard/scripts/tests/test_installable_extension_xpis.py \
     wildbuzzard/scripts/tests/test_legal_payload.py \
+    wildbuzzard/scripts/tests/test_product_namespace_isolation.py \
+    wildbuzzard/scripts/tests/test_runner_crate_provenance.py \
     wildbuzzard/scripts/tests/test_release_manifest.py
 )
+
+python3 -I -B \
+  "${wildbuzzard}/wildbuzzard/scripts/runner_crate_provenance.py" \
+  source-archive \
+  --cache-dir "${work_dir}/cache/runner-crates" \
+  --output "${artifact_dir}/wildbuzzard-runner-crates-source.tar.xz"
+
+python3 -I -B \
+  "${wildbuzzard}/wildbuzzard/scripts/blocker_asset_provenance.py" \
+  build \
+  --repository "${wildbuzzard}" \
+  --cache-dir "${work_dir}/cache/blocker-assets" \
+  --output "${artifact_dir}/wildbuzzard-blocker-assets-source.tar.xz" \
+  --node "$(command -v node)"
 
 (
   cd -- "${extensions}/extensions/web-search"
@@ -255,38 +274,25 @@ python3 "${wildbuzzard}/wildbuzzard/scripts/verify_installable_extension_xpis.py
   --xpi "$(one_file "${artifact_dir}" 'wildbuzzard-web-search-*.xpi')" \
   --xpi "$(one_file "${artifact_dir}" 'wildbuzzard-torrent-search-*.xpi')"
 
+search_release_root="${work_dir}/buzzard-search-release"
 (
   cd -- "${buzzard_search}"
-  uv sync --frozen --group build
-  uv run python -m unittest discover -s tests -p 'test_*.py' -v
-  scripts/build-deb.sh
+  env BUZZARD_SEARCH_CI_RUN_ROOT="${search_release_root}" \
+    ./ci/verify-release.sh
 )
-copy_artifact "$(one_file "${buzzard_search}/dist" 'buzzard-search_*_amd64.deb')"
+search_release="${search_release_root}/artifacts/final"
+copy_artifact "$(one_file "${search_release}" 'buzzard-search_*_amd64.deb')"
+copy_artifact "$(one_file "${search_release}" 'buzzard-search-*-source-license.tar.xz')"
 
+minijtt_release_root="${work_dir}/buzzard-minijtt-release"
 (
   cd -- "${buzzard_minijtt}"
-  node --test test/*.test.mjs
-  python3 -m unittest discover -s third_party/jackett/packaging -p 'test_*.py' -v
-  python3 -m unittest discover -s third_party/jackett/provider-policy -p 'test_*.py' -v
+  env BUZZARD_MINIJTT_CI_RUN_ROOT="${minijtt_release_root}" \
+    ./ci/verify-release.sh
 )
-minijtt_runtime="${work_dir}/buzzard-minijtt/runtime"
-minijtt_runtime_zip="${artifact_dir}/buzzard-minijtt-runtime.zip"
-"${buzzard_minijtt}/scripts/build-jackett-mini.sh" \
-  --output "${minijtt_runtime}" \
-  --archive "${minijtt_runtime_zip}" \
-  --object-dir "${work_dir}/buzzard-minijtt/object" \
-  --log-dir "${work_dir}/buzzard-minijtt/logs" \
-  --cache "${work_dir}/cache/minijtt"
-env \
-  BUZZARD_REQUIRE_JACKETT_RUNTIME_TESTS=1 \
-  JACKETT_MINI_TEST_RUNTIME="${minijtt_runtime}" \
-  JACKETT_MINI_TEST_MANIFEST="${minijtt_runtime}/jackett-mini-runtime.json" \
-  node --test "${buzzard_minijtt}/jackett-mini/test/process.test.mjs"
-env \
-  BUZZARD_MINIJTT_RUNTIME="${minijtt_runtime}" \
-  BUZZARD_NODE_ROOT=/opt/node \
-  "${buzzard_minijtt}/scripts/build-deb.sh" "${work_dir}/buzzard-minijtt/packages"
-copy_artifact "$(one_file "${work_dir}/buzzard-minijtt/packages" 'buzzard-minijtt_*_amd64.deb')"
+minijtt_release="${minijtt_release_root}/artifacts/final"
+copy_artifact "$(one_file "${minijtt_release}" 'buzzard-minijtt_*_amd64.deb')"
+copy_artifact "$(one_file "${minijtt_release}" 'buzzard-minijtt-*-source-license.tar.xz')"
 
 python3 -m unittest discover \
   -s "${wildbuzzard}/wildbuzzard/components/buzzard-torrent/test" \
@@ -296,6 +302,7 @@ qbittorrent_build_root="${work_dir}/qbittorrent"
   --boost-archive /opt/wildbuzzard-inputs/boost_1_88_0.tar.bz2 \
   --build-root "${qbittorrent_build_root}" \
   --lrelease /usr/local/bin/lrelease \
+  --qt-source-archive /opt/wildbuzzard-inputs/qtbase-everywhere-src-6.10.2.tar.xz \
   --ref HEAD
 qbittorrent_run="$(one_run "${qbittorrent_build_root}")"
 env \
@@ -304,6 +311,10 @@ env \
   "${work_dir}/buzzard-torrent/packages"
 copy_artifact "$(one_file "${work_dir}/buzzard-torrent/packages" 'buzzard-torrent_*_amd64.deb')"
 copy_artifact "$(one_file "${qbittorrent_run}/artifacts" '*.zip')"
+copy_artifact "$(sed -n 's/^core_source=//p' "${qbittorrent_run}/build-manifest.txt")"
+copy_artifact "$(sed -n 's/^boost_source=//p' "${qbittorrent_run}/build-manifest.txt")"
+copy_artifact "$(sed -n 's/^qt_source=//p' "${qbittorrent_run}/build-manifest.txt")"
+copy_artifact "$(sed -n 's/^system_source=//p' "${qbittorrent_run}/build-manifest.txt")"
 install -m 0644 -- \
   "${qbittorrent_run}/build-manifest.txt" \
   "${artifact_dir}/qbittorrent-build-manifest.txt"
@@ -314,9 +325,12 @@ arti_build_root="${work_dir}/arti"
 arti_run="$(one_run "${arti_build_root}")"
 arti_binary="$(sed -n 's/^artifact=//p' "${arti_run}/build-manifest.txt")"
 arti_provenance="$(sed -n 's/^provenance=//p' "${arti_run}/build-manifest.txt")"
+arti_source="$(sed -n 's/^source=//p' "${arti_run}/build-manifest.txt")"
+arti_cargo_vendor="$(sed -n 's/^cargo_vendor=//p' "${arti_run}/build-manifest.txt")"
 copy_artifact "${arti_binary}" 0755
 copy_artifact "${arti_provenance}"
-copy_artifact "$(one_file "${arti_run}/artifacts" '*-source.tar.xz')"
+copy_artifact "${arti_source}"
+copy_artifact "${arti_cargo_vendor}"
 install -m 0644 -- \
   "${arti_run}/build-manifest.txt" \
   "${artifact_dir}/arti-build-manifest.txt"

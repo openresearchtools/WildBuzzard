@@ -12,59 +12,35 @@ const { Schemas } = ChromeUtils.importESModule(
   "resource://gre/modules/Schemas.sys.mjs"
 );
 
-const BASE_SCHEMA = "chrome://extensions/content/schemas/manifest.json";
-const MOZILLA_DIR_NAME = "mozilla";
-const DOT_MOZILLA_DIR_NAME = `.${MOZILLA_DIR_NAME}`;
-
 const TYPE_SLUG =
   AppConstants.platform === "linux"
     ? "native-messaging-hosts"
     : "NativeMessagingHosts";
 
-const USER_APP_DIR_NAME =
-  AppConstants.platform === "linux" ? ".wildbuzzard" : "WildBuzzard";
-const USER_COMPAT_DIR_NAME =
-  AppConstants.platform === "linux" ? DOT_MOZILLA_DIR_NAME : "Mozilla";
-const GLOBAL_APP_DIR_NAME =
-  AppConstants.platform === "linux" ? "wildbuzzard" : "WildBuzzard";
-const GLOBAL_COMPAT_DIR_NAME =
-  AppConstants.platform === "linux" ? MOZILLA_DIR_NAME : "Mozilla";
-
 let dir = FileUtils.getDir("TmpD", ["NativeManifestsWildBuzzard"]);
 dir.createUnique(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
 
-let userRoot = dir.clone();
-userRoot.append("user");
-userRoot.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
+function makeDirectory(parent, name) {
+  let result = parent.clone();
+  result.append(name);
+  result.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
+  return result;
+}
 
-let userDir = userRoot.clone();
-userDir.append(USER_APP_DIR_NAME);
-userDir.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
-
-let userCompatDir = userRoot.clone();
-userCompatDir.append(USER_COMPAT_DIR_NAME);
-userCompatDir.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
-
-let globalRoot = dir.clone();
-globalRoot.append("global");
-globalRoot.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
-
-let globalDir = globalRoot.clone();
-globalDir.append(GLOBAL_APP_DIR_NAME);
-globalDir.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
-
-let globalCompatDir = globalRoot.clone();
-globalCompatDir.append(GLOBAL_COMPAT_DIR_NAME);
-globalCompatDir.create(Ci.nsIFile.DIRECTORY_TYPE, FileUtils.PERMS_DIRECTORY);
+let userRoot = makeDirectory(dir, "user");
+let globalRoot = makeDirectory(dir, "global");
+let userDir = makeDirectory(userRoot, "wildbuzzard");
+let userMozillaDir = makeDirectory(userRoot, ".mozilla");
+let globalDir = makeDirectory(globalRoot, "wildbuzzard");
+let globalMozillaDir = makeDirectory(globalRoot, "mozilla");
 
 add_setup(async function setup() {
-  await Schemas.load(BASE_SCHEMA);
-
+  await Schemas.load("chrome://extensions/content/schemas/manifest.json");
   for (let manifestDir of [
     userDir,
-    userCompatDir,
+    userMozillaDir,
     globalDir,
-    globalCompatDir,
+    globalMozillaDir,
   ]) {
     await IOUtils.makeDirectory(PathUtils.join(manifestDir.path, TYPE_SLUG));
   }
@@ -93,7 +69,7 @@ let global = this;
 
 let context = {
   extension: {
-    id: "extension@tests.mozilla.org",
+    id: "extension@tests.wildbuzzard.org",
   },
   manifestVersion: 2,
   envType: "addon_parent",
@@ -108,125 +84,53 @@ let context = {
   forgetOnClose: () => {},
 };
 
-let templateManifest = {
-  name: "test",
-  description: "this is only a test",
-  path: "/bin/cat",
-  type: "stdio",
-  allowed_extensions: ["extension@tests.mozilla.org"],
-};
-
-function writeManifest(path, manifest) {
-  return IOUtils.writeUTF8(path, JSON.stringify(manifest));
+async function writeApplicationManifest(rootDir, name, description) {
+  let manifest = {
+    name,
+    description,
+    path: "/bin/cat",
+    type: "stdio",
+    allowed_extensions: ["extension@tests.wildbuzzard.org"],
+  };
+  let path = PathUtils.join(rootDir.path, TYPE_SLUG, `${name}.json`);
+  await IOUtils.writeUTF8(path, JSON.stringify(manifest));
+  return { manifest, path };
 }
 
 function lookupApplication(app) {
   return NativeManifests.lookupManifest("stdio", app, context);
 }
 
-async function writeApplicationManifest(rootDir, name, description) {
-  let manifest = { ...templateManifest, name, description };
-  let path = PathUtils.join(rootDir.path, TYPE_SLUG, `${name}.json`);
-  await writeManifest(path, manifest);
-  return { manifest, path };
-}
+add_task(async function test_mozilla_manifest_dirs_are_ignored() {
+  await writeApplicationManifest(userMozillaDir, "mozilla_user", "ignored");
+  await writeApplicationManifest(globalMozillaDir, "mozilla_system", "ignored");
 
-add_task(async function test_mozilla_compat_manifest_dirs() {
-  let user = await writeApplicationManifest(
-    userCompatDir,
-    "compat_user",
-    "This manifest is from the Mozilla user directory"
-  );
-
-  let result = await lookupApplication("compat_user");
-  notEqual(result, null, "lookupApplication finds a Mozilla user manifest");
-  equal(
-    result.path,
-    user.path,
-    "lookupApplication returns the Mozilla user manifest path"
-  );
-  deepEqual(
-    result.manifest,
-    user.manifest,
-    "lookupApplication returns the Mozilla user manifest contents"
-  );
-
-  let system = await writeApplicationManifest(
-    globalCompatDir,
-    "compat_system",
-    "This manifest is from the Mozilla system directory"
-  );
-
-  result = await lookupApplication("compat_system");
-  notEqual(result, null, "lookupApplication finds a Mozilla system manifest");
-  equal(
-    result.path,
-    system.path,
-    "lookupApplication returns the Mozilla system manifest path"
-  );
-  deepEqual(
-    result.manifest,
-    system.manifest,
-    "lookupApplication returns the Mozilla system manifest contents"
-  );
+  equal(await lookupApplication("mozilla_user"), null);
+  equal(await lookupApplication("mozilla_system"), null);
 });
 
-add_task(async function test_mozilla_user_dir_precedence() {
+add_task(async function test_wildbuzzard_manifest_dirs() {
   let user = await writeApplicationManifest(
-    userCompatDir,
-    "compat_precedence",
-    "This manifest is from the Mozilla user directory"
+    userDir,
+    "precedence",
+    "WildBuzzard user manifest"
   );
   await writeApplicationManifest(
     globalDir,
-    "compat_precedence",
-    "This manifest is from the WildBuzzard system directory"
+    "precedence",
+    "WildBuzzard system manifest"
+  );
+  let system = await writeApplicationManifest(
+    globalDir,
+    "system_only",
+    "WildBuzzard system manifest"
   );
 
-  let result = await lookupApplication("compat_precedence");
-  notEqual(
-    result,
-    null,
-    "lookupApplication finds a user manifest before a system manifest"
-  );
-  equal(
-    result.path,
-    user.path,
-    "lookupApplication returns the Mozilla user path before the WildBuzzard system path"
-  );
-  deepEqual(
-    result.manifest,
-    user.manifest,
-    "lookupApplication returns the Mozilla user manifest contents"
-  );
-});
+  let result = await lookupApplication("precedence");
+  equal(result.path, user.path);
+  deepEqual(result.manifest, user.manifest);
 
-add_task(async function test_wildbuzzard_user_dir_precedence() {
-  let wildbuzzard = await writeApplicationManifest(
-    userDir,
-    "wildbuzzard_precedence",
-    "This manifest is from the WildBuzzard user directory"
-  );
-  await writeApplicationManifest(
-    userCompatDir,
-    "wildbuzzard_precedence",
-    "This manifest is from the Mozilla user directory"
-  );
-
-  let result = await lookupApplication("wildbuzzard_precedence");
-  notEqual(
-    result,
-    null,
-    "lookupApplication finds a WildBuzzard manifest before a Mozilla manifest"
-  );
-  equal(
-    result.path,
-    wildbuzzard.path,
-    "lookupApplication returns the WildBuzzard user path before the Mozilla user path"
-  );
-  deepEqual(
-    result.manifest,
-    wildbuzzard.manifest,
-    "lookupApplication returns the WildBuzzard user manifest contents"
-  );
+  result = await lookupApplication("system_only");
+  equal(result.path, system.path);
+  deepEqual(result.manifest, system.manifest);
 });

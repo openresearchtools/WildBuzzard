@@ -2,6 +2,8 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
+
 const TOPIC_WILL_IMPORT_BOOKMARKS =
   "initial-migration-will-import-default-bookmarks";
 const TOPIC_DID_IMPORT_BOOKMARKS =
@@ -13,10 +15,16 @@ const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
   BookmarkHTMLUtils: "resource://gre/modules/BookmarkHTMLUtils.sys.mjs",
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
-  FirefoxProfileMigrator: "resource:///modules/FirefoxProfileMigrator.sys.mjs",
   MigrationUtils: "resource:///modules/MigrationUtils.sys.mjs",
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
 });
+
+if (AppConstants.MOZ_PROFILE_MIGRATOR) {
+  ChromeUtils.defineESModuleGetters(lazy, {
+    FirefoxProfileMigrator:
+      "resource:///modules/FirefoxProfileMigrator.sys.mjs",
+  });
+}
 
 /**
  * @typedef {object} MigratorResource
@@ -329,7 +337,10 @@ export class MigratorBase {
     let collectMigrationTelemetry = resourceType => {
       // We don't want to collect this if the migration is occurring due to a
       // profile refresh.
-      if (this.constructor.key == lazy.FirefoxProfileMigrator.key) {
+      if (
+        AppConstants.MOZ_PROFILE_MIGRATOR &&
+        this.constructor.key == lazy.FirefoxProfileMigrator.key
+      ) {
         return;
       }
 

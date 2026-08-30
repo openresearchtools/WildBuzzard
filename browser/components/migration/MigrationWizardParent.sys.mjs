@@ -16,7 +16,6 @@ ChromeUtils.defineLazyGetter(lazy, "gFluentStrings", function () {
 });
 
 ChromeUtils.defineESModuleGetters(lazy, {
-  FirefoxProfileMigrator: "resource:///modules/FirefoxProfileMigrator.sys.mjs",
   InternalTestingProfileMigrator:
     "resource:///modules/InternalTestingProfileMigrator.sys.mjs",
   LoginCSVImport: "resource://gre/modules/LoginCSVImport.sys.mjs",
@@ -24,6 +23,13 @@ ChromeUtils.defineESModuleGetters(lazy, {
     "chrome://browser/content/migration/migration-wizard-constants.mjs",
   PasswordFileMigrator: "resource:///modules/FileMigrators.sys.mjs",
 });
+
+if (AppConstants.MOZ_PROFILE_MIGRATOR) {
+  ChromeUtils.defineESModuleGetters(lazy, {
+    FirefoxProfileMigrator:
+      "resource:///modules/FirefoxProfileMigrator.sys.mjs",
+  });
+}
 
 if (AppConstants.platform == "macosx") {
   ChromeUtils.defineESModuleGetters(lazy, {
@@ -727,7 +733,10 @@ export class MigrationWizardParent extends JSWindowActorParent {
    *   The success string for the resource type after migration has completed.
    */
   #getStringForImportQuantity(migratorKey, resourceTypeStr) {
-    if (migratorKey == lazy.FirefoxProfileMigrator.key) {
+    if (
+      AppConstants.MOZ_PROFILE_MIGRATOR &&
+      migratorKey == lazy.FirefoxProfileMigrator.key
+    ) {
       return "";
     }
 

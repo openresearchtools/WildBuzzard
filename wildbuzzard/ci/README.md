@@ -44,14 +44,24 @@ The uploaded Actions artifact contains:
   amd64 Debian packages
 - the browser archive and AppImage
 - both installable search-extension XPIs
-- pinned Arti runtime, provenance, and corresponding-source artifacts, plus
-  Jackett Mini and qBittorrent runtime/provenance artifacts
+- pinned Arti runtime, provenance, workspace source, and deterministic Cargo
+  vendor source artifacts; the
+  browser-control client's checksum-pinned Rust crate source bundle; and
+  the native MiniJTT source/license artifact plus qBittorrent runtime,
+  provenance, patched qBittorrent/libtorrent core source, Boost, Qt Base, and
+  Ubuntu system corresponding-source artifacts
 - component build manifests, `release-manifest.json`, and `SHA256SUMS`
 
 The browser archive, Debian package, and AppImage are rejected unless they
 carry the repository licenses, CLI upstream notice and MIT license, and the
-corresponding-source pointer. The browser Debian package is also rejected
-unless it declares all three CLI packages as dependencies.
+corresponding-source pointer. They also carry an exact Cargo.lock inventory
+and the upstream license bytes for every statically linked browser-control
+crate. The browser Debian package requires buzzard-torrent and advertises
+buzzard-search and buzzard-minijtt as optional suggestions.
+It also carries an exact all-package Arti Cargo.lock inventory and the exact
+upstream license, copying, notice, and copyright bytes referenced by that
+inventory. Arti's workspace and 70 MiB Cargo vendor source archives remain
+outside the installed browser payload and are hash-bound into its provenance.
 `release-manifest.json` records every repository commit, package identity,
 artifact size, and SHA-256 digest. `SHA256SUMS` is verified before upload.
 

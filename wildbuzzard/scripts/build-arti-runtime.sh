@@ -50,8 +50,12 @@ build_cargo="$(read_pin build_cargo)"
 binary_sha256="$(read_pin linux_x86_64_binary_sha256)"
 source_sha256="$(read_pin source_sha256)"
 cargo_lock_sha256="$(read_pin cargo_lock_sha256)"
+cargo_vendor_sha256="$(read_pin cargo_vendor_sha256)"
+cargo_license_inventory_sha256="$(read_pin cargo_license_inventory_sha256)"
 license_apache_sha256="$(read_pin license_apache_sha256)"
 license_mit_sha256="$(read_pin license_mit_sha256)"
+crate_inventory="${source_repo}/wildbuzzard/third_party/arti-crates/THIRD-PARTY.json"
+crate_provenance="${script_dir}/arti_crate_provenance.py"
 
 if [[ -n "${input_binary}" ]]; then
   input_binary="$(realpath -- "${input_binary}")"
@@ -83,6 +87,11 @@ if [[ "$(sha256sum "${arti_source}/Cargo.lock" | awk '{ print $1 }')" != "${carg
   echo "The Arti lock or licenses differ from the release pins" >&2
   exit 2
 fi
+if [[ "$(sha256sum "${crate_inventory}" | awk '{ print $1 }')" != "${cargo_license_inventory_sha256}" ]]; then
+  echo "The Arti crate license inventory differs from the release pin" >&2
+  exit 2
+fi
+python3 -I -B "${crate_provenance}" verify
 if [[ "$(rustc --version)" != "${build_rustc}" || "$(cargo --version)" != "${build_cargo}" ]]; then
   echo "The Arti build toolchain differs from the release pins" >&2
   exit 2
@@ -100,8 +109,10 @@ esac
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${arti_version}-$$"
 run_root="${build_root}/runs/${run_id}"
 target_dir="${build_root}/cargo/${arti_commit}"
+cargo_home="${build_root}/cargo-home/${arti_commit}"
 artifacts_dir="${run_root}/artifacts"
-mkdir -p -- "${run_root}" "${artifacts_dir}" "${target_dir}"
+vendor_dir="${run_root}/vendor"
+mkdir -p -- "${run_root}" "${artifacts_dir}" "${target_dir}" "${cargo_home}"
 
 if [[ "$(uname -m)" != "x86_64" ]]; then
   echo "Unsupported Arti artifact architecture: $(uname -m)" >&2
@@ -109,11 +120,34 @@ if [[ "$(uname -m)" != "x86_64" ]]; then
 fi
 artifact_arch="linux-x86_64"
 
+env CARGO_HOME="${cargo_home}" cargo vendor \
+  --locked \
+  --versioned-dirs \
+  --manifest-path "${arti_source}/Cargo.toml" \
+  "${vendor_dir}" \
+  >"${cargo_home}/config.toml" \
+  2>"${run_root}/vendor.log"
+printf '\n[net]\noffline = true\n' >>"${cargo_home}/config.toml"
+
+cargo_vendor_archive="${artifacts_dir}/wildbuzzard-arti-${arti_version}-cargo-vendor.tar.xz"
+python3 -I -B "${crate_provenance}" source-archive \
+  --vendor-dir "${vendor_dir}" \
+  --output "${cargo_vendor_archive}"
+if [[ "$(sha256sum "${cargo_vendor_archive}" | awk '{ print $1 }')" != "${cargo_vendor_sha256}" ]]; then
+  echo "The Arti Cargo vendor source archive differs from the release pin" >&2
+  exit 1
+fi
+sha256sum "${cargo_vendor_archive}" >"${cargo_vendor_archive}.sha256"
+
 if [[ -z "${input_binary}" ]]; then
-  CARGO_TARGET_DIR="${target_dir}" cargo build \
+  env \
+    CARGO_HOME="${cargo_home}" \
+    CARGO_NET_OFFLINE=true \
+    CARGO_TARGET_DIR="${target_dir}" \
+    cargo build \
     --manifest-path "${arti_source}/Cargo.toml" \
     --release \
-    --locked \
+    --frozen \
     --package arti \
     >"${run_root}/build.log" 2>&1
   input_binary="${target_dir}/release/arti"
@@ -150,6 +184,8 @@ python3 -I -B "${script_dir}/arti-runtime-provenance.py" create \
   --binary "${artifact}" \
   --config "${metadata}" \
   --source "${source_archive}" \
+  --cargo-vendor "${cargo_vendor_archive}" \
+  --inventory "${crate_inventory}" \
   --output "${provenance}" \
   --source-date-epoch "${source_date_epoch}"
 sha256sum "${provenance}" >"${provenance}.sha256"
@@ -164,6 +200,10 @@ sha256sum "${provenance}" >"${provenance}.sha256"
   echo "binary_sha256=${binary_sha256}"
   echo "source=${source_archive}"
   echo "source_sha256=${source_sha256}"
+  echo "cargo_vendor=${cargo_vendor_archive}"
+  echo "cargo_vendor_sha256=${cargo_vendor_sha256}"
+  echo "cargo_license_inventory=${crate_inventory}"
+  echo "cargo_license_inventory_sha256=${cargo_license_inventory_sha256}"
   echo "provenance=${provenance}"
   echo "provenance_sha256=$(sha256sum "${provenance}" | awk '{ print $1 }')"
 } >"${run_root}/build-manifest.txt"

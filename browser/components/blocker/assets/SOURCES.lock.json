@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "nodeVersion": "v22.23.2",
+  "artifact": "wildbuzzard-blocker-assets-source.tar.xz",
+  "sources": {
+    "braveAdblockResources": {
+      "name": "Brave adblock-resources",
+      "repository": "https://github.com/brave/adblock-resources.git",
+      "commit": "65cc707a78e25f3e203b6755f7289f01116db3e8",
+      "tree": "a38b7356e56a1e3d2bdd2e116be68bc32df9d199",
+      "sourceDateEpoch": 1782866381,
+      "archive": "brave-adblock-resources-65cc707a78e25f3e203b6755f7289f01116db3e8.tar.gz",
+      "archiveUrl": "https://codeload.github.com/brave/adblock-resources/tar.gz/65cc707a78e25f3e203b6755f7289f01116db3e8",
+      "archiveSize": 323634,
+      "archiveSha256": "f2a0c99506527be0ec64401a6f2c5dcb0962c935c9a8b28577b15f1dcc95cbad",
+      "license": "MPL-2.0",
+      "licensePath": "LICENSE",
+      "licenseSha256": "1f256ecad192880510e84ad60474eab7589218784b9a50bc7ceee34c2b91f1d5",
+      "resourcesPath": "dist/resources.json",
+      "resourcesSha256": "c062f98034550b310f18e5cce17ec5ee2af4dc5f2e2bcbe8b66a9694dd67f52e"
+    },
+    "uBlockOrigin": {
+      "name": "uBlock Origin",
+      "repository": "https://github.com/gorhill/uBlock.git",
+      "tag": "1.71.0",
+      "commit": "4a738e226f17ba8b854bc411871607704e46aad8",
+      "tree": "cea14034df6ee7f09a4211be116ef44938c38f7d",
+      "sourceDateEpoch": 1778517578,
+      "archive": "ublock-origin-1.71.0.tar.gz",
+      "archiveUrl": "https://codeload.github.com/gorhill/uBlock/tar.gz/4a738e226f17ba8b854bc411871607704e46aad8",
+      "archiveSize": 3976763,
+      "archiveSha256": "79ef8080d510920248ded44a10d25b04fa4c551195fc9d1289af0a973b87549a",
+      "license": "GPL-3.0-only",
+      "licensePath": "LICENSE.txt",
+      "licenseSha256": "e73d33841f942fa73aa5a63d4a6399cc39a29564db1dbca0915485842fcb236d"
+    }
+  },
+  "outputs": {
+    "resources/resources.json": {
+      "size": 673571,
+      "sha256": "67bbf0b7175428ccee95041acadfd7a71d753e575f0a1dc4d63a522f38f817ef"
+    },
+    "resources/ubo-scriptlets.json": {
+      "size": 1821596,
+      "sha256": "e04a401aa0b61dee01849597e664c5147d77b68190b7b7ac0998e343c2362d95"
+    }
+  }
+}

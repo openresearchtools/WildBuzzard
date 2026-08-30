@@ -13,25 +13,39 @@
 #include "nsImportModule.h"
 #include "nsIOpenTabsProvider.h"
 
-#define DBUS_BUS_NAME_TEMPLATE "org.mozilla.%s.SearchProvider"
-#define DBUS_OBJECT_PATH_TEMPLATE "/org/mozilla/%s/SearchProvider"
+#ifdef MOZ_WILDBUZZARD
+#  define DBUS_BUS_NAME_TEMPLATE "org.wildbuzzard.WildBuzzard.SearchProvider"
+#  define DBUS_OBJECT_PATH_TEMPLATE \
+    "/org/wildbuzzard/WildBuzzard/SearchProvider"
+#else
+#  define DBUS_BUS_NAME_TEMPLATE "org.mozilla.%s.SearchProvider"
+#  define DBUS_OBJECT_PATH_TEMPLATE "/org/mozilla/%s/SearchProvider"
+#endif
 
 const char* GetDBusBusName() {
   static const char* name = []() {
+#ifdef MOZ_WILDBUZZARD
+    return ToNewCString(nsLiteralCString(DBUS_BUS_NAME_TEMPLATE));
+#else
     nsAutoCString appName;
     gAppData->GetDBusAppName(appName);
     return ToNewCString(nsPrintfCString(DBUS_BUS_NAME_TEMPLATE,
                                         appName.get()));  // Intentionally leak
+#endif
   }();
   return name;
 }
 
 const char* GetDBusObjectPath() {
   static const char* path = []() {
+#ifdef MOZ_WILDBUZZARD
+    return ToNewCString(nsLiteralCString(DBUS_OBJECT_PATH_TEMPLATE));
+#else
     nsAutoCString appName;
     gAppData->GetDBusAppName(appName);
     return ToNewCString(nsPrintfCString(DBUS_OBJECT_PATH_TEMPLATE,
                                         appName.get()));  // Intentionally leak
+#endif
   }();
   return path;
 }
@@ -226,7 +240,7 @@ static already_AddRefed<GVariant> DBusAppendSearchID(const char* aID) {
     g_variant_builder_add(&b, "{sv}", "name",
                           g_variant_new_string(gnomeSearchTitle.get()));
     // TODO: When running on flatpak/snap we may need to use
-    // icon like org.mozilla.Firefox or so.
+    // icon matching the installed desktop application ID.
     g_variant_builder_add(&b, "{sv}", "gicon", g_variant_new_string("firefox"));
   }
 

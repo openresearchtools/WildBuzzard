@@ -13,6 +13,7 @@ ARG BOOST_VERSION=1.88.0
 ARG BOOST_SHA256=46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b
 ARG AQTINSTALL_VERSION=3.3.0
 ARG QT_TOOLS_VERSION=6.10.2
+ARG QT_SOURCE_SHA256=aeb78d29291a2b5fd53cb55950f8f5065b4978c25fb1d77f627d695ab9adf21e
 ARG UV_VERSION=0.8.17
 ARG APPIMAGETOOL_SHA256=b90f4a8b18967545fda78a445b27680a1642f1ef9488ced28b65398f2be7add2
 
@@ -201,11 +202,16 @@ RUN mkdir -p /opt/node /opt/dotnet /opt/wildbuzzard-inputs \
     && tar -xzf /tmp/dotnet.tar.gz -C /opt/dotnet \
     && curl -fL --retry 5 -o /opt/wildbuzzard-inputs/boost_1_88_0.tar.bz2 "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_1_88_0.tar.bz2" \
     && echo "${BOOST_SHA256}  /opt/wildbuzzard-inputs/boost_1_88_0.tar.bz2" | sha256sum --check --strict \
+    && curl -fL --retry 5 -o "/opt/wildbuzzard-inputs/qtbase-everywhere-src-${QT_TOOLS_VERSION}.tar.xz" "https://download.qt.io/official_releases/qt/6.10/${QT_TOOLS_VERSION}/submodules/qtbase-everywhere-src-${QT_TOOLS_VERSION}.tar.xz" \
+    && echo "${QT_SOURCE_SHA256}  /opt/wildbuzzard-inputs/qtbase-everywhere-src-${QT_TOOLS_VERSION}.tar.xz" | sha256sum --check --strict \
     && ln -s /opt/node/bin/node /usr/local/bin/node \
     && ln -s /opt/node/bin/npm /usr/local/bin/npm \
     && ln -s /opt/node/bin/npx /usr/local/bin/npx \
     && ln -s /opt/dotnet/dotnet /usr/local/bin/dotnet \
     && rm -f /tmp/node.tar.xz /tmp/dotnet.tar.gz
+
+RUN sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources \
+    && apt-get update
 
 RUN python3 -m venv /opt/aqt \
     && /opt/aqt/bin/pip install --no-cache-dir "aqtinstall==${AQTINSTALL_VERSION}" \

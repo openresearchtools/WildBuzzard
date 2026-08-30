@@ -64,3 +64,11 @@ version = "1.88.0"
 source_sha256 = "46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b"
 license = "BSL-1.0"
 role = "locked-build-time-libtorrent-headers"
+
+[qbittorrent_qt]
+remote = "https://download.qt.io/official_releases/qt/6.10/6.10.2/submodules/qtbase-everywhere-src-6.10.2.tar.xz"
+ref = "qt-6.10.2"
+version = "6.10.2"
+source_sha256 = "aeb78d29291a2b5fd53cb55950f8f5065b4978c25fb1d77f627d695ab9adf21e"
+license = "LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only"
+role = "bundled-qbittorrent-runtime-libraries-and-plugins"

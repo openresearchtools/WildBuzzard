@@ -6,3 +6,4 @@ subsuite = "integration"
 tags = "os_integration"
 
 ["test_refresh_firefox.py"]
+skip-if = ["appname == 'wildbuzzard'"]

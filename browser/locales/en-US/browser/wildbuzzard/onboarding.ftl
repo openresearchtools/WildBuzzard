@@ -14,10 +14,6 @@ wildbuzzard-onboarding-welcome-subtitle = Independent, fast, and built with the 
 
 wildbuzzard-onboarding-start-button = Get started
 
-wildbuzzard-onboarding-import-title = Bring your data with you
-
-wildbuzzard-onboarding-import-subtitle = Import bookmarks, history, and form data from { migration-wizard-migrator-display-name-firefox } or another browser without leaving this setup.
-
 wildbuzzard-onboarding-style-title = Choose your WildBuzzard style
 
 wildbuzzard-onboarding-style-subtitle = Pick the tab and toolbar shape and how compact it feels.

@@ -21,6 +21,17 @@ It does not erase or replace inherited licenses.
 | Other filter lists and data | Retain each asset's GPL, Creative Commons, attribution, or other terms |
 | Third-party libraries | Their existing licenses |
 
+The browser-control client's checked-in third-party inventory must exactly
+cover every registry crate in its Cargo.lock. Browser packages carry the
+inventory and exact upstream license bytes; releases carry the checksum-pinned
+crate source bundle separately from the runtime payload.
+
+The Arti inventory must exactly cover every local and registry package in its
+Cargo.lock. Browser packages carry its pinned Cargo metadata and exact,
+deduplicated upstream legal files. The complete Arti workspace source and the
+deterministic Cargo vendor tree are separate checksum-pinned release artifacts,
+and neither source tree may enter the browser Debian or AppImage runtime.
+
 AGPL is not a mechanism for converting third-party assets to AGPL. An asset
 with unclear redistribution permission remains excluded until permission or a
 clear upstream license is documented.

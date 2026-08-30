@@ -1293,6 +1293,7 @@ function isActiveTorrentImportContext(callContext) {
     return (
       callContext?.isHandlingUserInput === true &&
       callContext.isPrivate !== true &&
+      callContext.viewType === "popup" &&
       callContext.window &&
       !callContext.window.closed &&
       Services.focus.activeWindow === callContext.window &&
