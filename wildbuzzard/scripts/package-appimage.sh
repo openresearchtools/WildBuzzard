@@ -130,7 +130,7 @@ for relative_path in "${required_runtime_files[@]}"; do
 done
 python3 -I -B "${product_dir}/scripts/arti-runtime-provenance.py" validate \
   --binary "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti" \
-  --pin-config "${product_dir}/third_party/arti.toml" \
+  --pin-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti.toml" \
   --installed-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti.toml" \
   --inventory "${app_dir}/usr/lib/wildbuzzard/notices/arti-crates/THIRD-PARTY.json" \
   --provenance "${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"

@@ -319,6 +319,7 @@ class ArtiRuntimePackagingTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         for value in (mozbuild, appimage_package, deb_package, manifest):
             self.assertIn("wildbuzzard-arti-2.5.1-provenance.zip", value)
+        self.assertIn("--with-wildbuzzard-arti-config", configure)
         self.assertIn("--with-wildbuzzard-arti-provenance", configure)
         self.assertIn("arti-runtime-provenance.py", configure)
         self.assertIn("arti-runtime-provenance.py", appimage_package)

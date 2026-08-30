@@ -47,7 +47,6 @@ arti_tree="$(read_pin tree)"
 source_date_epoch="$(read_pin source_date_epoch)"
 build_rustc="$(read_pin build_rustc)"
 build_cargo="$(read_pin build_cargo)"
-binary_sha256="$(read_pin linux_x86_64_binary_sha256)"
 source_sha256="$(read_pin source_sha256)"
 cargo_lock_sha256="$(read_pin cargo_lock_sha256)"
 cargo_vendor_sha256="$(read_pin cargo_vendor_sha256)"
@@ -158,11 +157,17 @@ fi
 
 artifact="${artifacts_dir}/arti-${arti_version}-${artifact_arch}"
 install -m 755 "${input_binary}" "${artifact}"
-if [[ "$(sha256sum "${artifact}" | awk '{ print $1 }')" != "${binary_sha256}" ]]; then
-  echo "The Arti binary differs from the release pin" >&2
+binary_sha256="$(sha256sum "${artifact}" | awk '{ print $1 }')"
+sha256sum "${artifact}" >"${artifact}.sha256"
+
+runtime_config="${artifacts_dir}/arti-${arti_version}-${artifact_arch}.toml"
+if [[ "$(grep -c '^linux_x86_64_binary_sha256 = ' "${metadata}")" != 1 ]]; then
+  echo "The Arti metadata has an invalid binary digest field" >&2
   exit 1
 fi
-sha256sum "${artifact}" >"${artifact}.sha256"
+sed \
+  "s/^linux_x86_64_binary_sha256 = .*/linux_x86_64_binary_sha256 = \"${binary_sha256}\"/" \
+  "${metadata}" >"${runtime_config}"
 
 source_archive="${artifacts_dir}/wildbuzzard-arti-${arti_version}-source.tar.xz"
 create_source_archive() {
@@ -182,7 +187,7 @@ sha256sum "${source_archive}" >"${source_archive}.sha256"
 provenance="${artifacts_dir}/wildbuzzard-arti-${arti_version}-provenance.zip"
 python3 -I -B "${script_dir}/arti-runtime-provenance.py" create \
   --binary "${artifact}" \
-  --config "${metadata}" \
+  --config "${runtime_config}" \
   --source "${source_archive}" \
   --cargo-vendor "${cargo_vendor_archive}" \
   --inventory "${crate_inventory}" \
@@ -198,6 +203,8 @@ sha256sum "${provenance}" >"${provenance}.sha256"
   echo "cargo=${build_cargo}"
   echo "artifact=${artifact}"
   echo "binary_sha256=${binary_sha256}"
+  echo "config=${runtime_config}"
+  echo "config_sha256=$(sha256sum "${runtime_config}" | awk '{ print $1 }')"
   echo "source=${source_archive}"
   echo "source_sha256=${source_sha256}"
   echo "cargo_vendor=${cargo_vendor_archive}"

@@ -32,18 +32,26 @@ FINAL_TARGET_FILES.notices["wildbuzzard-cli"]["licenses"] += [
 
 if CONFIG["WILDBUZZARD_ARTI"]:
     arti_name = "arti" + CONFIG["BIN_SUFFIX"]
+    arti_config_name = "arti.toml"
     arti_provenance_name = "wildbuzzard-arti-2.5.1-provenance.zip"
-    GENERATED_FILES += [arti_name, arti_provenance_name]
+    GENERATED_FILES += [arti_name, arti_config_name, arti_provenance_name]
     arti_binary = GENERATED_FILES[arti_name]
     arti_binary.script = "copy_executable.py"
     arti_binary.flags = [CONFIG["WILDBUZZARD_ARTI"]]
     arti_binary.extra_deps = [
         "%" + CONFIG["WILDBUZZARD_ARTI"],
+        "%" + CONFIG["WILDBUZZARD_ARTI_CONFIG"],
         "%" + CONFIG["WILDBUZZARD_ARTI_PROVENANCE"],
         "scripts/arti-runtime-provenance.py",
         "scripts/arti_crate_provenance.py",
         "third_party/arti.toml",
         "third_party/arti-crates/THIRD-PARTY.json",
+    ]
+    arti_config = GENERATED_FILES[arti_config_name]
+    arti_config.script = "copy_file.py"
+    arti_config.flags = [CONFIG["WILDBUZZARD_ARTI_CONFIG"]]
+    arti_config.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_ARTI_CONFIG"],
     ]
     arti_provenance = GENERATED_FILES[arti_provenance_name]
     arti_provenance.script = "copy_file.py"
@@ -54,7 +62,7 @@ if CONFIG["WILDBUZZARD_ARTI"]:
 
     FINAL_TARGET_FILES.runtime["tor"] += [
         "!" + arti_name,
-        "third_party/arti.toml",
+        "!" + arti_config_name,
     ]
     FINAL_TARGET_FILES.notices["source"] += [
         "!" + arti_provenance_name,

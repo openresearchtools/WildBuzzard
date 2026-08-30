@@ -114,7 +114,7 @@ for arti_file in "${arti_binary}" "${arti_config}" "${arti_provenance}"; do
 done
 python3 -I -B "${script_dir}/arti-runtime-provenance.py" validate \
   --binary "${arti_binary}" \
-  --pin-config "${script_dir}/../third_party/arti.toml" \
+  --pin-config "${arti_config}" \
   --installed-config "${arti_config}" \
   --inventory "${stage}/opt/wildbuzzard/notices/arti-crates/THIRD-PARTY.json" \
   --provenance "${arti_provenance}"

@@ -16,6 +16,7 @@ usage() {
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
   echo "  --working-tree     include tracked and untracked developer changes"
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
+  echo "  --arti-config FILE  Arti metadata for the source-built executable"
   echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
   echo "  --bootstrap        force mach bootstrap before the requested action"
   echo "  --help             show this help"
@@ -30,6 +31,7 @@ jobs="$(nproc)"
 run_bootstrap=false
 include_working_tree=false
 arti_binary=""
+arti_config=""
 arti_provenance=""
 
 while (($#)); do
@@ -58,6 +60,10 @@ while (($#)); do
       arti_binary="${2:?--arti-binary requires a file}"
       shift 2
       ;;
+    --arti-config)
+      arti_config="${2:?--arti-config requires a file}"
+      shift 2
+      ;;
     --arti-provenance)
       arti_provenance="${2:?--arti-provenance requires a file}"
       shift 2
@@ -78,16 +84,17 @@ while (($#)); do
   esac
 done
 
-if [[ -n "${arti_binary}" || -n "${arti_provenance}" ]]; then
-  if [[ -z "${arti_binary}" || -z "${arti_provenance}" ]]; then
-    echo "--arti-binary and --arti-provenance must be supplied together" >&2
+if [[ -n "${arti_binary}" || -n "${arti_config}" || -n "${arti_provenance}" ]]; then
+  if [[ -z "${arti_binary}" || -z "${arti_config}" || -z "${arti_provenance}" ]]; then
+    echo "--arti-binary, --arti-config, and --arti-provenance must be supplied together" >&2
     exit 2
   fi
   arti_binary="$(realpath -- "${arti_binary}")"
+  arti_config="$(realpath -- "${arti_config}")"
   arti_provenance="$(realpath -- "${arti_provenance}")"
   if [[ ! -f "${arti_binary}" || ! -x "${arti_binary}" || \
-    ! -f "${arti_provenance}" ]]; then
-    echo "Arti binary and provenance inputs must be regular files" >&2
+    ! -f "${arti_config}" || ! -f "${arti_provenance}" ]]; then
+    echo "Arti binary, config, and provenance inputs must be regular files" >&2
     exit 2
   fi
 fi
@@ -102,8 +109,8 @@ esac
 
 case "${action}" in
   deb|package|appimage|all)
-    if [[ -z "${arti_binary}" || -z "${arti_provenance}" ]]; then
-      echo "${action} requires --arti-binary and --arti-provenance" >&2
+    if [[ -z "${arti_binary}" || -z "${arti_config}" || -z "${arti_provenance}" ]]; then
+      echo "${action} requires --arti-binary, --arti-config, and --arti-provenance" >&2
       exit 2
     fi
     ;;
@@ -200,6 +207,7 @@ fi
   echo "working_tree=${include_working_tree}"
   echo "source_date_epoch=${source_date_epoch}"
   echo "arti_binary=${arti_binary}"
+  echo "arti_config=${arti_config}"
   echo "arti_provenance=${arti_provenance}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
@@ -340,6 +348,7 @@ fi
   echo "ac_add_options --disable-crashreporter"
   if [[ -n "${arti_binary}" ]]; then
     echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"
+    echo "ac_add_options --with-wildbuzzard-arti-config=${arti_config}"
     echo "ac_add_options --with-wildbuzzard-arti-provenance=${arti_provenance}"
   fi
   if [[ -x "${state_dir}/sccache/sccache" ]]; then

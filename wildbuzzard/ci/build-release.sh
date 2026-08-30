@@ -336,6 +336,7 @@ arti_build_root="${work_dir}/arti"
   --build-root "${arti_build_root}"
 arti_run="$(one_run "${arti_build_root}")"
 arti_binary="$(sed -n 's/^artifact=//p' "${arti_run}/build-manifest.txt")"
+arti_config="$(sed -n 's/^config=//p' "${arti_run}/build-manifest.txt")"
 arti_provenance="$(sed -n 's/^provenance=//p' "${arti_run}/build-manifest.txt")"
 arti_source="$(sed -n 's/^source=//p' "${arti_run}/build-manifest.txt")"
 arti_cargo_vendor="$(sed -n 's/^cargo_vendor=//p' "${arti_run}/build-manifest.txt")"
@@ -354,6 +355,7 @@ browser_build_root="${work_dir}/browser"
   --jobs "$(nproc)" \
   --ref HEAD \
   --arti-binary "${arti_binary}" \
+  --arti-config "${arti_config}" \
   --arti-provenance "${arti_provenance}"
 browser_run="$(one_run "${browser_build_root}")"
 browser_object_dir="$(sed -n 's/^object_dir=//p' "${browser_run}/build-manifest.txt")"

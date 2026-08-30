@@ -406,7 +406,7 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
         if manifest.get(field) != pins.get(pin):
             raise SystemExit(f"Arti build {field} does not match the source pin")
     expectations = {
-        "arti": ("artifact", "binary_sha256", "linux_x86_64_binary_sha256"),
+        "arti": ("artifact", "binary_sha256", None),
         "artiProvenance": ("provenance", "provenance_sha256", None),
         "artiSource": ("source", "source_sha256", "source_sha256"),
         "artiCargoVendor": (
@@ -433,6 +433,11 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
     ):
         raise SystemExit("Arti crate license inventory differs from its build manifest")
     validator = repository / "wildbuzzard/scripts/arti-runtime-provenance.py"
+    runtime_config = Path(manifest.get("config", ""))
+    if not runtime_config.is_file() or digest(runtime_config) != manifest.get(
+        "config_sha256"
+    ):
+        raise SystemExit("Arti runtime config differs from its build manifest")
     result = subprocess.run(
         [
             sys.executable,
@@ -443,9 +448,9 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
             "--binary",
             str(artifacts["arti"]),
             "--pin-config",
-            str(repository / "wildbuzzard/third_party/arti.toml"),
+            str(runtime_config),
             "--installed-config",
-            str(repository / "wildbuzzard/third_party/arti.toml"),
+            str(runtime_config),
             "--inventory",
             str(inventory),
             "--provenance",

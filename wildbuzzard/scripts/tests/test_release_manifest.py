@@ -284,6 +284,8 @@ class BuildProvenanceTests(unittest.TestCase):
                 f"arti_tree={'b' * 40}",
                 f"artifact={artifacts['arti']}",
                 f"binary_sha256={digests['arti']}",
+                f"config={pin_directory / 'arti.toml'}",
+                f"config_sha256={MANIFEST.digest(pin_directory / 'arti.toml')}",
                 f"source={artifacts['artiSource']}",
                 f"source_sha256={digests['artiSource']}",
                 f"cargo_vendor={artifacts['artiCargoVendor']}",

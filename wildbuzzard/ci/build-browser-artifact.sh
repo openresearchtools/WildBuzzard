@@ -101,6 +101,7 @@ arti_root="${work_dir}/arti"
 arti_run="$(one_run "${arti_root}")"
 arti_manifest="${arti_run}/build-manifest.txt"
 arti_binary="$(manifest_value "${arti_manifest}" artifact)"
+arti_config="$(manifest_value "${arti_manifest}" config)"
 arti_provenance="$(manifest_value "${arti_manifest}" provenance)"
 
 browser_root="${work_dir}/browser"
@@ -110,6 +111,7 @@ browser_root="${work_dir}/browser"
   --jobs "$(nproc)" \
   --ref HEAD \
   --arti-binary "${arti_binary}" \
+  --arti-config "${arti_config}" \
   --arti-provenance "${arti_provenance}"
 browser_run="$(one_run "${browser_root}")"
 
