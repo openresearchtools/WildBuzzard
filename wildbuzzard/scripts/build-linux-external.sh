@@ -131,6 +131,7 @@ esac
 
 commit="$(git -C "${source_repo}" rev-parse --verify "${build_ref}^{commit}")"
 short_commit="$(git -C "${source_repo}" rev-parse --short=12 "${commit}")"
+source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${commit}")"
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-${short_commit}-$$"
 run_root="${build_root}/runs/${run_id}"
 checkout_dir="${run_root}/source"
@@ -182,9 +183,11 @@ build_commit="${commit}"
 if [[ "${include_working_tree}" == true ]]; then
   git -C "${checkout_dir}" add --all
   if ! git -C "${checkout_dir}" diff --cached --quiet; then
-    git -C "${checkout_dir}" \
-      -c user.name="WildBuzzard Build" \
-      -c user.email="build@wildbuzzard.invalid" \
+    GIT_AUTHOR_DATE="@${source_date_epoch} +0000" \
+      GIT_COMMITTER_DATE="@${source_date_epoch} +0000" \
+      git -C "${checkout_dir}" \
+      -c user.name="openresearchtools" \
+      -c user.email="229047507+openresearchtools@users.noreply.github.com" \
       commit -m "WildBuzzard external build snapshot"
     build_commit="$(git -C "${checkout_dir}" rev-parse HEAD)"
   fi
@@ -200,17 +203,20 @@ fi
   echo "jobs=${jobs}"
   echo "action=${action}"
   echo "working_tree=${include_working_tree}"
+  echo "source_date_epoch=${source_date_epoch}"
   echo "arti_binary=${arti_binary}"
   echo "arti_provenance=${arti_provenance}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
 
 export MOZBUILD_STATE_PATH="${state_dir}"
+export SOURCE_DATE_EPOCH="${source_date_epoch}"
 export CCACHE_DIR="${ccache_dir}"
 export SCCACHE_DIR="${sccache_dir}"
+export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-50G}"
 # Normalize the per-run checkout prefix out of cache keys. Without this,
 # otherwise identical source files in fresh runner directories miss the cache.
-export SCCACHE_BASEDIR="${checkout_dir}"
+export SCCACHE_BASEDIRS="${checkout_dir}"
 
 run_step() {
   local name="$1"
@@ -230,7 +236,7 @@ run_step() {
 }
 
 run_blocker_tests() {
-  run_step blocker-xpcshell-tests ./mach xpcshell-test \
+  run_step blocker-xpcshell-tests env MOZ_HEADLESS=1 ./mach xpcshell-test \
     browser/components/blocker/test/unit/xpcshell.toml
   run_step blocker-browser-tests env MOZ_HEADLESS=1 ./mach mochitest \
     --flavor browser browser/components/blocker/test/browser/browser.toml
@@ -240,6 +246,50 @@ run_product_tests() {
   local manifest
   local relative_manifest
   local component
+
+  run_step product-python-tests ./mach python-test --subsuite wildbuzzard
+
+  run_step product-xpcshell-discovery-extensions env MOZ_HEADLESS=1 \
+    ./mach xpcshell-test \
+    browser/components/extensions/test/xpcshell/test_wildbuzzard_discovery_api.js \
+    browser/components/extensions/test/xpcshell/test_wildbuzzard_discovery_bridge.js
+
+  run_step product-xpcshell-extension-common env MOZ_HEADLESS=1 \
+    ./mach xpcshell-test \
+    wildbuzzard/browser/extensions/common/test/xpcshell/xpcshell.toml
+
+  run_step product-xpcshell-extension-trust env MOZ_HEADLESS=1 \
+    ./mach xpcshell-test \
+    toolkit/mozapps/extensions/test/xpcshell/test_wildbuzzard_xpi_trust.js
+
+  run_step product-xpcshell-browser-control env MOZ_HEADLESS=1 \
+    ./mach xpcshell-test \
+    browser/components/wildbuzzardcontrol/test/unit/xpcshell.toml
+
+  run_step product-browser-browser-control env MOZ_HEADLESS=1 \
+    ./mach mochitest --flavor browser \
+    browser/components/wildbuzzardcontrol/test/browser/browser.toml
+
+  run_step upstream-esr153-xpcshell-regressions env MOZ_HEADLESS=1 \
+    ./mach xpcshell-test \
+    browser/components/urlbar/tests/quicksuggest/unit/test_pickedSearchSuggestion.js \
+    toolkit/components/extensions/test/xpcshell/test_ChannelWrapper.js \
+    toolkit/components/extensions/test/xpcshell/test_ext_webRequest_StreamFilter_redirect_race.js \
+    netwerk/test/unit/test_wallpaper_protocol.js \
+    browser/components/enterprisepolicies/tests/xpcshell/test_defaultbrowsercheck.js
+
+  run_step upstream-esr153-browser-regressions env MOZ_HEADLESS=1 \
+    ./mach mochitest --flavor browser \
+    browser/components/urlbar/tests/quicksuggest/browser/browser_pickedSearchSuggestion.js \
+    browser/extensions/search-detection/tests/browser/browser_server_side_redirection.js \
+    browser/components/urlbar/tests/browser/browser_trust_panel_focus.js \
+    dom/workers/test/browser_serviceworker_fetch_new_process.js \
+    browser/base/content/test/contextMenu/browser_contextmenu_blocked_image_protocols.js \
+    browser/components/enterprisepolicies/tests/browser/browser_policy_search_engine.js \
+    browser/components/enterprisepolicies/tests/browser/browser_policy_default_browser_setting.js
+
+  run_step upstream-esr153-process-isolation \
+    ./mach gtest 'ProcessIsolationTest.WorkerOptions'
 
   while IFS= read -r manifest; do
     relative_manifest="${manifest#"${checkout_dir}/"}"
@@ -256,7 +306,8 @@ run_product_tests() {
     relative_manifest="${manifest#"${checkout_dir}/"}"
     component="${relative_manifest#wildbuzzard/browser/components/}"
     component="${component%%/*}"
-    run_step "product-xpcshell-${component}" ./mach xpcshell-test \
+    run_step "product-xpcshell-${component}" env MOZ_HEADLESS=1 \
+      ./mach xpcshell-test \
       "${relative_manifest}"
   done < <(
     find "${checkout_dir}/wildbuzzard/browser/components" \

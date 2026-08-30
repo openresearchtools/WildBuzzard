@@ -60,6 +60,23 @@ firefox-ci:
             - 'taskcluster/requirements.txt'
             - 'tools/tryselect/selectors/auto.py'
 
+wildbuzzard:
+    description: WildBuzzard ownership and built-in extension policy tests
+    always-target: false
+    treeherder:
+        symbol: py3(wb)
+    run:
+        using: python-test
+        subsuite: wildbuzzard
+    when:
+        files-changed:
+            - 'wildbuzzard/**'
+            - 'browser/components/extensions/**/*Buzzard*'
+            - 'browser/components/extensions/**/*buzzard*'
+            - 'toolkit/mozapps/extensions/internal/WildBuzzard*'
+            - 'toolkit/mozapps/extensions/test/xpcshell/test_wildbuzzard_xpi_trust.js'
+            - 'taskcluster/kinds/source-test/python.yml'
+
 fog:
     description: Python unit tests for Firefox on Glean
     platform:

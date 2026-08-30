@@ -1,5 +1,13 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+import {
+  createTorrentDocumentNonce,
+  isPinnedTorrentSubdocumentTarget,
+  isTorrentStaticResourceTarget,
+  torrentBootstrapDocument,
+} from "resource:///modules/TorrentDocumentPolicy.sys.mjs";
+import { isPrivateTorrentLoad } from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
+
 const ACTOR_REQUEST_TOPIC = "wildbuzzard-qbittorrent-actor-request";
 
 /** Loads qBittorrent WebUI resources through the private runtime. */
@@ -11,15 +19,16 @@ export class QBittorrentProtocolHandler {
   }
 
   newChannel(uri, loadInfo) {
+    if (isPrivateTorrentLoad(loadInfo)) {
+      throw Components.Exception(
+        "moz-torrent is unavailable in private browsing",
+        Cr.NS_ERROR_DOM_BAD_URI
+      );
+    }
     const loadingPrincipal = loadInfo.loadingPrincipal;
-    const triggeringPrincipal = loadInfo.triggeringPrincipal;
-    const trusted = Boolean(
-      loadingPrincipal?.isSystemPrincipal ||
-      triggeringPrincipal?.isSystemPrincipal ||
-      loadingPrincipal?.origin === "about:torrents" ||
-      triggeringPrincipal?.origin === "about:torrents" ||
-      loadingPrincipal?.origin === "https://torrent.wildbuzzard.invalid"
-    );
+    const trusted =
+      loadingPrincipal?.originNoSuffix ===
+      "https://torrent.wildbuzzard.invalid";
     if (
       loadInfo.externalContentPolicyType ===
         Ci.nsIContentPolicy.TYPE_DOCUMENT ||
@@ -38,8 +47,18 @@ export class QBittorrentProtocolHandler {
       loadInfo.externalContentPolicyType ===
       Ci.nsIContentPolicy.TYPE_SUBDOCUMENT
     ) {
-      const encodedTarget = encodeURIComponent(target);
-      const source = `<!doctype html><meta charset="utf-8"><title>Add torrent</title><script>(async()=>{try{const request=async(request,...args)=>{const response=await parent.WildBuzzardTorrentRequest(request,...args);if(request.method==="POST"&&response.status>=200&&response.status<300){for(const delay of[0,250,1000,2500])parent.setTimeout(()=>parent.updateMainData?.(),delay)}return response};const response=await request({method:"GET",target:decodeURIComponent("${encodedTarget}"),headers:{Accept:"text/html"},body:new Uint8Array()});if(response.status<200||response.status>=300)throw new Error("qBittorrent WebUI failed ("+response.status+")");const html=new TextDecoder().decode(response.body);document.open();window.WildBuzzardTorrentRequest=request;document.write(html);document.close()}catch(error){console.error("Failed to initialize qBittorrent dialog",error);document.body.textContent="The torrent dialog could not be started."}})();</script>`;
+      if (!isPinnedTorrentSubdocumentTarget(target)) {
+        throw Components.Exception(
+          "Unexpected torrent subdocument",
+          Cr.NS_ERROR_DOM_BAD_URI
+        );
+      }
+      const nonce = createTorrentDocumentNonce();
+      const source = torrentBootstrapDocument(
+        nonce,
+        "torrent-dialog-bootstrap.js",
+        "Add torrent"
+      );
       const stream = Cc["@mozilla.org/io/string-input-stream;1"].createInstance(
         Ci.nsIStringInputStream
       );
@@ -49,67 +68,38 @@ export class QBittorrentProtocolHandler {
         .QueryInterface(Ci.nsIChannel);
       subdocument.loadInfo = loadInfo;
       subdocument.setURI(uri);
-      subdocument.owner = loadingPrincipal || triggeringPrincipal;
+      subdocument.owner = loadingPrincipal;
       subdocument.contentStream = stream;
       subdocument.contentType = "text/html";
+      subdocument.contentCharset = "UTF-8";
       return subdocument;
+    }
+    if (!isTorrentStaticResourceTarget(target)) {
+      throw Components.Exception(
+        "Unexpected torrent resource",
+        Cr.NS_ERROR_DOM_BAD_URI
+      );
     }
     const inner = Cc["@mozilla.org/network/input-stream-channel;1"]
       .createInstance(Ci.nsIInputStreamChannel)
       .QueryInterface(Ci.nsIChannel);
     inner.loadInfo = loadInfo;
     inner.setURI(uri);
-    inner.owner = loadingPrincipal || triggeringPrincipal;
+    inner.owner = loadingPrincipal;
     const channel = Services.io.newSuspendableChannelWrapper(inner);
     channel.suspend();
     Promise.resolve()
       .then(() => {
-        let actor = null;
         const actorRequest = {
           actor: null,
+          browsingContextId: loadInfo.browsingContext?.id,
           topBrowsingContextId: loadInfo.browsingContext?.top?.id,
         };
         Services.obs.notifyObservers(
           { wrappedJSObject: actorRequest },
           ACTOR_REQUEST_TOPIC
         );
-        actor = actorRequest.actor;
-        try {
-          const node = loadInfo.loadingContext;
-          const window =
-            node?.documentGlobal ||
-            node?.ownerGlobal ||
-            node?.defaultView ||
-            node?.ownerDocument?.documentGlobal;
-          for (
-            let current = window;
-            current && !actor;
-            current = current === current.parent ? null : current.parent
-          ) {
-            actor = current.windowGlobalChild?.getActor("QBittorrentWebUI");
-          }
-        } catch {}
-        const contexts = [
-          loadInfo.browsingContext,
-          loadInfo.targetBrowsingContext,
-          loadInfo.frameBrowsingContext,
-        ];
-        for (const context of actor ? [] : contexts) {
-          try {
-            for (let current = context; current; current = current.parent) {
-              actor =
-                current?.window?.windowGlobalChild?.getActor(
-                  "QBittorrentWebUI"
-                );
-              if (actor) {
-                break;
-              }
-            }
-          } catch {}
-          if (actor) {
-            break;
-          }
-        }
+        const actor = actorRequest.actor;
         if (!actor) {
           throw new Error("The qBittorrent WebUI actor is unavailable");
         }

@@ -3,7 +3,7 @@ Upstream-Name: Buzzard Torrent
 Source: https://github.com/openresearchtools/wildbuzzard
 
 Files: *
-Copyright: 2026 Open Research Tools
+Copyright: 2026 openresearchtools contributors
 License: AGPL-3+
  On Debian systems the complete text of the GNU Affero General Public License
  version 3 is available in /usr/share/common-licenses/AGPL-3.

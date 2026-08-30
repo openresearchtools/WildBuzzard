@@ -67,7 +67,7 @@ const kSubviewEvents = ["ViewShowing", "ViewHiding"];
  * The current version. We can use this to auto-add new default widgets as necessary.
  * (would be const but isn't because of testing purposes)
  */
-var kVersion = 29;
+var kVersion = 30;
 
 /**
  * Buttons removed from built-ins by version they were removed. kVersion must be
@@ -76,6 +76,7 @@ var kVersion = 29;
  */
 var ObsoleteBuiltinButtons = {
   "feed-button": 15,
+  "wildbuzzard-agent-toolbar-button": 30,
 };
 
 /**
@@ -365,7 +366,6 @@ var CustomizableUIInternal = {
       "wildbuzzard-tor-toolbar-button",
       "wildbuzzard-blocker-toolbar-button",
       "urlbar-container",
-      "wildbuzzard-agent-toolbar-button",
       "wildbuzzard-torrent-toolbar-button",
       "spring",
       "downloads-button",
@@ -385,7 +385,6 @@ var CustomizableUIInternal = {
           "firefox-view-button",
           "wildbuzzard-tor-toolbar-button",
           "wildbuzzard-blocker-toolbar-button",
-          "wildbuzzard-agent-toolbar-button",
           "wildbuzzard-torrent-toolbar-button",
           "alltabs-button",
         ],
@@ -901,14 +900,24 @@ var CustomizableUIInternal = {
         navbarPlacements &&
         !navbarPlacements.includes("wildbuzzard-torrent-toolbar-button")
       ) {
-        const agentIndex = navbarPlacements.indexOf(
-          "wildbuzzard-agent-toolbar-button"
-        );
+        const urlbarIndex = navbarPlacements.indexOf("urlbar-container");
         navbarPlacements.splice(
-          agentIndex === -1 ? navbarPlacements.length : agentIndex + 1,
+          urlbarIndex === -1 ? navbarPlacements.length : urlbarIndex + 1,
           0,
           "wildbuzzard-torrent-toolbar-button"
         );
+      }
+    }
+
+    if (currentVersion < 30) {
+      for (const placements of Object.values(gSavedState.placements)) {
+        let index;
+        while (
+          (index = placements.indexOf("wildbuzzard-agent-toolbar-button")) !==
+          -1
+        ) {
+          placements.splice(index, 1);
+        }
       }
     }
   },

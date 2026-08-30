@@ -5,6 +5,12 @@
     "scopes": ["addon_parent"],
     "paths": [["bookmarks"]]
   },
+  "buzzardSearch": {
+    "url": "chrome://browser/content/parent/ext-buzzardSearch.js",
+    "schema": "chrome://browser/content/schemas/buzzard_search.json",
+    "scopes": ["addon_parent"],
+    "paths": [["buzzardSearch"]]
+  },
   "browserAction": {
     "url": "chrome://browser/content/parent/ext-browserAction.js",
     "schema": "chrome://extensions/content/schemas/browser_action.json",
@@ -183,6 +189,12 @@
     "schema": "chrome://browser/content/schemas/top_sites.json",
     "scopes": ["addon_parent"],
     "paths": [["topSites"]]
+  },
+  "torrentSearch": {
+    "url": "chrome://browser/content/parent/ext-torrentSearch.js",
+    "schema": "chrome://browser/content/schemas/torrent_search.json",
+    "scopes": ["addon_parent"],
+    "paths": [["torrentSearch"]]
   },
   "urlOverrides": {
     "url": "chrome://browser/content/parent/ext-url-overrides.js",

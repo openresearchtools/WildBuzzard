@@ -1,0 +1,101 @@
+{
+  "backendExecutable": "/usr/bin/buzzard-search",
+  "backendInstallCommand": "sudo apt install buzzard-search",
+  "backendPackage": "buzzard-search",
+  "backendRole": "standalone-system-cli-no-browser-or-web-ui",
+  "componentRole": "browser-ui-only",
+  "extensionId": "web-search@extensions.wildbuzzard",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "8486a10c4393cee1c25392769ddd3b2d6c242d6ec7928e1414efff7dfb2f07ef",
+      "size": 34523
+    },
+    {
+      "path": "_locales/en/messages.json",
+      "sha256": "428714c8a8e1fc90db9df5d1e381d29d625fb5fcab0a5a99f62396a1f5773103",
+      "size": 5143
+    },
+    {
+      "path": "background/background.js",
+      "sha256": "525f60b9bd5880ec6d4ea3d4f30240ecacc6277a2a732e61ae90141e2c0f8508",
+      "size": 1128
+    },
+    {
+      "path": "common/base.css",
+      "sha256": "e433fcfaffe64dee4903b0883c5daeb975b710bc58268ac1695d8e3c9d77b918",
+      "size": 2661
+    },
+    {
+      "path": "common/constants.js",
+      "sha256": "d19ef2e3a8fdbf9f650df3cf1ebb41d38368c835440e7d7411ac79aa53e0a34e",
+      "size": 381
+    },
+    {
+      "path": "common/localize.js",
+      "sha256": "a1bff968e82f367ba9e7f8ee95d272fa6b30c46bc2f73b235d873ea7941f267e",
+      "size": 917
+    },
+    {
+      "path": "icons/search.svg",
+      "sha256": "d7476a3be57b3af75f092369d16abb0f4089b9b420de6aeeacd7741bf126a11e",
+      "size": 299
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "2622f152de35145f7ffdbbebe84dbbfaf08a302a10a3647fa7de502ca8b77a97",
+      "size": 1495
+    },
+    {
+      "path": "options/options.css",
+      "sha256": "1a2275b6eea8e126a2efe08bda4392d0fa6e1a62a79f631366a6809fe2ca98d8",
+      "size": 635
+    },
+    {
+      "path": "options/options.html",
+      "sha256": "32572ba520371cdbc6e052cfa975afd4f82b6866b71dd4a60d79c43476c073ef",
+      "size": 3484
+    },
+    {
+      "path": "options/options.js",
+      "sha256": "02049246007bed5591d63b06d8a51feab8234fd8d24530ffcdc9e34e3fe9e519",
+      "size": 5422
+    },
+    {
+      "path": "popup/popup.css",
+      "sha256": "dff8021346b534357d2af1136cf1a07c77d27ffb052d8c44f37d855d05f580e4",
+      "size": 264
+    },
+    {
+      "path": "popup/popup.html",
+      "sha256": "919f2a470f543c4e2814f39d7209fa6e154b823fb03598ff3c238caf7e3dcedb",
+      "size": 1549
+    },
+    {
+      "path": "popup/popup.js",
+      "sha256": "e61ea2712bf3e67075340be97d7ef30dc29ac4e8d59e9f9c0a69b8857fbafc82",
+      "size": 2600
+    },
+    {
+      "path": "search/search.css",
+      "sha256": "43bf85f8f2b9c6b42369f1e79fd5d1ac1d6329242fbee902a181a095f301f128",
+      "size": 2056
+    },
+    {
+      "path": "search/search.html",
+      "sha256": "19155993fb719fd98b79d8a42ebab83072786125e49d43e89cefcab48dc5bc49",
+      "size": 2866
+    },
+    {
+      "path": "search/search.js",
+      "sha256": "02dda8cbb88209444c7f50991a99b9c85b30f95afa4e6a090e2e64f1d8003aa6",
+      "size": 10131
+    }
+  ],
+  "runtimeTreeSha256": "80e689ec534934eee6e2424b01bb0ea02f28c76483b9651fe46a8abc6f778a75",
+  "schema": 3,
+  "sourcePath": "extensions/web-search",
+  "sourceRepository": "wildbuzzard-extensions",
+  "treeHashAlgorithm": "sha256-length-prefixed-path-and-content",
+  "version": "0.1.0"
+}

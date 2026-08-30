@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title data-i18n="extensionName">Torrent Search</title>
+    <link rel="stylesheet" href="popup.css">
+    <script defer src="contract.js"></script>
+    <script defer src="i18n.js"></script>
+    <script defer src="popup.js"></script>
+  </head>
+  <body>
+    <main aria-labelledby="page-title">
+      <header class="page-header">
+        <h1 id="page-title" data-i18n="extensionName">Torrent Search</h1>
+        <output id="availability" class="availability" aria-live="polite"></output>
+      </header>
+
+      <form id="search-form" class="search-form">
+        <label for="query" data-i18n="searchLabel">Search torrents</label>
+        <div class="query-row">
+          <input id="query" name="query" type="search" required maxlength="256" autocomplete="off" data-i18n-placeholder="searchPlaceholder">
+          <button id="search-button" type="submit" data-i18n="searchButton">Search</button>
+          <button id="cancel-search" type="button" hidden data-i18n="cancelSearchButton">Cancel search</button>
+        </div>
+        <label for="source" data-i18n="sourceLabel">Source</label>
+        <select id="source" name="source">
+          <option value="" data-i18n="allSources">All sources</option>
+        </select>
+      </form>
+
+      <p id="message" class="message" role="status" aria-live="polite"></p>
+
+      <section id="results-section" hidden aria-labelledby="results-heading">
+        <h2 id="results-heading" data-i18n="resultsHeading">Results</h2>
+        <ol id="results" class="results"></ol>
+      </section>
+    </main>
+
+    <template id="result-template">
+      <li class="result">
+        <article>
+          <h3 class="result-title" dir="auto"></h3>
+          <dl class="result-metadata">
+            <div class="metadata-item result-source-row">
+              <dt data-i18n="sourceMetadata">Source</dt>
+              <dd class="result-source" dir="auto"></dd>
+            </div>
+            <div class="metadata-item result-size-row">
+              <dt data-i18n="sizeMetadata">Size</dt>
+              <dd class="result-size"></dd>
+            </div>
+            <div class="metadata-item result-seeders-row">
+              <dt data-i18n="seedersMetadata">Seeders</dt>
+              <dd class="result-seeders"></dd>
+            </div>
+          </dl>
+          <button class="review-button" type="button" data-i18n="reviewDownload">Review download</button>
+        </article>
+      </li>
+    </template>
+
+    <dialog id="confirmation" aria-labelledby="confirmation-title" aria-describedby="confirmation-description">
+      <form method="dialog">
+        <h2 id="confirmation-title" data-i18n="confirmationTitle">Confirm torrent download</h2>
+        <p id="confirmation-description" data-i18n="confirmationDescription">This will add the selected torrent to WildBuzzard's native download manager.</p>
+        <dl class="confirmation-metadata">
+          <div>
+            <dt data-i18n="nameMetadata">Name</dt>
+            <dd id="confirmation-name" dir="auto"></dd>
+          </div>
+          <div>
+            <dt data-i18n="sourceMetadata">Source</dt>
+            <dd id="confirmation-source" dir="auto"></dd>
+          </div>
+          <div>
+            <dt data-i18n="contentTypeMetadata">Content</dt>
+            <dd id="confirmation-kind"></dd>
+          </div>
+          <div id="confirmation-size-row">
+            <dt data-i18n="sizeMetadata">Size</dt>
+            <dd id="confirmation-size"></dd>
+          </div>
+        </dl>
+        <div class="dialog-actions">
+          <button id="cancel-import" value="cancel" type="submit" data-i18n="cancelButton">Cancel</button>
+          <button id="confirm-import" value="default" type="button" class="primary" data-i18n="confirmDownload">Add torrent</button>
+        </div>
+      </form>
+    </dialog>
+  </body>
+</html>

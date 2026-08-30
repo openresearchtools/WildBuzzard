@@ -1,0 +1,118 @@
+[
+  {
+    "namespace": "torrentSearch",
+    "description": "Constrained torrent discovery and confirmed native import for the WildBuzzard Torrent Search extension.",
+    "types": [
+      {
+        "id": "SearchRequest",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "operationId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-4[0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$"
+          },
+          "query": { "type": "string", "minLength": 1, "maxLength": 256 },
+          "source": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "optional": true
+          },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 50 }
+        }
+      },
+      {
+        "id": "OperationRequest",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "operationId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-4[0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$"
+          }
+        }
+      },
+      {
+        "id": "ResultRequest",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "resultToken": {
+            "type": "string",
+            "minLength": 46,
+            "maxLength": 46,
+            "pattern": "^v1_[A-Za-z0-9_-]{43}$"
+          }
+        }
+      },
+      {
+        "id": "ConfirmationRequest",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schemaVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "confirmationToken": {
+            "type": "string",
+            "minLength": 46,
+            "maxLength": 46,
+            "pattern": "^v1_[A-Za-z0-9_-]{43}$"
+          }
+        }
+      }
+    ],
+    "functions": [
+      {
+        "name": "getStatus",
+        "type": "function",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "listSources",
+        "type": "function",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "search",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "request", "$ref": "SearchRequest" }]
+      },
+      {
+        "name": "cancel",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "request", "$ref": "OperationRequest" }]
+      },
+      {
+        "name": "prepareImport",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "request", "$ref": "ResultRequest" }]
+      },
+      {
+        "name": "discardPrepared",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "request", "$ref": "ConfirmationRequest" }]
+      },
+      {
+        "name": "importPrepared",
+        "type": "function",
+        "requireUserInput": true,
+        "async": true,
+        "parameters": [{ "name": "request", "$ref": "ConfirmationRequest" }]
+      }
+    ]
+  }
+]

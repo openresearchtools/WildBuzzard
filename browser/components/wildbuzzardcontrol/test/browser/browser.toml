@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+[DEFAULT]
+support-files = ["file_gecko_render.sjs"]
+
+["browser_gecko_render.js"]
+
+["browser_logpoint_reload.js"]
+
+["browser_window_create.js"]

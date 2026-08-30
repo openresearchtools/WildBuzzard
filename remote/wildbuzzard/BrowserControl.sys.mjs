@@ -23,12 +23,9 @@ ChromeUtils.defineESModuleGetters(lazy, {
   PlacesUtils: "resource://gre/modules/PlacesUtils.sys.mjs",
   PrivateTab: "resource:///modules/PrivateTab.sys.mjs",
   PrivateBrowsingUtils: "resource://gre/modules/PrivateBrowsingUtils.sys.mjs",
-  SearXNGManager: "resource:///modules/SearXNGManager.sys.mjs",
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
-  TorrentAgentToolController:
-    "chrome://remote/content/wildbuzzard/TorrentAgentTools.sys.mjs",
-  TorrentDiscoveryManager:
-    "resource:///modules/TorrentDiscoveryManager.sys.mjs",
+  TorrentControlToolController:
+    "chrome://remote/content/wildbuzzard/TorrentControlTools.sys.mjs",
   TorrentManager: "resource:///modules/TorrentManager.sys.mjs",
   TorRouting: "resource:///modules/TorRouting.sys.mjs",
   modal: "chrome://remote/content/shared/Prompt.sys.mjs",
@@ -93,7 +90,7 @@ const RENDER_BLOCKED_PROXY_PORT = 1;
 const LOGPOINT_SHARED_DATA_KEY = "wildbuzzard:browser-control-logpoints";
 const RENDER_TEST_ROUTE_TOPIC = "wildbuzzard-gecko-render-route";
 const RENDER_HOST_URI = "chrome://global/content/win.xhtml";
-const TAB_OWNER_KEY = "wildbuzzard-agent-owner";
+const TAB_OWNER_KEY = "wildbuzzard-control-owner";
 const RENDER_ALLOWED_HEADERS = new Set([
   "accept",
   "accept-language",
@@ -799,9 +796,9 @@ function isWithinDirectory(path, directory) {
   return false;
 }
 
-function safeAgentPath(cwd, path) {
+function safeControlPath(cwd, path) {
   if (!cwd || !PathUtils.isAbsolute(cwd)) {
-    throw new Error("The Agent session has no valid working directory");
+    throw new Error("The control session has no valid working directory");
   }
   let target;
   try {
@@ -817,19 +814,19 @@ function safeAgentPath(cwd, path) {
         );
   } catch {
     throw new Error(
-      "Browser file paths must remain inside the Agent working directory"
+      "Browser file paths must remain inside the control working directory"
     );
   }
   if (!isWithinDirectory(target, cwd)) {
     throw new Error(
-      "Browser file paths must remain inside the Agent working directory"
+      "Browser file paths must remain inside the control working directory"
     );
   }
   return target;
 }
 
 function outputPath(cwd, prefix, extension) {
-  return safeAgentPath(
+  return safeControlPath(
     cwd,
     `${prefix}-${new Date().toISOString().replaceAll(":", "-")}-${crypto.randomUUID().slice(0, 8)}.${extension}`
   );
@@ -883,10 +880,10 @@ async function requestedOutputPath(cwd, saveTo, prefix, extension) {
   if (saveTo === true || saveTo === undefined) {
     return outputPath(cwd, prefix, extension);
   }
-  const requested = safeAgentPath(cwd, String(saveTo));
+  const requested = safeControlPath(cwd, String(saveTo));
   const stat = await IOUtils.stat(requested).catch(() => null);
   if (stat?.type === "directory") {
-    return safeAgentPath(
+    return safeControlPath(
       cwd,
       PathUtils.join(
         requested,
@@ -922,7 +919,7 @@ function headersObject(headers) {
   );
 }
 
-function agentNavigationURI(url) {
+function controlNavigationURI(url) {
   const value = String(url).trim();
   const normalized = /^[^:/?#\s]+\.onion(?::\d+)?(?:[/?#]|$)/i.test(value)
     ? `http://${value}`
@@ -2622,7 +2619,7 @@ class BrowserControlService {
     this.pendingDialogActions = new Map();
     this.geckoRenderer = new GeckoRenderController(this);
     this.geckoRenderTestLock = new RenderOverrideLock();
-    this.torrentAgentTools = null;
+    this.torrentControlTools = null;
     this.started = false;
   }
 
@@ -2718,8 +2715,7 @@ class BrowserControlService {
     this.networkRecords.clear();
     this.logpoints.clear();
     this.#syncLogpoints();
-    this.torrentAgentTools?.close().catch(() => {});
-    this.torrentAgentTools = null;
+    this.torrentControlTools = null;
     this.started = false;
   }
 
@@ -2980,7 +2976,7 @@ class BrowserControlService {
     this.pageForId(page);
     if (!clientId || this.pageOwners.get(page) !== clientId) {
       throw new Error(
-        `page ${page} is not owned by this agent; call \`tabs new\` to open a fresh page and use the returned page id.`
+        `page ${page} is not owned by this session; call \`tabs new\` to open a fresh page and use the returned page id.`
       );
     }
   }
@@ -2996,7 +2992,7 @@ class BrowserControlService {
       return "user";
     }
     if (owners.some(owner => owner && owner !== clientId)) {
-      return "other-agent";
+      return "other-client";
     }
     return "mixed";
   }
@@ -3004,7 +3000,7 @@ class BrowserControlService {
   assertWindowOwned(window, clientId) {
     if (!clientId || this.windowOwnership(window, clientId) !== "mine") {
       throw new Error(
-        "window is not fully owned by this agent; activate an owned tab or create a fresh window instead."
+        "window is not fully owned by this session; activate an owned tab or create a fresh window instead."
       );
     }
   }
@@ -3019,22 +3015,22 @@ class BrowserControlService {
     }
     if (
       hasExplicitWindow &&
-      this.windowOwnership(window, clientId) === "other-agent"
+      this.windowOwnership(window, clientId) === "other-client"
     ) {
       throw new Error(
-        `window ${windowId} contains tabs owned by another agent`
+        `window ${windowId} contains tabs owned by another session`
       );
     }
     if (
       !hasExplicitWindow &&
       window &&
-      this.windowOwnership(window, clientId) === "other-agent"
+      this.windowOwnership(window, clientId) === "other-client"
     ) {
       window = [...this.windows()].find(
         candidate =>
           lazy.PrivateBrowsingUtils.isWindowPrivate(candidate) ===
             privateRequested &&
-          this.windowOwnership(candidate, clientId) !== "other-agent"
+          this.windowOwnership(candidate, clientId) !== "other-client"
       );
     }
     return window;
@@ -3095,7 +3091,7 @@ class BrowserControlService {
     if (owner === clientId) {
       ownership = "mine";
     } else if (owner) {
-      ownership = "other-agent";
+      ownership = "other-client";
     }
     const tor = lazy.TorRouting.isTorTab(tab);
     return {
@@ -3113,7 +3109,7 @@ class BrowserControlService {
         window.docShell.outerWindowID,
       groupId: tab.group?.id ?? null,
       ownership,
-      ownerAgentId: owner ?? null,
+      ownerClientId: owner ?? null,
       ownerLabel: owner && owner !== clientId ? owner : null,
     };
   }
@@ -4513,18 +4509,10 @@ class BrowserControlService {
         return this.downloadTool(args, cwd, signal);
       case "gecko_render":
         return this.geckoRenderTool(args, signal);
-      case "native_search":
-        return this.nativeSearchTool(args, signal);
       case "torrent_list":
       case "torrent_details":
       case "torrent_control":
-      case "torrent_providers":
-      case "torrent_search":
-      case "torrent_prepare":
-      case "torrent_draft":
-      case "torrent_commit":
-      case "torrent_cancel":
-        return this.torrentAgentTool(tool, args, clientId, signal);
+        return this.torrentControlTool(tool, args);
       case "__resolve_ref":
         return this.resolveRefTool(args);
       case "__register_raw_ref":
@@ -4607,27 +4595,13 @@ class BrowserControlService {
     );
   }
 
-  async nativeSearchTool(args, signal) {
-    const details = await lazy.SearXNGManager.search(args, signal);
-    return textResult(
-      wrapUntrusted(formatJson(details), "buzzard-search"),
-      details
-    );
-  }
-
-  async torrentAgentTool(tool, args, clientId, signal) {
-    this.torrentAgentTools ??= new lazy.TorrentAgentToolController({
-      discoveryManager: lazy.TorrentDiscoveryManager,
+  async torrentControlTool(tool, args) {
+    this.torrentControlTools ??= new lazy.TorrentControlToolController({
       torrentManager: lazy.TorrentManager,
     });
-    const details = await this.torrentAgentTools.execute(
-      tool,
-      args,
-      clientId,
-      signal
-    );
+    const details = await this.torrentControlTools.execute(tool, args);
     return textResult(
-      wrapUntrusted(formatJson(details), "torrent-discovery"),
+      wrapUntrusted(formatJson(details), "torrent-control"),
       details
     );
   }
@@ -4654,8 +4628,8 @@ class BrowserControlService {
         ["Your tabs:", pages.filter(page => page.ownership === "mine")],
         ["User's tabs:", pages.filter(page => page.ownership === "user")],
         [
-          "Other agents' tabs:",
-          pages.filter(page => page.ownership === "other-agent"),
+          "Other sessions' tabs:",
+          pages.filter(page => page.ownership === "other-client"),
         ],
       ]
         .filter(([, entries]) => !!entries.length)
@@ -4665,7 +4639,7 @@ class BrowserControlService {
               .map(
                 page =>
                   `[${page.page}] ${page.url}${page.title ? ` (${page.title})` : ""}${page.private ? " [PRIVATE]" : ""}${page.tor ? " [TOR]" : ""}${
-                    page.ownership === "other-agent" && page.ownerLabel
+                    page.ownership === "other-client" && page.ownerLabel
                       ? `, owned by ${page.ownerLabel}`
                       : ""
                   }`
@@ -4700,7 +4674,7 @@ class BrowserControlService {
       const uri =
         requestedUrl === "about:blank"
           ? Services.io.newURI("about:blank")
-          : agentNavigationURI(requestedUrl);
+          : controlNavigationURI(requestedUrl);
       const torRequested = Boolean(args.tor) || lazy.TorRouting.isOnionURI(uri);
       const privateRequested = Boolean(args.private) && !torRequested;
       let window = this.windowForNewTab(
@@ -4803,7 +4777,7 @@ class BrowserControlService {
     if (action === "claim") {
       const owner = this.pageOwners.get(page);
       if (owner && owner !== clientId) {
-        throw new Error(`page ${page} is owned by another agent`);
+        throw new Error(`page ${page} is owned by another session`);
       }
       this.pageOwners.set(page, clientId);
       lazy.SessionStore.setCustomTabValue(entry.tab, TAB_OWNER_KEY, clientId);
@@ -4850,7 +4824,7 @@ class BrowserControlService {
     if (!group) {
       group = window.gBrowser.tabGroups.find(
         item =>
-          item.label.startsWith("agent/") &&
+          item.label.startsWith("control/") &&
           !!item.tabs.length &&
           item.tabs.every(
             existing =>
@@ -4869,7 +4843,7 @@ class BrowserControlService {
           .join("-")
           .slice(0, 32) || "session";
       group = window.gBrowser.addTabGroup([tab], {
-        label: `agent/${slug}`,
+        label: `control/${slug}`,
       });
       group.color = "blue";
       this.sessionGroups.set(key, group.id);
@@ -4919,7 +4893,7 @@ class BrowserControlService {
       lazy.SessionStore.setCustomTabValue(tab, TAB_OWNER_KEY, clientId);
       try {
         if (args.url && args.url !== "about:blank") {
-          const uri = agentNavigationURI(args.url);
+          const uri = controlNavigationURI(args.url);
           await this.navigateAndWait(
             browser,
             () =>
@@ -5222,7 +5196,7 @@ class BrowserControlService {
   async bookmarksTool(args, clientId) {
     const action = args.action ?? "list";
     const maxResults = args.maxResults ?? 100;
-    let requestedUrl = args.url ? agentNavigationURI(args.url).spec : null;
+    let requestedUrl = args.url ? controlNavigationURI(args.url).spec : null;
     let pageInfo;
     if (args.page !== undefined && args.page !== null) {
       this.assertPageOwned(args.page, clientId);
@@ -5368,7 +5342,7 @@ class BrowserControlService {
       if (!args.url) {
         throw new Error('navigate: url is required for action="url"');
       }
-      const uri = agentNavigationURI(args.url);
+      const uri = controlNavigationURI(args.url);
       if (
         lazy.TorRouting.isOnionURI(uri) &&
         !lazy.TorRouting.isTorTab(this.tabForBrowser(browser))
@@ -5401,7 +5375,7 @@ class BrowserControlService {
       browser,
       startNavigation,
       signal,
-      action === "url" ? agentNavigationURI(args.url).spec : null
+      action === "url" ? controlNavigationURI(args.url).spec : null
     );
     if (captureSnapshot) {
       return this.snapshot(args.page);
@@ -5854,7 +5828,7 @@ class BrowserControlService {
     if (!paths.length) {
       throw new Error("upload: provide file or files[].");
     }
-    const files = paths.map(path => safeAgentPath(cwd, path));
+    const files = paths.map(path => safeControlPath(cwd, path));
     for (const path of files) {
       const stat = await IOUtils.stat(path).catch(() => null);
       if (!stat || stat.type !== "regular") {
@@ -5902,7 +5876,7 @@ class BrowserControlService {
   async performDownloadTool(args, cwd, signal) {
     throwIfAborted(signal);
     const directory = args.directory
-      ? safeAgentPath(cwd, String(args.directory))
+      ? safeControlPath(cwd, String(args.directory))
       : cwd;
     const directoryStat = await IOUtils.stat(directory).catch(() => null);
     if (!directoryStat || directoryStat.type !== "directory") {
@@ -5935,9 +5909,9 @@ class BrowserControlService {
     };
     const destinationFor = async suggestion => {
       const filename = safeFilename(suggestion);
-      let destination = safeAgentPath(directory, filename);
+      let destination = safeControlPath(directory, filename);
       if (await IOUtils.exists(destination)) {
-        destination = safeAgentPath(directory, `${Date.now()}-${filename}`);
+        destination = safeControlPath(directory, `${Date.now()}-${filename}`);
       }
       return destination;
     };
@@ -6033,12 +6007,12 @@ class BrowserControlService {
       await Promise.race([download.whenSucceeded(), timeout()]);
       throwIfAborted(signal);
       const filename = PathUtils.filename(download.target.path);
-      let destination = safeAgentPath(directory, filename);
+      let destination = safeControlPath(directory, filename);
       if (
         download.target.path !== destination &&
         (await IOUtils.exists(destination))
       ) {
-        destination = safeAgentPath(directory, `${Date.now()}-${filename}`);
+        destination = safeControlPath(directory, `${Date.now()}-${filename}`);
       }
       if (download.target.path !== destination) {
         await IOUtils.move(download.target.path, destination, {
@@ -6076,7 +6050,7 @@ class BrowserControlService {
     if (!backendNodeId) {
       if (this.rawNodeTargets.size >= MAX_RAW_REFS_TOTAL) {
         throw new Error(
-          "Raw node reference capacity reached; close or navigate an agent page and take a fresh snapshot"
+          "Raw node reference capacity reached; close or navigate a controlled page and take a fresh snapshot"
         );
       }
       let ids = this.rawNodeIdsByPage.get(page);
@@ -6389,7 +6363,7 @@ class BrowserControlService {
     }
     if (args.method === "DOM.setFileInputFiles") {
       const files = (params.files ?? []).map(path =>
-        safeAgentPath(cwd, String(path))
+        safeControlPath(cwd, String(path))
       );
       for (const path of files) {
         const stat = await IOUtils.stat(path).catch(() => null);

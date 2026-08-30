@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title data-i18n="pageTitle"></title>
+    <link rel="stylesheet" href="../common/base.css">
+    <link rel="stylesheet" href="search.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="product" data-i18n="productName"></p>
+        <h1 data-i18n="mainHeading"></h1>
+        <p class="muted" data-i18n="searchIntro"></p>
+      </header>
+      <form id="search-form" role="search">
+        <div class="query-row">
+          <div class="query-field">
+            <label for="query" data-i18n="queryLabel"></label>
+            <input id="query" name="query" type="search" maxlength="512" required autofocus data-i18n-placeholder="queryPlaceholder">
+          </div>
+          <button id="search-button" class="primary" type="submit" data-i18n="searchButton"></button>
+          <button id="cancel-button" type="button" hidden data-i18n="cancelButton"></button>
+        </div>
+        <details>
+          <summary data-i18n="advancedOptions"></summary>
+          <div class="options-grid">
+            <div class="field">
+              <label for="provider" data-i18n="providerLabel"></label>
+              <select id="provider" name="provider">
+                <option value="ddgs" data-i18n="providerDdgs"></option>
+                <option value="searxng" data-i18n="providerSearxng"></option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="safe-search" data-i18n="safeSearchLabel"></label>
+              <select id="safe-search" name="safeSearch">
+                <option value="0" data-i18n="safeSearchOff"></option>
+                <option value="1" data-i18n="safeSearchModerate"></option>
+                <option value="2" data-i18n="safeSearchStrict"></option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="max-results" data-i18n="maxResultsLabel"></label>
+              <select id="max-results" name="maxResults">
+                <option value="5">5</option>
+                <option value="10">10</option>
+                <option value="15">15</option>
+                <option value="20">20</option>
+              </select>
+            </div>
+          </div>
+        </details>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <section id="results-section" aria-labelledby="results-heading" hidden>
+        <h2 id="results-heading" tabindex="-1"></h2>
+        <ol id="results"></ol>
+        <button id="more-button" type="button" hidden data-i18n="moreButton"></button>
+      </section>
+    </main>
+    <script src="../common/constants.js"></script>
+    <script src="../common/localize.js"></script>
+    <script src="search.js"></script>
+  </body>
+</html>

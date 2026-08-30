@@ -35,18 +35,6 @@ add_task(async function test_tokenizer() {
       ],
     },
     {
-      desc: "torrent restriction char at beginning",
-      searchString: `${RESTRICT_TOKENS.TORRENT} linux iso`,
-      expectedTokens: [
-        {
-          value: RESTRICT_TOKENS.TORRENT,
-          type: TOKEN_TYPE.RESTRICT_TORRENT,
-        },
-        { value: "linux", type: TOKEN_TYPE.TEXT },
-        { value: "iso", type: TOKEN_TYPE.TEXT },
-      ],
-    },
-    {
       desc: "do not separate restriction char at beginning in search mode",
       searchMode: { engineName: "testEngine" },
       searchString: `${RESTRICT_TOKENS.SEARCH}test`,

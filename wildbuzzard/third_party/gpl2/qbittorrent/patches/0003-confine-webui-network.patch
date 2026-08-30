@@ -1,0 +1,67 @@
+diff --git a/src/webui/www/private/scripts/wildbuzzard-bridge.js b/src/webui/www/private/scripts/wildbuzzard-bridge.js
+index c4d15c8a34b9..ec217aea659f 100644
+--- a/src/webui/www/private/scripts/wildbuzzard-bridge.js
++++ b/src/webui/www/private/scripts/wildbuzzard-bridge.js
+@@ -1,57 +1,60 @@
+ "use strict";
+ 
+ (() => {
+-    const NativeFetch = window.fetch.bind(window);
+     const NativeEvent = window.Event;
+     const NativeRequest = window.Request;
+     const NativeURL = window.URL;
+     const TorrentRequest = (...args) =>
+         window.WildBuzzardTorrentRequest(...args);
+ 
+     class BridgeURL extends NativeURL {
+         constructor(input, base) {
+             super(input, String(base).startsWith("about:torrents") ? document.baseURI : base);
+         }
+     }
+     window.URL = BridgeURL;
+ 
+     const requestURL = (input) => new URL(
+         input instanceof NativeRequest ? input.url : String(input),
+         document.baseURI
+     );
+ 
+     const bridgeFetch = async (input, init) => {
+         const url = requestURL(input);
+         const request = new NativeRequest(url, init);
++        const activationToken = window.WildBuzzardTorrentCaptureUserActivation?.(
++            request.method, `${url.pathname}${url.search}`
++        ) ?? null;
+         if ((url.protocol !== "moz-torrent:") || (url.host !== "local"))
+-            return NativeFetch(request);
++            throw new TypeError("External requests are unavailable in the torrent manager");
+ 
+         const body = ["GET", "HEAD"].includes(request.method)
+             ? new Uint8Array()
+             : new Uint8Array(await request.arrayBuffer());
+         const result = await TorrentRequest({
++            activationToken,
+             method: request.method,
+             target: `${url.pathname}${url.search}`,
+             headers: Object.fromEntries(request.headers),
+             body,
+         }, request.signal);
+         if ((request.method === "POST") && (result.status >= 200) && (result.status < 300)) {
+             for (const delay of [0, 250, 1000, 2500])
+                 window.parent.setTimeout(() => window.parent.updateMainData?.(), delay);
+         }
+         return new Response(result.body.length ? result.body : null, {
+             status: result.status,
+             headers: result.headers,
+         });
+     };
+ 
+     window.fetch = bridgeFetch;
+ 
+     class BridgeXMLHttpRequest extends EventTarget {
+         constructor() {
+             super();
+             this.readyState = BridgeXMLHttpRequest.UNSENT;
+             this.response = null;
+             this.responseText = "";
+             this.responseType = "";
+             this.responseURL = "";

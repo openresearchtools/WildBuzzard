@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: MPL-2.0
+
+[DEFAULT]
+firefox-appdir = "browser"
+run-if = ["os == 'linux'"]
+
+["test_GeckoRenderPolicy.js"]
+
+["test_WildBuzzardControlStartup.js"]

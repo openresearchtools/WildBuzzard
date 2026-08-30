@@ -1,7 +1,7 @@
 Source: buzzard-torrent
 Section: net
 Priority: optional
-Maintainer: Open Research Tools <maintainers@openresearchtools.org>
+Maintainer: openresearchtools <229047507+openresearchtools@users.noreply.github.com>
 Build-Depends: debhelper-compat (= 13)
 Standards-Version: 4.7.2
 Rules-Requires-Root: no

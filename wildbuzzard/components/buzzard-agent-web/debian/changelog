@@ -1,6 +1,0 @@
-buzzard-agent-web (1.202608.0+wildbuzzard1) unstable; urgency=medium
-
-  * Package the pinned Pi Web UI and session daemon as an independent module.
-
- -- openresearchtools <openresearchtools@gmail.com>  Tue, 18 Aug 2026 17:00:00 +0100
-

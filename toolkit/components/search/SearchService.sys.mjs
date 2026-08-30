@@ -3562,12 +3562,10 @@ export const SearchService = new (class SearchService {
 
     if (sendSubmissionURL) {
       let uri = engine.searchURLWithNoTerms;
-      if (uri.scheme !== "about") {
-        uri = uri
-          .mutate()
-          .setUserPass("") // Avoid reporting a username or password.
-          .finalize();
-      }
+      uri = uri
+        .mutate()
+        .setUserPass("") // Avoid reporting a username or password.
+        .finalize();
       engineInfo.submissionURL = uri.spec;
     }
 

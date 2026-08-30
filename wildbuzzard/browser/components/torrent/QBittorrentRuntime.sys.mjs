@@ -15,6 +15,20 @@ const INSTANCE_ID =
 const DEFAULT_COMMAND = "/usr/bin/buzzard-torrent";
 const MAX_LIFECYCLE_OUTPUT = 64 * 1024;
 
+function safeDirectory(value, fallback) {
+  try {
+    return typeof value === "string" &&
+      value.startsWith("/") &&
+      value.length <= 4096 &&
+      !/[\p{Cc}\p{Cf}]/u.test(value) &&
+      PathUtils.normalize(value) === value
+      ? value
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
 function parsePidStartTime(value) {
   const commandEnd = value.lastIndexOf(")");
   if (commandEnd === -1) {
@@ -55,9 +69,9 @@ async function privateRegularFile(path, mode = 0o600) {
     const info = await IOUtils.stat(path);
     return Boolean(
       file.isFile() &&
-        !file.isSymlink() &&
-        info.type === "regular" &&
-        (info.permissions & 0o777) === mode
+      !file.isSymlink() &&
+      info.type === "regular" &&
+      (info.permissions & 0o777) === mode
     );
   } catch {
     return false;
@@ -79,25 +93,28 @@ function decodeText(response) {
   return new TextDecoder("utf-8", { fatal: true }).decode(response.body);
 }
 
+/** Owns the lifecycle and private transport for the packaged runtime. */
 class QBittorrentRuntimeImpl {
   constructor() {
     const home = Services.dirsvc.get("Home", Ci.nsIFile).path;
-    const dataHome =
-      Services.env.get("XDG_DATA_HOME") ||
-      PathUtils.join(home, ".local", "share");
-    const runtimeHome =
-      Services.env.get("XDG_RUNTIME_DIR") || PathUtils.join(dataHome, "run");
+    const dataHome = safeDirectory(
+      Services.env.get("XDG_DATA_HOME"),
+      PathUtils.join(home, ".local", "share")
+    );
+    const runtimeHome = safeDirectory(
+      Services.env.get("XDG_RUNTIME_DIR"),
+      PathUtils.join(dataHome, "run")
+    );
+    this.homeDirectory = home;
     this.configurePaths({ dataHome, runtimeHome });
   }
 
   configurePaths({ dataHome, runtimeHome }) {
+    this.dataHome = dataHome;
+    this.runtimeHome = runtimeHome;
     this.rootDirectory = PathUtils.join(dataHome, "buzzard", "torrent");
     this.profileDirectory = PathUtils.join(this.rootDirectory, "profile");
-    this.stateDirectory = PathUtils.join(
-      runtimeHome,
-      "buzzard",
-      "torrent"
-    );
+    this.stateDirectory = PathUtils.join(runtimeHome, "buzzard", "torrent");
     this.socketPath = PathUtils.join(this.stateDirectory, "q");
     this.apiKeyPath = PathUtils.join(this.stateDirectory, "api-key");
     this.connectionPath = PathUtils.join(
@@ -113,32 +130,38 @@ class QBittorrentRuntimeImpl {
     this.configurePaths(paths);
   }
 
-  commandPath() {
-    return (
-      Services.prefs.getStringPref("wildbuzzard.torrent.command", "") ||
-      Services.env.get("BUZZARD_TORRENT_COMMAND") ||
-      DEFAULT_COMMAND
-    );
-  }
-
   validateCommand() {
-    const path = this.commandPath();
-    const command = new LocalFile(path);
-    if (!command.isFile() || command.isSymlink() || !command.isExecutable()) {
+    const command = new LocalFile(DEFAULT_COMMAND);
+    const parent = command.parent;
+    if (
+      command.path !== DEFAULT_COMMAND ||
+      parent?.path !== "/usr/bin" ||
+      !parent.isDirectory() ||
+      parent.isSymlink() ||
+      (parent.permissions & 0o022) !== 0 ||
+      !command.isFile() ||
+      command.isSymlink() ||
+      !command.isExecutable() ||
+      (command.permissions & 0o022) !== 0
+    ) {
       throw new Error("The buzzard-torrent package is not installed");
     }
-    return path;
+    return DEFAULT_COMMAND;
   }
 
   async runLifecycle(action) {
     const process = await Subprocess.call({
       command: this.validateCommand(),
       arguments: [action],
-      environmentAppend: true,
+      environmentAppend: false,
       environment: {
+        HOME: this.homeDirectory,
         LANG: "C.UTF-8",
         LC_ALL: "C.UTF-8",
+        PATH: "/usr/bin:/bin",
         TZ: "UTC",
+        XDG_DATA_HOME: this.dataHome,
+        XDG_RUNTIME_DIR: this.runtimeHome,
       },
       stdin: "ignore",
       stdout: "pipe",

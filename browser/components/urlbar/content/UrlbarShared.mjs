@@ -29,10 +29,9 @@ export const UrlbarShared = {
     RESTRICT_TITLE: 9,
     RESTRICT_URL: 10,
     RESTRICT_ACTION: 11,
-    RESTRICT_TORRENT: 12,
     // `looksLikeOrigin()` returned `LOOKS_LIKE_ORIGIN.OTHER` for this token.
     // It may or may not be an origin.
-    POSSIBLE_ORIGIN_BUT_SEARCH_ALLOWED: 13,
+    POSSIBLE_ORIGIN_BUT_SEARCH_ALLOWED: 12,
   }),
 
   /**
@@ -53,7 +52,6 @@ export const UrlbarShared = {
     TITLE: "#",
     URL: "$",
     ACTION: ">",
-    TORRENT: "~",
   }),
 
   /**
@@ -66,7 +64,6 @@ export const UrlbarShared = {
       this.RESTRICT_TOKENS.BOOKMARK,
       this.RESTRICT_TOKENS.OPENPAGE,
       this.RESTRICT_TOKENS.SEARCH,
-      this.RESTRICT_TOKENS.TORRENT,
     ];
     if (lazy.UrlbarPrefs.get("scotchBonnet.enableOverride")) {
       keys.push(this.RESTRICT_TOKENS.ACTION);

@@ -32,9 +32,11 @@ file-level licenses and notices remain in force; see
 Linux builds and blocker tests run from a clean external checkout; see
 [`BUILDING-LINUX.md`](BUILDING-LINUX.md).
 
-The implementation specification for bundled SearXNG search, native Gecko web
-extraction, the Pi web-access port, isolated Jackett discovery, and native
-torrent search is in
-[`WEB-SEARCH-TORRENT-PORT-SPEC.md`](WEB-SEARCH-TORRENT-PORT-SPEC.md).
-Its compact harness objective is in
-[`WEB-SEARCH-TORRENT-GOAL.md`](WEB-SEARCH-TORRENT-GOAL.md).
+Wild Buzzard is intentionally agent-independent. Component ownership, the
+standalone Agent and search repositories, bundled offline extension UIs with
+separately packageable release-pinned XPIs, and the
+browser security boundary are documented in
+[`COMPONENT-PACKAGE-ARCHITECTURE.md`](COMPONENT-PACKAGE-ARCHITECTURE.md) and
+enforced by [`FEATURE-OWNERSHIP.toml`](FEATURE-OWNERSHIP.toml).
+The Git reconstruction and retained-feature decisions are recorded in
+[`AGENT-EXTRACTION.md`](AGENT-EXTRACTION.md).

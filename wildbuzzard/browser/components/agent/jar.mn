@@ -1,6 +1,0 @@
-#filter substitution
-
-browser.jar:
-    content/browser/agent/starting.xhtml (content/starting.xhtml)
-    content/browser/agent/starting.css (content/starting.css)
-    content/browser/agent/starting.js (content/starting.js)

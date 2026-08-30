@@ -1,2 +1,4 @@
 # Patches are applied in order by the host-native runtime builder.
 0001-add-private-wildbuzzard-runtime.patch
+0002-disable-embedded-search.patch
+0003-confine-webui-network.patch

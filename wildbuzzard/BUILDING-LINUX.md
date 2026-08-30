@@ -2,14 +2,14 @@
 
 # Isolated Linux builds
 
-All release binaries are built on pinned Ubuntu runners. The supported runtime
-matrix is Ubuntu 24.04, Ubuntu 26.04 and Debian 13 or newer.
+Release binaries are built on pinned Ubuntu runners and target Ubuntu 24.04,
+Ubuntu 26.04, and Debian 13 or newer.
 
 ## Browser build
 
-`scripts/build-linux-external.sh` clones a committed revision into an external
-run directory and keeps the object directory, Mozilla state, ccache, logs and
-packages outside the checkout. The default layout is:
+`scripts/build-linux-external.sh` clones a committed revision into a separate
+run directory. Mozilla state, object files, caches, logs, and packages never
+enter the developer checkout.
 
 ```text
 wildbuzzard-builds/
@@ -23,30 +23,18 @@ wildbuzzard-builds/
     └── build-manifest.txt
 ```
 
-Build a committed revision:
-
 ```bash
 ./wildbuzzard/scripts/build-linux-external.sh --action build
-```
-
-Useful variants:
-
-```bash
 ./wildbuzzard/scripts/build-linux-external.sh --action build --jobs 24
 ./wildbuzzard/scripts/build-linux-external.sh --action package --ref <commit>
 ./wildbuzzard/scripts/build-linux-external.sh --bootstrap --action build
-./wildbuzzard/scripts/build-linux-external.sh \
-  --build-root /absolute/path/wildbuzzard-builds \
-  --action all
 ```
 
-The script ignores uncommitted files unless `--working-tree` is supplied. Every
-run records the base commit and whether it included a working-tree snapshot.
+The script ignores uncommitted files unless `--working-tree` is supplied. Each
+run records its source commit and whether a working-tree snapshot was applied.
 
-The browser package does not embed SearXNG, qBittorrent, Jackett Mini, Buzzard
-Agent or Buzzard Agent Web payloads. Those capabilities are ordinary Debian
-package dependencies. The browser packaging gate accepts only the pinned Arti
-binary and its provenance archive:
+The browser contains Arti because per-tab Tor routing is a core browser
+feature. Supply its verified binary and provenance for release packaging:
 
 ```bash
 ./wildbuzzard/scripts/build-arti-runtime.sh
@@ -58,61 +46,48 @@ binary and its provenance archive:
   --action all
 ```
 
-The Arti builder verifies the pristine pinned subtree, uses locked dependencies
-and emits corresponding source, SBOM, runtime manifest and upstream licences.
+The browser package depends on the separately built `buzzard-torrent` package
+and suggests `buzzard-search` and `buzzard-minijtt`. It must not contain Pi, Pi
+Web, Node, provider, torrent-discovery, Jackett, or SearXNG runtime trees. The
+reviewed offline UI files from both extension subprojects are synchronized into
+the built-in add-on tree. Debian and AppImage packaging fail if external
+runtime paths appear in the browser archive.
 
-## Component packages
+## Independent repositories
 
-First-party package definitions are under `wildbuzzard/components`. Third-party
-source and exact provenance are under `wildbuzzard/third_party`. Build these as
-separate packages in dependency order:
+Build and publish the native torrent package from
+`wildbuzzard/components/buzzard-torrent`, then build the other components from
+their own repositories:
 
-1. `buzzard-search`
-2. `buzzard-torrent-search`
-3. `buzzard-torrent`
-4. `buzzard-quick-search`
-5. `buzzard-agent`
-6. `buzzard-agent-web`
-7. `wildbuzzard`
+1. `buzzard-torrent` for the qBittorrent/libtorrent runtime;
+2. `buzzard-search` for `/usr/bin/buzzard-search`;
+3. `buzzard-minijtt` for `/usr/bin/buzzard-minijtt`;
+4. `wildbuzzard-extensions` for both synchronized built-in UIs and standalone XPIs;
+5. `buzzard-agent` for the optional Pi-compatible agent and Pi Web UI.
 
-The runtime-bearing package builders receive their own pinned build output:
+Each repository owns its dependencies, tests, license bundle, source archive,
+SBOM, and Debian or XPI release. Build twice from independent roots and require
+reproducible output before publishing. The browser integration accepts only
+the documented, versioned CLI and WebExtension contracts.
 
-```bash
-BUZZARD_SEARCH_RUNTIME=/absolute/path/to/searxng.AppImage \
-  ./wildbuzzard/components/buzzard-search/scripts/build-deb.sh /absolute/path/out
-
-BUZZARD_TORRENT_SEARCH_RUNTIME=/absolute/path/to/jackett-mini-runtime \
-BUZZARD_NODE_ROOT=/opt/node \
-  ./wildbuzzard/components/buzzard-torrent-search/scripts/build-deb.sh /absolute/path/out
-
-BUZZARD_TORRENT_RUNTIME=/absolute/path/to/qbittorrent-runtime \
-  ./wildbuzzard/components/buzzard-torrent/scripts/build-deb.sh /absolute/path/out
-
-./wildbuzzard/components/buzzard-quick-search/scripts/build-deb.sh
-BUZZARD_NODE_ROOT=/opt/node \
-  ./wildbuzzard/components/buzzard-agent/build-deb.sh /absolute/path/out
-./wildbuzzard/components/buzzard-agent-web/scripts/build-deb.sh
-```
-
-Each package owns its runtime, lifecycle, state, CLI and stdio MCP server. No
-consumer reads another package's private `/usr/lib` directory. Build twice from
-independent roots and require byte-identical `.deb` output before publishing.
-
-Install and smoke-test the exact final package set on all three supported base
-images. The combined test must exercise CLI discovery, MCP initialization/tool
-catalogues, private per-user services and the browser-to-package integrations.
+Release XPIs use normal signature enforcement or the exact canonical SHA-256
+pins compiled into the matching WildBuzzard release. Temporary loading can
+validate XPI UI only; restricted browser APIs remain unavailable until the
+release ID is normally signed or exactly pinned and installed non-temporarily.
+Development never weakens release signature or experiment preferences.
 
 ## AppImage and host notes
 
-The AppImage contains the browser core, not the independently packaged
-capabilities. Run it normally with FUSE or use this on build hosts:
+The AppImage contains browser core, Arti, and the agent-neutral native control
+client, but not independently packaged search, torrent-discovery, or Agent
+capabilities. Run it as a browser or invoke the same control contract directly:
 
 ```bash
 APPIMAGE_EXTRACT_AND_RUN=1 ./WildBuzzard-*.AppImage
+APPIMAGE_EXTRACT_AND_RUN=1 ./WildBuzzard-*.AppImage snapshot
 ```
 
-`ccache` is useful across Firefox ESR updates. Rust and final linking are not
-covered by ordinary ccache. Ubuntu 26.04 Firefox configure currently also needs:
+Ubuntu 26.04 Firefox configure currently also needs:
 
 ```bash
 sudo apt install libpulse-dev

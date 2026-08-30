@@ -1,0 +1,1671 @@
+diff --git a/src/app/CMakeLists.txt b/src/app/CMakeLists.txt
+index 24d4a599246b3a82c8123a86df6b284f693b4cdd..edf32fb1083ff159ca1c0022969af0e9c080aefa 100644
+--- a/src/app/CMakeLists.txt
++++ b/src/app/CMakeLists.txt
+@@ -61,7 +61,6 @@ target_sources(qbt_app PRIVATE
+ 
+     # resources
+     "${qBittorrent_SOURCE_DIR}/src/icons/icons.qrc"
+-    "${qBittorrent_SOURCE_DIR}/src/searchengine/searchengine.qrc"
+     ${QBT_QM_FILES}
+     "${qBittorrent_BINARY_DIR}/src/lang/lang.qrc" # yes, it's supposed to be "*_BINARY_DIR"
+ )
+diff --git a/src/app/application.cpp b/src/app/application.cpp
+index b8f481a5c913bf2cc0fa34106b81ff29d25c86f6..207eb603298977da1467db54e9b36e716e3c9797 100644
+--- a/src/app/application.cpp
++++ b/src/app/application.cpp
+@@ -81,7 +81,6 @@
+ #include "base/profile.h"
+ #include "base/rss/rss_autodownloader.h"
+ #include "base/rss/rss_session.h"
+-#include "base/search/searchpluginmanager.h"
+ #include "base/settingsstorage.h"
+ #include "base/torrentfileswatcher.h"
+ #include "base/utils/fs.h"
+@@ -1438,7 +1437,6 @@ void Application::cleanup()
+     Net::ProxyConfigurationManager::freeInstance();
+     Preferences::freeInstance();
+     SettingsStorage::freeInstance();
+-    SearchPluginManager::freeInstance();
+     Utils::Fs::removeDirRecursively(Utils::Fs::tempPath());
+ 
+     LogMsg(tr("qBittorrent is now ready to exit"));
+diff --git a/src/base/CMakeLists.txt b/src/base/CMakeLists.txt
+index 678232a69b6dcc2cb10651a85b6d2c7a97197750..6126065f5bb001932d62bef30de33c5af300419c 100644
+--- a/src/base/CMakeLists.txt
++++ b/src/base/CMakeLists.txt
+@@ -93,9 +93,6 @@ add_library(qbt_base STATIC
+     rss/rss_item.h
+     rss/rss_parser.h
+     rss/rss_session.h
+-    search/searchdownloadhandler.h
+-    search/searchhandler.h
+-    search/searchpluginmanager.h
+     settingsstorage.h
+     tag.h
+     tagset.h
+@@ -108,7 +105,6 @@ add_library(qbt_base STATIC
+     utils/bytearray.h
+     utils/compare.h
+     utils/datetime.h
+-    utils/foreignapps.h
+     utils/fs.h
+     utils/gzip.h
+     utils/io.h
+@@ -193,9 +189,6 @@ add_library(qbt_base STATIC
+     rss/rss_item.cpp
+     rss/rss_parser.cpp
+     rss/rss_session.cpp
+-    search/searchdownloadhandler.cpp
+-    search/searchhandler.cpp
+-    search/searchpluginmanager.cpp
+     settingsstorage.cpp
+     tag.cpp
+     tagset.cpp
+@@ -206,7 +199,6 @@ add_library(qbt_base STATIC
+     utils/bytearray.cpp
+     utils/compare.cpp
+     utils/datetime.cpp
+-    utils/foreignapps.cpp
+     utils/fs.cpp
+     utils/gzip.cpp
+     utils/io.cpp
+diff --git a/src/base/preferences.cpp b/src/base/preferences.cpp
+index c55095a480f70a70f5ea70a29285d597cb2e6eca..878c82a770fa58c912f63c6dae4367b8fddbacc5 100644
+--- a/src/base/preferences.cpp
++++ b/src/base/preferences.cpp
+@@ -699,61 +699,6 @@ void Preferences::setSchedulerDays(const Scheduler::Days days)
+     setValue(u"Preferences/Scheduler/days"_s, days);
+ }
+ 
+-// Search
+-bool Preferences::isSearchEnabled() const
+-{
+-    return value(u"Preferences/Search/SearchEnabled"_s, false);
+-}
+-
+-void Preferences::setSearchEnabled(const bool enabled)
+-{
+-    if (enabled == isSearchEnabled())
+-        return;
+-
+-    setValue(u"Preferences/Search/SearchEnabled"_s, enabled);
+-}
+-
+-int Preferences::searchHistoryLength() const
+-{
+-    const int val = value(u"Search/HistoryLength"_s, 50);
+-    return std::clamp(val, 0, 99);
+-}
+-
+-void Preferences::setSearchHistoryLength(const int length)
+-{
+-    const int clampedLength = std::clamp(length, 0, 99);
+-    if (clampedLength == searchHistoryLength())
+-        return;
+-
+-    setValue(u"Search/HistoryLength"_s, clampedLength);
+-}
+-
+-bool Preferences::storeOpenedSearchTabs() const
+-{
+-    return value(u"Search/StoreOpenedSearchTabs"_s, false);
+-}
+-
+-void Preferences::setStoreOpenedSearchTabs(const bool enabled)
+-{
+-    if (enabled == storeOpenedSearchTabs())
+-        return;
+-
+-    setValue(u"Search/StoreOpenedSearchTabs"_s, enabled);
+-}
+-
+-bool Preferences::storeOpenedSearchTabResults() const
+-{
+-    return value(u"Search/StoreOpenedSearchTabResults"_s, false);
+-}
+-
+-void Preferences::setStoreOpenedSearchTabResults(const bool enabled)
+-{
+-    if (enabled == storeOpenedSearchTabResults())
+-        return;
+-
+-    setValue(u"Search/StoreOpenedSearchTabResults"_s, enabled);
+-}
+-
+ bool Preferences::isWebUIEnabled() const
+ {
+ #ifdef DISABLE_GUI
+@@ -1481,19 +1426,6 @@ void Preferences::setIgnoreSSLErrors(const bool enabled)
+     setValue(u"Preferences/Advanced/IgnoreSSLErrors"_s, enabled);
+ }
+ 
+-Path Preferences::getPythonExecutablePath() const
+-{
+-    return value(u"Preferences/Search/pythonExecutablePath"_s, Path());
+-}
+-
+-void Preferences::setPythonExecutablePath(const Path &path)
+-{
+-    if (path == getPythonExecutablePath())
+-        return;
+-
+-    setValue(u"Preferences/Search/pythonExecutablePath"_s, path);
+-}
+-
+ #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+ bool Preferences::isUpdateCheckEnabled() const
+ {
+@@ -1815,45 +1747,6 @@ void Preferences::setRssMainSplitterState(const QByteArray &state)
+     setValue(u"GUI/Qt6/RSSWidget/MainSplitterState"_s, state);
+ }
+ 
+-QByteArray Preferences::getSearchTabHeaderState() const
+-{
+-    return value<QByteArray>(u"GUI/Qt6/SearchTab/HeaderState"_s);
+-}
+-
+-void Preferences::setSearchTabHeaderState(const QByteArray &state)
+-{
+-    if (state == getSearchTabHeaderState())
+-        return;
+-
+-    setValue(u"GUI/Qt6/SearchTab/HeaderState"_s, state);
+-}
+-
+-bool Preferences::getRegexAsFilteringPatternForSearchJob() const
+-{
+-    return value(u"SearchTab/UseRegexAsFilteringPattern"_s, false);
+-}
+-
+-void Preferences::setRegexAsFilteringPatternForSearchJob(const bool checked)
+-{
+-    if (checked == getRegexAsFilteringPatternForSearchJob())
+-        return;
+-
+-    setValue(u"SearchTab/UseRegexAsFilteringPattern"_s, checked);
+-}
+-
+-QStringList Preferences::getSearchEngDisabled() const
+-{
+-    return value<QStringList>(u"SearchEngines/disabledEngines"_s);
+-}
+-
+-void Preferences::setSearchEngDisabled(const QStringList &engines)
+-{
+-    if (engines == getSearchEngDisabled())
+-        return;
+-
+-    setValue(u"SearchEngines/disabledEngines"_s, engines);
+-}
+-
+ QString Preferences::getTorImportLastContentDir() const
+ {
+     return value(u"TorrentImport/LastContentDir"_s, QDir::homePath());
+diff --git a/src/base/preferences.h b/src/base/preferences.h
+index 88a26831e934f9c600ab6b7cc809528126cafa91..3a4facd863e9b6201b568ddda15fd9e12042f83d 100644
+--- a/src/base/preferences.h
++++ b/src/base/preferences.h
+@@ -176,18 +176,6 @@ public:
+     Scheduler::Days getSchedulerDays() const;
+     void setSchedulerDays(Scheduler::Days days);
+ 
+-    // Search
+-    bool isSearchEnabled() const;
+-    void setSearchEnabled(bool enabled);
+-
+-    // Search UI
+-    int searchHistoryLength() const;
+-    void setSearchHistoryLength(int length);
+-    bool storeOpenedSearchTabs() const;
+-    void setStoreOpenedSearchTabs(bool enabled);
+-    bool storeOpenedSearchTabResults() const;
+-    void setStoreOpenedSearchTabResults(bool enabled);
+-
+     // HTTP Server
+     bool isWebUIEnabled() const;
+     void setWebUIEnabled(bool enabled);
+@@ -317,8 +305,6 @@ public:
+     void setMarkOfTheWebEnabled(bool enabled);
+     bool isIgnoreSSLErrors() const;
+     void setIgnoreSSLErrors(bool enabled);
+-    Path getPythonExecutablePath() const;
+-    void setPythonExecutablePath(const Path &path);
+ #if defined(Q_OS_WIN) || defined(Q_OS_MACOS)
+     bool isUpdateCheckEnabled() const;
+     void setUpdateCheckEnabled(bool enabled);
+@@ -394,12 +380,6 @@ public:
+     void setRssSideSplitterState(const QByteArray &state);
+     QByteArray getRssMainSplitterState() const;
+     void setRssMainSplitterState(const QByteArray &state);
+-    QByteArray getSearchTabHeaderState() const;
+-    void setSearchTabHeaderState(const QByteArray &state);
+-    bool getRegexAsFilteringPatternForSearchJob() const;
+-    void setRegexAsFilteringPatternForSearchJob(bool checked);
+-    QStringList getSearchEngDisabled() const;
+-    void setSearchEngDisabled(const QStringList &engines);
+     QString getTorImportLastContentDir() const;
+     void setTorImportLastContentDir(const QString &path);
+     QByteArray getTorImportGeometry() const;
+diff --git a/src/webui/CMakeLists.txt b/src/webui/CMakeLists.txt
+index 4597ed4681ec36bfe50d2c989eb17a7dce92551c..1ef2235a4c01b12c4f68b88c02cb853fd13822e3 100644
+--- a/src/webui/CMakeLists.txt
++++ b/src/webui/CMakeLists.txt
+@@ -9,7 +9,6 @@ add_library(qbt_webui STATIC
+     api/isessionmanager.h
+     api/logcontroller.h
+     api/rsscontroller.h
+-    api/searchcontroller.h
+     api/synccontroller.h
+     api/torrentcreatorcontroller.h
+     api/torrentscontroller.h
+@@ -27,7 +26,6 @@ add_library(qbt_webui STATIC
+     api/clientdatacontroller.cpp
+     api/logcontroller.cpp
+     api/rsscontroller.cpp
+-    api/searchcontroller.cpp
+     api/synccontroller.cpp
+     api/torrentcreatorcontroller.cpp
+     api/torrentscontroller.cpp
+diff --git a/src/webui/api/appcontroller.cpp b/src/webui/api/appcontroller.cpp
+index aadd9afbe9dc6d878a2d65c14b448b21db80b432..1569f1b31cf4d585b87352c797d5c0d90c50fd16 100644
+--- a/src/webui/api/appcontroller.cpp
++++ b/src/webui/api/appcontroller.cpp
+@@ -421,9 +421,6 @@ void AppController::preferencesAction()
+     data[u"mark_of_the_web"_s] = pref->isMarkOfTheWebEnabled();
+     // Ignore SSL errors
+     data[u"ignore_ssl_errors"_s] = pref->isIgnoreSSLErrors();
+-    // Python executable path
+-    data[u"python_executable_path"_s] = pref->getPythonExecutablePath().toString();
+-
+     // libtorrent preferences
+     // Bdecode depth limit
+     data[u"bdecode_depth_limit"_s] = pref->getBdecodeDepthLimit();
+@@ -1062,10 +1059,6 @@ void AppController::setPreferencesAction()
+     // Ignore SLL errors
+     if (hasKey(u"ignore_ssl_errors"_s))
+         pref->setIgnoreSSLErrors(it.value().toBool());
+-    // Python executable path
+-    if (hasKey(u"python_executable_path"_s))
+-        pref->setPythonExecutablePath(Path(it.value().toString()));
+-
+     // libtorrent preferences
+     // Bdecode depth limit
+     if (hasKey(u"bdecode_depth_limit"_s))
+diff --git a/src/webui/api/torrentscontroller.cpp b/src/webui/api/torrentscontroller.cpp
+index 752053b43c45e3039291eec2bf8ae0c278712f81..37f249075103474f2ece27969d1d1f42f10f820c 100644
+--- a/src/webui/api/torrentscontroller.cpp
++++ b/src/webui/api/torrentscontroller.cpp
+@@ -41,7 +41,6 @@
+ #include <QRegularExpression>
+ #include <QUrl>
+ 
+-#include "base/addtorrentmanager.h"
+ #include "base/bittorrent/categoryoptions.h"
+ #include "base/bittorrent/downloadpriority.h"
+ #include "base/bittorrent/infohash.h"
+@@ -53,21 +52,14 @@
+ #include "base/bittorrent/torrentdescriptor.h"
+ #include "base/bittorrent/trackerentry.h"
+ #include "base/bittorrent/trackerentrystatus.h"
+-#include "base/interfaces/iapplication.h"
+ #include "base/global.h"
+ #include "base/logger.h"
+-#include "base/net/downloadmanager.h"
+-#include "base/preferences.h"
+-#include "base/search/searchdownloadhandler.h"
+-#include "base/search/searchpluginmanager.h"
+ #include "base/torrentfilter.h"
+ #include "base/utils/datetime.h"
+ #include "base/utils/fs.h"
+-#include "base/utils/io.h"
+ #include "base/utils/sslkey.h"
+ #include "base/utils/string.h"
+ #include "apierror.h"
+-#include "apistatus.h"
+ #include "serialize/serialize_torrent.h"
+ 
+ // Tracker keys
+@@ -395,13 +387,13 @@ namespace
+         return url;
+     }
+ 
+-    QJsonObject serializeInfoHash(const BitTorrent::InfoHash &infoHash)
++    bool isCanonicalBTIHMagnet(const QString &source)
+     {
+-        return {
+-            {KEY_TORRENT_INFOHASHV1, infoHash.v1().toString()},
+-            {KEY_TORRENT_INFOHASHV2, infoHash.v2().toString()},
+-            {KEY_TORRENT_ID, infoHash.toTorrentID().toString()},
++        static const QRegularExpression pattern {
++            uR"(\Amagnet:\?xt=urn:btih:(?:[0-9A-Fa-f]{40}|[A-Za-z2-7]{32})(?:&(?:dn=(?:[A-Za-z0-9._~!$'()*+,;=:@/?\[\]-]|%[0-9A-Fa-f]{2})*|tr=(?:[A-Za-z0-9._~!$'()*+,;=:@/?\[\]-]|%[0-9A-Fa-f]{2})+|xl=[0-9]{1,20}|so=[0-9,-]{1,256})){0,16}\z)"_s
+         };
++
++        return (source.toUtf8().size() <= 8192) && pattern.match(source).hasMatch();
+     }
+ 
+     QJsonObject serializeTorrentInfo(const BitTorrent::TorrentInfo &info)
+@@ -466,35 +458,6 @@ namespace
+         return info;
+     }
+ 
+-    QJsonObject serializeTorrentInfo(const BitTorrent::Torrent &torrent)
+-    {
+-        QJsonObject info = serializeTorrentInfo(torrent.info());
+-
+-        QJsonArray trackers;
+-        for (const BitTorrent::TrackerEntryStatus &tracker : asConst(torrent.trackers()))
+-        {
+-            trackers << QJsonObject
+-            {
+-                {KEY_TRACKER_URL, tracker.url},
+-                {KEY_TRACKER_TIER, tracker.tier}
+-            };
+-        }
+-        info.insert(KEY_TORRENTINFO_TRACKERS, trackers);
+-
+-        QJsonArray webseeds;
+-        for (const QUrl &webseed : asConst(torrent.urlSeeds()))
+-        {
+-            webseeds << webseed.toString();
+-        }
+-        info.insert(KEY_TORRENTINFO_WEBSEEDS, webseeds);
+-
+-        info.insert(KEY_PROP_CREATED_BY, torrent.creator());
+-        info.insert(KEY_PROP_CREATION_DATE, Utils::DateTime::toSecsSinceEpoch(torrent.creationDate()));
+-        info.insert(KEY_PROP_COMMENT, torrent.comment());
+-
+-        return info;
+-    }
+-
+     nonstd::expected<BitTorrent::DownloadPriority, QString> parseDownloadPriority(const QString &priorityStr)
+     {
+         bool ok = false;
+@@ -554,7 +517,6 @@ namespace
+ TorrentsController::TorrentsController(IApplication *app, QObject *parent)
+     : APIController(app, parent)
+ {
+-    connect(BitTorrent::Session::instance(), &BitTorrent::Session::metadataDownloaded, this, &TorrentsController::onMetadataDownloaded);
+ }
+ 
+ void TorrentsController::countAction()
+@@ -1072,6 +1034,10 @@ void TorrentsController::pieceAvailabilityAction()
+ void TorrentsController::addAction()
+ {
+     const QStringList urls = params()[u"urls"_s].split(u'\n', Qt::SkipEmptyParts);
++    const QString metadataIDString = params()[u"metadataId"_s].trimmed();
++
++    if (!metadataIDString.isEmpty() && !urls.isEmpty())
++        throw APIError(APIErrorType::BadParams, tr("Cannot combine cached torrent metadata with magnet links"));
+ 
+     const bool skipChecking = parseBool(params()[u"skip_checking"_s]).value_or(false);
+     const bool seqDownload = parseBool(params()[u"sequentialDownload"_s]).value_or(false);
+@@ -1124,10 +1090,6 @@ void TorrentsController::addAction()
+         }
+     }
+ 
+-    const QString downloaderParam = params()[u"downloader"_s];
+-    if (!downloaderParam.isEmpty() && !SearchPluginManager::instance()->allPlugins().contains(downloaderParam))
+-        throw APIError(APIErrorType::BadParams, tr("`downloader` must be a valid search plugin"));
+-
+     BitTorrent::AddTorrentParams addTorrentParams
+     {
+         .name = torrentName,
+@@ -1162,83 +1124,54 @@ void TorrentsController::addAction()
+     };
+ 
+ 
+-    int pending = 0;
+     int failure = 0;
+     QList<BitTorrent::TorrentID> addedTorrentIDs;
+-    addedTorrentIDs.reserve(urls.size() + torrents.size());
+-    for (QString url : urls)
+-    {
+-        url = url.trimmed();
+-        if (url.isEmpty())
+-            continue;
++    addedTorrentIDs.reserve(urls.size() + torrents.size() + (metadataIDString.isEmpty() ? 0 : 1));
+ 
+-        BitTorrent::InfoHash infoHash;
+-        if (const auto iter = m_torrentSourceCache.constFind(url); iter != m_torrentSourceCache.constEnd())
+-            infoHash = iter.value();
+-        else if (const auto sourceTorrentDescr = BitTorrent::TorrentDescriptor::parse(url))
+-            infoHash = sourceTorrentDescr.value().infoHash();
++    if (!metadataIDString.isEmpty())
++    {
++        const BitTorrent::TorrentID torrentID = BitTorrent::TorrentID::fromString(metadataIDString);
++        const BitTorrent::TorrentDescriptor torrentDescr = m_torrentMetadataCache.value(torrentID);
++        if (!torrentDescr.info().has_value())
++            throw APIError(APIErrorType::BadParams, tr("Unknown torrent metadata identifier"));
+ 
+-        const BitTorrent::TorrentID torrentID = infoHash.toTorrentID();
+-        if (const BitTorrent::TorrentDescriptor &torrentDescr = m_torrentMetadataCache.value(torrentID); torrentDescr.info().has_value())
++        if (!filePriorities.isEmpty())
+         {
+-            if (!filePriorities.isEmpty())
+-            {
+-                const BitTorrent::TorrentInfo &info = torrentDescr.info().value();
+-                if (filePriorities.size() != info.filesCount())
+-                    throw APIError(APIErrorType::BadParams, tr("Length of filePriorities must equal number of files in torrent"));
+-
+-                addTorrentParams.filePriorities = filePriorities;
+-            }
++            const BitTorrent::TorrentInfo &info = torrentDescr.info().value();
++            if (filePriorities.size() != info.filesCount())
++                throw APIError(APIErrorType::BadParams, tr("Length of filePriorities must equal number of files in torrent"));
+ 
+-            if (BitTorrent::Session::instance()->addTorrent(torrentDescr, addTorrentParams))
+-            {
+-                addedTorrentIDs.append(torrentID);
+-            }
+-            else
+-            {
+-                ++failure;
+-            }
++            addTorrentParams.filePriorities = filePriorities;
+         }
+-        else if (!downloaderParam.isEmpty() && !infoHash.isValid())
+-        {
+-            if (!filePriorities.isEmpty())
+-                throw APIError(APIErrorType::BadParams, tr("`filePriorities` may only be specified when metadata has already been fetched"));
+-
+-            SearchDownloadHandler *downloadHandler = SearchPluginManager::instance()->downloadTorrent(downloaderParam, url);
+-            connect(downloadHandler, &SearchDownloadHandler::downloadFinished
+-                    , this, [this, addTorrentParams](const QString &torrentFilePath)
+-            {
+-                app()->addTorrentManager()->addTorrent(torrentFilePath, addTorrentParams);
+-            });
+-            connect(downloadHandler, &SearchDownloadHandler::downloadFinished, downloadHandler, &SearchDownloadHandler::deleteLater);
+ 
+-            ++pending;
+-        }
++        if (BitTorrent::Session::instance()->addTorrent(torrentDescr, addTorrentParams))
++            addedTorrentIDs.append(torrentID);
+         else
+-        {
+-            if (!filePriorities.isEmpty())
+-                throw APIError(APIErrorType::BadParams, tr("`filePriorities` may only be specified when metadata has already been fetched"));
++            ++failure;
+ 
+-            if (app()->addTorrentManager()->addTorrent(url, addTorrentParams))
+-            {
+-                if (infoHash.isValid())
+-                {
+-                    addedTorrentIDs.append(torrentID);
+-                }
+-                else
+-                {
+-                    ++pending;
+-                }
+-            }
+-            else
+-            {
+-                ++failure;
+-            }
+-        }
+-        m_torrentSourceCache.remove(url);
+         m_torrentMetadataCache.remove(torrentID);
+     }
+ 
++    for (const QString &url : urls)
++    {
++        if (!isCanonicalBTIHMagnet(url))
++            throw APIError(APIErrorType::BadParams, tr("Only canonical BTIH magnet links are accepted in the `urls` field"));
++
++        const auto sourceTorrentDescr = BitTorrent::TorrentDescriptor::parse(url);
++        if (!sourceTorrentDescr)
++            throw APIError(APIErrorType::BadParams, tr("Invalid BTIH magnet link"));
++
++        const BitTorrent::InfoHash infoHash = sourceTorrentDescr.value().infoHash();
++        const BitTorrent::TorrentID torrentID = infoHash.toTorrentID();
++        if (!filePriorities.isEmpty())
++            throw APIError(APIErrorType::BadParams, tr("`filePriorities` requires cached torrent metadata"));
++
++        if (BitTorrent::Session::instance()->addTorrent(sourceTorrentDescr.value(), addTorrentParams))
++            addedTorrentIDs.append(torrentID);
++        else
++            ++failure;
++    }
++
+     // process uploaded .torrent files
+     for (auto it = torrents.constBegin(); it != torrents.constEnd(); ++it)
+     {
+@@ -1260,7 +1193,7 @@ void TorrentsController::addAction()
+         }
+     }
+ 
+-    if (!addedTorrentIDs.isEmpty() || (pending > 0))
++    if (!addedTorrentIDs.isEmpty())
+     {
+         QJsonArray ids;
+         for (const BitTorrent::TorrentID &torrentID : addedTorrentIDs)
+@@ -1269,11 +1202,9 @@ void TorrentsController::addAction()
+         setResult(QJsonObject {
+             {u"success_count"_s, addedTorrentIDs.size()},
+             {u"failure_count"_s, failure},
+-            {u"pending_count"_s, pending},
++            {u"pending_count"_s, 0},
+             {u"added_torrent_ids"_s, ids},
+         });
+-        if (pending > 0)
+-            setStatus(APIStatus::Async);
+     }
+     else
+     {
+@@ -2164,90 +2095,6 @@ void TorrentsController::setSSLParametersAction()
+     setResult(QString());
+ }
+ 
+-void TorrentsController::fetchMetadataAction()
+-{
+-    requireParams({u"source"_s});
+-
+-    const QString sourceParam = params()[u"source"_s].trimmed();
+-    // must provide some value to parse
+-    if (sourceParam.isEmpty())
+-        throw APIError(APIErrorType::BadParams, tr("Must specify URI or hash"));
+-
+-    const QString downloaderParam = params()[u"downloader"_s];
+-    if (!downloaderParam.isEmpty() && !SearchPluginManager::instance()->allPlugins().contains(downloaderParam))
+-        throw APIError(APIErrorType::BadParams, tr("downloader must be a valid search plugin"));
+-
+-    const QString source = QUrl::fromPercentEncoding(sourceParam.toLatin1());
+-    const auto sourceTorrentDescr = BitTorrent::TorrentDescriptor::parse(source);
+-
+-    const BitTorrent::InfoHash infoHash = sourceTorrentDescr ? sourceTorrentDescr.value().infoHash() : m_torrentSourceCache.value(source);
+-    const BitTorrent::TorrentID torrentID = infoHash.toTorrentID();
+-    if (infoHash.isValid())
+-    {
+-        // check metadata cache
+-        if (const BitTorrent::TorrentDescriptor &torrentDescr = m_torrentMetadataCache.value(torrentID);
+-                torrentDescr.info().has_value())
+-        {
+-            setResult(serializeTorrentInfo(torrentDescr));
+-        }
+-        // check transfer list
+-        else if (const BitTorrent::Torrent *const torrent = BitTorrent::Session::instance()->findTorrent(infoHash);
+-                torrent && torrent->info().isValid())
+-        {
+-            setResult(serializeTorrentInfo(*torrent));
+-        }
+-        // check request cache
+-        else if (BitTorrent::Session::instance()->isKnownTorrent(infoHash))
+-        {
+-            setResult(serializeInfoHash(infoHash));
+-            setStatus(APIStatus::Async);
+-        }
+-        // request torrent's metadata
+-        else
+-        {
+-            if (!BitTorrent::Session::instance()->downloadMetadata(sourceTorrentDescr.value())) [[unlikely]]
+-                throw APIError(APIErrorType::BadParams, tr("Unable to download metadata for '%1'").arg(torrentID.toString()));
+-
+-            m_torrentMetadataCache.insert(torrentID, sourceTorrentDescr.value());
+-
+-            setResult(serializeInfoHash(infoHash));
+-            setStatus(APIStatus::Async);
+-        }
+-    }
+-    // http(s) url
+-    else if (Net::DownloadManager::hasSupportedScheme(source))
+-    {
+-        if (!m_requestedTorrentSource.contains(source))
+-        {
+-            if (!downloaderParam.isEmpty())
+-            {
+-                SearchDownloadHandler *downloadHandler = SearchPluginManager::instance()->downloadTorrent(downloaderParam, source);
+-                connect(downloadHandler, &SearchDownloadHandler::downloadFinished
+-                        , this, [this, source](const QString &data)
+-                {
+-                    onSearchPluginTorrentDownloaded(source, data);
+-                });
+-                connect(downloadHandler, &SearchDownloadHandler::downloadFinished, downloadHandler, &SearchDownloadHandler::deleteLater);
+-            }
+-            else
+-            {
+-                const auto *pref = Preferences::instance();
+-                Net::DownloadManager::instance()->download(Net::DownloadRequest(source).limit(pref->getTorrentFileSizeLimit())
+-                        , pref->useProxyForGeneralPurposes(), this, &TorrentsController::onDownloadFinished);
+-
+-            }
+-            m_requestedTorrentSource.insert(source);
+-        }
+-
+-        setResult(QJsonObject {});
+-        setStatus(APIStatus::Async);
+-    }
+-    else
+-    {
+-        throw APIError(APIErrorType::BadParams, tr("Unable to parse '%1'").arg(source));
+-    }
+-}
+-
+ void TorrentsController::parseMetadataAction()
+ {
+     const DataMap &uploadedTorrents = data();
+@@ -2272,133 +2119,3 @@ void TorrentsController::parseMetadataAction()
+ 
+     setResult(result);
+ }
+-
+-void TorrentsController::saveMetadataAction()
+-{
+-    requireParams({u"source"_s});
+-
+-    const QString sourceParam = params()[u"source"_s].trimmed();
+-    if (sourceParam.isEmpty())
+-        throw APIError(APIErrorType::BadParams, tr("Must specify URI or hash"));
+-
+-    const QString source = QUrl::fromPercentEncoding(sourceParam.toLatin1());
+-
+-    BitTorrent::InfoHash infoHash;
+-    if (const auto iter = m_torrentSourceCache.constFind(source); iter != m_torrentSourceCache.constEnd())
+-        infoHash = iter.value();
+-    else if (const auto sourceTorrentDescr = BitTorrent::TorrentDescriptor::parse(source))
+-        infoHash = sourceTorrentDescr.value().infoHash();
+-
+-    if (!infoHash.isValid())
+-        throw APIError(APIErrorType::NotFound);
+-
+-    const BitTorrent::TorrentID torrentID = infoHash.toTorrentID();
+-    const BitTorrent::TorrentDescriptor &torrentDescr = m_torrentMetadataCache.value(torrentID);
+-    if (!torrentDescr.info().has_value())
+-        throw APIError(APIErrorType::Conflict, tr("Metadata is not yet available"));
+-
+-    const nonstd::expected<QByteArray, QString> result = torrentDescr.saveToBuffer();
+-    if (!result)
+-        throw APIError(APIErrorType::Conflict, tr("Unable to export torrent metadata. Error: %1").arg(result.error()));
+-
+-    setResult(result.value(), u"application/x-bittorrent"_s, (torrentID.toString() + u".torrent"));
+-}
+-
+-void TorrentsController::onDownloadFinished(const Net::DownloadResult &result)
+-{
+-    const QString source = result.url;
+-    m_requestedTorrentSource.remove(source);
+-
+-    switch (result.status)
+-    {
+-    case Net::DownloadStatus::Success:
+-        // use the info directly from the .torrent file
+-        cacheTorrentFile(source, result.data);
+-        break;
+-
+-    case Net::DownloadStatus::RedirectedToMagnet:
+-        if (const auto parseResult = BitTorrent::TorrentDescriptor::parse(result.magnetURI))
+-        {
+-            cacheMagnetURI(source, parseResult.value());
+-        }
+-        else
+-        {
+-            LogMsg(tr("Parse magnet URI failed. URI: \"%1\". Error: \"%2\".").arg(result.magnetURI, parseResult.error()), Log::WARNING);
+-            m_torrentSourceCache.remove(source);
+-        }
+-        break;
+-
+-    default:
+-        break;
+-    }
+-}
+-
+-void TorrentsController::onMetadataDownloaded(const BitTorrent::TorrentInfo &info)
+-{
+-    Q_ASSERT(info.isValid());
+-    if (!info.isValid()) [[unlikely]]
+-        return;
+-
+-    if (auto iter = m_torrentMetadataCache.find(info.infoHash().toTorrentID()); iter != m_torrentMetadataCache.end())
+-    {
+-        iter.value().setTorrentInfo(info);
+-    }
+-    else if (info.infoHash().isHybrid())
+-    {
+-        // hybrid torrents use the v2 hash for their torrentID, but the torrent may have previously been stored
+-        // in m_torrentMetadataCache using the v1 hash, before the v2 hash was known/available
+-        const BitTorrent::TorrentID v1TorrentID = BitTorrent::TorrentID::fromSHA1Hash(info.infoHash().v1());
+-        if (auto iter = m_torrentMetadataCache.find(v1TorrentID); iter != m_torrentMetadataCache.end())
+-            iter.value().setTorrentInfo(info);
+-    }
+-}
+-
+-void TorrentsController::onSearchPluginTorrentDownloaded(const QString &source, const QString &data)
+-{
+-    m_requestedTorrentSource.remove(source);
+-
+-    // magnet URI
+-    if (const auto parseResult = BitTorrent::TorrentDescriptor::parse(data))
+-    {
+-        cacheMagnetURI(source, parseResult.value());
+-    }
+-    // path to .torrent file
+-    else if (const auto readResult = Utils::IO::readFile(Path(data), Preferences::instance()->getTorrentFileSizeLimit()))
+-    {
+-        cacheTorrentFile(source, readResult.value());
+-    }
+-    else
+-    {
+-        LogMsg(tr("Reading downloaded torrent data failed. Data: \"%1\". Error: \"%2\".").arg(data, readResult.error().message), Log::WARNING);
+-        m_torrentSourceCache.remove(source);
+-    }
+-}
+-
+-void TorrentsController::cacheTorrentFile(const QString &source, const QByteArray &data)
+-{
+-    if (const auto loadResult = BitTorrent::TorrentDescriptor::load(data))
+-    {
+-        const BitTorrent::TorrentDescriptor &torrentDescr = loadResult.value();
+-        const BitTorrent::InfoHash infoHash = torrentDescr.infoHash();
+-        m_torrentSourceCache.insert(source, infoHash);
+-        m_torrentMetadataCache.insert(infoHash.toTorrentID(), torrentDescr);
+-    }
+-    else
+-    {
+-        LogMsg(tr("Parse torrent failed. URL: \"%1\". Error: \"%2\".").arg(source, loadResult.error()), Log::WARNING);
+-        m_torrentSourceCache.remove(source);
+-    }
+-}
+-
+-void TorrentsController::cacheMagnetURI(const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr)
+-{
+-    const BitTorrent::InfoHash infoHash = torrentDescr.infoHash();
+-    const BitTorrent::TorrentID torrentID = infoHash.toTorrentID();
+-    m_torrentSourceCache.insert(source, infoHash);
+-
+-    if (!m_torrentMetadataCache.contains(torrentID) && !BitTorrent::Session::instance()->isKnownTorrent(infoHash))
+-    {
+-        if (BitTorrent::Session::instance()->downloadMetadata(torrentDescr))
+-            m_torrentMetadataCache.insert(torrentID, torrentDescr);
+-    }
+-}
+diff --git a/src/webui/api/torrentscontroller.h b/src/webui/api/torrentscontroller.h
+index d3ef62a9dda9a2d421b12c293caadea86b458486..dc12d3ea8a4ccbbccf324cb58a3e77ef4934554f 100644
+--- a/src/webui/api/torrentscontroller.h
++++ b/src/webui/api/torrentscontroller.h
+@@ -29,23 +29,12 @@
+ #pragma once
+ 
+ #include <QHash>
+-#include <QSet>
+-
+ #include "base/bittorrent/torrentdescriptor.h"
+ #include "apicontroller.h"
+ 
+-class QByteArray;
+-
+ namespace BitTorrent
+ {
+-    class InfoHash;
+     class TorrentID;
+-    class TorrentInfo;
+-}
+-
+-namespace Net
+-{
+-    struct DownloadResult;
+ }
+ 
+ class TorrentsController : public APIController
+@@ -115,18 +104,8 @@ private slots:
+     void exportAction();
+     void SSLParametersAction();
+     void setSSLParametersAction();
+-    void fetchMetadataAction();
+     void parseMetadataAction();
+-    void saveMetadataAction();
+ 
+ private:
+-    void onDownloadFinished(const Net::DownloadResult &result);
+-    void onMetadataDownloaded(const BitTorrent::TorrentInfo &info);
+-    void onSearchPluginTorrentDownloaded(const QString &source, const QString &data);
+-    void cacheTorrentFile(const QString &source, const QByteArray &data);
+-    void cacheMagnetURI(const QString &source, const BitTorrent::TorrentDescriptor &torrentDescr);
+-
+-    QHash<QString, BitTorrent::InfoHash> m_torrentSourceCache;
+     QHash<BitTorrent::TorrentID, BitTorrent::TorrentDescriptor> m_torrentMetadataCache;
+-    QSet<QString> m_requestedTorrentSource;
+ };
+diff --git a/src/webui/webapplication.cpp b/src/webui/webapplication.cpp
+index 887df3c829a769dd17968b8505f29f5a65484a73..1328dd27d0c5705ab79f1d34999dda0c3d136204 100644
+--- a/src/webui/webapplication.cpp
++++ b/src/webui/webapplication.cpp
+@@ -64,7 +64,6 @@
+ #include "api/clientdatacontroller.h"
+ #include "api/logcontroller.h"
+ #include "api/rsscontroller.h"
+-#include "api/searchcontroller.h"
+ #include "api/synccontroller.h"
+ #include "api/torrentcreatorcontroller.h"
+ #include "api/torrentscontroller.h"
+@@ -852,7 +851,6 @@ void WebApplication::sessionStartImpl(const QString &sessionId, const bool useCo
+     m_currentSession->registerAPIController(u"log"_s, new LogController(app(), m_currentSession));
+     m_currentSession->registerAPIController(u"torrentcreator"_s, new TorrentCreatorController(m_torrentCreationManager, app(), m_currentSession));
+     m_currentSession->registerAPIController(u"rss"_s, new RSSController(app(), m_currentSession));
+-    m_currentSession->registerAPIController(u"search"_s, new SearchController(app(), m_currentSession));
+     m_currentSession->registerAPIController(u"torrents"_s, new TorrentsController(app(), m_currentSession));
+     m_currentSession->registerAPIController(u"transfer"_s, new TransferController(app(), m_currentSession));
+ 
+diff --git a/src/webui/webapplication.h b/src/webui/webapplication.h
+index 3dedda7b9dfbb743e6f8419102c4bd305d6b4de2..a6da86bfc669c22ec17e8592c79fb2c8fbc34594 100644
+--- a/src/webui/webapplication.h
++++ b/src/webui/webapplication.h
+@@ -183,13 +183,6 @@ private:
+         {{u"rss"_s, u"renameRule"_s}, Http::METHOD_POST},
+         {{u"rss"_s, u"setFeedURL"_s}, Http::METHOD_POST},
+         {{u"rss"_s, u"setRule"_s}, Http::METHOD_POST},
+-        {{u"search"_s, u"delete"_s}, Http::METHOD_POST},
+-        {{u"search"_s, u"enablePlugin"_s}, Http::METHOD_POST},
+-        {{u"search"_s, u"installPlugin"_s}, Http::METHOD_POST},
+-        {{u"search"_s, u"start"_s}, Http::METHOD_POST},
+-        {{u"search"_s, u"stop"_s}, Http::METHOD_POST},
+-        {{u"search"_s, u"uninstallPlugin"_s}, Http::METHOD_POST},
+-        {{u"search"_s, u"updatePlugins"_s}, Http::METHOD_POST},
+         {{u"torrentcreator"_s, u"addTask"_s}, Http::METHOD_POST},
+         {{u"torrentcreator"_s, u"deleteTask"_s}, Http::METHOD_POST},
+         {{u"torrents"_s, u"add"_s}, Http::METHOD_POST},
+@@ -207,7 +200,6 @@ private:
+         {{u"torrents"_s, u"editCategory"_s}, Http::METHOD_POST},
+         {{u"torrents"_s, u"editTracker"_s}, Http::METHOD_POST},
+         {{u"torrents"_s, u"editWebSeed"_s}, Http::METHOD_POST},
+-        {{u"torrents"_s, u"fetchMetadata"_s}, Http::METHOD_POST},
+         {{u"torrents"_s, u"filePrio"_s}, Http::METHOD_POST},
+         {{u"torrents"_s, u"increasePrio"_s}, Http::METHOD_POST},
+         {{u"torrents"_s, u"parseMetadata"_s}, Http::METHOD_POST},
+diff --git a/src/webui/www/private/addtorrent.html b/src/webui/www/private/addtorrent.html
+index fccdda433abb2c73e8d9040331318cf775a99c18..4695ae2d38bac21c388fdba76784299d6c6f451b 100644
+--- a/src/webui/www/private/addtorrent.html
++++ b/src/webui/www/private/addtorrent.html
+@@ -36,24 +36,26 @@
+ 
+             const searchParams = new URLSearchParams(window.location.search);
+ 
+-            const source = searchParams.get("source");
+-            if ((source === null) || (source.length === 0))
++            const source = searchParams.get("source") || "";
++            const metadataId = searchParams.get("metadataId") || "";
++            if ((source.length === 0) && (metadataId.length === 0))
+                 return;
+ 
+-            document.getElementById("urls").value = source;
++            if (source.length > 0) {
++                const urlsInput = document.getElementById("urls");
++                urlsInput.value = source;
++                urlsInput.disabled = false;
++            }
++            if (metadataId.length > 0) {
++                const metadataIdInput = document.getElementById("metadataId");
++                metadataIdInput.value = metadataId;
++                metadataIdInput.disabled = false;
++            }
+ 
+-            // fetch unless explicitly told not to
+-            const fetchMetadata = searchParams.get("fetch") !== "false";
++            const hasMetadata = searchParams.get("hasMetadata") === "true";
+             const windowId = searchParams.get("windowId");
+             window.qBittorrent.AddTorrent.setWindowId(windowId);
+ 
+-            const downloader = searchParams.get("downloader");
+-            if (downloader?.length > 0) {
+-                const downloaderInput = document.getElementById("downloader");
+-                downloaderInput.value = downloader;
+-                downloaderInput.disabled = false;
+-            }
+-
+             document.getElementById("uploadForm").addEventListener("submit", async (event) => {
+                 event.preventDefault();
+                 window.qBittorrent.AddTorrent.submitForm();
+@@ -62,14 +64,9 @@
+                 if (submitter)
+                     submitter.disabled = true;
+                 try {
+-                    const formData = new FormData(form);
+-                    const fromSearch = source.startsWith("wildbuzzard-result:");
+-                    const body = fromSearch
+-                        ? new URLSearchParams([...formData].filter(([, value]) => typeof value === "string"))
+-                        : formData;
+-                    const response = await fetch(fromSearch ? "api/v2/search/commit" : form.action, {
++                    const response = await fetch(form.action, {
+                         method: "POST",
+-                        body: body
++                        body: new FormData(form)
+                     });
+                     if (!response.ok) {
+                         alert((await response.text()) || "Unable to add torrent.");
+@@ -86,15 +83,6 @@
+                 }
+             });
+ 
+-            document.getElementById("saveTorrent").addEventListener("click", (event) => {
+-                const url = new URL("api/v2/torrents/saveMetadata", window.location);
+-                url.search = new URLSearchParams({
+-                    source: source
+-                });
+-
+-                window.qBittorrent.Misc.downloadFile(url, "torrent.torrent", "QBT_TR(Unable to download torrent file)QBT_TR[CONTEXT=AddNewTorrentDialog]");
+-            });
+-
+             window.addEventListener("message", (event) => {
+                 // ensure event is from a trusted source
+                 if (event.origin !== window.origin)
+@@ -106,11 +94,11 @@
+                     return;
+ 
+                 window.qBittorrent.AddTorrent.populateMetadata(event.data.metadata);
+-                window.qBittorrent.AddTorrent.metadataCompleted(false);
++                window.qBittorrent.AddTorrent.metadataCompleted();
+             });
+ 
+             window.qBittorrent.pathAutofill.attachPathAutofill();
+-            window.qBittorrent.AddTorrent.init(source, downloader, fetchMetadata);
++            window.qBittorrent.AddTorrent.init(hasMetadata);
+         });
+     </script>
+ 
+@@ -179,9 +167,9 @@
+     </ul>
+ 
+     <form action="api/v2/torrents/add" enctype="multipart/form-data" method="post" id="uploadForm" style="text-align: center; padding: 10px 12px;" autocorrect="off" autocapitalize="none">
+-        <input type="hidden" id="urls" name="urls">
++        <input type="hidden" id="urls" name="urls" disabled>
++        <input type="hidden" id="metadataId" name="metadataId" disabled>
+         <input type="hidden" id="filePriorities" name="filePriorities">
+-        <input type="hidden" id="downloader" name="downloader" disabled>
+         <div class="container">
+             <div class="column">
+                 <fieldset class="settings" style="text-align: left;">
+@@ -424,11 +412,7 @@
+         </div>
+         <div id="submitbutton" style="display: flex; margin-top: 10px; align-items: center; position: relative;">
+             <img id="loadingSpinner" src="images/spinner.svg" alt="" aria-hidden="true">
+-            <div id="errorIcon" class="mochaErrorIcon invisible" style="bottom: 2px;"></div>
+             <span id="metadataStatus" style="padding-left: 28px;">Retrieving metadata</span>
+-            <button id="saveTorrent" type="button" class="invisible" style="font-size: 1em;">QBT_TR(Save as .torrent file)QBT_TR[CONTEXT=AddNewTorrentDialog]</button>
+-            <!-- maintains button's relative position after metadataStatus element is deleted -->
+-            <span>&nbsp;</span>
+             <div style="position: absolute; left: 50%; transform: translateX(-50%);">
+                 <button type="submit" style="font-size: 1em;">QBT_TR(Add Torrent)QBT_TR[CONTEXT=AddNewTorrentDialog]</button>
+             </div>
+diff --git a/src/webui/www/private/download.html b/src/webui/www/private/download.html
+index 72768dc25910124991710f42d001c262bfb2290a..fcbe5e666b00f85b8b3ac4b7e0630c1553584d44 100644
+--- a/src/webui/www/private/download.html
++++ b/src/webui/www/private/download.html
+@@ -61,7 +61,7 @@
+         <br>
+         <h2 class="vcenter">QBT_TR(Add torrent links)QBT_TR[CONTEXT=DownloadFromURLDialog]</h2>
+         <textarea id="urls" name="urls" rows="10" required style="width: 80%;" aria-label="QBT_TR(URLs)QBT_TR[CONTEXT=DownloadFromURLDialog]"></textarea>
+-        <p><i>QBT_TR(One link per line (HTTP links, Magnet links and info-hashes are supported))QBT_TR[CONTEXT=DownloadFromURLDialog]</i></p>
++        <p><i>QBT_TR(Only canonical BTIH Magnet links are supported)QBT_TR[CONTEXT=DownloadFromURLDialog]</i></p>
+         <div id="submitbutton" style="margin-top: 12px; text-align: center;">
+             <button type="submit" id="submitButton">QBT_TR(Download)QBT_TR[CONTEXT=DownloadFromURLDialog]</button>
+         </div>
+diff --git a/src/webui/www/private/index.html b/src/webui/www/private/index.html
+index 92a919c57bac18c3d86ad838790d6755083eaca8..2b1d3fb26a85f17f11f7bea4e0c67b1bd9b18aab 100644
+--- a/src/webui/www/private/index.html
++++ b/src/webui/www/private/index.html
+@@ -89,7 +89,6 @@
+                             <li><a id="showStatusBarLink"><img class="MyMenuIcon" src="images/checked-completed.svg" alt="QBT_TR(Status Bar)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Status Bar)QBT_TR[CONTEXT=MainWindow]</a></li>
+                             <li><a id="showFiltersSidebarLink"><img class="MyMenuIcon" src="images/checked-completed.svg" alt="QBT_TR(Filters Sidebar)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Filters Sidebar)QBT_TR[CONTEXT=MainWindow]</a></li>
+                             <li><a id="speedInBrowserTitleBarLink"><img class="MyMenuIcon" src="images/checked-completed.svg" alt="QBT_TR(Speed in Title Bar)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Speed in Title Bar)QBT_TR[CONTEXT=MainWindow]</a></li>
+-                            <li class="divider"><a id="showSearchEngineLink"><img class="MyMenuIcon" src="images/checked-completed.svg" alt="QBT_TR(Search Engine)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Search Engine)QBT_TR[CONTEXT=MainWindow]</a></li>
+                             <li><a id="showRssReaderLink"><img class="MyMenuIcon" src="images/checked-completed.svg" alt="QBT_TR(RSS)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(RSS Reader)QBT_TR[CONTEXT=MainWindow]</a></li>
+                             <li><a id="showLogViewerLink"><img class="MyMenuIcon" src="images/checked-completed.svg" alt="QBT_TR(Log)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Log)QBT_TR[CONTEXT=MainWindow]</a></li>
+                             <li class="divider"><a id="StatisticsLink"><img class="MyMenuIcon" src="images/view-statistics.svg" alt="QBT_TR(Statistics)QBT_TR[CONTEXT=MainWindow]" width="16" height="16">QBT_TR(Statistics)QBT_TR[CONTEXT=MainWindow]</a></li>
+@@ -130,9 +129,6 @@
+                         <li id="transfersTabLink" class="selected">
+                             <a><img alt="QBT_TR(Transfers)QBT_TR[CONTEXT=MainWindow]" src="images/filter-all.svg" width="16" height="16">QBT_TR(Transfers)QBT_TR[CONTEXT=MainWindow]</a>
+                         </li>
+-                        <li id="searchTabLink">
+-                            <a><img alt="QBT_TR(Search)QBT_TR[CONTEXT=MainWindow]" src="images/edit-find.svg" width="16" height="16">QBT_TR(Search)QBT_TR[CONTEXT=MainWindow]</a>
+-                        </li>
+                         <li id="rssTabLink">
+                             <a><img alt="QBT_TR(RSS)QBT_TR[CONTEXT=MainWindow]" src="images/application-rss.svg" width="16" height="16">QBT_TR(RSS)QBT_TR[CONTEXT=MainWindow]</a>
+                         </li>
+diff --git a/src/webui/www/private/scripts/addtorrent.js b/src/webui/www/private/scripts/addtorrent.js
+index 60d2b16ef4c03bce60e68804ed01a71ce81ac05e..38205127bbb733d85c17780d2e739b76daf1aa75 100644
+--- a/src/webui/www/private/scripts/addtorrent.js
++++ b/src/webui/www/private/scripts/addtorrent.js
+@@ -42,8 +42,6 @@ window.qBittorrent.AddTorrent ??= (() => {
+     let defaultTempPath = "";
+     let defaultTempPathEnabled = false;
+     let windowId = "";
+-    let source = "";
+-    let downloader = "";
+ 
+     const clientData = window.parent.qBittorrent.ClientData;
+ 
+@@ -215,59 +213,9 @@ window.qBittorrent.AddTorrent ??= (() => {
+         }
+     };
+ 
+-    let loadMetadataTimer = -1;
+-    const loadMetadata = (sourceUrl = undefined, downloaderName = undefined) => {
+-        if (sourceUrl !== undefined)
+-            source = sourceUrl;
+-        if (downloaderName !== undefined)
+-            downloader = downloaderName;
+-
+-        fetch("api/v2/torrents/fetchMetadata", {
+-                method: "POST",
+-                body: new URLSearchParams({
+-                    source: source,
+-                    downloader: downloader
+-                })
+-            })
+-            .then(async (response) => {
+-                if (!response.ok) {
+-                    metadataFailed();
+-                    return;
+-                }
+-
+-                const data = await response.json();
+-                populateMetadata(data);
+-
+-                if (response.status === 200)
+-                    metadataCompleted();
+-                else
+-                    loadMetadataTimer = loadMetadata.delay(1000);
+-            }, (error) => {
+-                console.error(error);
+-
+-                loadMetadataTimer = loadMetadata.delay(1000);
+-            });
+-    };
+-
+-    const metadataCompleted = (showDownloadButton = true) => {
+-        clearTimeout(loadMetadataTimer);
+-        loadMetadataTimer = -1;
+-
+-        document.getElementById("metadataStatus").destroy();
+-        document.getElementById("loadingSpinner").style.display = "none";
+-
+-        if (showDownloadButton)
+-            document.getElementById("saveTorrent").classList.remove("invisible");
+-    };
+-
+-    const metadataFailed = () => {
+-        clearTimeout(loadMetadataTimer);
+-        loadMetadataTimer = -1;
+-
+-        document.getElementById("metadataStatus").textContent = "Metadata retrieval failed";
+-        document.getElementById("metadataStatus").classList.add("red");
++    const metadataCompleted = () => {
++        document.getElementById("metadataStatus")?.destroy();
+         document.getElementById("loadingSpinner").style.display = "none";
+-        document.getElementById("errorIcon").classList.remove("invisible");
+     };
+ 
+     const populateMetadata = (metadata) => {
+@@ -327,10 +275,10 @@ window.qBittorrent.AddTorrent ??= (() => {
+         }
+     };
+ 
+-    const init = (source, downloader, fetchMetadata) => {
++    const init = (hasMetadata) => {
+         table = window.qBittorrent.TorrentContent.init("addTorrentFilesTableDiv", window.qBittorrent.DynamicTable.AddTorrentFilesTable);
+-        if (fetchMetadata)
+-            loadMetadata(source, downloader);
++        if (!hasMetadata)
++            metadataCompleted();
+     };
+ 
+     window.addEventListener("load", async (event) => {
+diff --git a/src/webui/www/private/scripts/client.js b/src/webui/www/private/scripts/client.js
+index fcb11fc2851ba1f0ecf6ee6c16fb1e6778227712..25ba56a29e913261991464b6441e32c70ddb082d 100644
+--- a/src/webui/www/private/scripts/client.js
++++ b/src/webui/www/private/scripts/client.js
+@@ -38,10 +38,8 @@ window.qBittorrent.Client ??= (() => {
+             isStopped: isStopped,
+             stop: stop,
+             mainTitle: mainTitle,
+-            showSearchEngine: showSearchEngine,
+             showRssReader: showRssReader,
+             showLogViewer: showLogViewer,
+-            isShowSearchEngine: isShowSearchEngine,
+             isShowRssReader: isShowRssReader,
+             isShowLogViewer: isShowLogViewer,
+             createAddTorrentWindow: createAddTorrentWindow,
+@@ -75,7 +73,6 @@ window.qBittorrent.Client ??= (() => {
+             "show_filters_sidebar",
+             "show_log_viewer",
+             "show_rss_reader",
+-            "show_search_engine",
+             "show_status_bar",
+             "show_top_toolbar",
+             "speed_in_browser_title_bar",
+@@ -142,22 +139,15 @@ window.qBittorrent.Client ??= (() => {
+         return title;
+     };
+ 
+-    let showingSearchEngine = false;
+     let showingRssReader = false;
+     let showingLogViewer = false;
+ 
+-    const showSearchEngine = (bool) => {
+-        showingSearchEngine = bool;
+-    };
+     const showRssReader = (bool) => {
+         showingRssReader = bool;
+     };
+     const showLogViewer = (bool) => {
+         showingLogViewer = bool;
+     };
+-    const isShowSearchEngine = () => {
+-        return showingSearchEngine;
+-    };
+     const isShowRssReader = () => {
+         return showingRssReader;
+     };
+@@ -165,7 +155,7 @@ window.qBittorrent.Client ??= (() => {
+         return showingLogViewer;
+     };
+ 
+-    const createAddTorrentWindow = (title, source, metadata = undefined, downloader = undefined) => {
++    const createAddTorrentWindow = (title, source, metadata = undefined) => {
+         const isFirefox = navigator.userAgent.includes("Firefox");
+         const isSafari = navigator.userAgent.includes("AppleWebKit") && !navigator.userAgent.includes("Chrome");
+         let height = 855;
+@@ -175,21 +165,24 @@ window.qBittorrent.Client ??= (() => {
+             height -= 10;
+ 
+         const staticId = "uploadPage";
+-        const id = `${staticId}-${encodeURIComponent(source)}`;
++        const metadataId = metadata?.hash || "";
++        const id = `${staticId}-${encodeURIComponent(source || metadataId)}`;
+ 
+         const contentURL = new URL("addtorrent.html", window.location);
+-        contentURL.search = new URLSearchParams({
++        const searchParams = new URLSearchParams({
+             v: "${CACHEID}",
+             source: source,
+-            fetch: metadata === undefined,
+-            windowId: id,
+-            downloader: downloader ?? ""
++            hasMetadata: metadata !== undefined,
++            windowId: id
+         });
++        if (metadataId.length > 0)
++            searchParams.set("metadataId", metadataId);
++        contentURL.search = searchParams;
+ 
+         new MochaUI.Window({
+             id: id,
+             icon: "images/qbittorrent-tray.svg",
+-            title: title,
++            title: window.qBittorrent.Misc.escapeHtml(String(title)),
+             loadMethod: "iframe",
+             contentURL: contentURL.toString(),
+             scrollbars: true,
+@@ -235,8 +228,7 @@ window.qBittorrent.Client ??= (() => {
+                 const json = await response.json();
+                 for (const [i, metadata] of json.entries()) {
+                     const title = metadata.name || fileNames[i];
+-                    const hash = metadata.infohash_v2 || metadata.infohash_v1;
+-                    createAddTorrentWindow(title, hash, metadata);
++                    createAddTorrentWindow(title, "", metadata);
+                 }
+             })
+             .catch((error) => {
+@@ -310,7 +302,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+     useAutoHideZeroStatusFilters = clientData.get("hide_zero_status_filters") === true;
+     displayFullURLTrackerColumn = clientData.get("full_url_tracker_column") === true;
+ 
+-    let isSearchPanelLoaded = false;
+     let isLogPanelLoaded = false;
+     let isRssPanelLoaded = false;
+ 
+@@ -348,17 +339,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         });
+     };
+ 
+-    const buildSearchTab = () => {
+-        new MochaUI.Column({
+-            id: "searchTabColumn",
+-            placement: "main",
+-            width: null
+-        });
+-
+-        // start off hidden
+-        document.getElementById("searchTabColumn").classList.add("invisible");
+-    };
+-
+     const buildRssTab = () => {
+         new MochaUI.Column({
+             id: "rssTabColumn",
+@@ -382,7 +362,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+     };
+ 
+     buildTransfersTab();
+-    buildSearchTab();
+     buildRssTab();
+     buildLogTab();
+     MochaUI.initializeTabs("mainWindowTabsList");
+@@ -508,7 +487,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         document.getElementById("speedInBrowserTitleBarLink").firstElementChild.style.opacity = "0";
+ 
+     // After showing/hiding the toolbar + status bar
+-    window.qBittorrent.Client.showSearchEngine((clientData.get("show_search_engine") ?? true) === true);
+     window.qBittorrent.Client.showRssReader((clientData.get("show_rss_reader") ?? true) === true);
+     window.qBittorrent.Client.showLogViewer(clientData.get("show_log_viewer") === true);
+ 
+@@ -1333,12 +1311,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         processServerState();
+     });
+ 
+-    document.getElementById("showSearchEngineLink").addEventListener("click", (e) => {
+-        window.qBittorrent.Client.showSearchEngine(!window.qBittorrent.Client.isShowSearchEngine());
+-        clientData.set({ show_search_engine: window.qBittorrent.Client.isShowSearchEngine() }).catch(console.error);
+-        updateTabDisplay();
+-    });
+-
+     document.getElementById("showRssReaderLink").addEventListener("click", (e) => {
+         window.qBittorrent.Client.showRssReader(!window.qBittorrent.Client.isShowRssReader());
+         clientData.set({ show_rss_reader: window.qBittorrent.Client.isShowRssReader() }).catch(console.error);
+@@ -1366,20 +1338,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+                 document.getElementById("transfersTabLink").click();
+         }
+ 
+-        if (window.qBittorrent.Client.isShowSearchEngine()) {
+-            document.getElementById("showSearchEngineLink").firstElementChild.style.opacity = "1";
+-            document.getElementById("mainWindowTabs").classList.remove("invisible");
+-            document.getElementById("searchTabLink").classList.remove("invisible");
+-            if (!MochaUI.Panels.instances.SearchPanel)
+-                addSearchPanel();
+-        }
+-        else {
+-            document.getElementById("showSearchEngineLink").firstElementChild.style.opacity = "0";
+-            document.getElementById("searchTabLink").classList.add("invisible");
+-            if (document.getElementById("searchTabLink").classList.contains("selected"))
+-                document.getElementById("transfersTabLink").click();
+-        }
+-
+         if (window.qBittorrent.Client.isShowLogViewer()) {
+             document.getElementById("showLogViewerLink").firstElementChild.style.opacity = "1";
+             document.getElementById("mainWindowTabs").classList.remove("invisible");
+@@ -1395,7 +1353,7 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         }
+ 
+         // display no tabs
+-        if (!window.qBittorrent.Client.isShowRssReader() && !window.qBittorrent.Client.isShowSearchEngine() && !window.qBittorrent.Client.isShowLogViewer())
++        if (!window.qBittorrent.Client.isShowRssReader() && !window.qBittorrent.Client.isShowLogViewer())
+             document.getElementById("mainWindowTabs").classList.add("invisible");
+     };
+ 
+@@ -1415,7 +1373,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         customSyncMainDataInterval = null;
+         syncData(100);
+ 
+-        hideSearchTab();
+         hideRssTab();
+         hideLogTab();
+ 
+@@ -1430,40 +1387,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         MochaUI.Desktop.setDesktopSize();
+     };
+ 
+-    const showSearchTab = (() => {
+-        let searchTabInitialized = false;
+-
+-        return () => {
+-            // we must wait until the panel is fully loaded before proceeding.
+-            // this include's the panel's custom js, which is loaded via MochaUI.Panel's 'require' field.
+-            // MochaUI loads these files asynchronously and thus all required libs may not be available immediately
+-            if (!isSearchPanelLoaded) {
+-                setTimeout(() => {
+-                    showSearchTab();
+-                }, 100);
+-                return;
+-            }
+-
+-            if (!searchTabInitialized) {
+-                window.qBittorrent.Search.init();
+-                searchTabInitialized = true;
+-            }
+-
+-            document.getElementById("searchTabColumn").classList.remove("invisible");
+-            customSyncMainDataInterval = 30000;
+-            hideTransfersTab();
+-            hideRssTab();
+-            hideLogTab();
+-
+-            localPreferences.set("selected_window_tab", "search");
+-        };
+-    })();
+-
+-    const hideSearchTab = () => {
+-        document.getElementById("searchTabColumn").classList.add("invisible");
+-        MochaUI.Desktop.setDesktopSize();
+-    };
+-
+     const showRssTab = (() => {
+         let rssTabInitialized = false;
+ 
+@@ -1489,7 +1412,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+             document.getElementById("rssTabColumn").classList.remove("invisible");
+             customSyncMainDataInterval = 30000;
+             hideTransfersTab();
+-            hideSearchTab();
+             hideLogTab();
+ 
+             localPreferences.set("selected_window_tab", "rss");
+@@ -1527,7 +1449,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+             document.getElementById("logTabColumn").classList.remove("invisible");
+             customSyncMainDataInterval = 30000;
+             hideTransfersTab();
+-            hideSearchTab();
+             hideRssTab();
+ 
+             localPreferences.set("selected_window_tab", "log");
+@@ -1540,31 +1461,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         window.qBittorrent.Log && window.qBittorrent.Log.unload();
+     };
+ 
+-    const addSearchPanel = () => {
+-        new MochaUI.Panel({
+-            id: "SearchPanel",
+-            title: "Search",
+-            header: false,
+-            padding: {
+-                top: 0,
+-                right: 0,
+-                bottom: 0,
+-                left: 0
+-            },
+-            loadMethod: "xhr",
+-            contentURL: "views/search.html?v=${CACHEID}",
+-            require: {
+-                js: ["scripts/search.js?v=${CACHEID}"],
+-                onload: () => {
+-                    isSearchPanelLoaded = true;
+-                },
+-            },
+-            content: "",
+-            column: "searchTabColumn",
+-            height: null
+-        });
+-    };
+-
+     const addRssPanel = () => {
+         new MochaUI.Panel({
+             id: "RssPanel",
+@@ -1626,18 +1522,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         });
+     };
+ 
+-    const handleDownloadParam = () => {
+-        // Extract torrent URL from download param in WebUI URL hash
+-        const downloadHash = "#download=";
+-        if (!location.hash.startsWith(downloadHash))
+-            return;
+-
+-        const url = decodeURIComponent(location.hash.substring(downloadHash.length));
+-        // Remove the processed hash from the URL
+-        history.replaceState("", document.title, (location.pathname + location.search));
+-        showDownloadPage([url]);
+-    };
+-
+     new MochaUI.Panel({
+         id: "transferList",
+         title: "Panel",
+@@ -1651,7 +1535,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+         loadMethod: "xhr",
+         contentURL: "views/transferlist.html?v=${CACHEID}",
+         onContentLoaded: () => {
+-            handleDownloadParam();
+             updateMainData();
+         },
+         column: "mainColumn",
+@@ -1776,7 +1659,6 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+     document.getElementById("torrentsFilterToolbar").addEventListener("change", (e) => { torrentsTable.updateTable(); });
+ 
+     document.getElementById("transfersTabLink").addEventListener("click", (event) => { showTransfersTab(); });
+-    document.getElementById("searchTabLink").addEventListener("click", (event) => { showSearchTab(); });
+     document.getElementById("rssTabLink").addEventListener("click", (event) => { showRssTab(); });
+     document.getElementById("logTabLink").addEventListener("click", (event) => { showLogTab(); });
+     updateTabDisplay();
+@@ -1819,11 +1701,7 @@ window.addEventListener("DOMContentLoaded", async (event) => {
+                     .map((str) => str.trim())
+                     .filter((str) => {
+                         const lowercaseStr = str.toLowerCase();
+-                        return lowercaseStr.startsWith("http:")
+-                            || lowercaseStr.startsWith("https:")
+-                            || lowercaseStr.startsWith("magnet:")
+-                            || ((str.length === 40) && !(/[^0-9A-F]/i.test(str))) // v1 hex-encoded SHA-1 info-hash
+-                            || ((str.length === 32) && !(/[^2-7A-Z]/i.test(str))); // v1 Base32 encoded SHA-1 info-hash
++                        return lowercaseStr.startsWith("magnet:");
+                     });
+ 
+                 for (const url of urls)
+@@ -1951,10 +1829,6 @@ window.addEventListener("load", async (event) => {
+     // switch to previously used tab
+     const previouslyUsedTab = localPreferences.get("selected_window_tab", "transfers");
+     switch (previouslyUsedTab) {
+-        case "search":
+-            if (window.qBittorrent.Client.isShowSearchEngine())
+-                document.getElementById("searchTabLink").click();
+-            break;
+         case "rss":
+             if (window.qBittorrent.Client.isShowRssReader())
+                 document.getElementById("rssTabLink").click();
+diff --git a/src/webui/www/private/scripts/dynamicTable.js b/src/webui/www/private/scripts/dynamicTable.js
+index 3b86ebda742b3cfe691b18512656207beb3f63d6..e7dbc209be3bcde627e7f66b9251845a8abe5206 100644
+--- a/src/webui/www/private/scripts/dynamicTable.js
++++ b/src/webui/www/private/scripts/dynamicTable.js
+@@ -39,8 +39,6 @@ window.qBittorrent.DynamicTable ??= (() => {
+         return {
+             TorrentsTable: TorrentsTable,
+             TorrentPeersTable: TorrentPeersTable,
+-            SearchResultsTable: SearchResultsTable,
+-            SearchPluginsTable: SearchPluginsTable,
+             TorrentTrackersTable: TorrentTrackersTable,
+             TorrentFilesTable: TorrentFilesTable,
+             BulkRenameTorrentFilesTable: BulkRenameTorrentFilesTable,
+@@ -1963,145 +1961,6 @@ window.qBittorrent.DynamicTable ??= (() => {
+         }
+     }
+ 
+-    class SearchResultsTable extends DynamicTable {
+-        initColumns() {
+-            this.newColumn("fileName", "", "QBT_TR(Name)QBT_TR[CONTEXT=SearchResultsTable]", 500, true);
+-            this.newColumn("fileSize", "", "QBT_TR(Size)QBT_TR[CONTEXT=SearchResultsTable]", 100, true);
+-            this.newColumn("nbSeeders", "", "QBT_TR(Seeders)QBT_TR[CONTEXT=SearchResultsTable]", 100, true);
+-            this.newColumn("nbLeechers", "", "QBT_TR(Leechers)QBT_TR[CONTEXT=SearchResultsTable]", 100, true);
+-            this.newColumn("pubDate", "", "QBT_TR(Published On)QBT_TR[CONTEXT=SearchResultsTable]", 200, true);
+-
+-            this.initColumnsFunctions();
+-        }
+-
+-        initColumnsFunctions() {
+-            const displaySize = function(td, row) {
+-                const size = window.qBittorrent.Misc.friendlyUnit(this.getRowValue(row), false);
+-                td.textContent = size;
+-                td.title = size;
+-            };
+-            const displayNum = function(td, row) {
+-                const value = this.getRowValue(row);
+-                const formattedValue = (value === "-1") ? "Unknown" : value;
+-                td.textContent = formattedValue;
+-                td.title = formattedValue;
+-            };
+-            const displayDate = function(td, row) {
+-                const value = this.getRowValue(row) * 1000;
+-                const formattedValue = (Number.isNaN(value) || (value <= 0)) ? "" : window.qBittorrent.Misc.formatDate(new Date(value));
+-                td.textContent = formattedValue;
+-                td.title = formattedValue;
+-            };
+-
+-            this.columns["fileSize"].updateTd = displaySize;
+-            this.columns["nbSeeders"].updateTd = displayNum;
+-            this.columns["nbLeechers"].updateTd = displayNum;
+-            this.columns["pubDate"].updateTd = displayDate;
+-        }
+-
+-        getFilteredAndSortedRows() {
+-            const getSizeFilters = () => {
+-                let minSize = (window.qBittorrent.Search.searchSizeFilter.min > 0) ? (window.qBittorrent.Search.searchSizeFilter.min * Math.pow(1024, window.qBittorrent.Search.searchSizeFilter.minUnit)) : 0;
+-                let maxSize = (window.qBittorrent.Search.searchSizeFilter.max > 0) ? (window.qBittorrent.Search.searchSizeFilter.max * Math.pow(1024, window.qBittorrent.Search.searchSizeFilter.maxUnit)) : 0;
+-
+-                if ((minSize > maxSize) && (maxSize > 0)) {
+-                    const tmp = minSize;
+-                    minSize = maxSize;
+-                    maxSize = tmp;
+-                }
+-
+-                return {
+-                    min: minSize,
+-                    max: maxSize
+-                };
+-            };
+-
+-            const getSeedsFilters = () => {
+-                let minSeeds = (window.qBittorrent.Search.searchSeedsFilter.min > 0) ? window.qBittorrent.Search.searchSeedsFilter.min : 0;
+-                let maxSeeds = (window.qBittorrent.Search.searchSeedsFilter.max > 0) ? window.qBittorrent.Search.searchSeedsFilter.max : 0;
+-
+-                if ((minSeeds > maxSeeds) && (maxSeeds > 0)) {
+-                    const tmp = minSeeds;
+-                    minSeeds = maxSeeds;
+-                    maxSeeds = tmp;
+-                }
+-
+-                return {
+-                    min: minSeeds,
+-                    max: maxSeeds
+-                };
+-            };
+-
+-            let filteredRows = [];
+-            const searchTerms = window.qBittorrent.Search.searchText.pattern.toLowerCase().split(" ");
+-            const filterTerms = window.qBittorrent.Search.searchText.filterPattern.toLowerCase().split(" ");
+-            const sizeFilters = getSizeFilters();
+-            const seedsFilters = getSeedsFilters();
+-            const searchInTorrentName = document.getElementById("searchInTorrentName").value === "names";
+-
+-            if (searchInTorrentName || (filterTerms.length > 0) || (window.qBittorrent.Search.searchSizeFilter.min > 0) || (window.qBittorrent.Search.searchSizeFilter.max > 0)) {
+-                for (const row of this.getRowValues()) {
+-
+-                    if (searchInTorrentName && !window.qBittorrent.Misc.containsAllTerms(row.full_data.fileName, searchTerms))
+-                        continue;
+-                    if ((filterTerms.length > 0) && !window.qBittorrent.Misc.containsAllTerms(row.full_data.fileName, filterTerms))
+-                        continue;
+-                    if ((sizeFilters.min > 0) && (row.full_data.fileSize < sizeFilters.min))
+-                        continue;
+-                    if ((sizeFilters.max > 0) && (row.full_data.fileSize > sizeFilters.max))
+-                        continue;
+-                    if ((seedsFilters.min > 0) && (row.full_data.nbSeeders < seedsFilters.min))
+-                        continue;
+-                    if ((seedsFilters.max > 0) && (row.full_data.nbSeeders > seedsFilters.max))
+-                        continue;
+-
+-                    filteredRows.push(row);
+-                }
+-            }
+-            else {
+-                filteredRows = [...this.getRowValues()];
+-            }
+-
+-            const column = this.columns[this.sortedColumn];
+-            const isReverseSort = (this.reverseSort === "0");
+-            filteredRows.sort((row1, row2) => {
+-                const result = column.compareRows(row1, row2);
+-                return isReverseSort ? result : -result;
+-            });
+-
+-            return filteredRows;
+-        }
+-    }
+-
+-    class SearchPluginsTable extends DynamicTable {
+-        initColumns() {
+-            this.newColumn("fullName", "", "QBT_TR(Name)QBT_TR[CONTEXT=SearchPluginsTable]", 175, true);
+-            this.newColumn("version", "", "QBT_TR(Version)QBT_TR[CONTEXT=SearchPluginsTable]", 100, true);
+-            this.newColumn("url", "", "QBT_TR(Url)QBT_TR[CONTEXT=SearchPluginsTable]", 175, true);
+-            this.newColumn("enabled", "", "QBT_TR(Enabled)QBT_TR[CONTEXT=SearchPluginsTable]", 100, true);
+-
+-            this.initColumnsFunctions();
+-        }
+-
+-        initColumnsFunctions() {
+-            this.columns["enabled"].updateTd = function(td, row) {
+-                const value = this.getRowValue(row);
+-                if (value) {
+-                    td.textContent = "QBT_TR(Yes)QBT_TR[CONTEXT=SearchPluginsTable]";
+-                    td.title = "QBT_TR(Yes)QBT_TR[CONTEXT=SearchPluginsTable]";
+-                    td.closest("tr").classList.add("green");
+-                    td.closest("tr").classList.remove("red");
+-                }
+-                else {
+-                    td.textContent = "QBT_TR(No)QBT_TR[CONTEXT=SearchPluginsTable]";
+-                    td.title = "QBT_TR(No)QBT_TR[CONTEXT=SearchPluginsTable]";
+-                    td.closest("tr").classList.add("red");
+-                    td.closest("tr").classList.remove("green");
+-                }
+-            };
+-        }
+-    }
+-
+     class TorrentTrackersTable extends DynamicTable {
+         collapseState = new Map(); // { rowId: String, isCollapsed: bool }
+ 
+diff --git a/src/webui/www/private/views/preferences.html b/src/webui/www/private/views/preferences.html
+index cb21ba59725982166be097bb4d6935e51db8c65f..de67d2ab398b6b19ed9376fb248835d6cf4413b2 100644
+--- a/src/webui/www/private/views/preferences.html
++++ b/src/webui/www/private/views/preferences.html
+@@ -1365,14 +1365,6 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+                         <input type="checkbox" id="ignoreSSLErrors">
+                     </td>
+                 </tr>
+-                <tr>
+-                    <td>
+-                        <label for="pythonExecutablePath">QBT_TR(Python executable path (may require restart):)QBT_TR[CONTEXT=OptionsDialog]</label>
+-                    </td>
+-                    <td>
+-                        <input type="text" id="pythonExecutablePath" class="pathFile" placeholder="QBT_TR((Auto detect if empty))QBT_TR[CONTEXT=OptionsDialog]" style="width: 15em;">
+-                    </td>
+-                </tr>
+             </tbody>
+         </table>
+     </fieldset>
+@@ -2695,7 +2687,6 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+                     document.getElementById("embeddedTrackerPortForwarding").checked = pref.embedded_tracker_port_forwarding;
+                     document.getElementById("markOfTheWeb").checked = pref.mark_of_the_web;
+                     document.getElementById("ignoreSSLErrors").checked = pref.ignore_ssl_errors;
+-                    document.getElementById("pythonExecutablePath").value = pref.python_executable_path;
+                     // libtorrent section
+                     document.getElementById("bdecodeDepthLimit").value = pref.bdecode_depth_limit;
+                     document.getElementById("bdecodeTokenLimit").value = pref.bdecode_token_limit;
+@@ -3183,8 +3174,6 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
+             settings["embedded_tracker_port_forwarding"] = document.getElementById("embeddedTrackerPortForwarding").checked;
+             settings["mark_of_the_web"] = document.getElementById("markOfTheWeb").checked;
+             settings["ignore_ssl_errors"] = document.getElementById("ignoreSSLErrors").checked;
+-            settings["python_executable_path"] = document.getElementById("pythonExecutablePath").value;
+-
+             // libtorrent section
+             settings["bdecode_depth_limit"] = Number(document.getElementById("bdecodeDepthLimit").value);
+             settings["bdecode_token_limit"] = Number(document.getElementById("bdecodeTokenLimit").value);
+diff --git a/src/webui/www/webui.qrc b/src/webui/www/webui.qrc
+index e8c6815ceff518cafe63d053d7b4424615f2363f..188629a639b67282db84763a74204e832f1dc70f 100644
+--- a/src/webui/www/webui.qrc
++++ b/src/webui/www/webui.qrc
+@@ -414,7 +414,6 @@
+         <file>private/scripts/prop-trackers.js</file>
+         <file>private/scripts/prop-webseeds.js</file>
+         <file>private/scripts/rename-files.js</file>
+-        <file>private/scripts/search.js</file>
+         <file>private/scripts/statistics.js</file>
+         <file>private/scripts/torrent-content.js</file>
+         <file>private/scripts/wildbuzzard-bridge.js</file>
+@@ -430,7 +429,6 @@
+         <file>private/views/cookies.html</file>
+         <file>private/views/createtorrent.html</file>
+         <file>private/views/filters.html</file>
+-        <file>private/views/installsearchplugin.html</file>
+         <file>private/views/log.html</file>
+         <file>private/views/logTabs.html</file>
+         <file>private/views/preferences.html</file>
+@@ -439,8 +437,6 @@
+         <file>private/views/propertiesToolbar.html</file>
+         <file>private/views/rss.html</file>
+         <file>private/views/rssDownloader.html</file>
+-        <file>private/views/search.html</file>
+-        <file>private/views/searchplugins.html</file>
+         <file>private/views/statistics.html</file>
+         <file>private/views/torrentcreator.html</file>
+         <file>private/views/transferlist.html</file>

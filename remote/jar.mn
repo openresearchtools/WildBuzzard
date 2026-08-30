@@ -108,10 +108,10 @@ remote.jar:
   # imports from external folders
   content/external/EventUtils.js (../testing/mochitest/tests/SimpleTest/EventUtils.js)
 
-  # WildBuzzard visible-browser control for the built-in Pi agent
+  # WildBuzzard native visible-browser control
   content/wildbuzzard/BrowserControl.sys.mjs (wildbuzzard/BrowserControl.sys.mjs)
   content/wildbuzzard/BrowserControlChild.sys.mjs (wildbuzzard/BrowserControlChild.sys.mjs)
   content/wildbuzzard/BrowserControlParent.sys.mjs (wildbuzzard/BrowserControlParent.sys.mjs)
-  content/wildbuzzard/TorrentAgentTools.sys.mjs (wildbuzzard/TorrentAgentTools.sys.mjs)
+  content/wildbuzzard/TorrentControlTools.sys.mjs (wildbuzzard/TorrentControlTools.sys.mjs)
   content/wildbuzzard/WildBuzzardWorkflow.sys.mjs (wildbuzzard/WildBuzzardWorkflow.sys.mjs)
   content/wildbuzzard/WildBuzzardWorkflowWorker.js (wildbuzzard/WildBuzzardWorkflowWorker.js)

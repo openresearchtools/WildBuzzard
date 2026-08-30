@@ -1809,6 +1809,8 @@ tools/browsertime/package.json
 tools/ts/error_list.json
 tools/ts/test/baselines/
 try_task_config.json
+wildbuzzard/browser/extensions/torrent-search/extension/
+wildbuzzard/browser/extensions/web-search/extension/
 xpcom/idl-parser/xpidl/fixtures/xpctest.d.json
 **/package-lock.json
 # Generated ad-blocking engine resources. Keep byte-for-byte donor/upstream

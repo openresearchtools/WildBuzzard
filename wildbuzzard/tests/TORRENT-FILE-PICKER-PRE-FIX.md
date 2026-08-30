@@ -33,14 +33,14 @@ chooseTorrentFile@resource:///modules/TorrentManager.sys.mjs:441:12
 ```
 
 The predecessor passed a `navigator:browser` window to `nsIFilePicker.init`.
-The current API requires the initiating `BrowsingContext`; this is the contract
-fixed by `TorrentManager.chooseTorrentFile` and covered by
-`browser_torrent_file_picker.js`.
+That browser-side picker was removed with the agent UI. The retained torrent UI
+uses qBittorrent's file input, and externally served `.torrent` responses use
+Firefox's normal download flow before an explicit import.
 
 ## Evidence
 
 Compact evidence is retained outside the source checkout at
-`/home/user/Downloads/WildBuzzard-agent-artifacts/torrent-picker-pre-fix-20260810`.
+`/home/user/Downloads/WildBuzzard-control-artifacts/torrent-picker-pre-fix-20260810`.
 The extracted predecessor, temporary profiles, XDG state, and persistent test
 torrent sidecar were removed after capture.
 

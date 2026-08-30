@@ -3,7 +3,7 @@ Version: 0.1.0-1
 Section: net
 Priority: optional
 Architecture: amd64
-Maintainer: Open Research Tools <maintainers@openresearchtools.org>
+Maintainer: openresearchtools <229047507+openresearchtools@users.noreply.github.com>
 Depends: python3 (>= 3.11)
 Description: reusable qBittorrent service for Buzzard applications
  Provides the pinned qBittorrent/libtorrent runtime, JSON CLI, private WebUI

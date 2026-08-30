@@ -28,7 +28,15 @@ signed_at = 1783372069
 
 [downstream]
 patch_series = "patches/series"
-patch_series_sha256 = "252912db847349272089065bb51427b533505527e2a7a7fbe89ef1b72e145284"
+patch_series_sha256 = "d98d451ec0c6267d069913c57c14904ff4cc7d104781ee1bf3863eac49458b17"
 transport = "private-unix-domain-socket"
-search_provider = "jackett-mini"
+search_surface = "compiled-out"
 python_search_plugins = false
+pre_add_url_fetch = false
+url_string_ingress = "canonical-btih-magnet-only"
+magnet_utf8_max_bytes = 8192
+magnet_optional_parameter_limit = 16
+magnet_allowed_optional_parameters = ["dn", "tr", "xl", "so"]
+remote_torrent_url_fetch = false
+uploaded_torrent_request_max_bytes = 67108864
+untrusted_dialog_titles = "escaped-before-html-sink"

@@ -37,6 +37,14 @@ XPCOMUtils.defineLazyPreferenceGetter(
 const L10N_ID_MAPPING = {
   "theme-disabled-heading": "theme-disabled-heading2",
 };
+const VISIBLE_BUILTIN_EXTENSION_IDS = new Set([
+  "torrent-search@extensions.wildbuzzard",
+  "web-search@extensions.wildbuzzard",
+]);
+
+function isVisibleAddon(addon) {
+  return !addon.hidden || VISIBLE_BUILTIN_EXTENSION_IDS.has(addon.id);
+}
 
 function getL10nIdMapping(id) {
   return L10N_ID_MAPPING[id] || id;
@@ -57,12 +65,14 @@ gViewController.defineView("list", async type => {
       headingId: type + "-enabled-heading",
       sectionClass: `${type}-enabled-section`,
       filterFn: addon =>
-        !addon.hidden && addon.isActive && !isPending(addon, "uninstall"),
+        isVisibleAddon(addon) &&
+        addon.isActive &&
+        !isPending(addon, "uninstall"),
     },
   ];
 
   const disabledAddonsFilterFn = addon =>
-    !addon.hidden && !addon.isActive && !isPending(addon, "uninstall");
+    isVisibleAddon(addon) && !addon.isActive && !isPending(addon, "uninstall");
 
   sections.push({
     headingId: getL10nIdMapping(`${type}-disabled-heading`),

@@ -51,7 +51,7 @@ pref("network.auth.subresource-http-auth-allow", 1);
 pref("network.http.http3.retry_different_ip_family", true);
 pref("network.http.retry_with_another_half_open", true);
 
-pref("extensions.experiments.enabled", true);
+pref("extensions.experiments.enabled", false);
 pref("extensions.install_origins.enabled", true);
 // The Firefox list without addons.mozilla.org, so extensions can act on the
 // add-ons site.

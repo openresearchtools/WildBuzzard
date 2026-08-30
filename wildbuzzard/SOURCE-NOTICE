@@ -1,0 +1,18 @@
+SPDX-License-Identifier: AGPL-3.0-or-later
+
+WildBuzzard corresponding source is published at:
+
+https://github.com/openresearchtools/wildbuzzard
+
+For a release build, use the exact WildBuzzard commit recorded in the
+release-set release-manifest.json. That manifest also records the exact commits
+for the separately distributed search extensions and command-line packages.
+Complete source and build inputs for bundled third-party code are carried in
+the repository or in the source and provenance artifacts named by the same
+release manifest.
+
+The independently installed buzzard-search, buzzard-minijtt, and
+buzzard-torrent releases publish their own license, provenance, and
+corresponding-source artifacts. Those sources are not browser payload. The
+Arti source archive corresponding to the bundled runtime is distributed next
+to the browser packages in the same release set.

@@ -8,9 +8,6 @@ const testRoot = PathUtils.join(
   PathUtils.tempDir,
   `wbq-${Services.appinfo.processID}-${Date.now()}`
 );
-let discoveryManager;
-let originalGetSources;
-let originalSearch;
 let runtime;
 let packageAvailable = false;
 
@@ -48,38 +45,7 @@ add_setup(async function isolate_qbittorrent_runtime() {
     dataHome: Services.env.get("XDG_DATA_HOME"),
     runtimeHome: Services.env.get("XDG_RUNTIME_DIR"),
   });
-  ({ TorrentDiscoveryManager: discoveryManager } = ChromeUtils.importESModule(
-    "resource:///modules/TorrentDiscoveryManager.sys.mjs"
-  ));
-  originalGetSources = discoveryManager.getSources;
-  originalSearch = discoveryManager.search;
-  discoveryManager.getSources = async () => ({
-    immutable: true,
-    sources: [{ id: "public-source", name: "Public source", state: "ready" }],
-  });
-  discoveryManager.search = async ({ query, sourceIds }) => {
-    Assert.equal(query, "linux iso");
-    Assert.deepEqual(sourceIds, ["public-source"]);
-    return {
-      results: [
-        {
-          resultId: "R".repeat(32),
-          providerId: "public-source",
-          providerName: "Public source",
-          name: "Linux ISO",
-          sizeBytes: 1024,
-          seeders: 12,
-          leechers: 2,
-          publishedAt: "2026-08-10T00:00:00Z",
-          categoryIds: [8000],
-          acquisition: "magnet",
-        },
-      ],
-    };
-  };
   registerCleanupFunction(async () => {
-    discoveryManager.getSources = originalGetSources;
-    discoveryManager.search = originalSearch;
     if (packageAvailable) {
       await runtime.stopForTests();
     }
@@ -90,13 +56,13 @@ add_setup(async function isolate_qbittorrent_runtime() {
   });
 });
 
-add_task(async function test_real_qbittorrent_ui_and_search_route() {
+add_task(async function test_real_qbittorrent_ui() {
   if (!packageAvailable) {
     ok(true, "Skipped: install buzzard-torrent to run the integrated UI test");
     return;
   }
   requestLongerTimeout(4);
-  const tab = await openTorrentTab("about:torrents?search=linux%20iso");
+  const tab = await openTorrentTab("about:torrents");
   try {
     await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
       await ContentTaskUtils.waitForCondition(
@@ -108,91 +74,28 @@ add_task(async function test_real_qbittorrent_ui_and_search_route() {
       Assert.ok(!content.document.getElementById("logoutLink"));
       Assert.ok(!content.document.getElementById("shutdownLink"));
       Assert.ok(!content.document.getElementById("aboutLink"));
-      await ContentTaskUtils.waitForCondition(
-        () =>
-          content.document.getElementById("searchPattern")?.value ===
-          "linux iso",
-        "The about:torrents query opened qBittorrent search"
-      );
-      await ContentTaskUtils.waitForCondition(
-        () =>
-          content.document
-            .querySelector("#searchResultsTableDiv tbody")
-            ?.textContent.includes("Linux ISO"),
-        "The browser search bridge populated the qBittorrent result table"
-      );
-    });
-  } finally {
-    BrowserTestUtils.removeTab(tab);
-  }
-});
-
-add_task(async function test_magnet_opens_qbittorrent_add_dialog() {
-  if (!packageAvailable) {
-    ok(true, "Skipped: install buzzard-torrent to run the integrated UI test");
-    return;
-  }
-  const magnet = `magnet:?xt=urn:btih:${"1".repeat(40)}&dn=Linux`;
-  const tab = await openTorrentTab(magnet);
-  try {
-    await SpecialPowers.spawn(
-      tab.linkedBrowser,
-      [magnet],
-      async magnetValue => {
-        await ContentTaskUtils.waitForCondition(() => {
-          const frame = content.document.querySelector(
-            'iframe[src*="addtorrent.html"][src*="magnet"]'
-          );
-          return (
-            frame?.contentDocument?.URL.startsWith(
-              "moz-torrent://local/addtorrent.html"
-            ) && frame.contentDocument.getElementById("uploadForm")
-          );
-        }, "The magnet loaded qBittorrent's add-torrent dialog");
-        const frame = content.document.querySelector(
-          'iframe[src*="addtorrent.html"][src*="magnet"]'
-        );
-        Assert.equal(
-          frame.contentDocument.getElementById("urls").value,
-          magnetValue
-        );
+      const policy = content.document.querySelector(
+        'meta[http-equiv="Content-Security-Policy"]'
+      ).content;
+      Assert.ok(!policy.includes("script-src-elem 'unsafe-inline'"));
+      Assert.ok(!policy.includes("blob:"));
+      Assert.ok(!policy.includes("frame-src about:"));
+      for (const script of content.document.querySelectorAll("script[nonce]")) {
         Assert.ok(
-          frame.contentDocument.querySelector(
-            '#uploadForm button[type="submit"]'
-          )
+          script.src.startsWith("resource:///modules/torrent-"),
+          "Only packaged torrent infrastructure receives a nonce"
         );
       }
-    );
-    const { BrowserControl } = ChromeUtils.importESModule(
-      "chrome://remote/content/wildbuzzard/BrowserControl.sys.mjs"
-    );
-    BrowserControl.start();
-    const pageId = BrowserControl.pageIdFor(tab.linkedBrowser);
-    const snapshot = await BrowserControl.snapshot(pageId);
-    const addButton = snapshot.details.refs.find(
-      node => node.role === "button" && node.name === "Add Torrent"
-    );
-    const startCheckbox = snapshot.details.refs.find(
-      node => node.role === "checkbox" && node.name === "Start torrent"
-    );
-    Assert.ok(addButton, "Native browser control captured the torrent dialog");
-    Assert.ok(startCheckbox, "Native browser control captured its checkbox");
-    await BrowserControl.act(pageId, {
-      kind: "uncheck",
-      ref: startCheckbox?.ref,
-    });
-    await BrowserControl.act(pageId, { kind: "click", ref: addButton?.ref });
-    await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
-      await ContentTaskUtils.waitForCondition(
-        () => !content.document.querySelector('iframe[src*="addtorrent.html"]'),
-        "The native actions submitted and closed the add-torrent dialog"
-      );
-      await ContentTaskUtils.waitForCondition(
-        () =>
-          content.document
-            .querySelector("#torrentsTableDiv tbody")
-            ?.textContent.includes("Linux"),
-        "The added torrent appeared in the visible transfer table"
+      for (const frame of content.document.querySelectorAll("iframe")) {
+        Assert.equal(
+          frame.getAttribute("sandbox"),
+          "allow-downloads allow-forms allow-modals allow-same-origin allow-scripts"
+        );
+      }
+      await Assert.rejects(
+        content.fetch("https://example.invalid/"),
+        /External requests are unavailable/,
+        "The privileged torrent UI cannot make ordinary network requests"
       );
     });
   } finally {
@@ -200,36 +103,32 @@ add_task(async function test_magnet_opens_qbittorrent_add_dialog() {
   }
 });
 
-add_task(async function test_torrent_url_opens_qbittorrent_add_dialog() {
+add_task(async function test_download_hash_is_not_routed_to_qbittorrent() {
   if (!packageAvailable) {
     ok(true, "Skipped: install buzzard-torrent to run the integrated UI test");
     return;
   }
-  const torrentUrl = "https://example.invalid/linux.torrent";
-  const tab = await openTorrentTab(
-    `about:torrents#download=${encodeURIComponent(torrentUrl)}`
-  );
-  try {
-    await SpecialPowers.spawn(
-      tab.linkedBrowser,
-      [torrentUrl],
-      async torrentValue => {
-        await ContentTaskUtils.waitForCondition(() => {
-          const frame = content.document.querySelector(
-            'iframe[src*="addtorrent.html"]'
-          );
-          return frame?.contentDocument?.getElementById("uploadForm");
-        }, "The torrent URL loaded qBittorrent's add-torrent dialog");
-        const frame = content.document.querySelector(
-          'iframe[src*="addtorrent.html"]'
-        );
-        Assert.equal(
-          frame.contentDocument.getElementById("urls").value,
-          torrentValue
-        );
-      }
+  for (const source of [
+    `magnet:?xt=urn:btih:${"1".repeat(40)}&dn=Linux`,
+    "https://example.invalid/linux.torrent",
+  ]) {
+    const tab = await openTorrentTab(
+      `about:torrents#download=${encodeURIComponent(source)}`
     );
-  } finally {
-    BrowserTestUtils.removeTab(tab);
+    try {
+      await SpecialPowers.spawn(tab.linkedBrowser, [], async () => {
+        await ContentTaskUtils.waitForCondition(
+          () => content.document.getElementById("torrentsTableDiv"),
+          "The qBittorrent transfer view loaded"
+        );
+        await new Promise(resolve => content.setTimeout(resolve, 250));
+        Assert.ok(
+          !content.document.querySelector('iframe[src*="addtorrent.html"]'),
+          "The download hash did not open an add-torrent dialog"
+        );
+      });
+    } finally {
+      BrowserTestUtils.removeTab(tab);
+    }
   }
 });

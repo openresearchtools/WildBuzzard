@@ -2,7 +2,7 @@
 
 [Desktop Entry]
 Name=Wild Buzzard
-Comment=Privacy-oriented browser for development agents
+Comment=Privacy-oriented browser with native automation, Tor, and torrent support
 Exec=wildbuzzard %u
 Icon=org.wildbuzzard.WildBuzzard
 Terminal=false

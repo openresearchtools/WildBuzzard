@@ -6,8 +6,7 @@
 
 DIRS += [
     "components",
-    "extensions/agent-sidebar",
-    "extensions/common",
+    "extensions",
     "themes",
 ]
 

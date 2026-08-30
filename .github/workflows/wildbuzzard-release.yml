@@ -1,0 +1,183 @@
+name: WildBuzzard Ubuntu 24.04 release
+
+on:
+  workflow_dispatch:
+    inputs:
+      buzzard_search_commit:
+        description: Exact 40-character buzzard-search commit
+        required: true
+        type: string
+      buzzard_minijtt_commit:
+        description: Exact 40-character buzzard-minijtt commit
+        required: true
+        type: string
+      extensions_commit:
+        description: Exact 40-character wildbuzzard-extensions commit
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wildbuzzard-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build, test, and package
+    runs-on: [self-hosted, Linux, X64, wildbuzzard-ubuntu-24.04]
+    timeout-minutes: 360
+    env:
+      WILDBUZZARD_DATA_ROOT: /run/media/user/Data
+    steps:
+      - name: Validate immutable component refs
+        env:
+          BUZZARD_MINIJTT_COMMIT: ${{ inputs.buzzard_minijtt_commit }}
+          BUZZARD_SEARCH_COMMIT: ${{ inputs.buzzard_search_commit }}
+          EXTENSIONS_COMMIT: ${{ inputs.extensions_commit }}
+        run: |
+          set -Eeuo pipefail
+          for value in \
+            "${BUZZARD_MINIJTT_COMMIT}" \
+            "${BUZZARD_SEARCH_COMMIT}" \
+            "${EXTENSIONS_COMMIT}"; do
+            if [[ ! "${value}" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "Every component ref must be a lowercase 40-character commit SHA" >&2
+              exit 2
+            fi
+          done
+
+      - name: Verify data-backed runner storage
+        run: |
+          set -Eeuo pipefail
+          data_root="$(realpath -e -- "${WILDBUZZARD_DATA_ROOT}")"
+          data_device="$(findmnt --noheadings --raw --output MAJ:MIN --target "${data_root}")"
+          root_device="$(findmnt --noheadings --raw --output MAJ:MIN --target /)"
+          if [[ -z "${data_device}" || "${data_device}" == "${root_device}" ]]; then
+            echo "WildBuzzard data root must be a mounted non-system volume: ${data_root}" >&2
+            exit 1
+          fi
+          require_data_path() {
+            local label="$1"
+            local raw_path="$2"
+            local resolved device
+            resolved="$(realpath -e -- "${raw_path}")"
+            case "${resolved}" in
+              "${data_root}"|"${data_root}"/*) ;;
+              *)
+                echo "${label} is outside the WildBuzzard data root: ${resolved}" >&2
+                exit 1
+                ;;
+            esac
+            device="$(findmnt --noheadings --raw --output MAJ:MIN --target "${resolved}")"
+            if [[ "${device}" != "${data_device}" ]]; then
+              echo "${label} is not on the WildBuzzard data volume: ${resolved}" >&2
+              exit 1
+            fi
+          }
+          docker_root="$(docker info --format '{{.DockerRootDir}}')"
+          require_data_path GITHUB_WORKSPACE "${GITHUB_WORKSPACE}"
+          require_data_path RUNNER_TEMP "${RUNNER_TEMP}"
+          require_data_path DockerRootDir "${docker_root}"
+          available_kib="$(df --output=avail "${RUNNER_TEMP}" | tail -n 1 | tr -d ' ')"
+          if ((available_kib < 80 * 1024 * 1024)); then
+            echo "WildBuzzard release builds require at least 80 GiB free under RUNNER_TEMP" >&2
+            df -h "${RUNNER_TEMP}"
+            exit 1
+          fi
+
+      - name: Checkout WildBuzzard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source/wildbuzzard
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout buzzard-search
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openresearchtools/buzzard-search
+          ref: ${{ inputs.buzzard_search_commit }}
+          path: source/buzzard-search
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout buzzard-minijtt
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openresearchtools/buzzard-minijtt
+          ref: ${{ inputs.buzzard_minijtt_commit }}
+          path: source/buzzard-minijtt
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Checkout extensions
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: openresearchtools/wildbuzzard-extensions
+          ref: ${{ inputs.extensions_commit }}
+          path: source/wildbuzzard-extensions
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build pinned Ubuntu 24.04 toolchain image
+        run: |
+          set -Eeuo pipefail
+          docker build \
+            --build-arg "BUILDER_UID=$(id -u)" \
+            --build-arg "BUILDER_GID=$(id -g)" \
+            --tag wildbuzzard-release-builder:${GITHUB_RUN_ID} \
+            --file source/wildbuzzard/wildbuzzard/ci/ubuntu-24.04/Containerfile \
+            source/wildbuzzard/wildbuzzard/ci/ubuntu-24.04
+
+      - name: Build, test, and package release set
+        env:
+          BUZZARD_MINIJTT_COMMIT: ${{ inputs.buzzard_minijtt_commit }}
+          BUZZARD_SEARCH_COMMIT: ${{ inputs.buzzard_search_commit }}
+          EXTENSIONS_COMMIT: ${{ inputs.extensions_commit }}
+        run: |
+          set -Eeuo pipefail
+          release_root="${RUNNER_TEMP}/wildbuzzard-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          release_artifacts="${release_root}/artifacts"
+          release_work="${release_root}/work"
+          mkdir -p -- "${release_artifacts}" "${release_work}"
+          docker run --rm \
+            --shm-size 2g \
+            --volume "${GITHUB_WORKSPACE}/source:/workspace/source:rw" \
+            --volume "${release_artifacts}:/workspace/artifacts:rw" \
+            --volume "${release_work}:/workspace/work:rw" \
+            --env CI=1 \
+            wildbuzzard-release-builder:${GITHUB_RUN_ID} \
+            /workspace/source/wildbuzzard/wildbuzzard/ci/build-release.sh \
+              --wildbuzzard /workspace/source/wildbuzzard \
+              --wildbuzzard-commit "${GITHUB_SHA}" \
+              --buzzard-search /workspace/source/buzzard-search \
+              --buzzard-search-commit "${BUZZARD_SEARCH_COMMIT}" \
+              --buzzard-minijtt /workspace/source/buzzard-minijtt \
+              --buzzard-minijtt-commit "${BUZZARD_MINIJTT_COMMIT}" \
+              --extensions /workspace/source/wildbuzzard-extensions \
+              --extensions-commit "${EXTENSIONS_COMMIT}" \
+              --work-dir /workspace/work \
+              --artifact-dir /workspace/artifacts
+
+      - name: Upload release set
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-ubuntu-24.04-${{ github.sha }}
+          path: ${{ runner.temp }}/wildbuzzard-release-${{ github.run_id }}-${{ github.run_attempt }}/artifacts/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+      - name: Upload failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-ubuntu-24.04-failure-logs-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/wildbuzzard-release-${{ github.run_id }}-${{ github.run_attempt }}/work/**/logs/**
+            ${{ runner.temp }}/wildbuzzard-release-${{ github.run_id }}-${{ github.run_attempt }}/work/**/*.log
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7

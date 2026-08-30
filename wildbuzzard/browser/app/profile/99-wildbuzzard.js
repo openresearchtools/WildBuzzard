@@ -24,7 +24,7 @@ pref("app.releaseNotesURL.aboutDialog", "about:blank", locked);
 pref("browser.uitour.enabled", false, locked);
 pref("browser.uitour.url", "", locked);
 pref("startup.homepage_override_url", "", locked);
-pref("startup.homepage_welcome_url", "about:welcome", locked);
+pref("startup.homepage_welcome_url", "about:welcome");
 pref("startup.homepage_welcome_url.additional", "", locked);
 
 // Telemetry, studies, remote experiments, coverage, and crash submission.

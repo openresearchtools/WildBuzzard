@@ -1,7 +1,10 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { QBittorrentRuntime } from "resource:///modules/QBittorrentRuntime.sys.mjs";
-import { QBittorrentSearchBridge } from "resource:///modules/QBittorrentSearchBridge.sys.mjs";
+import { isFixedTorrentHTMLTarget } from "resource:///modules/TorrentDocumentPolicy.sys.mjs";
+import { isTorrentAddTarget } from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
+
+export { isFixedTorrentHTMLTarget };
 
 const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
 const MAX_TARGET_LENGTH = 65536;
@@ -21,7 +24,45 @@ const RESPONSE_HEADERS = new Set([
   "etag",
   "last-modified",
 ]);
-const BRIDGE_SCRIPT = '<script src="/scripts/wildbuzzard-bridge.js"></script>';
+
+function normalizedTargetPath(target) {
+  let path = target.split(/[?#]/, 1)[0].replaceAll("\\", "/");
+  for (let i = 0; i < 4; i++) {
+    try {
+      const decoded = decodeURIComponent(path)
+        .replaceAll("\\", "/")
+        .split(/[?#]/, 1)[0];
+      if (decoded === path) {
+        break;
+      }
+      path = decoded;
+    } catch {
+      break;
+    }
+  }
+  const segments = [];
+  for (const segment of path.split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  return `/${segments.join("/")}`;
+}
+
+export function isEmbeddedSearchTarget(target) {
+  return /^\/api\/v2\/search(?:\/|$)/i.test(normalizedTargetPath(target));
+}
+
+export function isUnconfirmedMetadataTarget(target) {
+  return /^\/api\/v2\/torrents\/fetchMetadata(?:\/|$)/i.test(
+    normalizedTargetPath(target)
+  );
+}
 
 function isByteArray(value) {
   return (
@@ -62,15 +103,63 @@ function publicResponseHeaders(headers) {
   return result;
 }
 
+function responseContentType(headers) {
+  const values = headers.get("content-type") || [];
+  if (values.length > 1) {
+    throw new TypeError("Ambiguous torrent WebUI content type");
+  }
+  if (!values.length) {
+    return null;
+  }
+  const essence = values[0].split(";", 1)[0].trim().toLowerCase();
+  if (!/^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(essence)) {
+    throw new TypeError("Invalid torrent WebUI content type");
+  }
+  return essence;
+}
+
+/**
+ *
+ */
 class QBittorrentWebBridgeImpl {
-  async request({ method = "GET", target, headers = {}, body, signal }) {
+  async request(
+    { method = "GET", target, headers = {}, body, signal },
+    { userActivation = false } = {}
+  ) {
+    const htmlTarget = isFixedTorrentHTMLTarget(target);
+    const htmlPath =
+      typeof target === "string" ? target.split(/[?#]/, 1)[0] : "";
+    const addRoute =
+      typeof target === "string" &&
+      normalizedTargetPath(target).toLowerCase() === "/api/v2/torrents/add";
+    if (
+      typeof target === "string" &&
+      target.length <= MAX_TARGET_LENGTH &&
+      isUnconfirmedMetadataTarget(target)
+    ) {
+      return {
+        body: new TextEncoder().encode(
+          "Torrent metadata prefetch requires explicit confirmation"
+        ),
+        headers: [["content-type", "text/plain; charset=UTF-8"]],
+        status: 403,
+      };
+    }
     if (
       !["GET", "POST"].includes(method) ||
       typeof target !== "string" ||
       !target.startsWith("/") ||
       target.length > MAX_TARGET_LENGTH ||
-      /[^\x20-\x7e]/.test(target) ||
-      /[\r\n]/.test(target) ||
+      target.includes("#") ||
+      target.includes("\\") ||
+      /[^\x21-\x7e]/.test(target) ||
+      (!htmlTarget && htmlPath.toLowerCase().endsWith(".html")) ||
+      (htmlTarget && method !== "GET") ||
+      (addRoute &&
+        (!isTorrentAddTarget(target) ||
+          method !== "POST" ||
+          userActivation !== true)) ||
+      isEmbeddedSearchTarget(target) ||
       !isByteArray(body) ||
       body.length > MAX_REQUEST_BYTES
     ) {
@@ -78,38 +167,22 @@ class QBittorrentWebBridgeImpl {
     }
     body = new Uint8Array(body);
     const safeHeaders = normalizedHeaders(headers);
-    const response =
-      (await QBittorrentSearchBridge.maybeRequest({
-        method,
-        target,
-        headers: safeHeaders,
-        body,
-        signal,
-      })) ??
-      (await QBittorrentRuntime.request(target, {
-        method,
-        headers: safeHeaders,
-        body,
-        signal,
-        maximum: 64 * 1024 * 1024,
-      }));
-    let responseBody = response.body;
-    const contentType = response.headers.get("content-type")?.[0] || "";
+    const response = await QBittorrentRuntime.request(target, {
+      method,
+      headers: safeHeaders,
+      body,
+      signal,
+      maximum: 64 * 1024 * 1024,
+    });
+    const contentType = responseContentType(response.headers);
     if (
-      method === "GET" &&
-      contentType.startsWith("text/html") &&
-      !new TextDecoder().decode(responseBody).includes("wildbuzzard-bridge.js")
+      htmlTarget ? contentType !== "text/html" : contentType === "text/html"
     ) {
-      const source = new TextDecoder().decode(responseBody);
-      const marker = source.indexOf("<script");
-      const transformed =
-        marker === -1
-          ? source.replace("</head>", `${BRIDGE_SCRIPT}</head>`)
-          : `${source.slice(0, marker)}${BRIDGE_SCRIPT}${source.slice(marker)}`;
-      responseBody = new TextEncoder().encode(transformed);
+      throw new TypeError("Unexpected torrent WebUI HTML response");
     }
     return {
-      body: responseBody,
+      body: response.body,
+      classification: htmlTarget ? "torrent-html" : "other",
       headers: publicResponseHeaders(response.headers),
       status: response.status,
     };

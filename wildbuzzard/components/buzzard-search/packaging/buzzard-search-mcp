@@ -1,2 +1,0 @@
-#!/bin/sh
-PYTHONPATH=/usr/lib/buzzard-search exec python3 /usr/lib/buzzard-search/buzzard_search_mcp.py "$@"

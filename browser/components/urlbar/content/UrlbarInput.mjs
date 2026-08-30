@@ -50,9 +50,6 @@ const lazy = XPCOMUtils.declareLazy({
   BrowserSearchTelemetry:
     "moz-src:///browser/components/search/BrowserSearchTelemetry.sys.mjs",
   BrowserUIUtils: "resource:///modules/BrowserUIUtils.sys.mjs",
-  AGENT_PAGE_URL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
-  agentEndpointURI: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
-  isAgentPageURL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
   BrowserUtils: "resource://gre/modules/BrowserUtils.sys.mjs",
   ConfigSearchEngine:
     "moz-src:///toolkit/components/search/ConfigSearchEngine.sys.mjs",
@@ -67,7 +64,6 @@ const lazy = XPCOMUtils.declareLazy({
   ReaderMode: "moz-src:///toolkit/components/reader/ReaderMode.sys.mjs",
   SearchService: "moz-src:///toolkit/components/search/SearchService.sys.mjs",
   SharingUtils: "resource:///modules/SharingUtils.sys.mjs",
-  TorRouting: "resource:///modules/TorRouting.sys.mjs",
   SearchUIUtils: "moz-src:///browser/components/search/SearchUIUtils.sys.mjs",
   SearchUtils: "moz-src:///toolkit/components/search/SearchUtils.sys.mjs",
   UrlbarController:
@@ -891,12 +887,7 @@ ${
     // base domain. To avoid auth prompt spoofing we already display the url of
     // the cross domain resource, although the page is not loaded yet.
     // This url will be set/unset by PromptParent. See bug 791594 for reference.
-    const selectedURI = uri || this.window.gBrowser.currentURI;
-    if (
-      value === null ||
-      (!value &&
-        (dueToTabSwitch || lazy.isAgentPageURL(selectedURI?.spec ?? "")))
-    ) {
+    if (value === null || (!value && dueToTabSwitch)) {
       uri =
         this.window.gBrowser.selectedBrowser.currentAuthPromptURI ||
         uri ||
@@ -1123,24 +1114,6 @@ ${
     let isMouseEvent = MouseEvent.isInstance(event);
     if (isMouseEvent && event.button == 2) {
       // Do nothing for right clicks.
-      return;
-    }
-
-    if (
-      this.#isAddressbar &&
-      this.valueIsTyped &&
-      this.untrimmedValue.trim().toLowerCase() === "agent"
-    ) {
-      this.window.switchToTabHavingURI(
-        lazy.agentEndpointURI() ?? Services.io.newURI(lazy.AGENT_PAGE_URL),
-        true,
-        {
-          ignoreQueryString: true,
-          triggeringPrincipal:
-            Services.scriptSecurityManager.getSystemPrincipal(),
-        }
-      );
-      this.view.close();
       return;
     }
 
@@ -3453,11 +3426,7 @@ ${
     if (originalUrl) {
       val = originalUrl.displaySpec;
     }
-    const isAgentPage = lazy.isAgentPageURL(val);
     this._untrimmedValue = untrimmedValue ?? val;
-    if (isAgentPage) {
-      val = "Agent";
-    }
     this._protocolIsTrimmed = false;
     if (allowTrim) {
       let oldVal = val;
@@ -4329,20 +4298,6 @@ ${
     browser = this.window.gBrowser.selectedBrowser,
     keepViewOpen = false
   ) {
-    const onionURI = this.#isAddressbar ? lazy.TorRouting.onionURI(url) : null;
-    const tab = onionURI
-      ? this.window.gBrowser.getTabForBrowser(browser)
-      : null;
-    if (
-      onionURI &&
-      tab &&
-      openUILinkWhere == "current" &&
-      !lazy.TorRouting.isTorTab(tab)
-    ) {
-      this.view.close({ showFocusBorder: false });
-      lazy.TorRouting.routeOnion(this.window, tab, onionURI.spec);
-      return;
-    }
     if (this.#isAddressbar) {
       this.#prepareAddressbarLoad(
         url,
@@ -4917,7 +4872,6 @@ ${
           engine: "urlbar-placeholder-search-mode-other-engine",
           history: "urlbar-placeholder-search-mode-other-history",
           tabs: "urlbar-placeholder-search-mode-other-tabs",
-          torrent: "urlbar-placeholder-search-mode-other-torrent",
         };
         let sourceName = lazy.UrlbarUtils.getResultSourceName(source);
         let l10nID = `urlbar-search-mode-${sourceName}`;

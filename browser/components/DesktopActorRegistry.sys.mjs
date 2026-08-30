@@ -85,6 +85,7 @@ let JSWINDOWACTORS = {
       esModuleURI: "resource:///modules/QBittorrentWebUIChild.sys.mjs",
       events: {
         DOMDocElementInserted: {},
+        WildBuzzardTorrentActivation: { wantUntrusted: true },
         WildBuzzardTorrentRequest: { wantUntrusted: true },
       },
     },

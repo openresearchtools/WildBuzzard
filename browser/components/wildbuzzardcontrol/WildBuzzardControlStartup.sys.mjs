@@ -8,6 +8,7 @@ import { NetUtil } from "resource://gre/modules/NetUtil.sys.mjs";
 import { clearTimeout, setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
+const CONTROL_SOCKET_ENV = "WILDBUZZARD_CONTROL_SOCKET";
 const LocalFile = Components.Constructor(
   "@mozilla.org/file/local;1",
   "nsIFile",
@@ -39,10 +40,43 @@ function writeResponse(output, value) {
   });
 }
 
-export function wildBuzzardControlSocketPath() {
+function profileSocketId(path) {
+  const bytes = new TextEncoder().encode(path);
+  const hash = Cc["@mozilla.org/security/hash;1"].createInstance(
+    Ci.nsICryptoHash
+  );
+  hash.init(hash.SHA256);
+  hash.update(bytes, bytes.length);
+  return [...hash.finish(false)]
+    .slice(0, 12)
+    .map(character => character.charCodeAt(0).toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function validatedOverridePath() {
+  const value = Services.env.get(CONTROL_SOCKET_ENV);
+  if (!value) {
+    return null;
+  }
+  const hasControlCharacter = [...value].some(character => {
+    const codePoint = character.codePointAt(0);
+    return codePoint <= 0x1f || codePoint === 0x7f;
+  });
+  if (
+    !PathUtils.isAbsolute(value) ||
+    PathUtils.normalize(value) !== value ||
+    !PathUtils.filename(value) ||
+    hasControlCharacter
+  ) {
+    throw new Error(`${CONTROL_SOCKET_ENV} must be a normalized absolute path`);
+  }
+  return value;
+}
+
+function defaultSocketDirectory() {
   const runtimeDirectory = Services.env.get("XDG_RUNTIME_DIR");
   if (runtimeDirectory && PathUtils.isAbsolute(runtimeDirectory)) {
-    return PathUtils.join(runtimeDirectory, "wildbuzzard", "control.sock");
+    return PathUtils.join(runtimeDirectory, "wildbuzzard", "profiles");
   }
   const homeDirectory = Services.dirsvc.get("Home", Ci.nsIFile).path;
   const dataDirectory = Services.env.get("XDG_DATA_HOME");
@@ -50,22 +84,52 @@ export function wildBuzzardControlSocketPath() {
     dataDirectory && PathUtils.isAbsolute(dataDirectory)
       ? dataDirectory
       : PathUtils.join(homeDirectory, ".local", "share");
-  return PathUtils.join(base, "wildbuzzard", "run", "control.sock");
+  return PathUtils.join(base, "wildbuzzard", "run", "profiles");
 }
 
-async function prepareDirectory(path) {
-  await IOUtils.makeDirectory(path, {
-    createAncestors: true,
-    ignoreExisting: true,
-    permissions: 0o700,
-  });
+export function wildBuzzardControlSocketPath({
+  instanceId = ChromeUtils.base64URLEncode(
+    crypto.getRandomValues(new Uint8Array(9)),
+    { pad: false }
+  ),
+  profilePath = Services.dirsvc.get("ProfD", Ci.nsIFile).path,
+} = {}) {
+  const override = validatedOverridePath();
+  if (override) {
+    return override;
+  }
+  if (!/^[A-Za-z0-9_-]{12}$/.test(instanceId)) {
+    throw new Error("Invalid Wild Buzzard control socket instance ID");
+  }
+  return PathUtils.join(
+    defaultSocketDirectory(),
+    `control-${profileSocketId(profilePath)}-${instanceId}.sock`
+  );
+}
+
+async function prepareDirectory(path, create) {
+  if (create) {
+    await IOUtils.makeDirectory(path, {
+      createAncestors: true,
+      ignoreExisting: true,
+      permissions: 0o700,
+    });
+  }
   const directory = new LocalFile(path);
   if (!directory.isDirectory() || directory.isSymlink()) {
     throw new Error("Unsafe Wild Buzzard runtime directory");
   }
-  await IOUtils.setPermissions(path, 0o700);
-  if ((directory.permissions & 0o777) !== 0o700) {
+  if (create) {
+    await IOUtils.setPermissions(path, 0o700, false);
+  }
+  if ((directory.permissions & 0o077) !== 0) {
     throw new Error("Insecure Wild Buzzard runtime directory permissions");
+  }
+}
+
+async function ensureSocketPathUnused(path) {
+  if (await IOUtils.exists(path)) {
+    throw new Error("Wild Buzzard control socket path already exists");
   }
 }
 
@@ -212,9 +276,18 @@ export const WildBuzzardControlStartup = {
       return this.task;
     }
     this.connections = new Set();
-    this.path = wildBuzzardControlSocketPath();
+    try {
+      this.customPath = Boolean(validatedOverridePath());
+      this.path = wildBuzzardControlSocketPath();
+    } catch (error) {
+      console.error("Wild Buzzard control startup failed", error);
+      this.task = Promise.resolve(null);
+      return this.task;
+    }
+    this.ownsSocket = false;
     BrowserControl.start();
-    this.task = this.listen().catch(error => {
+    this.task = this.listen().catch(async error => {
+      await this.closeSocket();
       BrowserControl.stop();
       console.error("Wild Buzzard control startup failed", error);
       return null;
@@ -223,10 +296,11 @@ export const WildBuzzardControlStartup = {
   },
 
   async listen() {
-    await prepareDirectory(PathUtils.parent(this.path));
-    await IOUtils.remove(this.path, { ignoreAbsent: true });
+    await prepareDirectory(PathUtils.parent(this.path), !this.customPath);
+    await ensureSocketPathUnused(this.path);
     const socketFile = new LocalFile(this.path);
     this.server = new UnixServerSocket(socketFile, 0o600, 16);
+    this.ownsSocket = true;
     this.server.asyncListen({
       onSocketAccepted: (_server, transport) => {
         const connection = new CommandConnection(transport, this.path, value =>
@@ -237,25 +311,54 @@ export const WildBuzzardControlStartup = {
       },
       onStopListening() {},
     });
-    await IOUtils.setPermissions(this.path, 0o600);
+    await IOUtils.setPermissions(this.path, 0o600, false);
+    const socket = new LocalFile(this.path);
+    if (
+      !socket.isSpecial() ||
+      socket.isSymlink() ||
+      (socket.permissions & 0o777) !== 0o600
+    ) {
+      throw new Error("Insecure Wild Buzzard control socket");
+    }
     return { socketPath: this.path, browserPid: Services.appinfo.processID };
+  },
+
+  async closeSocket() {
+    try {
+      this.server?.close();
+    } catch {}
+    if (this.path && this.ownsSocket) {
+      try {
+        const socket = new LocalFile(this.path);
+        if (socket.exists() && socket.isSpecial() && !socket.isSymlink()) {
+          await IOUtils.remove(this.path, { ignoreAbsent: true });
+        }
+      } catch {}
+    }
+    this.server = null;
+    this.ownsSocket = false;
   },
 
   async uninit() {
     await this.task?.catch(() => {});
-    try {
-      this.server?.close();
-    } catch {}
+    await this.closeSocket();
     for (const connection of this.connections ?? []) {
       connection.close();
     }
     this.connections?.clear();
     BrowserControl.stop();
-    if (this.path) {
-      await IOUtils.remove(this.path, { ignoreAbsent: true }).catch(() => {});
-    }
     this.task = null;
     this.path = null;
     this.server = null;
+    this.customPath = false;
+    this.ownsSocket = false;
   },
 };
+
+export const WildBuzzardControlStartupTestUtils = Object.freeze({
+  defaultSocketDirectory,
+  ensureSocketPathUnused,
+  prepareDirectory,
+  profileSocketId,
+  validatedOverridePath,
+});

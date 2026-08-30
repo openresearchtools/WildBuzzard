@@ -3,7 +3,6 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 DIRS += [
-    "agent",
     "aboutcfg",
     "aboutpasswords",
     "extensions",
@@ -23,7 +22,6 @@ DIRS += [
     "upgrade",
     "urlbar",
     "utils",
-    "websearch",
 ]
 
 EXTRA_JS_MODULES += [

@@ -1,7 +1,7 @@
 [Desktop Entry]
 Name=WildBuzzard
 GenericName=Web Browser
-Comment=Browse the web and run the bundled Agent
+Comment=Privacy-oriented browser with native automation, Tor, and torrent support
 Exec=wildbuzzard %u
 Icon=wildbuzzard
 Terminal=false

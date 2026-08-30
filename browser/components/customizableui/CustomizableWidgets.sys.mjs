@@ -20,9 +20,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
   SessionStore: "resource:///modules/sessionstore/SessionStore.sys.mjs",
   SharingUtils: "resource:///modules/SharingUtils.sys.mjs",
   ShortcutUtils: "resource://gre/modules/ShortcutUtils.sys.mjs",
-  AGENT_PAGE_URL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
-  agentEndpointURI: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
-  isAgentPageURL: "resource:///modules/WildBuzzardAgentURL.sys.mjs",
 });
 
 const kPrefCustomizationDebug = "browser.uiCustomization.debug";
@@ -349,59 +346,6 @@ export const CustomizableWidgets = [
         "resource:///modules/WildBuzzardBlockerPanel.sys.mjs"
       );
       WildBuzzardBlockerPanel._openToolbarPanel(win, aEvent);
-    },
-  },
-  {
-    id: "wildbuzzard-agent-toolbar-button",
-    l10nId: "wildbuzzard-agent-toolbar-button",
-    defaultArea: "nav-bar",
-    introducedInVersion: 26,
-    onCreated(aNode) {
-      const win = aNode.documentGlobal;
-      const update = () => {
-        const active = lazy.isAgentPageURL(win.gBrowser.currentURI.spec);
-        aNode.toggleAttribute("checked", active);
-        aNode.setAttribute("aria-pressed", String(active));
-      };
-      const progressListener = {
-        onLocationChange(browser, webProgress) {
-          if (
-            webProgress.isTopLevel &&
-            browser === win.gBrowser.selectedBrowser
-          ) {
-            update();
-          }
-        },
-      };
-      const widgetListener = {
-        onWidgetInstanceRemoved(widgetId, document) {
-          if (
-            widgetId !== "wildbuzzard-agent-toolbar-button" ||
-            document !== aNode.ownerDocument
-          ) {
-            return;
-          }
-          win.removeEventListener("TabSelect", update);
-          win.gBrowser.removeTabsProgressListener(progressListener);
-          lazy.CustomizableUI.removeListener(widgetListener);
-        },
-      };
-      win.addEventListener("TabSelect", update);
-      win.gBrowser.addTabsProgressListener(progressListener);
-      lazy.CustomizableUI.addListener(widgetListener);
-      update();
-    },
-    onCommand(aEvent) {
-      const win = aEvent.view ?? aEvent.target.documentGlobal;
-      win.switchToTabHavingURI(
-        lazy.agentEndpointURI() ?? Services.io.newURI(lazy.AGENT_PAGE_URL),
-        true,
-        {
-          ignoreQueryString: true,
-          triggeringPrincipal:
-            Services.scriptSecurityManager.getSystemPrincipal(),
-        }
-      );
     },
   },
   {

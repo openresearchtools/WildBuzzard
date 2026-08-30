@@ -18,3 +18,8 @@ The installed executable is a small native launcher and Unix-socket client.
 Every command is parsed and executed by privileged Gecko JavaScript inside the
 running browser. There is no bundled Node.js runtime, MCP server, bearer token,
 connection file, or second browser-automation daemon.
+
+Each running profile has its own private socket. The client discovers it when
+one profile is running. With multiple profiles, set
+`WILDBUZZARD_CONTROL_SOCKET` to one of the paths reported by the client; an
+override must be an absolute path in an existing owner-private directory.

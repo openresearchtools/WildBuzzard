@@ -15,6 +15,7 @@ EXTRA_JS_MODULES += [
     "ExtensionBrowsingData.sys.mjs",
     "ExtensionControlledPopup.sys.mjs",
     "ExtensionPopups.sys.mjs",
+    "WildBuzzardDiscoveryBridge.sys.mjs",
 ]
 
 TESTING_JS_MODULES += [

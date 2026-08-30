@@ -5377,7 +5377,6 @@ ${
           engine: "urlbar-placeholder-search-mode-other-engine",
           history: "urlbar-placeholder-search-mode-other-history",
           tabs: "urlbar-placeholder-search-mode-other-tabs",
-          torrent: "urlbar-placeholder-search-mode-other-torrent",
         };
         let sourceName = lazy.UrlbarUtils.getResultSourceName(source);
         let l10nID = `urlbar-search-mode-${sourceName}`;

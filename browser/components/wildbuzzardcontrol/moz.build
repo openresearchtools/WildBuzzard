@@ -6,3 +6,7 @@ EXTRA_JS_MODULES += [
     "WildBuzzardCommand.sys.mjs",
     "WildBuzzardControlStartup.sys.mjs",
 ]
+
+BROWSER_CHROME_MANIFESTS += ["test/browser/browser.toml"]
+
+XPCSHELL_TESTS_MANIFESTS += ["test/unit/xpcshell.toml"]

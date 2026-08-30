@@ -1,0 +1,76 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title data-i18n="optionsTitle"></title>
+    <link rel="stylesheet" href="../common/base.css">
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main>
+      <header>
+        <h1 data-i18n="optionsHeading"></h1>
+        <p class="muted" data-i18n="optionsDescription"></p>
+      </header>
+      <section aria-labelledby="cli-heading">
+        <h2 id="cli-heading" data-i18n="cliStatusHeading"></h2>
+        <p id="cli-status" class="status" role="status" aria-live="polite"></p>
+      </section>
+      <form id="options-form">
+        <div class="field">
+          <label for="provider" data-i18n="defaultProviderLabel"></label>
+          <select id="provider" name="provider">
+            <option value="ddgs" data-i18n="providerDdgs"></option>
+            <option value="searxng" data-i18n="providerSearxng"></option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="searxng-url" data-i18n="searxngUrlLabel"></label>
+          <input id="searxng-url" name="searxngUrl" type="url" maxlength="2048" data-i18n-placeholder="searxngUrlPlaceholder" aria-describedby="searxng-help">
+          <p id="searxng-help" class="help" data-i18n="searxngUrlHelp"></p>
+        </div>
+        <div class="settings-grid">
+          <div class="field">
+            <label for="max-results" data-i18n="maxResultsLabel"></label>
+            <select id="max-results" name="maxResults">
+              <option value="5">5</option>
+              <option value="10">10</option>
+              <option value="15">15</option>
+              <option value="20">20</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="safe-search" data-i18n="safeSearchLabel"></label>
+            <select id="safe-search" name="safeSearch">
+              <option value="0" data-i18n="safeSearchOff"></option>
+              <option value="1" data-i18n="safeSearchModerate"></option>
+              <option value="2" data-i18n="safeSearchStrict"></option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="timeout" data-i18n="timeoutLabel"></label>
+            <input id="timeout" name="timeoutSeconds" type="number" min="1" max="60" step="1" required>
+          </div>
+        </div>
+        <div class="field">
+          <label for="language" data-i18n="languageLabel"></label>
+          <input id="language" name="language" type="text" maxlength="20" pattern="[A-Za-z0-9-]{0,20}" data-i18n-placeholder="languagePlaceholder">
+        </div>
+        <div class="field">
+          <label for="engines" data-i18n="enginesLabel"></label>
+          <input id="engines" name="engines" type="text" maxlength="649" data-i18n-placeholder="enginesPlaceholder" aria-describedby="engines-help">
+          <p id="engines-help" class="help" data-i18n="enginesHelp"></p>
+        </div>
+        <div class="button-row">
+          <button class="primary" type="submit" data-i18n="saveButton"></button>
+          <button id="reset-button" type="button" data-i18n="resetButton"></button>
+        </div>
+        <p id="save-status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </main>
+    <script src="../common/constants.js"></script>
+    <script src="../common/localize.js"></script>
+    <script src="options.js"></script>
+  </body>
+</html>

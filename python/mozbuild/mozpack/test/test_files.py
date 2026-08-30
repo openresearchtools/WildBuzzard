@@ -13,8 +13,8 @@ from mozpack.files import (
     ComposedFinder,
     DeflatedFile,
     Dest,
-    ExistingFile,
     ExecutableFile,
+    ExistingFile,
     ExtractedTarFile,
     File,
     FileFinder,
@@ -1126,16 +1126,16 @@ class TestFileFinder(MatchTestTemplate, TestWithTmpDir):
         self.assertEqual(mozpath.normpath(res.path), mozpath.join(self.tmpdir, "bar"))
 
     def test_preserve_executables(self):
-        self.add("runtime/search/nested.AppImage")
-        self.add("runtime/search/helper")
+        self.add("runtime/tor/arti")
+        self.add("runtime/tor/helper")
         finder = FileFinder(
             self.tmpdir,
             find_executables=True,
-            preserve_executables=("runtime/search/nested.AppImage",),
+            preserve_executables=("runtime/tor/arti",),
         )
         with patch("mozpack.files.is_executable", return_value=True):
-            self.assertIs(type(finder.get("runtime/search/nested.AppImage")), File)
-            self.assertIsInstance(finder.get("runtime/search/helper"), ExecutableFile)
+            self.assertIs(type(finder.get("runtime/tor/arti")), File)
+            self.assertIsInstance(finder.get("runtime/tor/helper"), ExecutableFile)
 
     def test_ignored_dirs(self):
         """Ignored directories should not have results returned."""

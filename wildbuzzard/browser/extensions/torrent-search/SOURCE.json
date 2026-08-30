@@ -1,0 +1,81 @@
+{
+  "backendExecutable": "/usr/bin/buzzard-minijtt",
+  "backendInstallCommand": "sudo apt install buzzard-minijtt",
+  "backendPackage": "buzzard-minijtt",
+  "backendRole": "standalone-system-cli-no-browser-or-web-ui",
+  "componentRole": "browser-ui-only",
+  "extensionId": "torrent-search@extensions.wildbuzzard",
+  "files": [
+    {
+      "path": "LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+      "size": 34523
+    },
+    {
+      "path": "_locales/en/messages.json",
+      "sha256": "a8abc7fb7befcf099f5e6b81e977a54496cc2ab243272f39799a21d89f68ee32",
+      "size": 3754
+    },
+    {
+      "path": "icons/torrent-search.svg",
+      "sha256": "d672799479d01b01bbcff6ea8bccccf8730a256393809e8b855b72a8873badb3",
+      "size": 304
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "85d5e9a08672dc0bcf5dcc3bf480794073bba899a0fe8605eece924467a235da",
+      "size": 1308
+    },
+    {
+      "path": "src/background.js",
+      "sha256": "ec52fa9e29f3241ca862621b68178408495a6f6719b409a7bc18216ac4c020ec",
+      "size": 557
+    },
+    {
+      "path": "src/contract.js",
+      "sha256": "74818a5ada49c0d9176f62e86f56d3bcc9a642533e66f1f2ff599067ec650d1c",
+      "size": 3001
+    },
+    {
+      "path": "src/i18n.js",
+      "sha256": "dabecef95f76b70edc253ebca252bb111bd11fed1b63e84f1ba6d414afafbf1d",
+      "size": 815
+    },
+    {
+      "path": "src/options.css",
+      "sha256": "05fc790e0102ac7419a1e144c1a9b8c1e6e4e0360fc61c1ce2578cf424ff8c0f",
+      "size": 750
+    },
+    {
+      "path": "src/options.html",
+      "sha256": "fd328bd0f9d21e41623efa28952bab7e4456e80e13fb2d67536c4e555d0b5bed",
+      "size": 1228
+    },
+    {
+      "path": "src/options.js",
+      "sha256": "a2d0235e34871e60feaaa054b28de75fe0858125bcd176407fc9474888dd5d0e",
+      "size": 1506
+    },
+    {
+      "path": "src/popup.css",
+      "sha256": "a55ee4dc95cb8973dc7d7ddc178e1a4db471cf1706144c07bae84105229a8b8a",
+      "size": 2915
+    },
+    {
+      "path": "src/popup.html",
+      "sha256": "b2e0e13bde2dbd068fc50514cff2e31ad1050d6225c0c4c013feae460f0d9efc",
+      "size": 3943
+    },
+    {
+      "path": "src/popup.js",
+      "sha256": "7cd4dd65f190045b3a2f7369aabc41efffe326e7f04eb88baf31684568a58744",
+      "size": 9469
+    }
+  ],
+  "runtimeTreeSha256": "9865e3aa2c28948399364d2365b3bfe2e32c2f12c07ba7b75f7dca47a1146587",
+  "schema": 3,
+  "sourcePath": "extensions/torrent-search",
+  "sourceRepository": "wildbuzzard-extensions",
+  "treeHashAlgorithm": "sha256-length-prefixed-path-and-content",
+  "version": "0.1.0"
+}

@@ -5,11 +5,6 @@
 import { Preferences } from "chrome://global/content/preferences/Preferences.mjs";
 import { SettingGroupManager } from "chrome://browser/content/preferences/config/SettingGroupManager.mjs";
 
-export {
-  managedSearXNGSearchTemplate,
-  synchronizeManagedSearXNGEngine,
-} from "resource:///modules/ManagedSearXNGEngine.sys.mjs";
-
 const CLICK_SELECTS_ALL_PREF = "browser.urlbar.clickSelectsAll";
 const DOUBLE_CLICK_SELECTS_ALL_PREF = "browser.urlbar.doubleClickSelectsAll";
 

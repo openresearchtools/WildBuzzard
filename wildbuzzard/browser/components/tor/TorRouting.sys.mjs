@@ -556,26 +556,55 @@ export const TorRouting = {
     }
   },
 
+  _navigationTarget(loadInfo) {
+    const context =
+      loadInfo?.browsingContext ??
+      BrowsingContext.get(loadInfo?.browsingContextID ?? 0);
+    const topContext = context?.top ?? context;
+    const browser = topContext?.embedderElement ?? null;
+    let win = browser?.ownerGlobal ?? null;
+    let tab = win?.gBrowser?.getTabForBrowser(browser) ?? null;
+    if (!tab && loadInfo?.browsingContextID) {
+      for (const candidateWindow of Services.wm.getEnumerator(
+        "navigator:browser"
+      )) {
+        const candidateTab = candidateWindow.gBrowser?.tabs.find(
+          item =>
+            item.linkedBrowser.browsingContext?.id == loadInfo.browsingContextID
+        );
+        if (candidateTab) {
+          win = candidateWindow;
+          tab = candidateTab;
+          break;
+        }
+      }
+    }
+    return {
+      tab,
+      win,
+      topLevel:
+        loadInfo?.externalContentPolicyType ==
+        Ci.nsIContentPolicy.TYPE_DOCUMENT,
+    };
+  },
+
   observe(subject, topic) {
     if (topic == "http-on-modify-request") {
       const channel = subject.QueryInterface(Ci.nsIHttpChannel);
       if (!this.isOnionURI(channel.URI)) {
         return;
       }
-      const context = channel.loadInfo?.browsingContext;
       if (
         channel.loadInfo?.originAttributes.userContextId == this.userContextId
       ) {
         return;
       }
-      const browser = context?.top?.embedderElement;
-      const win = browser?.ownerGlobal;
-      const tab = win?.gBrowser?.getTabForBrowser(browser);
+      const { tab, topLevel, win } = this._navigationTarget(channel.loadInfo);
       if (tab && this.isTorTab(tab)) {
         return;
       }
       channel.cancel(Cr.NS_BINDING_ABORTED);
-      if (tab && context == context.top) {
+      if (tab && topLevel) {
         this.routeOnion(win, tab, channel.URI.spec);
       }
       return;

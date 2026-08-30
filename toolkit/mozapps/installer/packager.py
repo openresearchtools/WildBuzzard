@@ -227,11 +227,7 @@ def main():
     with errors.accumulate():
         preserve_executables = ()
         if buildconfig.substs.get("MOZ_APP_BASENAME") == "WildBuzzard":
-            preserve_executables = (
-                "bin/runtime/search/"
-                "wildbuzzard-searxng-2026.8.6+b023a28ba-linux-x86_64.AppImage",
-                "bin/runtime/tor/arti",
-            )
+            preserve_executables = ("bin/runtime/tor/arti",)
         finder_args = dict(
             minify=args.minify,
             minify_js=args.minify_js,

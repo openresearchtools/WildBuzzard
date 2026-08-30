@@ -9,10 +9,15 @@ EXTRA_JS_MODULES.addons += [
     "crypto-utils.sys.mjs",
     "ProductAddonChecker.sys.mjs",
     "siteperms-addon-utils.sys.mjs",
+    "WildBuzzardXPITrust.sys.mjs",
     "XPIDatabase.sys.mjs",
     "XPIExports.sys.mjs",
     "XPIInstall.sys.mjs",
     "XPIProvider.sys.mjs",
+]
+
+FINAL_TARGET_FILES.modules.addons += [
+    "WildBuzzardXPIPins.json",
 ]
 
 if CONFIG["MOZ_WIDGET_TOOLKIT"] != "android":

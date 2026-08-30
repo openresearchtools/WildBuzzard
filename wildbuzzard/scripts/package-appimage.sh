@@ -79,11 +79,19 @@ fi
 staging_root="${output_dir}/appimage-staging"
 extract_root="${staging_root}/release"
 app_dir="${staging_root}/WildBuzzard.AppDir"
+cli_build="${staging_root}/wildbuzzard-cli"
 if [[ -e "${staging_root}" ]]; then
   echo "AppImage staging path already exists: ${staging_root}" >&2
   exit 1
 fi
-mkdir -p -- "${extract_root}" "${app_dir}/usr/lib" "${app_dir}/usr/share/applications" "${app_dir}/usr/share/icons/hicolor/256x256/apps"
+mkdir -p -- \
+  "${extract_root}" \
+  "${app_dir}/usr/bin" \
+  "${app_dir}/usr/lib" \
+  "${app_dir}/usr/share/applications" \
+  "${app_dir}/usr/share/doc/wildbuzzard" \
+  "${app_dir}/usr/share/icons/hicolor/256x256/apps" \
+  "${app_dir}/usr/share/wildbuzzard/skills/wildbuzzard"
 tar -xaf "${package_archive}" -C "${extract_root}"
 
 browser_root="$(find "${extract_root}" -mindepth 1 -maxdepth 3 -type f -name wildbuzzard -perm -u+x -printf '%h\n' -quit)"
@@ -100,7 +108,8 @@ for component_path in \
   "runtime/jackett-mini"; do
   target="${app_dir}/usr/lib/wildbuzzard/${component_path}"
   if [[ -e "${target}" || -L "${target}" ]]; then
-    rm -r -- "${target}"
+    echo "Browser archive unexpectedly contains external component: ${component_path}" >&2
+    exit 1
   fi
 done
 
@@ -121,12 +130,38 @@ python3 -I -B "${product_dir}/scripts/arti-runtime-provenance.py" validate \
   --pin-config "${product_dir}/third_party/arti.toml" \
   --installed-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti.toml" \
   --provenance "${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
+python3 -I -B "${product_dir}/scripts/verify_browser_legal_payload.py" \
+  --source-root "${product_dir}/.." \
+  --browser-root "${app_dir}/usr/lib/wildbuzzard"
+cp -a -- "${product_dir}/components/wildbuzzard-cli/." "${cli_build}/"
+(
+  cd -- "${cli_build}"
+  cargo build --locked --release --manifest-path runner/Cargo.toml
+)
+install -m 755 \
+  "${cli_build}/runner/target/release/wildbuzzard-native-client" \
+  "${app_dir}/usr/bin/wildbuzzard-native-client"
+install -m 644 \
+  "${app_dir}/usr/lib/wildbuzzard/notices/NOTICE" \
+  "${app_dir}/usr/share/doc/wildbuzzard/cli-NOTICE"
+for legal_file in COPYING LICENSE MOZILLA-MCP-LICENSE SOURCE-NOTICE; do
+  install -m 644 \
+    "${app_dir}/usr/lib/wildbuzzard/notices/${legal_file}" \
+    "${app_dir}/usr/share/doc/wildbuzzard/${legal_file}"
+done
+install -m 644 \
+  "${product_dir}/components/wildbuzzard-cli/skills/wildbuzzard/SKILL.md" \
+  "${app_dir}/usr/share/wildbuzzard/skills/wildbuzzard/SKILL.md"
 install -m 755 "${product_dir}/packaging/appimage/AppRun" "${app_dir}/AppRun"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/wildbuzzard.desktop"
 install -m 644 "${product_dir}/packaging/appimage/wildbuzzard.desktop" "${app_dir}/usr/share/applications/wildbuzzard.desktop"
 install -m 644 "${product_dir}/browser/branding/default256.png" "${app_dir}/wildbuzzard.png"
 install -m 644 "${product_dir}/browser/branding/default256.png" "${app_dir}/usr/share/icons/hicolor/256x256/apps/wildbuzzard.png"
 ln -s wildbuzzard.png "${app_dir}/.DirIcon"
+python3 -I -B "${product_dir}/scripts/verify_browser_legal_payload.py" \
+  --source-root "${product_dir}/.." \
+  --browser-root "${app_dir}/usr/lib/wildbuzzard" \
+  --documentation-root "${app_dir}/usr/share/doc/wildbuzzard"
 
 version="$(awk -F= '$1 == "Version" { print $2; exit }' "${app_dir}/usr/lib/wildbuzzard/application.ini")"
 if [[ -z "${version}" ]]; then
@@ -140,8 +175,38 @@ fi
 appimage_arch="x86_64"
 
 appimage_path="${output_dir}/WildBuzzard-${version}-${appimage_arch}.AppImage"
-ARCH="${appimage_arch}" APPIMAGE_EXTRACT_AND_RUN=1 "${appimagetool_path}" "${app_dir}" "${appimage_path}"
+appimage_options=()
+if [[ -n "${SOURCE_DATE_EPOCH:-}" ]]; then
+  if [[ ! "${SOURCE_DATE_EPOCH}" =~ ^[0-9]+$ ]]; then
+    echo "SOURCE_DATE_EPOCH must be an unsigned integer" >&2
+    exit 2
+  fi
+  appimage_options+=(
+    "--mksquashfs-opt=-all-time"
+    "--mksquashfs-opt=${SOURCE_DATE_EPOCH}"
+    "--mksquashfs-opt=-mkfs-time"
+    "--mksquashfs-opt=${SOURCE_DATE_EPOCH}"
+  )
+fi
+env -u SOURCE_DATE_EPOCH \
+  ARCH="${appimage_arch}" \
+  APPIMAGE_EXTRACT_AND_RUN=1 \
+  "${appimagetool_path}" \
+  "${appimage_options[@]}" \
+  "${app_dir}" \
+  "${appimage_path}"
 chmod 755 "${appimage_path}"
+appimage_verification="${staging_root}/appimage-verification"
+mkdir -p -- "${appimage_verification}"
+(
+  cd -- "${appimage_verification}"
+  "${appimage_path}" --appimage-extract >/dev/null
+)
+python3 -I -B "${product_dir}/scripts/verify_browser_legal_payload.py" \
+  --source-root "${product_dir}/.." \
+  --browser-root "${appimage_verification}/squashfs-root/usr/lib/wildbuzzard" \
+  --documentation-root "${appimage_verification}/squashfs-root/usr/share/doc/wildbuzzard"
+rm -r -- "${appimage_verification}"
 sha256sum "${appimage_path}" >"${appimage_path}.sha256"
 
 echo "AppImage: ${appimage_path}"

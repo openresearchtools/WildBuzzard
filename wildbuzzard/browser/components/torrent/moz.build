@@ -7,18 +7,25 @@ EXTRA_JS_MODULES += [
     "MagnetProtocolHandler.sys.mjs",
     "QBittorrentProtocolHandler.sys.mjs",
     "QBittorrentRuntime.sys.mjs",
-    "QBittorrentSearchBridge.sys.mjs",
     "QBittorrentUDSTransport.sys.mjs",
     "QBittorrentWebBridge.sys.mjs",
     "QBittorrentWebUIChild.sys.mjs",
     "QBittorrentWebUIParent.sys.mjs",
+    "TorrentDocumentPolicy.sys.mjs",
+    "TorrentDocumentSources.sys.mjs",
     "TorrentContentHandler.sys.mjs",
-    "TorrentDiscoveryManager.sys.mjs",
+    "TorrentIngress.sys.mjs",
     "TorrentManager.sys.mjs",
+    "TorrentSecurityPolicy.sys.mjs",
 ]
 
 FINAL_TARGET_FILES.modules += [
     "content/torrent-bootstrap.html",
+    "content/torrent-bootstrap.js",
+    "content/torrent-content-bridge.js",
+    "content/torrent-dialog-bootstrap.js",
+    "content/torrent-document-guard.js",
+    "content/torrent-script-executor.js",
 ]
 
 BROWSER_CHROME_MANIFESTS += ["test/browser/browser.toml"]

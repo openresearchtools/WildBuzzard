@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title data-i18n="optionsTitle">Torrent Search settings</title>
+    <link rel="stylesheet" href="options.css">
+    <script defer src="i18n.js"></script>
+    <script defer src="options.js"></script>
+  </head>
+  <body>
+    <main aria-labelledby="options-title">
+      <h1 id="options-title" data-i18n="optionsTitle">Torrent Search settings</h1>
+      <form id="options-form">
+        <label for="default-source" data-i18n="defaultSourceLabel">Default source</label>
+        <select id="default-source" name="defaultSource">
+          <option value="" data-i18n="allSources">All sources</option>
+        </select>
+
+        <label for="result-limit" data-i18n="resultLimitLabel">Maximum results</label>
+        <select id="result-limit" name="resultLimit">
+          <option value="10">10</option>
+          <option value="25">25</option>
+          <option value="50">50</option>
+        </select>
+
+        <button type="submit" data-i18n="saveButton">Save</button>
+        <output id="save-status" role="status" aria-live="polite"></output>
+      </form>
+    </main>
+  </body>
+</html>

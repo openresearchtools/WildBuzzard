@@ -4,7 +4,7 @@
 
 WildBuzzard is distributed as a combined work under
 `AGPL-3.0-or-later`. This choice applies strong copyleft to WildBuzzard-original
-browser, agent, automation, service, and user-interface work, including the
+browser, automation, service, and user-interface work, including the
 source-availability requirement for modified AGPL software used over a network.
 
 It does not erase or replace inherited licenses.
@@ -18,7 +18,6 @@ It does not erase or replace inherited licenses.
 | MPL files marked incompatible with Secondary Licenses | MPL only; exclude from any claim of AGPL secondary licensing |
 | `adblock-rs` | MPL-2.0 notice retained |
 | uBlock Origin code, scriptlets, resources, and lists | Retain the applicable GPL-3.0 notice and exact source revision |
-| Bundled SearXNG executable | AGPL-3.0-or-later; keep dependency notices and the SBOM inside the executable, and publish the exact complete corresponding-source archive and standalone SBOM beside every release that distributes it |
 | Other filter lists and data | Retain each asset's GPL, Creative Commons, attribution, or other terms |
 | Third-party libraries | Their existing licenses |
 
@@ -48,3 +47,8 @@ Product names, logos, promotional UI, partner configuration, service URLs,
 telemetry, and updater endpoints may be removed or replaced. Copyright lines,
 license headers, source notices, author credits, and license entries must not
 be removed with them.
+
+Agent, web-search, and torrent-discovery packages have their own repositories
+and license bundles. The browser repository retains the source for its
+separately installed native qBittorrent/libtorrent package and records only
+code and third-party sources shipped by the browser or that native package.

@@ -4,7 +4,7 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
-// New tab page: use the locally hosted Buzzard Agent Web service.
+// New tab page: keep the page local, with no sponsored or remote content.
 pref("browser.newtabpage.activity-stream.asrouter.providers.cfr", "{}", locked);
 pref("browser.newtabpage.activity-stream.asrouter.providers.message-groups", "{}", locked);
 pref("browser.newtabpage.activity-stream.asrouter.providers.messaging-experiments", "{}", locked);
@@ -65,18 +65,17 @@ pref("browser.startup.upgradeDialog.enabled", true);
 pref("media.eme.enabled", true);
 
 // Browser control reuses native Marionette/BiDi/DevTools implementation
-// modules in-process through the authenticated Agent bridge. Do not expose
-// separate unauthenticated WebDriver listeners, even on loopback.
+// modules in-process. Do not expose separate unauthenticated WebDriver
+// listeners, even on loopback.
 pref(
-  "wildbuzzard.agent.browserControl.webdriverTransport.enabled",
+  "wildbuzzard.browserControl.webdriverTransport.enabled",
   false,
   locked
 );
 pref("remote.prefs.recommended", false, locked);
 
 // Tab features.
-pref("browser.newtab.url", "about:agent");
-pref("browser.startup.homepage", "about:agent");
+pref("browser.newtab.url", "");
 pref("browser.restart_menu.purgecache", false);
 pref("browser.restart_menu.requireconfirm", true);
 pref("browser.restart_menu.showpanelmenubtn", true);

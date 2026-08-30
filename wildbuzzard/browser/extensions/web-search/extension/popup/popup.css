@@ -1,0 +1,25 @@
+body {
+  inline-size: 360px;
+}
+
+main {
+  padding: 16px;
+}
+
+h1 {
+  margin-block: 0 16px;
+  font-size: 1.35rem;
+}
+
+#search-button {
+  inline-size: 100%;
+}
+
+nav {
+  padding-block-start: 4px;
+  border-block-start: 1px solid var(--border);
+}
+
+nav button {
+  flex: 1;
+}

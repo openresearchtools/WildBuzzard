@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title data-i18n="toolbarTitle"></title>
+    <link rel="stylesheet" href="../common/base.css">
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main>
+      <h1 data-i18n="popupHeading"></h1>
+      <form id="search-form">
+        <div class="field">
+          <label for="query" data-i18n="queryLabel"></label>
+          <input id="query" name="query" type="search" maxlength="512" required autofocus data-i18n-placeholder="queryPlaceholder">
+        </div>
+        <div class="field">
+          <label for="provider" data-i18n="providerLabel"></label>
+          <select id="provider" name="provider">
+            <option value="ddgs" data-i18n="providerDdgs"></option>
+            <option value="searxng" data-i18n="providerSearxng"></option>
+          </select>
+        </div>
+        <button id="search-button" class="primary" type="submit" disabled data-i18n="searchButton"></button>
+      </form>
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+      <nav class="button-row" data-i18n-aria-label="productName">
+        <button id="sidebar-button" type="button" data-i18n="openSidebar"></button>
+        <button id="options-button" type="button" data-i18n="settingsButton"></button>
+      </nav>
+    </main>
+    <script src="../common/constants.js"></script>
+    <script src="../common/localize.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

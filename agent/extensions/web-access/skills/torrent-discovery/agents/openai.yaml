@@ -1,4 +1,0 @@
-interface:
-  display_name: "Torrent Discovery"
-  short_description: "Search public torrents and prepare safe drafts"
-  default_prompt: "Use $torrent-discovery to search public torrents and inspect metadata before any confirmed download."

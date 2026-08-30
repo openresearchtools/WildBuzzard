@@ -78,4 +78,5 @@ Each port must pass:
 
 ## Active port specifications
 
-- [Native web search, Gecko extraction, and torrent discovery](WEB-SEARCH-TORRENT-PORT-SPEC.md)
+- [Component and repository boundaries](COMPONENT-PACKAGE-ARCHITECTURE.md)
+- [`FEATURE-OWNERSHIP.toml`](FEATURE-OWNERSHIP.toml)

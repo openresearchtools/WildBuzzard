@@ -51,7 +51,6 @@ MOZ_SRC_FILES += [
     "UrlbarProviderTabToSearch.sys.mjs",
     "UrlbarProviderTokenAliasEngines.sys.mjs",
     "UrlbarProviderTopSites.sys.mjs",
-    "UrlbarProviderTorrentSearch.sys.mjs",
     "UrlbarProviderUnitConversion.sys.mjs",
     "UrlbarSearchOneOffs.sys.mjs",
     "UrlbarSearchTermsPersistence.sys.mjs",

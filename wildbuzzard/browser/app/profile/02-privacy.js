@@ -35,8 +35,9 @@ pref("browser.urlbar.trimURLs", false);
 pref("editor.truncate_user_pastes", false);
 pref("pdfjs.enableScripting", false);
 
-// Extension installs are not limited to signed or Mozilla approved ones.
-pref("xpinstall.signatures.required", false, locked);
+// Release extensions must pass normal signature validation. WildBuzzard's
+// optional integrations use narrow fixed-ID APIs, not experiment privileges.
+pref("xpinstall.signatures.required", true);
 pref("extensions.quarantinedDomains.enabled", false, locked);
 pref("extensions.postDownloadThirdPartyPrompt", false);
 pref("extensions.abuseReport.enabled", false);

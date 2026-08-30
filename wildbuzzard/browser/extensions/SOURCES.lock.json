@@ -1,0 +1,36 @@
+{
+  "extensions": [
+    {
+      "backendExecutable": "/usr/bin/buzzard-search",
+      "backendInstallCommand": "sudo apt install buzzard-search",
+      "backendPackage": "buzzard-search",
+      "backendRole": "standalone-system-cli-no-browser-or-web-ui",
+      "bundleTreeSha256": "8dd6163c94c52530e15bb1bc7624903cf38e4b5a143df520e232c655ba2c5920",
+      "componentRole": "browser-ui-only",
+      "extensionId": "web-search@extensions.wildbuzzard",
+      "slug": "web-search",
+      "sourceManifestSha256": "3a5976952721f5d31cf98f4ddcc4402cf47b9fec6c4c80c0fef70f05dc222593",
+      "sourcePath": "extensions/web-search",
+      "sourceRepository": "wildbuzzard-extensions",
+      "sourceTreeSha256": "80e689ec534934eee6e2424b01bb0ea02f28c76483b9651fe46a8abc6f778a75",
+      "version": "0.1.0"
+    },
+    {
+      "backendExecutable": "/usr/bin/buzzard-minijtt",
+      "backendInstallCommand": "sudo apt install buzzard-minijtt",
+      "backendPackage": "buzzard-minijtt",
+      "backendRole": "standalone-system-cli-no-browser-or-web-ui",
+      "bundleTreeSha256": "1ff435363a0f5aa871ba7998868b30771f1524a47904d5793fb1b484a82bf533",
+      "componentRole": "browser-ui-only",
+      "extensionId": "torrent-search@extensions.wildbuzzard",
+      "slug": "torrent-search",
+      "sourceManifestSha256": "edaafc41c51941ebe9bd9d99424bfb74b70c5364491ac9408c2c79813949eada",
+      "sourcePath": "extensions/torrent-search",
+      "sourceRepository": "wildbuzzard-extensions",
+      "sourceTreeSha256": "9865e3aa2c28948399364d2365b3bfe2e32c2f12c07ba7b75f7dca47a1146587",
+      "version": "0.1.0"
+    }
+  ],
+  "schema": 3,
+  "treeHashAlgorithm": "sha256-length-prefixed-path-and-content"
+}

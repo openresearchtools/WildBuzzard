@@ -19,6 +19,7 @@ test-manifest-toml:
         - 'testing/update/'
         - 'tools/lint/test/files/'
         - 'third_party/'
+        - 'wildbuzzard/FEATURE-OWNERSHIP.toml'
         - 'wildbuzzard/ports.toml'
         - 'wildbuzzard/upstreams.toml'
         - 'toolkit/components/uniffi-bindgen-gecko-js/askama.toml'

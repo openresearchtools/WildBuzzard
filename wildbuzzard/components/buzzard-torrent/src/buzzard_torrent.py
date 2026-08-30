@@ -23,20 +23,38 @@ import urllib.parse
 import uuid
 from typing import Any
 
-
 VERSION = "0.1.0"
 PROTOCOL_VERSION = 1
 QBITTORRENT_VERSION = "v5.2.3"
 MAX_RESPONSE = 16 * 1024 * 1024
 MAX_TORRENT = 12 * 1024 * 1024
 TORRENT_FILTERS = {
-    "all", "downloading", "seeding", "completed", "stopped", "running",
-    "active", "inactive", "stalled", "stalled_uploading",
-    "stalled_downloading", "errored",
+    "all",
+    "downloading",
+    "seeding",
+    "completed",
+    "stopped",
+    "running",
+    "active",
+    "inactive",
+    "stalled",
+    "stalled_uploading",
+    "stalled_downloading",
+    "errored",
 }
 TORRENT_SORTS = {
-    "name", "size", "progress", "dlspeed", "upspeed", "priority",
-    "num_seeds", "num_leechs", "eta", "ratio", "added_on", "completion_on",
+    "name",
+    "size",
+    "progress",
+    "dlspeed",
+    "upspeed",
+    "priority",
+    "num_seeds",
+    "num_leechs",
+    "eta",
+    "ratio",
+    "added_on",
+    "completion_on",
 }
 TORRENT_SECTIONS = {"overview", "files", "trackers", "peers"}
 
@@ -73,7 +91,9 @@ def paths() -> dict[str, pathlib.Path]:
         "api_key": state / "api-key",
         "connection": state / "connection.json",
         "runtime": pathlib.Path(
-            os.environ.get("BUZZARD_TORRENT_RUNTIME", "/usr/lib/buzzard-torrent/runtime")
+            os.environ.get(
+                "BUZZARD_TORRENT_RUNTIME", "/usr/lib/buzzard-torrent/runtime"
+            )
         ),
     }
 
@@ -96,9 +116,10 @@ def process_start_time(pid: int) -> str:
 
 def process_matches(record: dict[str, Any]) -> bool:
     try:
-        return (
-            process_start_time(int(record["pid"])) == str(record["pidStartTime"])
-            and pathlib.Path(f"/proc/{record['pid']}/exe").resolve() == pathlib.Path(record["executable"])
+        return process_start_time(int(record["pid"])) == str(
+            record["pidStartTime"]
+        ) and pathlib.Path(f"/proc/{record['pid']}/exe").resolve() == pathlib.Path(
+            record["executable"]
         )
     except (OSError, KeyError, ValueError):
         return False
@@ -106,7 +127,9 @@ def process_matches(record: dict[str, Any]) -> bool:
 
 def atomic_json(path: pathlib.Path, value: dict[str, Any]) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(8)}")
-    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    descriptor = os.open(
+        temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
+    )
     with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
         json.dump(value, stream, separators=(",", ":"), sort_keys=True)
         stream.write("\n")
@@ -141,12 +164,19 @@ def api_key() -> str:
     try:
         status = os.stat(location, follow_symlinks=False)
         value = location.read_text(encoding="ascii").strip()
-        if stat.S_ISREG(status.st_mode) and stat.S_IMODE(status.st_mode) == 0o600 and value.startswith("qbt_") and len(value) == 32:
+        if (
+            stat.S_ISREG(status.st_mode)
+            and stat.S_IMODE(status.st_mode) == 0o600
+            and value.startswith("qbt_")
+            and len(value) == 32
+        ):
             return value
     except OSError:
         pass
     value = f"qbt_{secrets.token_hex(14)}"
-    descriptor = os.open(location, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
+    descriptor = os.open(
+        location, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600
+    )
     with os.fdopen(descriptor, "w", encoding="ascii") as stream:
         stream.write(f"{value}\n")
     location.chmod(0o600)
@@ -184,10 +214,19 @@ def request(
     connection.close()
     if len(payload) > maximum:
         raise RuntimeError("buzzard-torrent response exceeded its limit")
-    return response.status, {key.lower(): value for key, value in response.headers.items()}, payload
+    return (
+        response.status,
+        {key.lower(): value for key, value in response.headers.items()},
+        payload,
+    )
 
 
-def request_text(target: str, method: str = "GET", body: bytes | None = None, content_type: str | None = None) -> str:
+def request_text(
+    target: str,
+    method: str = "GET",
+    body: bytes | None = None,
+    content_type: str | None = None,
+) -> str:
     status, _, payload = request(target, method, body, content_type)
     if not 200 <= status < 300:
         raise RuntimeError(f"qBittorrent request failed ({status})")
@@ -199,7 +238,9 @@ def request_json(target: str) -> Any:
 
 
 def form_post(target: str, values: dict[str, Any]) -> None:
-    body = urllib.parse.urlencode({key: str(value) for key, value in values.items()}).encode()
+    body = urllib.parse.urlencode({
+        key: str(value) for key, value in values.items()
+    }).encode()
     request_text(target, "POST", body, "application/x-www-form-urlencoded")
 
 
@@ -256,7 +297,11 @@ def ensure() -> dict[str, Any]:
         library = owned["runtime"] / "lib"
         if library.is_dir():
             environment["LD_LIBRARY_PATH"] = str(library)
-        downloads = pathlib.Path(os.environ.get("BUZZARD_TORRENT_DOWNLOADS", pathlib.Path.home() / "Downloads"))
+        downloads = pathlib.Path(
+            os.environ.get(
+                "BUZZARD_TORRENT_DOWNLOADS", pathlib.Path.home() / "Downloads"
+            )
+        )
         downloads.mkdir(mode=0o755, parents=True, exist_ok=True)
         api_key()
         result = subprocess.run(
@@ -282,7 +327,9 @@ def ensure() -> dict[str, Any]:
                 identity = read_lock(executable)
                 version = request_text("/api/v2/app/version").strip()
                 if version != QBITTORRENT_VERSION:
-                    raise RuntimeError("qBittorrent version differs from its package pin")
+                    raise RuntimeError(
+                        "qBittorrent version differs from its package pin"
+                    )
                 record = {
                     "schema": 1,
                     "protocolVersion": PROTOCOL_VERSION,
@@ -304,7 +351,12 @@ def status() -> dict[str, Any]:
     record = read_connection()
     if not record or not healthy(record):
         return {"running": False}
-    return {"running": True, "healthy": True, "pid": record["pid"], "version": record["version"]}
+    return {
+        "running": True,
+        "healthy": True,
+        "pid": record["pid"],
+        "version": record["version"],
+    }
 
 
 def stop() -> dict[str, Any]:
@@ -314,7 +366,12 @@ def stop() -> dict[str, Any]:
         record = read_connection()
         if record and healthy(record):
             try:
-                request("/api/v2/app/shutdown", "POST", b"", "application/x-www-form-urlencoded")
+                request(
+                    "/api/v2/app/shutdown",
+                    "POST",
+                    b"",
+                    "application/x-www-form-urlencoded",
+                )
             except OSError:
                 pass
             deadline = time.monotonic() + 10
@@ -328,7 +385,11 @@ def stop() -> dict[str, Any]:
 
 
 def require_hash(value: Any) -> str:
-    if not isinstance(value, str) or len(value) != 40 or any(character not in "0123456789abcdefABCDEF" for character in value):
+    if (
+        not isinstance(value, str)
+        or len(value) != 40
+        or any(character not in "0123456789abcdefABCDEF" for character in value)
+    ):
         raise ValueError("torrent id must be a 40-character info hash")
     return value.lower()
 
@@ -336,20 +397,30 @@ def require_hash(value: Any) -> str:
 def assert_keys(value: dict[str, Any], allowed: set[str], tool: str) -> None:
     unknown = set(value) - allowed
     if unknown:
-        raise ValueError(f"{tool} contains unknown arguments: {', '.join(sorted(unknown))}")
+        raise ValueError(
+            f"{tool} contains unknown arguments: {', '.join(sorted(unknown))}"
+        )
 
 
 def bounded_text(value: Any, name: str, maximum: int) -> str:
     if not isinstance(value, str):
         raise ValueError(f"{name} must be a string")
     result = value.strip()
-    if not result or len(result) > maximum or any(ord(character) < 32 for character in result):
+    if (
+        not result
+        or len(result) > maximum
+        or any(ord(character) < 32 for character in result)
+    ):
         raise ValueError(f"{name} must be non-empty bounded text")
     return result
 
 
 def validate_list(arguments: dict[str, Any]) -> dict[str, Any]:
-    assert_keys(arguments, {"filter", "category", "tag", "sort", "reverse", "limit", "offset"}, "torrent_list")
+    assert_keys(
+        arguments,
+        {"filter", "category", "tag", "sort", "reverse", "limit", "offset"},
+        "torrent_list",
+    )
     result = {
         "filter": arguments.get("filter", "all"),
         "sort": arguments.get("sort", "added_on"),
@@ -363,9 +434,17 @@ def validate_list(arguments: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("torrent_list sort is invalid")
     if not isinstance(result["reverse"], bool):
         raise ValueError("torrent_list reverse must be a boolean")
-    if not isinstance(result["limit"], int) or isinstance(result["limit"], bool) or not 1 <= result["limit"] <= 100:
+    if (
+        not isinstance(result["limit"], int)
+        or isinstance(result["limit"], bool)
+        or not 1 <= result["limit"] <= 100
+    ):
         raise ValueError("torrent_list limit must be between 1 and 100")
-    if not isinstance(result["offset"], int) or isinstance(result["offset"], bool) or not 0 <= result["offset"] <= 100_000:
+    if (
+        not isinstance(result["offset"], int)
+        or isinstance(result["offset"], bool)
+        or not 0 <= result["offset"] <= 100_000
+    ):
         raise ValueError("torrent_list offset must be between 0 and 100000")
     for key in ("category", "tag"):
         if key in arguments:
@@ -376,11 +455,21 @@ def validate_list(arguments: dict[str, Any]) -> dict[str, Any]:
 def safe_text(value: Any, maximum: int) -> str:
     if not isinstance(value, str):
         return ""
-    return "".join(character for character in value if ord(character) >= 32 and ord(character) != 127)[:maximum]
+    return "".join(
+        character
+        for character in value
+        if ord(character) >= 32 and ord(character) != 127
+    )[:maximum]
 
 
 def safe_number(value: Any, minimum: float = 0) -> int | float | None:
-    return value if isinstance(value, (int, float)) and not isinstance(value, bool) and value >= minimum else None
+    return (
+        value
+        if isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value >= minimum
+        else None
+    )
 
 
 def torrent_summary(value: Any) -> dict[str, Any]:
@@ -413,13 +502,11 @@ def torrent_summary(value: Any) -> dict[str, Any]:
 
 def list_torrents(arguments: dict[str, Any]) -> dict[str, Any]:
     value = validate_list(arguments)
-    query = urllib.parse.urlencode(
-        {
-            key: str(item).lower() if isinstance(item, bool) else item
-            for key, item in value.items()
-            if item is not None
-        }
-    )
+    query = urllib.parse.urlencode({
+        key: str(item).lower() if isinstance(item, bool) else item
+        for key, item in value.items()
+        if item is not None
+    })
     response = request_json(f"/api/v2/torrents/info{'?' + query if query else ''}")
     if not isinstance(response, list) or len(response) > value["limit"]:
         raise RuntimeError("qBittorrent returned an invalid torrent list")
@@ -438,7 +525,11 @@ def details(arguments: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("torrent_details section is invalid")
     offset = arguments.get("offset", 0)
     limit = arguments.get("limit", 100)
-    if not isinstance(offset, int) or isinstance(offset, bool) or not 0 <= offset <= 100_000:
+    if (
+        not isinstance(offset, int)
+        or isinstance(offset, bool)
+        or not 0 <= offset <= 100_000
+    ):
         raise ValueError("torrent_details offset must be between 0 and 100000")
     if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 500:
         raise ValueError("torrent_details limit must be between 1 and 500")
@@ -471,7 +562,9 @@ def details(arguments: dict[str, Any]) -> dict[str, Any]:
             "connections": safe_number(response.get("nb_connections")),
             "savePath": safe_text(response.get("save_path"), 4096),
             "downloadPath": safe_text(response.get("download_path"), 4096),
-            "private": None if response.get("private") is None else bool(response.get("private")),
+            "private": None
+            if response.get("private") is None
+            else bool(response.get("private")),
         }
     if section == "peers" and isinstance(response, dict):
         response = list((response.get("peers") or {}).values())
@@ -540,27 +633,49 @@ def safe_tracker_url(value: Any) -> str:
         return "invalid tracker URL"
 
 
-def multipart_torrent(payload: bytes) -> tuple[bytes, str]:
+def validate_download_path(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or len(value) > 4096
+        or any(
+            ord(character) < 32 or 127 <= ord(character) <= 159 for character in value
+        )
+    ):
+        raise ValueError("torrent_add downloadPath is invalid")
+    return value
+
+
+def multipart_torrent(payload: bytes, download_path: str) -> tuple[bytes, str]:
     boundary = f"buzzard-{secrets.token_hex(16)}"
-    prefix = f'--{boundary}\r\nContent-Disposition: form-data; name="torrents"; filename="torrent.torrent"\r\nContent-Type: application/x-bittorrent\r\n\r\n'.encode()
+    prefix = (
+        f'--{boundary}\r\nContent-Disposition: form-data; name="savepath"\r\n\r\n'.encode()
+        + download_path.encode("utf-8")
+        + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="torrents"; filename="torrent.torrent"\r\nContent-Type: application/x-bittorrent\r\n\r\n'.encode()
+    )
     suffix = f"\r\n--{boundary}--\r\n".encode()
     return prefix + payload + suffix, f"multipart/form-data; boundary={boundary}"
 
 
 def add(arguments: dict[str, Any]) -> dict[str, Any]:
-    assert_keys(arguments, {"magnet", "torrentBase64", "downloadPath", "confirmed"}, "torrent_add")
+    assert_keys(
+        arguments,
+        {"magnet", "torrentBase64", "downloadPath", "confirmed"},
+        "torrent_add",
+    )
     if arguments.get("confirmed") is not True:
         raise ValueError("torrent_add requires explicit user confirmation")
     magnet = arguments.get("magnet")
     torrent = arguments.get("torrentBase64")
     if (magnet is None) == (torrent is None):
         raise ValueError("torrent_add requires exactly one magnet or torrentBase64")
+    download_path = validate_download_path(arguments.get("downloadPath", ""))
     if magnet is not None:
-        if not isinstance(magnet, str) or len(magnet) > 32_768 or not magnet.startswith("magnet:?xt=urn:btih:"):
+        if (
+            not isinstance(magnet, str)
+            or len(magnet) > 32_768
+            or not magnet.startswith("magnet:?xt=urn:btih:")
+        ):
             raise ValueError("torrent_add magnet is invalid")
-        download_path = arguments.get("downloadPath", "")
-        if download_path and (not isinstance(download_path, str) or len(download_path) > 4096 or "\0" in download_path):
-            raise ValueError("torrent_add downloadPath is invalid")
         form_post("/api/v2/torrents/add", {"urls": magnet, "savepath": download_path})
     else:
         if not isinstance(torrent, str):
@@ -571,7 +686,7 @@ def add(arguments: dict[str, Any]) -> dict[str, Any]:
             raise ValueError("torrent_add payload is invalid") from error
         if not payload or len(payload) > MAX_TORRENT:
             raise ValueError("torrent_add payload is invalid or oversized")
-        body, content_type = multipart_torrent(payload)
+        body, content_type = multipart_torrent(payload, download_path)
         request_text("/api/v2/torrents/add", "POST", body, content_type)
     return {"added": True}
 
@@ -580,7 +695,14 @@ def action(arguments: dict[str, Any]) -> dict[str, Any]:
     assert_keys(arguments, {"id", "action"}, "torrent_action")
     torrent_id = require_hash(arguments.get("id"))
     name = arguments.get("action")
-    endpoint = {"start": "start", "resume": "start", "stop": "stop", "pause": "stop", "reannounce": "reannounce", "recheck": "recheck"}.get(name)
+    endpoint = {
+        "start": "start",
+        "resume": "start",
+        "stop": "stop",
+        "pause": "stop",
+        "reannounce": "reannounce",
+        "recheck": "recheck",
+    }.get(name)
     if not endpoint:
         raise ValueError("torrent_action action is invalid")
     form_post(f"/api/v2/torrents/{endpoint}", {"hashes": torrent_id})
@@ -590,63 +712,148 @@ def action(arguments: dict[str, Any]) -> dict[str, Any]:
 def control(arguments: dict[str, Any]) -> dict[str, Any]:
     assert_keys(
         arguments,
-        {"ids", "action", "confirmed", "deleteData", "fileIds", "priority", "downloadLimit", "uploadLimit", "name", "enabled"},
+        {
+            "ids",
+            "action",
+            "confirmed",
+            "deleteData",
+            "fileIds",
+            "priority",
+            "downloadLimit",
+            "uploadLimit",
+            "name",
+            "enabled",
+        },
         "torrent_control",
     )
     operation = arguments.get("action")
     ids = arguments.get("ids")
-    if not isinstance(ids, list) or not ids or len(ids) > 100 or any(not isinstance(value, str) for value in ids) or len(set(ids)) != len(ids):
-        raise ValueError("torrent_control ids must contain one to 100 unique torrent IDs")
+    if (
+        not isinstance(ids, list)
+        or not ids
+        or len(ids) > 100
+        or any(not isinstance(value, str) for value in ids)
+        or len(set(ids)) != len(ids)
+    ):
+        raise ValueError(
+            "torrent_control ids must contain one to 100 unique torrent IDs"
+        )
     normalized_ids = [require_hash(value) for value in ids]
     hashes = "|".join(normalized_ids)
-    supported = {"start", "stop", "forceStart", "autoStart", "reannounce", "recheck", "delete", "filePriority", "limits", "rename", "sequential", "firstLastPiece"}
+    supported = {
+        "start",
+        "stop",
+        "forceStart",
+        "autoStart",
+        "reannounce",
+        "recheck",
+        "delete",
+        "filePriority",
+        "limits",
+        "rename",
+        "sequential",
+        "firstLastPiece",
+    }
     if operation not in supported:
         raise ValueError("torrent_control operation is invalid")
     if operation in {"start", "stop", "reannounce", "recheck"}:
         form_post(f"/api/v2/torrents/{operation}", {"hashes": hashes})
     elif operation in {"forceStart", "autoStart"}:
-        form_post("/api/v2/torrents/setForceStart", {"hashes": hashes, "value": str(operation == "forceStart").lower()})
+        form_post(
+            "/api/v2/torrents/setForceStart",
+            {"hashes": hashes, "value": str(operation == "forceStart").lower()},
+        )
     elif operation == "delete":
         if arguments.get("confirmed") is not True:
             raise ValueError("deleting a torrent requires explicit user confirmation")
         if "deleteData" in arguments and not isinstance(arguments["deleteData"], bool):
             raise ValueError("torrent_control deleteData must be a boolean")
-        form_post("/api/v2/torrents/delete", {"hashes": hashes, "deleteFiles": str(arguments.get("deleteData", False)).lower()})
+        form_post(
+            "/api/v2/torrents/delete",
+            {
+                "hashes": hashes,
+                "deleteFiles": str(arguments.get("deleteData", False)).lower(),
+            },
+        )
     elif operation == "filePriority":
         file_ids = arguments.get("fileIds")
         priority = arguments.get("priority")
-        if len(normalized_ids) != 1 or not isinstance(file_ids, list) or not file_ids or len(file_ids) > 10_000 or any(not isinstance(value, int) or isinstance(value, bool) or value < 0 for value in file_ids) or len(set(file_ids)) != len(file_ids):
-            raise ValueError("filePriority requires one torrent and unique file indexes")
+        if (
+            len(normalized_ids) != 1
+            or not isinstance(file_ids, list)
+            or not file_ids
+            or len(file_ids) > 10_000
+            or any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in file_ids
+            )
+            or len(set(file_ids)) != len(file_ids)
+        ):
+            raise ValueError(
+                "filePriority requires one torrent and unique file indexes"
+            )
         if priority not in {0, 1, 6, 7}:
             raise ValueError("filePriority priority must be 0, 1, 6, or 7")
-        form_post("/api/v2/torrents/filePrio", {"hash": normalized_ids[0], "id": "|".join(map(str, file_ids)), "priority": priority})
+        form_post(
+            "/api/v2/torrents/filePrio",
+            {
+                "hash": normalized_ids[0],
+                "id": "|".join(map(str, file_ids)),
+                "priority": priority,
+            },
+        )
     elif operation == "limits":
-        limits = [("downloadLimit", "/api/v2/torrents/setDownloadLimit"), ("uploadLimit", "/api/v2/torrents/setUploadLimit")]
+        limits = [
+            ("downloadLimit", "/api/v2/torrents/setDownloadLimit"),
+            ("uploadLimit", "/api/v2/torrents/setUploadLimit"),
+        ]
         if all(name not in arguments for name, _ in limits):
             raise ValueError("limits requires downloadLimit or uploadLimit")
         for name, endpoint in limits:
             if name not in arguments:
                 continue
             value = arguments[name]
-            if not isinstance(value, int) or isinstance(value, bool) or not 0 <= value <= 2_147_483_647:
+            if (
+                not isinstance(value, int)
+                or isinstance(value, bool)
+                or not 0 <= value <= 2_147_483_647
+            ):
                 raise ValueError(f"{name} must be between 0 and 2147483647")
             form_post(endpoint, {"hashes": hashes, "limit": value})
     elif operation == "rename":
         if len(normalized_ids) != 1:
             raise ValueError("rename requires one torrent ID")
-        form_post("/api/v2/torrents/rename", {"hash": normalized_ids[0], "name": bounded_text(arguments.get("name"), "torrent name", 512)})
+        form_post(
+            "/api/v2/torrents/rename",
+            {
+                "hash": normalized_ids[0],
+                "name": bounded_text(arguments.get("name"), "torrent name", 512),
+            },
+        )
     else:
         if len(normalized_ids) != 1 or not isinstance(arguments.get("enabled"), bool):
             raise ValueError(f"{operation} requires one torrent ID and enabled")
         torrents = request_json("/api/v2/torrents/info")
         if not isinstance(torrents, list):
             raise RuntimeError("qBittorrent returned an invalid torrent list")
-        torrent = next((item for item in torrents if isinstance(item, dict) and str(item.get("hash", "")).lower() == normalized_ids[0]), None)
+        torrent = next(
+            (
+                item
+                for item in torrents
+                if isinstance(item, dict)
+                and str(item.get("hash", "")).lower() == normalized_ids[0]
+            ),
+            None,
+        )
         if torrent is None:
             raise ValueError("torrent was not found")
         key = "seq_dl" if operation == "sequential" else "f_l_piece_prio"
         if bool(torrent.get(key)) != arguments["enabled"]:
-            endpoint = "toggleSequentialDownload" if operation == "sequential" else "toggleFirstLastPiecePrio"
+            endpoint = (
+                "toggleSequentialDownload"
+                if operation == "sequential"
+                else "toggleFirstLastPiecePrio"
+            )
             form_post(f"/api/v2/torrents/{endpoint}", {"hashes": normalized_ids[0]})
     return {"ids": normalized_ids, "action": operation, "applied": True}
 
@@ -709,7 +916,12 @@ def main() -> int:
     call.add_argument("arguments", nargs="?")
     args = parser.parse_args()
     if args.command == "version":
-        value = {"package": "buzzard-torrent", "version": VERSION, "protocolVersion": PROTOCOL_VERSION, "qbittorrentVersion": QBITTORRENT_VERSION}
+        value = {
+            "package": "buzzard-torrent",
+            "version": VERSION,
+            "protocolVersion": PROTOCOL_VERSION,
+            "qbittorrentVersion": QBITTORRENT_VERSION,
+        }
     elif args.command == "start":
         value = ensure()
     elif args.command == "status":
@@ -726,5 +938,8 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except (OSError, RuntimeError, ValueError, json.JSONDecodeError) as error:
-        print(json.dumps({"ok": False, "error": str(error)}, separators=(",", ":")), file=sys.stderr)
+        print(
+            json.dumps({"ok": False, "error": str(error)}, separators=(",", ":")),
+            file=sys.stderr,
+        )
         raise SystemExit(1)

@@ -170,7 +170,6 @@ export var UrlbarUtils = {
     OTHER_NETWORK: 6,
     ADDON: 7,
     ACTIONS: 8,
-    TORRENT: 9,
   }),
 
   // Per-result exposure telemetry.
@@ -319,14 +318,6 @@ export var UrlbarUtils = {
         pref: "shortcuts.actions",
         telemetryLabel: "actions",
         uiLabel: "urlbar-searchmode-actions2",
-      },
-      {
-        source: this.RESULT_SOURCE.TORRENT,
-        restrict: lazy.UrlbarShared.RESTRICT_TOKENS.TORRENT,
-        icon: "chrome://browser/skin/torrent.svg",
-        pref: "shortcuts.torrent",
-        telemetryLabel: "torrent",
-        uiLabel: "urlbar-searchmode-torrent2",
       },
     ]);
   },
@@ -626,8 +617,6 @@ export var UrlbarUtils = {
           return this.RESULT_GROUP.HEURISTIC_RESTRICT_KEYWORD_AUTOFILL;
         case "UrlbarProviderTokenAliasEngines":
           return this.RESULT_GROUP.HEURISTIC_TOKEN_ALIAS_ENGINE;
-        case "UrlbarProviderTorrentSearch":
-          return this.RESULT_GROUP.HEURISTIC_FALLBACK;
         case "UrlbarProviderSearchTips":
           return this.RESULT_GROUP.HEURISTIC_SEARCH_TIP;
         default:

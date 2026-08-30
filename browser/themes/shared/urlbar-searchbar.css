@@ -818,11 +818,18 @@ toolbar[inactive="true"] .urlbar,
   }
 
   #remote-control-icon {
-    list-style-image: url("chrome://global/skin/icons/cursor-arrow.svg");
+    list-style-image: url(chrome://browser/content/static-robot.png);
     width: 16px;
     height: 16px;
-    -moz-context-properties: fill;
-    fill: var(--icon-color-warning);
+  }
+
+  .urlbar-background {
+    background-image: repeating-linear-gradient(-45deg, rgba(255, 60, 60, 0.25) 0 25px, rgba(175, 0, 0, 0.25) 25px 50px);
+
+    background-attachment: fixed;
+    /* Override the usual breakout animation so the gradient doesn't shift around
+       when the panel opens. */
+    animation: none !important;
   }
 }
 

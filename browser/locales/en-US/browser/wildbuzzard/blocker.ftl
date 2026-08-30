@@ -94,10 +94,6 @@ wildbuzzard-blocker-toolbar-button =
     .label = Ad blocking
     .tooltiptext = Ad blocking
 
-wildbuzzard-agent-toolbar-button =
-    .label = Agent
-    .tooltiptext = Open Agent
-
 wildbuzzard-torrent-toolbar-button =
     .label = Torrents
     .tooltiptext = Open Torrents

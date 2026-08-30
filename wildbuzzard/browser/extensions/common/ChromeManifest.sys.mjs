@@ -4,6 +4,8 @@
 
 /* eslint-disable jsdoc/require-jsdoc */
 
+import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
+
 const DIRECTIVE_ARGUMENTS = new Map([
   ["category", 3],
   ["component", 2],
@@ -224,18 +226,9 @@ function getConditionValues(name, options) {
   }
 
   if (name === "os") {
-    const osValues = values.map(current => String(current).toLowerCase());
     if (
-      osValues.some(current =>
-        [
-          "dragonfly",
-          "freebsd",
-          "linux",
-          "netbsd",
-          "openbsd",
-          "sunos",
-        ].includes(current)
-      )
+      AppConstants.XP_UNIX &&
+      !["android", "ios", "macosx"].includes(AppConstants.platform)
     ) {
       values.push("likeunix");
     }

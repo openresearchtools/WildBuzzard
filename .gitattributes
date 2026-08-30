@@ -9,3 +9,6 @@
 # ```
 testing/web-platform/meta/**/*.ini diff=wpt-metadata
 testing/web-platform/mozilla/meta/**/*.ini diff=wpt-metadata
+
+# Unified-diff context markers intentionally contain a single space.
+wildbuzzard/third_party/gpl2/qbittorrent/patches/*.patch -whitespace

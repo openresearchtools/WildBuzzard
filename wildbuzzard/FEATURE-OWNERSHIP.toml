@@ -1,0 +1,137 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+
+schema = 1
+
+[[feature]]
+id = "waterfox-browser"
+owner = "wildbuzzard"
+status = "core"
+paths = [
+  "browser/components/blocker",
+  "wildbuzzard/browser/components/aboutcfg",
+  "wildbuzzard/browser/components/aboutpasswords",
+  "wildbuzzard/browser/components/extensions",
+  "wildbuzzard/browser/components/migration",
+  "wildbuzzard/browser/components/onboarding",
+  "wildbuzzard/browser/components/privatetab",
+  "wildbuzzard/browser/components/remotesettings",
+  "wildbuzzard/browser/components/settings",
+  "wildbuzzard/browser/components/statusbar",
+  "wildbuzzard/browser/components/tabbrowser",
+  "wildbuzzard/browser/components/tabfeatures",
+  "wildbuzzard/browser/components/tabgrouping",
+  "wildbuzzard/browser/components/theme",
+  "wildbuzzard/browser/components/uicustomizations",
+  "wildbuzzard/browser/components/upgrade",
+  "wildbuzzard/browser/components/urlbar",
+  "wildbuzzard/browser/components/utils",
+  "wildbuzzard/browser/extensions/common",
+]
+
+[[feature]]
+id = "content-blocker"
+owner = "wildbuzzard"
+status = "core"
+paths = ["browser/components/blocker"]
+
+[[feature]]
+id = "tor-routing"
+owner = "wildbuzzard"
+status = "core"
+paths = [
+  "wildbuzzard/browser/components/tor",
+  "wildbuzzard/third_party/arti.toml",
+]
+
+[[feature]]
+id = "widevine-acquisition"
+owner = "wildbuzzard"
+status = "core"
+paths = [
+  "wildbuzzard/browser/app/profile/03-features.js",
+  "wildbuzzard/browser/app/profile/99-wildbuzzard.js",
+  "wildbuzzard/browser/components/remotesettings",
+]
+
+[[feature]]
+id = "native-torrent-downloads"
+owner = "wildbuzzard"
+status = "core"
+runtime_package = "buzzard-torrent"
+paths = [
+  "wildbuzzard/browser/components/torrent",
+  "wildbuzzard/components/buzzard-torrent",
+  "wildbuzzard/scripts/build-qbittorrent-runtime.sh",
+  "wildbuzzard/third_party/bsd3/libtorrent",
+  "wildbuzzard/third_party/gpl2/qbittorrent",
+]
+
+[[feature]]
+id = "browser-control"
+owner = "wildbuzzard"
+status = "core"
+paths = [
+  "browser/components/wildbuzzardcontrol",
+  "remote/wildbuzzard",
+  "wildbuzzard/components/wildbuzzard-cli",
+  "wildbuzzard/packaging/appimage/AppRun",
+  "wildbuzzard/scripts/package-appimage.sh",
+  "wildbuzzard/scripts/package-deb.sh",
+]
+
+[[feature]]
+id = "agent"
+owner = "buzzard-agent"
+status = "external"
+forbidden_browser_paths = [
+  "agent",
+  "wildbuzzard/browser/components/agent",
+  "wildbuzzard/browser/extensions/agent-sidebar",
+  "wildbuzzard/components/buzzard-agent",
+  "wildbuzzard/components/buzzard-agent-web",
+  "wildbuzzard/third_party/mit/pi",
+  "wildbuzzard/third_party/mit/pi-web",
+  "wildbuzzard/third_party/mit/pi-web-access",
+]
+
+[[feature]]
+id = "web-search"
+owner = "wildbuzzard-extensions:extensions/web-search"
+status = "builtin-extension"
+runtime_package = "buzzard-search"
+paths = ["wildbuzzard/browser/extensions/web-search"]
+forbidden_browser_paths = [
+  "wildbuzzard/browser/components/websearch",
+  "wildbuzzard/components/buzzard-search",
+  "wildbuzzard/components/buzzard-quick-search",
+  "wildbuzzard/managed-services/searxng",
+  "wildbuzzard/managed-services/searxng-executable",
+  "wildbuzzard/tests/original-services/firecrawl",
+  "wildbuzzard/tests/original-services/searxng",
+  "wildbuzzard/third_party/agpl/searxng",
+  "wildbuzzard/third_party/agpl/unsloth-quick-search",
+  "wildbuzzard/third_party/mit/youtube-transcript-api",
+]
+
+[[feature]]
+id = "torrent-search"
+owner = "wildbuzzard-extensions:extensions/torrent-search"
+status = "builtin-extension"
+runtime_package = "buzzard-minijtt"
+paths = ["wildbuzzard/browser/extensions/torrent-search"]
+forbidden_browser_paths = [
+  "wildbuzzard/components/buzzard-minijtt",
+  "wildbuzzard/components/buzzard-torrent-search",
+  "wildbuzzard/managed-services/jackett-mini",
+  "wildbuzzard/tests/original-services/jackett",
+  "wildbuzzard/third_party/gpl2/jackett",
+]
+
+[[feature]]
+id = "legacy-webtorrent"
+owner = "none"
+status = "external"
+forbidden_browser_paths = [
+  "third_party/webtorrent",
+  "wildbuzzard/torrent-runtime",
+]

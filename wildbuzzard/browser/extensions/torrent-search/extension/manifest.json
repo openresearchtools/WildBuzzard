@@ -1,0 +1,52 @@
+{
+  "manifest_version": 2,
+  "name": "__MSG_extensionName__",
+  "version": "0.1.0",
+  "description": "__MSG_extensionDescription__",
+  "default_locale": "en",
+  "incognito": "not_allowed",
+  "author": "WildBuzzard contributors",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "torrent-search@extensions.wildbuzzard",
+      "strict_min_version": "128.0"
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "scripts": [
+      "src/background.js"
+    ]
+  },
+  "browser_action": {
+    "default_title": "__MSG_browserActionTitle__",
+    "default_popup": "src/popup.html",
+    "default_icon": {
+      "16": "icons/torrent-search.svg",
+      "32": "icons/torrent-search.svg"
+    }
+  },
+  "icons": {
+    "48": "icons/torrent-search.svg",
+    "96": "icons/torrent-search.svg"
+  },
+  "omnibox": {
+    "keyword": "torrent"
+  },
+  "options_ui": {
+    "page": "src/options.html",
+    "open_in_tab": false
+  },
+  "commands": {
+    "_execute_browser_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "MacCtrl+Shift+Y"
+      },
+      "description": "__MSG_openSearchCommand__"
+    }
+  },
+  "content_security_policy": "default-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+}

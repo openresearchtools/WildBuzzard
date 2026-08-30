@@ -82,9 +82,6 @@ this.addonsSearchDetection = class extends ExtensionAPI {
               let submission = engine.getSubmission("searchTerm");
               if (submission) {
                 const uri = submission.uri;
-                if (uri.scheme !== "http" && uri.scheme !== "https") {
-                  continue;
-                }
                 const baseUrl = uri.prePath + uri.filePath;
 
                 // We don't store ids for application provided search engines

@@ -1,0 +1,53 @@
+:root {
+  color-scheme: light dark;
+  font: menu;
+}
+
+body {
+  margin: 0;
+  color: CanvasText;
+  background: Canvas;
+}
+
+main {
+  max-inline-size: 520px;
+  padding: 20px;
+}
+
+form {
+  display: grid;
+  gap: 10px;
+}
+
+select,
+button {
+  min-block-size: 36px;
+  border: 1px solid color-mix(in srgb, CanvasText 25%, Canvas);
+  border-radius: 6px;
+  padding-inline: 10px;
+  color: inherit;
+  background: color-mix(in srgb, CanvasText 5%, Canvas);
+  font: inherit;
+}
+
+button {
+  justify-self: start;
+  cursor: pointer;
+}
+
+button:focus-visible,
+select:focus-visible {
+  outline: 2px solid AccentColor;
+  outline-offset: 2px;
+}
+
+#save-status {
+  min-block-size: 1.3em;
+}
+
+@media (forced-colors: active) {
+  select,
+  button {
+    border-color: CanvasText;
+  }
+}

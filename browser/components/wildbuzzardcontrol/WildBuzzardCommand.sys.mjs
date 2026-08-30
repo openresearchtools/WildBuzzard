@@ -120,11 +120,6 @@ const TOOL_INFO = [
   ],
   ["evaluate", "Browser Evaluate", "Evaluate JavaScript in page context."],
   [
-    "native_search",
-    "Native Search",
-    "Search through the installed Buzzard Search service.",
-  ],
-  [
     "gecko_render",
     "Gecko Render",
     "Render a public page in a restricted Gecko context.",
@@ -132,20 +127,6 @@ const TOOL_INFO = [
   ["torrent_list", "Torrent List", "List qBittorrent transfers."],
   ["torrent_details", "Torrent Details", "Inspect one qBittorrent transfer."],
   ["torrent_control", "Torrent Control", "Control qBittorrent transfers."],
-  ["torrent_providers", "Torrent Providers", "List torrent search providers."],
-  ["torrent_search", "Torrent Search", "Search public torrent providers."],
-  [
-    "torrent_prepare",
-    "Torrent Prepare",
-    "Prepare a metadata-only torrent draft.",
-  ],
-  ["torrent_draft", "Torrent Draft", "Inspect a prepared torrent draft."],
-  [
-    "torrent_commit",
-    "Torrent Commit",
-    "Commit an explicitly confirmed torrent draft.",
-  ],
-  ["torrent_cancel", "Torrent Cancel", "Cancel a prepared torrent draft."],
   [
     "run",
     "Browser Run",
@@ -326,16 +307,6 @@ const TOOL_PARAMETERS = {
     private: "boolean",
   },
   evaluate: { ...COMMON_PAGE, code: "string", timeout: "number" },
-  native_search: {
-    query: "string",
-    engines: "array-string",
-    language: "string",
-    page: "number",
-    timeRange: "string",
-    safeSearch: "number",
-    maxResults: "number",
-    sortOrder: "string",
-  },
   gecko_render: {
     url: "string",
     waitMs: "number",
@@ -371,23 +342,6 @@ const TOOL_PARAMETERS = {
     name: "string",
     enabled: "boolean",
   },
-  torrent_providers: {},
-  torrent_search: {
-    query: "string",
-    providers: "array-string",
-    sort: "string",
-    direction: "string",
-    limit: "number",
-    timeoutMs: "number",
-  },
-  torrent_prepare: { searchId: "string", resultId: "string" },
-  torrent_draft: { draftId: "string" },
-  torrent_commit: {
-    draftId: "string",
-    files: "array-number",
-    confirmed: "boolean",
-  },
-  torrent_cancel: { draftId: "string" },
   run: { code: "string", timeout: "number" },
 };
 
@@ -424,7 +378,6 @@ const COMMAND_ALIASES = {
   logpoint_set: "set_logpoint",
   logpoint_remove: "remove_logpoint",
   logpoint_results: "get_logpoint_results",
-  search: "native_search",
   render: "gecko_render",
 };
 
@@ -764,8 +717,6 @@ function applyPositionals(tool, args, values) {
     }
   } else if (tool === "evaluate" && values.length) {
     args.code ??= values.splice(0).join(" ");
-  } else if (tool === "native_search" && values.length) {
-    args.query ??= values.splice(0).join(" ");
   } else if (tool === "gecko_render" && values.length) {
     args.url ??= take();
   } else if (tool === "torrent_details") {
@@ -781,21 +732,6 @@ function applyPositionals(tool, args, values) {
     }
     if (values.length) {
       args.ids ??= values.splice(0);
-    }
-  } else if (tool === "torrent_search" && values.length) {
-    args.query ??= values.splice(0).join(" ");
-  } else if (tool === "torrent_prepare") {
-    if (values.length) {
-      args.searchId ??= take();
-    }
-    if (values.length) {
-      args.resultId ??= take();
-    }
-  } else if (
-    ["torrent_draft", "torrent_commit", "torrent_cancel"].includes(tool)
-  ) {
-    if (values.length) {
-      args.draftId ??= take();
     }
   }
   if (values.length) {

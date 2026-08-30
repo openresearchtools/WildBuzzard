@@ -1,0 +1,145 @@
+main {
+  inline-size: min(900px, calc(100% - 32px));
+  margin-inline: auto;
+  padding-block: 32px 64px;
+}
+
+header {
+  margin-block-end: 24px;
+}
+
+.product {
+  margin-block: 0 6px;
+  color: var(--accent);
+  font-weight: 700;
+}
+
+h1 {
+  margin-block: 0 8px;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+}
+
+header p:last-child {
+  margin-block: 0;
+}
+
+#search-form {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.query-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.query-field {
+  min-inline-size: 0;
+}
+
+.query-field input {
+  min-block-size: 42px;
+  font-size: 1.05rem;
+}
+
+.query-row button {
+  min-block-size: 42px;
+}
+
+details {
+  margin-block-start: 14px;
+}
+
+summary {
+  inline-size: fit-content;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.options-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding-block-start: 14px;
+}
+
+.options-grid .field {
+  margin-block-end: 0;
+}
+
+#results-section {
+  margin-block-start: 28px;
+}
+
+#results-heading {
+  margin-block: 0 16px;
+  font-size: 1.25rem;
+}
+
+#results {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.result {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.result h3 {
+  margin-block: 0 6px;
+  font-size: 1.15rem;
+}
+
+.result a {
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.result-url,
+.result-meta {
+  margin-block: 5px;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+.result-snippet {
+  margin-block: 8px 0;
+  line-height: 1.45;
+  white-space: pre-line;
+}
+
+.result a,
+.result-snippet,
+.result-meta {
+  unicode-bidi: plaintext;
+}
+
+#more-button {
+  margin-block-start: 8px;
+}
+
+@media (max-width: 600px) {
+  main {
+    inline-size: min(calc(100% - 20px), 900px);
+    padding-block-start: 18px;
+  }
+
+  .query-row,
+  .options-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .query-row button {
+    inline-size: 100%;
+  }
+}

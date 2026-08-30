@@ -1,0 +1,43 @@
+main {
+  inline-size: min(760px, calc(100% - 32px));
+  margin-inline: auto;
+  padding-block: 32px 64px;
+}
+
+header {
+  margin-block-end: 28px;
+}
+
+h1 {
+  margin-block: 0 8px;
+}
+
+h2 {
+  font-size: 1.1rem;
+}
+
+section,
+form {
+  margin-block-end: 20px;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 600px) {
+  main {
+    inline-size: min(calc(100% - 20px), 760px);
+    padding-block-start: 18px;
+  }
+
+  .settings-grid {
+    grid-template-columns: 1fr;
+  }
+}

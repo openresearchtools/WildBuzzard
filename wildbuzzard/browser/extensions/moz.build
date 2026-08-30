@@ -1,0 +1,20 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at http://mozilla.org/MPL/2.0/.
+
+DIRS += [
+    "common",
+    "torrent-search",
+    "web-search",
+]
+
+GENERATED_FILES += ["SOURCES.lock.json"]
+validated_sources = GENERATED_FILES["SOURCES.lock.json"]
+validated_sources.script = (
+    "../../scripts/sync_builtin_search_extensions.py:generate_build_lock"
+)
+validated_sources.force = True
+
+FINAL_TARGET_FILES.chrome.browser["builtin-addons"] += [
+    "!SOURCES.lock.json",
+]

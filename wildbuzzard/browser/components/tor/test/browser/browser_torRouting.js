@@ -61,8 +61,8 @@ add_task(async function test_toggle_reopens_in_private_tor_context() {
   BrowserTestUtils.removeTab(privateTab);
 });
 
-add_task(async function test_agent_opens_owned_tor_tab() {
-  const clientId = "tor-browser-test-agent";
+add_task(async function test_control_client_opens_owned_tor_tab() {
+  const clientId = "tor-browser-test-client";
   const result = await BrowserControl.dispatch(
     "tabs",
     { action: "new", tor: true },
@@ -73,8 +73,8 @@ add_task(async function test_agent_opens_owned_tor_tab() {
   const page = result.details.page;
   const entry = BrowserControl.pageForId(page);
 
-  ok(TorRouting.isTorTab(entry.tab), "Agent-created tab uses Tor routing");
-  ok(PrivateTab.isPrivate(entry.tab), "Agent-created Tor tab is private");
+  ok(TorRouting.isTorTab(entry.tab), "Control-created tab uses Tor routing");
+  ok(PrivateTab.isPrivate(entry.tab), "Control-created Tor tab is private");
   const listing = await BrowserControl.dispatch(
     "tabs",
     { action: "list" },
@@ -83,8 +83,8 @@ add_task(async function test_agent_opens_owned_tor_tab() {
     new AbortController().signal
   );
   const info = listing.details.pages.find(item => item.page == page);
-  ok(info.tor, "Agent tab metadata reports Tor routing");
-  ok(info.private, "Agent tab metadata reports private storage");
+  ok(info.tor, "Controlled tab metadata reports Tor routing");
+  ok(info.private, "Controlled tab metadata reports private storage");
 
   await BrowserControl.dispatch(
     "tabs",
@@ -103,14 +103,18 @@ add_task(async function test_user_onion_navigation_reopens_as_tor() {
   const torTab = await TorRouting.routeOnion(
     window,
     tab,
-    "http://exampleexample.onion/"
+    "https://exampleexample.onion/"
   );
 
   ok(torTab, "Onion navigation creates a replacement tab");
   ok(TorRouting.isTorTab(torTab), "Onion navigation automatically uses Tor");
   ok(PrivateTab.isPrivate(torTab), "Automatic Tor navigation is private");
   is(
-    await TorRouting.routeOnion(window, torTab, "http://anotherexample.onion/"),
+    await TorRouting.routeOnion(
+      window,
+      torTab,
+      "https://anotherexample.onion/"
+    ),
     torTab,
     "An existing Tor tab is not replaced again"
   );
@@ -123,7 +127,7 @@ add_task(async function test_urlbar_onion_navigation_uses_tor() {
     gBrowser,
     "about:blank"
   );
-  await UrlbarTestUtils.inputIntoURLBar(window, "http://typedexample.onion/");
+  await UrlbarTestUtils.inputIntoURLBar(window, "https://typedexample.onion/");
   const opened = BrowserTestUtils.waitForEvent(
     gBrowser.tabContainer,
     "TabOpen"

@@ -12,12 +12,14 @@ usage() {
   echo "  --build-root DIR      external build root"
   echo "  --lrelease FILE       Qt 6 lrelease executable"
   echo "  --ref REF             committed WildBuzzard ref (default: HEAD)"
+  echo "  --working-tree        include relevant tracked and untracked changes"
 }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 source_repo="$(cd -- "${script_dir}/../.." && pwd -P)"
 build_root="$(dirname -- "${source_repo}")/wildbuzzard-qbittorrent-builds"
 build_ref="HEAD"
+include_working_tree=false
 boost_archive=""
 lrelease="$(command -v lrelease || true)"
 
@@ -38,6 +40,10 @@ while (($#)); do
     --ref)
       build_ref="${2:?--ref requires a ref}"
       shift 2
+      ;;
+    --working-tree)
+      include_working_tree=true
+      shift
       ;;
     --help|-h)
       usage
@@ -96,9 +102,10 @@ case "${build_root}/" in
     ;;
 esac
 
-commit="$(git -C "${source_repo}" rev-parse --verify "${build_ref}^{commit}")"
-short_commit="${commit:0:12}"
-source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${commit}")"
+base_commit="$(git -C "${source_repo}" rev-parse --verify "${build_ref}^{commit}")"
+commit="${base_commit}"
+short_commit="${base_commit:0:12}"
+source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${base_commit}")"
 export SOURCE_DATE_EPOCH="${source_date_epoch}"
 export TZ=UTC
 export LANG=C.UTF-8
@@ -115,12 +122,130 @@ mkdir -p -- "${run_root}" "${work}" "${prefix}" "${runtime}/bin" "${runtime}/lib
 git clone --shared --no-checkout -- "${source_repo}" "${checkout}"
 git -C "${checkout}" checkout --detach "${commit}"
 
+snapshot_paths=(
+  COPYING
+  wildbuzzard/scripts/build-qbittorrent-runtime.sh
+  wildbuzzard/scripts/generate-torrent-document-sources.py
+  wildbuzzard/browser/components/torrent
+  wildbuzzard/third_party/bsd3/libtorrent
+  wildbuzzard/third_party/gpl2/qbittorrent
+  wildbuzzard/upstreams.toml
+)
+if [[ "${include_working_tree}" == true ]]; then
+  git -C "${source_repo}" diff --binary "${base_commit}" -- \
+    "${snapshot_paths[@]}" >"${run_root}/working-tree.patch"
+  if [[ -s "${run_root}/working-tree.patch" ]]; then
+    git -C "${checkout}" apply --binary "${run_root}/working-tree.patch"
+  fi
+  while IFS= read -r -d '' path; do
+    mkdir -p -- "${checkout}/$(dirname -- "${path}")"
+    cp -a -- "${source_repo}/${path}" "${checkout}/${path}"
+  done < <(
+    git -C "${source_repo}" ls-files --others --exclude-standard -z -- \
+      "${snapshot_paths[@]}"
+  )
+  git -C "${checkout}" add --all -- "${snapshot_paths[@]}"
+  if ! git -C "${checkout}" diff --cached --quiet; then
+    GIT_AUTHOR_DATE="@${source_date_epoch} +0000" \
+      GIT_COMMITTER_DATE="@${source_date_epoch} +0000" \
+      git -C "${checkout}" \
+      -c user.name="openresearchtools" \
+      -c user.email="229047507+openresearchtools@users.noreply.github.com" \
+      commit -m "WildBuzzard qBittorrent runtime snapshot"
+    commit="$(git -C "${checkout}" rev-parse HEAD)"
+  fi
+fi
+short_commit="${commit:0:12}"
+
+{
+  echo "base_commit=${base_commit}"
+  echo "build_commit=${commit}"
+  echo "working_tree=${include_working_tree}"
+  echo "source_date_epoch=${source_date_epoch}"
+} >"${run_root}/build-manifest.txt"
+
 qbt_source="${work}/qbittorrent"
 libtorrent_source="${work}/libtorrent"
 boost_source="${work}/boost"
 cp -a -- "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/upstream" "${qbt_source}"
 cp -a -- "${checkout}/wildbuzzard/third_party/bsd3/libtorrent/upstream" "${libtorrent_source}"
-patch --batch --forward --fuzz=0 -d "${qbt_source}" -p1 < "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/patches/0001-add-private-wildbuzzard-runtime.patch"
+while IFS= read -r patch_name; do
+  case "${patch_name}" in
+    ""|\#*) continue ;;
+  esac
+  patch --batch --forward --fuzz=0 -d "${qbt_source}" -p1 < "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/patches/${patch_name}"
+done < "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/patches/series"
+
+python3 "${checkout}/wildbuzzard/scripts/generate-torrent-document-sources.py" \
+  --source "${qbt_source}" \
+  --check "${checkout}/wildbuzzard/browser/components/torrent/TorrentDocumentSources.sys.mjs"
+
+assert_patch_absent() {
+  local marker="$1"
+  local file="$2"
+  if grep -Fq -- "${marker}" "${qbt_source}/${file}"; then
+    echo "Forbidden qBittorrent runtime integration remains in ${file}: ${marker}" >&2
+    exit 1
+  fi
+}
+assert_patch_present() {
+  local marker="$1"
+  local file="$2"
+  if ! grep -Fq -- "${marker}" "${qbt_source}/${file}"; then
+    echo "Required qBittorrent runtime integration is missing from ${file}: ${marker}" >&2
+    exit 1
+  fi
+}
+assert_patch_absent "src/searchengine/searchengine.qrc" "src/app/CMakeLists.txt"
+assert_patch_absent "search/searchpluginmanager.cpp" "src/base/CMakeLists.txt"
+assert_patch_absent "utils/foreignapps.cpp" "src/base/CMakeLists.txt"
+assert_patch_absent "api/searchcontroller.cpp" "src/webui/CMakeLists.txt"
+assert_patch_absent "SearchController" "src/webui/webapplication.cpp"
+assert_patch_absent "SearchPluginManager" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent 'u"downloader"_s' "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "base/addtorrentmanager.h" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "addTorrentManager()->addTorrent" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "m_torrentSourceCache" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "m_torrentSourceCache" "src/webui/api/torrentscontroller.h"
+assert_patch_absent "fetchMetadataAction" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "fetchMetadataAction" "src/webui/api/torrentscontroller.h"
+assert_patch_absent 'u"fetchMetadata"_s' "src/webui/webapplication.h"
+assert_patch_absent "base/net/downloadmanager.h" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "api/v2/torrents/fetchMetadata" "src/webui/www/private/scripts/addtorrent.js"
+assert_patch_absent "saveMetadataAction" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "saveMetadataAction" "src/webui/api/torrentscontroller.h"
+assert_patch_absent "api/v2/torrents/saveMetadata" "src/webui/www/private/addtorrent.html"
+assert_patch_absent "private/scripts/search.js" "src/webui/www/webui.qrc"
+assert_patch_absent "showSearchEngine" "src/webui/www/private/scripts/client.js"
+assert_patch_absent "downloader" "src/webui/www/private/scripts/addtorrent.js"
+assert_patch_absent "handleDownloadParam" "src/webui/www/private/scripts/client.js"
+assert_patch_absent "#download=" "src/webui/www/private/scripts/client.js"
+assert_patch_absent "requestedDownload" "src/webui/www/private/scripts/client.js"
+assert_patch_absent "WildBuzzardTorrentDownloadRouted" "src/webui/www/private/scripts/client.js"
+assert_patch_absent "title: title," "src/webui/www/private/scripts/client.js"
+assert_patch_present "void TorrentsController::addAction()" "src/webui/api/torrentscontroller.cpp"
+assert_patch_present "bool isCanonicalBTIHMagnet" "src/webui/api/torrentscontroller.cpp"
+assert_patch_present "if (!isCanonicalBTIHMagnet(url))" "src/webui/api/torrentscontroller.cpp"
+assert_patch_present "source.toUtf8().size() <= 8192" "src/webui/api/torrentscontroller.cpp"
+assert_patch_present "xl=[0-9]{1,20}|so=[0-9,-]{1,256}" "src/webui/api/torrentscontroller.cpp"
+assert_patch_present ")){0,16}" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "xs=" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "as=" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "ws=" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "mt=" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "kt=" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "&xt=" "src/webui/api/torrentscontroller.cpp"
+assert_patch_absent "x.pe=" "src/webui/api/torrentscontroller.cpp"
+canonical_btih_error="Only canonical BTIH magnet links are accepted in the \`urls\` field"
+assert_patch_present "${canonical_btih_error}" "src/webui/api/torrentscontroller.cpp"
+assert_patch_present 'params()[u"metadataId"_s].trimmed()' "src/webui/api/torrentscontroller.cpp"
+assert_patch_present "TorrentDescriptor::load(it.value())" "src/webui/api/torrentscontroller.cpp"
+assert_patch_present "MAX_CONTENT_SIZE = 64 * 1024 * 1024" "src/base/http/requestparser.h"
+assert_patch_present '{{u"torrents"_s, u"add"_s}, Http::METHOD_POST}' "src/webui/webapplication.h"
+assert_patch_present 'form action="api/v2/torrents/add"' "src/webui/www/private/addtorrent.html"
+assert_patch_present 'name="metadataId" disabled' "src/webui/www/private/addtorrent.html"
+assert_patch_present "title: window.qBittorrent.Misc.escapeHtml(String(title))" "src/webui/www/private/scripts/client.js"
+
 mkdir -p -- "${boost_source}"
 tar -xjf "${boost_archive}" --strip-components=1 -C "${boost_source}"
 
@@ -206,8 +331,21 @@ if strings -a "${runtime}/bin/qbittorrent-nox" | grep -Fq "${run_root}"; then
   echo "qBittorrent binary leaks its build root" >&2
   exit 1
 fi
+for marker in "SearchPluginManager" "nova2.py" "nova2dl.py" "api/v2/search" \
+    "fetchMetadataAction" "api/v2/torrents/fetchMetadata" "saveMetadataAction" \
+    "handleDownloadParam" "#download=" "requestedDownload" \
+    "WildBuzzardTorrentDownloadRouted"; do
+  if grep -aFq -- "${marker}" "${runtime}/bin/qbittorrent-nox"; then
+    echo "qBittorrent binary contains forbidden integration marker: ${marker}" >&2
+    exit 1
+  fi
+done
+if ! grep -aFq -- "${canonical_btih_error}" "${runtime}/bin/qbittorrent-nox"; then
+  echo "qBittorrent binary is missing the magnet-only add boundary" >&2
+  exit 1
+fi
 
-cp -- "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/upstream/COPYING" "${runtime}/licenses/qbittorrent-GPL-2.0.txt"
+cp -- "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/upstream/COPYING" "${runtime}/licenses/qbittorrent-COPYING.txt"
 cp -- "${checkout}/wildbuzzard/third_party/bsd3/libtorrent/upstream/COPYING" "${runtime}/licenses/libtorrent-BSD-3-Clause.txt"
 cp -- "${boost_source}/LICENSE_1_0.txt" "${runtime}/licenses/boost-BSL-1.0.txt"
 cp -- /usr/share/common-licenses/LGPL-3 "${runtime}/licenses/qt-LGPL-3.0.txt"
@@ -240,6 +378,8 @@ mkdir -p -- "$(dirname -- "${source_path}")"
 git -C "${checkout}" archive --format=tar --prefix="wildbuzzard-qbittorrent-runtime-${commit}/" "${commit}" -- \
   COPYING \
   wildbuzzard/scripts/build-qbittorrent-runtime.sh \
+  wildbuzzard/scripts/generate-torrent-document-sources.py \
+  wildbuzzard/browser/components/torrent/TorrentDocumentSources.sys.mjs \
   wildbuzzard/third_party/bsd3/libtorrent \
   wildbuzzard/third_party/gpl2/qbittorrent \
   wildbuzzard/upstreams.toml | xz --threads=1 --check=crc64 -9e >"${source_path}"
@@ -379,7 +519,7 @@ sbom = {
     "documentNamespace": f"https://github.com/openresearchtools/wildbuzzard/sbom/buzzard-torrent/{commit}",
     "creationInfo": {
         "created": created,
-        "creators": ["Organization: Open Research Tools", "Tool: build-qbittorrent-runtime.sh"],
+        "creators": ["Organization: openresearchtools", "Tool: build-qbittorrent-runtime.sh"],
     },
     "packages": packages,
     "relationships": [
@@ -456,6 +596,9 @@ sha256sum "${runtime_zip}" >"${runtime_zip}.sha256"
 
 {
   echo "wildbuzzard_commit=${commit}"
+  echo "base_commit=${base_commit}"
+  echo "working_tree=${include_working_tree}"
+  echo "source_date_epoch=${source_date_epoch}"
   echo "qbittorrent_version=5.2.3"
   echo "libtorrent_version=2.0.14"
   echo "runtime_zip=${runtime_zip}"

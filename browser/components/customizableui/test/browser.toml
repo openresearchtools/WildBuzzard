@@ -465,3 +465,5 @@ skip-if = [
 skip-if = [
   "os == 'mac' && os_version == '15.30' && arch == 'aarch64' && opt", # Bug 1961546
 ]
+
+["browser_wildbuzzard_agent_toolbar_migration.js"]

@@ -1,0 +1,134 @@
+[
+  {
+    "namespace": "buzzardSearch",
+    "description": "Restricted bridge to the installed Buzzard Search command.",
+    "types": [
+      {
+        "id": "Status",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schema": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "available": { "type": "boolean" },
+          "protocolVersion": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "packageVersion": {
+            "type": "string",
+            "maxLength": 64,
+            "optional": true
+          },
+          "errorCode": {
+            "type": "string",
+            "enum": [
+              "cli_missing",
+              "unsupported_platform",
+              "protocol_mismatch"
+            ],
+            "optional": true
+          }
+        }
+      },
+      {
+        "id": "SearchRequest",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schema": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "requestId": {
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-4[0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$"
+          },
+          "query": { "type": "string", "minLength": 1, "maxLength": 512 },
+          "provider": { "type": "string", "enum": ["ddgs", "searxng"] },
+          "maxResults": { "type": "integer", "minimum": 1, "maximum": 20 },
+          "timeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 60 },
+          "page": { "type": "integer", "minimum": 1, "maximum": 10 },
+          "safeSearch": { "type": "integer", "minimum": 0, "maximum": 2 },
+          "language": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "optional": true
+          },
+          "searxngUrl": {
+            "type": "string",
+            "maxLength": 2048,
+            "optional": true
+          },
+          "engines": {
+            "type": "array",
+            "maxItems": 10,
+            "items": { "type": "string", "minLength": 1, "maxLength": 64 },
+            "optional": true
+          }
+        }
+      },
+      {
+        "id": "SearchResult",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "title": { "type": "string", "maxLength": 512 },
+          "url": { "type": "string", "maxLength": 8192 },
+          "snippet": { "type": "string", "maxLength": 16384 },
+          "provider": { "type": "string", "enum": ["ddgs", "searxng"] },
+          "engines": {
+            "type": "array",
+            "maxItems": 10,
+            "items": { "type": "string", "maxLength": 64 },
+            "optional": true
+          },
+          "score": { "type": "number", "optional": true },
+          "date": { "type": "string", "maxLength": 64, "optional": true }
+        }
+      },
+      {
+        "id": "SearchResponse",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "schema": { "type": "integer", "minimum": 1, "maximum": 1 },
+          "requestId": { "type": "string", "minLength": 36, "maxLength": 36 },
+          "implementation": { "type": "string", "enum": ["buzzard-search"] },
+          "kind": { "type": "string", "enum": ["search"] },
+          "provider": { "type": "string", "enum": ["ddgs", "searxng"] },
+          "query": { "type": "string", "maxLength": 512 },
+          "results": {
+            "type": "array",
+            "maxItems": 20,
+            "items": { "$ref": "SearchResult" }
+          }
+        }
+      }
+    ],
+    "functions": [
+      {
+        "name": "getStatus",
+        "type": "function",
+        "async": true,
+        "parameters": []
+      },
+      {
+        "name": "search",
+        "type": "function",
+        "async": true,
+        "parameters": [{ "name": "request", "$ref": "SearchRequest" }]
+      },
+      {
+        "name": "cancel",
+        "type": "function",
+        "async": true,
+        "parameters": [
+          {
+            "name": "requestId",
+            "type": "string",
+            "minLength": 36,
+            "maxLength": 36,
+            "pattern": "^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-4[0-9A-Fa-f]{3}-[89ABab][0-9A-Fa-f]{3}-[0-9A-Fa-f]{12}$"
+          }
+        ]
+      }
+    ]
+  }
+]

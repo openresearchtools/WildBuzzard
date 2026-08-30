@@ -1,10 +1,14 @@
 [DEFAULT]
 firefox-appdir = "browser"
 
-["test_qbittorrent_search_bridge.js"]
-
 ["test_qbittorrent_uds_transport.js"]
 
-["test_torrent_discovery_manager.js"]
+["test_qbittorrent_web_bridge.js"]
+
+["test_torrent_document_policy.js"]
+
+["test_torrent_ingress.js"]
 
 ["test_torrent_manager.js"]
+
+["test_torrent_security_policy.js"]

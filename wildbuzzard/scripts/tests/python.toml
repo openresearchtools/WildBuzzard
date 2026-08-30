@@ -1,0 +1,12 @@
+[DEFAULT]
+subsuite = "wildbuzzard"
+
+["test_builtin_search_extensions.py"]
+
+["test_feature_ownership.py"]
+
+["test_legal_payload.py"]
+
+["test_installable_extension_xpis.py"]
+
+["test_release_manifest.py"]

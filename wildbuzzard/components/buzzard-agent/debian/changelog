@@ -1,7 +1,0 @@
-buzzard-agent (0.84.1+wildbuzzard1) unstable; urgency=medium
-
-  * Package the pinned agent runtime as an independent Debian module.
-  * Replace user-facing upstream product identity with Buzzard Agent.
-  * Preserve the complete pristine source and original MIT notices.
-
- -- openresearchtools <openresearchtools@gmail.com>  Tue, 18 Aug 2026 16:00:00 +0100

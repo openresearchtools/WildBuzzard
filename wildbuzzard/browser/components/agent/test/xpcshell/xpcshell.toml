@@ -1,5 +1,0 @@
-[DEFAULT]
-firefox-appdir = "browser"
-run-if = ["os == 'linux'"]
-
-["test_WildBuzzardAgentState.js"]

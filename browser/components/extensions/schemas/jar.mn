@@ -4,6 +4,7 @@
 
 browser.jar:
     content/browser/schemas/bookmarks.json
+    content/browser/schemas/buzzard_search.json
     content/browser/schemas/chrome_settings_overrides.json
     content/browser/schemas/commands.json
     content/browser/schemas/devtools.json
@@ -24,5 +25,6 @@ browser.jar:
     content/browser/schemas/tabGroups.json
     content/browser/schemas/tabs.json
     content/browser/schemas/top_sites.json
+    content/browser/schemas/torrent_search.json
     content/browser/schemas/url_overrides.json
     content/browser/schemas/windows.json

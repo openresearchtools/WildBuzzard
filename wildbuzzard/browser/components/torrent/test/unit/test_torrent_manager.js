@@ -20,78 +20,60 @@ function response(body, status = 200) {
   };
 }
 
-function metadata(id = "draft-id") {
-  return {
-    id,
-    info: {
-      name: "Linux ISO",
-      files: [
-        { path: "linux.iso", length: 1024 },
-        { path: "checksums.txt", length: 64 },
-      ],
-    },
-  };
-}
-
 add_setup(function setup() {
   registerCleanupFunction(() => {
     QBittorrentRuntime.request = originalRequest;
-    TorrentManager.drafts?.clear();
   });
 });
 
-add_task(async function test_magnet_draft_uses_comma_separated_priorities() {
-  const calls = [];
+add_task(async function test_magnet_add_skips_metadata_prefetch() {
+  let call;
   QBittorrentRuntime.request = async (target, options) => {
-    calls.push({ target, options });
-    return target === "/api/v2/torrents/fetchMetadata"
-      ? response(metadata())
-      : response({ added_torrent_ids: ["torrent-id"] });
+    call = { target, options };
+    return response({ added_torrent_ids: ["torrent-id"] });
   };
   const magnet = `magnet:?xt=urn:btih:${"1".repeat(40)}`;
-  const draft = await TorrentManager.createTorrentDraft({ magnet });
-  await TorrentManager.commitTorrentDraft(draft.draftId, [0]);
+  await TorrentManager.addMagnet(magnet, "/downloads");
   const fields = new URLSearchParams(
-    new TextDecoder().decode(calls.at(-1).options.body)
+    new TextDecoder().decode(call.options.body)
   );
-  Assert.equal(calls.at(-1).target, "/api/v2/torrents/add");
-  Assert.equal(fields.get("filePriorities"), "1,0");
+  Assert.equal(call.target, "/api/v2/torrents/add");
+  Assert.equal(fields.get("urls"), magnet);
+  Assert.equal(fields.get("savepath"), "/downloads");
 });
 
-add_task(async function test_torrent_draft_priorities_require_one_added_id() {
-  const calls = [];
-  let addedIds = ["torrent-id"];
+add_task(async function test_reviewed_torrent_bytes_are_added_directly() {
+  let call;
   QBittorrentRuntime.request = async (target, options) => {
-    calls.push({ target, options });
-    if (target === "/api/v2/torrents/parseMetadata") {
-      return response([metadata("torrent-draft")]);
-    }
-    if (target === "/api/v2/torrents/add") {
-      return response({ added_torrent_ids: addedIds });
-    }
-    return response("");
+    call = { target, options };
+    return response({ added_torrent_ids: ["torrent-id"] });
   };
-  const draft = await TorrentManager.createTorrentDraft({
-    torrent: new Uint8Array([1, 2, 3]),
-  });
-  await TorrentManager.commitTorrentDraft(draft.draftId, [0]);
-  const priorityCall = calls.find(
-    call => call.target === "/api/v2/torrents/filePrio"
+  const result = await TorrentManager.addTorrentBytes(
+    new Uint8Array([1, 2, 3]),
+    "/downloads"
   );
-  Assert.ok(priorityCall);
-  Assert.deepEqual(
-    Object.fromEntries(
-      new URLSearchParams(new TextDecoder().decode(priorityCall.options.body))
-    ),
-    { hash: "torrent-id", id: "1", priority: "0" }
+  Assert.equal(call.target, "/api/v2/torrents/add");
+  Assert.equal(
+    call.options.headers["Content-Type"].startsWith("multipart/form-data;"),
+    true
   );
+  Assert.deepEqual(result.ids, ["torrent-id"]);
+});
 
-  const second = await TorrentManager.createTorrentDraft({
-    torrent: new Uint8Array([4, 5, 6]),
-  });
-  addedIds = [];
+add_task(async function test_import_inputs_are_bounded() {
+  for (const source of [
+    "magnet:",
+    `magnet:?xt=urn:btih:${"1".repeat(39)}`,
+    `magnet:?xt=urn:btih:${"1".repeat(40)}#fragment`,
+    `magnet:?xt=urn:btih:${"1".repeat(40)}&dn=fixture%00name`,
+  ]) {
+    await Assert.rejects(
+      TorrentManager.addMagnet(source),
+      /A magnet link is required/
+    );
+  }
   await Assert.rejects(
-    TorrentManager.commitTorrentDraft(second.draftId, [0]),
-    /did not identify the added torrent/
+    TorrentManager.addTorrentBytes(new Uint8Array([1]), "bad\r\npath"),
+    /download path is invalid/
   );
 });
