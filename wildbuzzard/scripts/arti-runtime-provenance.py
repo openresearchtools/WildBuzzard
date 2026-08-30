@@ -364,7 +364,16 @@ def provenance_bytes(pins, manifest_bytes, members):
     return archive_buffer.getvalue()
 
 
-def create(binary, config, source, cargo_vendor, inventory, output, epoch):
+def create(
+    binary,
+    config,
+    source,
+    cargo_vendor,
+    inventory,
+    output,
+    epoch,
+    source_root=None,
+):
     pins = load_pins(config)
     if epoch != pins["source_date_epoch"]:
         raise ValidationError("Arti source timestamp differs from the release pin")
@@ -372,7 +381,7 @@ def create(binary, config, source, cargo_vendor, inventory, output, epoch):
         raise ValidationError("Arti binary is not executable")
     source_artifact(source, ARTI_SOURCE, pins["source_sha256"])
     source_artifact(cargo_vendor, CARGO_VENDOR_SOURCE, pins["cargo_vendor_sha256"])
-    source_root = config.parents[2]
+    source_root = source_root or config.parents[2]
     license_apache = file_bytes(source_root / "third_party/arti/LICENSE-APACHE")
     license_mit = file_bytes(source_root / "third_party/arti/LICENSE-MIT")
     if sha256_bytes(license_apache) != pins["license_apache_sha256"]:
@@ -502,6 +511,7 @@ def main():
     create_parser.add_argument("--inventory", required=True, type=Path)
     create_parser.add_argument("--output", required=True, type=Path)
     create_parser.add_argument("--source-date-epoch", required=True, type=int)
+    create_parser.add_argument("--source-root", type=Path)
     validate_parser = subparsers.add_parser("validate")
     validate_parser.add_argument("--binary", required=True, type=Path)
     validate_parser.add_argument("--pin-config", required=True, type=Path)
@@ -519,6 +529,7 @@ def main():
                 args.inventory,
                 args.output,
                 args.source_date_epoch,
+                args.source_root,
             )
         else:
             validate(

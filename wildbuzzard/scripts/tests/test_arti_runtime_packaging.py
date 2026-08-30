@@ -147,6 +147,7 @@ class ArtiRuntimePackagingTests(unittest.TestCase):
             inventory,
             provenance,
             1_785_790_436,
+            root,
         )
         return binary, pin_config, inventory, source, cargo_vendor, provenance
 

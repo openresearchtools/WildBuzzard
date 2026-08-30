@@ -192,7 +192,8 @@ python3 -I -B "${script_dir}/arti-runtime-provenance.py" create \
   --cargo-vendor "${cargo_vendor_archive}" \
   --inventory "${crate_inventory}" \
   --output "${provenance}" \
-  --source-date-epoch "${source_date_epoch}"
+  --source-date-epoch "${source_date_epoch}" \
+  --source-root "${source_repo}"
 sha256sum "${provenance}" >"${provenance}.sha256"
 
 {
