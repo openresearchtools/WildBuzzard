@@ -2,19 +2,6 @@ name: WildBuzzard Ubuntu 24.04 hosted artifact
 
 on:
   workflow_dispatch:
-    inputs:
-      buzzard_search_commit:
-        description: Exact 40-character buzzard-search commit
-        required: true
-        type: string
-      buzzard_minijtt_commit:
-        description: Exact 40-character buzzard-minijtt commit
-        required: true
-        type: string
-      extensions_commit:
-        description: Exact 40-character wildbuzzard-extensions commit
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -29,23 +16,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
-      - name: Validate immutable component refs
-        env:
-          BUZZARD_MINIJTT_COMMIT: ${{ inputs.buzzard_minijtt_commit }}
-          BUZZARD_SEARCH_COMMIT: ${{ inputs.buzzard_search_commit }}
-          EXTENSIONS_COMMIT: ${{ inputs.extensions_commit }}
-        run: |
-          set -Eeuo pipefail
-          for value in \
-            "${BUZZARD_MINIJTT_COMMIT}" \
-            "${BUZZARD_SEARCH_COMMIT}" \
-            "${EXTENSIONS_COMMIT}"; do
-            if [[ ! "${value}" =~ ^[0-9a-f]{40}$ ]]; then
-              echo "Every component ref must be a lowercase 40-character commit SHA" >&2
-              exit 2
-            fi
-          done
-
       - name: Prepare artifact directories
         id: paths
         run: |
@@ -62,15 +32,7 @@ jobs:
           {
             echo "Before cleanup"
             df -h
-            docker system df || true
           } | tee "${disk_log}"
-
-          if ! docker system prune --all --force --volumes; then
-            echo "Warning: Docker cleanup did not complete" | tee -a "${disk_log}"
-          fi
-          if ! docker builder prune --all --force; then
-            echo "Warning: Docker builder cleanup did not complete" | tee -a "${disk_log}"
-          fi
 
           package_patterns=(
             azure-cli
@@ -145,40 +107,12 @@ jobs:
           {
             echo "After cleanup"
             df -h
-            docker system df || true
           } | tee -a "${disk_log}"
 
       - name: Checkout WildBuzzard
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: source/wildbuzzard
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Checkout buzzard-search
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: openresearchtools/buzzard-search
-          ref: ${{ inputs.buzzard_search_commit }}
-          path: source/buzzard-search
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Checkout buzzard-minijtt
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: openresearchtools/buzzard-minijtt
-          ref: ${{ inputs.buzzard_minijtt_commit }}
-          path: source/buzzard-minijtt
-          fetch-depth: 1
-          persist-credentials: false
-
-      - name: Checkout extensions
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: openresearchtools/wildbuzzard-extensions
-          ref: ${{ inputs.extensions_commit }}
-          path: source/wildbuzzard-extensions
           fetch-depth: 1
           persist-credentials: false
 
@@ -192,45 +126,38 @@ jobs:
             df -h
           } | tee -a "${WILDBUZZARD_RELEASE_ROOT}/logs/host-disk.txt"
 
-      - name: Build pinned Ubuntu 24.04 toolchain image
+      - name: Prepare direct browser toolchain
         run: |
           set -Eeuo pipefail
-          docker build \
-            --force-rm \
-            --build-arg "BUILDER_UID=$(id -u)" \
-            --build-arg "BUILDER_GID=$(id -g)" \
-            --tag "wildbuzzard-hosted-builder:${GITHUB_RUN_ID}" \
-            --file source/wildbuzzard/wildbuzzard/ci/ubuntu-24.04/Containerfile \
-            source/wildbuzzard/wildbuzzard/ci/ubuntu-24.04 \
-            2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/container-image-build.log"
-          docker builder prune --all --force || true
+          source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          arti_commit="$(
+            awk -F' = ' '$1 == "commit" { gsub(/^"|"$/, "", $2); print $2 }' \
+              "${source_root}/wildbuzzard/third_party/arti.toml"
+          )"
+          arti_rust="$(
+            awk -F' = ' '$1 == "build_rustc" { print $2 }' \
+              "${source_root}/wildbuzzard/third_party/arti.toml" |
+              sed -E 's/^"rustc ([0-9.]+).*/\1/'
+          )"
+          git -C "${source_root}" fetch --no-tags --depth=1 origin "${arti_commit}"
+          rustup toolchain install "${arti_rust}" --profile minimal
+          rustup default "${arti_rust}"
+          export MOZBUILD_STATE_PATH="${WILDBUZZARD_RELEASE_ROOT}/work/browser/state"
+          cd -- "${source_root}"
+          ./mach --no-interactive bootstrap --application-choice browser \
+            2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/bootstrap.log"
 
-      - name: Build, test, and package in the pinned container
-        env:
-          BUZZARD_MINIJTT_COMMIT: ${{ inputs.buzzard_minijtt_commit }}
-          BUZZARD_SEARCH_COMMIT: ${{ inputs.buzzard_search_commit }}
-          EXTENSIONS_COMMIT: ${{ inputs.extensions_commit }}
+      - name: Build, test, and package directly on Ubuntu 24.04
         run: |
           set -Eeuo pipefail
-          docker run --rm \
-            --shm-size 2g \
-            --volume "${GITHUB_WORKSPACE}/source:/workspace/source:rw" \
-            --volume "${WILDBUZZARD_RELEASE_ROOT}/artifacts:/workspace/artifacts:rw" \
-            --volume "${WILDBUZZARD_RELEASE_ROOT}/work:/workspace/work:rw" \
-            --env CI=1 \
-            "wildbuzzard-hosted-builder:${GITHUB_RUN_ID}" \
-            /workspace/source/wildbuzzard/wildbuzzard/ci/build-release.sh \
-              --wildbuzzard /workspace/source/wildbuzzard \
-              --wildbuzzard-commit "${GITHUB_SHA}" \
-              --buzzard-search /workspace/source/buzzard-search \
-              --buzzard-search-commit "${BUZZARD_SEARCH_COMMIT}" \
-              --buzzard-minijtt /workspace/source/buzzard-minijtt \
-              --buzzard-minijtt-commit "${BUZZARD_MINIJTT_COMMIT}" \
-              --extensions /workspace/source/wildbuzzard-extensions \
-              --extensions-commit "${EXTENSIONS_COMMIT}" \
-              --work-dir /workspace/work \
-              --artifact-dir /workspace/artifacts \
-            2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/release-build.log"
+          export CI=1
+          export MOZBUILD_STATE_PATH="${WILDBUZZARD_RELEASE_ROOT}/work/browser/state"
+          "${GITHUB_WORKSPACE}/source/wildbuzzard/wildbuzzard/ci/build-browser-artifact.sh" \
+            --wildbuzzard "${GITHUB_WORKSPACE}/source/wildbuzzard" \
+            --commit "${GITHUB_SHA}" \
+            --work-dir "${WILDBUZZARD_RELEASE_ROOT}/work" \
+            --artifact-dir "${WILDBUZZARD_RELEASE_ROOT}/artifacts" \
+            2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/browser-build.log"
 
       - name: Upload WildBuzzard Debian artifact and evidence
         if: success()
@@ -240,7 +167,7 @@ jobs:
           path: |
             ${{ steps.paths.outputs.release_root }}/artifacts/wildbuzzard_*_amd64.deb
             ${{ steps.paths.outputs.release_root }}/artifacts/*-build-manifest.txt
-            ${{ steps.paths.outputs.release_root }}/artifacts/release-manifest.json
+            ${{ steps.paths.outputs.release_root }}/artifacts/browser-artifact-manifest.txt
             ${{ steps.paths.outputs.release_root }}/artifacts/SHA256SUMS
           if-no-files-found: error
           compression-level: 0

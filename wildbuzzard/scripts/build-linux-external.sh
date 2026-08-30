@@ -10,7 +10,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --action ACTION    configure, build, test, package, appimage, or all (default: build)"
+  echo "  --action ACTION    configure, build, test, deb, package, appimage, or all (default: build)"
   echo "  --build-root DIR   external build root (default: ../wildbuzzard-builds)"
   echo "  --jobs NUMBER      parallel build jobs (default: all logical CPUs)"
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
@@ -93,7 +93,7 @@ if [[ -n "${arti_binary}" || -n "${arti_provenance}" ]]; then
 fi
 
 case "${action}" in
-  configure|build|test|package|appimage|all) ;;
+  configure|build|test|deb|package|appimage|all) ;;
   *)
     echo "Unsupported action: ${action}" >&2
     exit 2
@@ -101,7 +101,7 @@ case "${action}" in
 esac
 
 case "${action}" in
-  package|appimage|all)
+  deb|package|appimage|all)
     if [[ -z "${arti_binary}" || -z "${arti_provenance}" ]]; then
       echo "${action} requires --arti-binary and --arti-provenance" >&2
       exit 2
@@ -360,6 +360,14 @@ case "${action}" in
     run_step build ./mach build
     run_blocker_tests
     run_product_tests
+    ;;
+  deb)
+    run_step configure ./mach configure
+    run_step build ./mach build
+    run_blocker_tests
+    run_product_tests
+    run_step package ./mach package
+    run_deb_package
     ;;
   package)
     run_step build ./mach build

@@ -71,14 +71,15 @@ registry credentials, or other repository secrets. Signing and publishing to
 an APT repository are intentionally separate release-authority steps.
 
 The `WildBuzzard Ubuntu 24.04 hosted artifact` workflow is the artifact-only
-GitHub-hosted trial path. It reclaims host disk, checks out each exact commit at
-depth one, and performs the complete build inside the same pinned Ubuntu 24.04
-container. It uploads the amd64 `wildbuzzard` Debian package, release evidence,
-and build logs through Actions artifacts. It does not sign, publish, create a
-GitHub release, or push repository changes. A shallow checkout still validates
-the exact repository commit, clean tree, pinned ESR tag/commit/version metadata,
-and all source hashes; only the unavailable Firefox ancestry traversal is
-skipped.
+GitHub-hosted trial path. It reclaims host disk, checks out only WildBuzzard at
+depth one, installs the browser toolchain, and builds directly on the Ubuntu
+24.04 runner. It never checks out or builds the optional `buzzard-search` or
+`buzzard-minijtt` packages or the independent extension repository. The two
+built-in extension snapshots come from the WildBuzzard commit being built.
+`build-browser-artifact.sh` builds the pinned in-tree Arti runtime, runs the
+browser tests, and packages only the amd64 WildBuzzard Debian artifact. The
+workflow uploads that package, build manifests, checksums, and logs. It does not
+sign, publish, create a GitHub release, or push repository changes.
 
 If the GitHub-hosted runner's hard disk or time limit proves insufficient, the
 fallback is to build independently owned Rust and external components on

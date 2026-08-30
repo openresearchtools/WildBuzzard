@@ -11,7 +11,6 @@ paths = [
   "wildbuzzard/browser/components/aboutcfg",
   "wildbuzzard/browser/components/aboutpasswords",
   "wildbuzzard/browser/components/extensions",
-  "wildbuzzard/browser/components/migration",
   "wildbuzzard/browser/components/onboarding",
   "wildbuzzard/browser/components/privatetab",
   "wildbuzzard/browser/components/remotesettings",
