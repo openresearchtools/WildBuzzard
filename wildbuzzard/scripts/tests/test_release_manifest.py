@@ -271,6 +271,19 @@ class ReleasePayloadTests(unittest.TestCase):
             {"buzzard-minijtt", "buzzard-search", "extensions", "wildbuzzard"},
         )
 
+    def test_release_builds_external_components_from_clean_checkouts(self):
+        source = (HERE.parents[1] / "ci" / "build-release.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('checkout_root="${work_dir}/source-checkouts"', source)
+        self.assertIn("git clone --quiet --no-hardlinks --no-checkout", source)
+        for name in ("buzzard_search", "buzzard_minijtt", "extensions"):
+            self.assertIn(f'{name}="$(clean_checkout', source)
+            self.assertIn(
+                f'--repository "{name.replace("_", "-")}=${{{name}_repository}}"',
+                source,
+            )
+
     def browser_debian_members(self):
         members = {
             path: ["file"] for path in MANIFEST.BROWSER_DEB_REQUIRED_RUNTIME_FILES

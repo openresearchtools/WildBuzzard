@@ -153,6 +153,39 @@ mkdir -p -- \
   "${NUGET_PACKAGES}" \
   "${npm_config_cache}"
 
+wildbuzzard_repository="${wildbuzzard}"
+buzzard_search_repository="${buzzard_search}"
+buzzard_minijtt_repository="${buzzard_minijtt}"
+extensions_repository="${extensions}"
+checkout_root="${work_dir}/source-checkouts"
+if [[ -e "${checkout_root}" ]]; then
+  echo "Source checkout directory already exists: ${checkout_root}" >&2
+  exit 2
+fi
+mkdir -p -- "${checkout_root}"
+
+clean_checkout() {
+  local name="$1"
+  local repository="$2"
+  local commit="$3"
+  local checkout="${checkout_root}/${name}"
+  git clone --quiet --no-hardlinks --no-checkout -- "${repository}" "${checkout}"
+  git -C "${checkout}" checkout --quiet --detach "${commit}"
+  if [[ "$(git -C "${checkout}" rev-parse HEAD)" != "${commit}" ]] ||
+    [[ -n "$(git -C "${checkout}" status --short)" ]]; then
+    echo "Failed to create clean ${name} checkout at ${commit}" >&2
+    exit 2
+  fi
+  printf '%s\n' "${checkout}"
+}
+
+buzzard_search="$(clean_checkout \
+  buzzard-search "${buzzard_search_repository}" "${buzzard_search_commit}")"
+buzzard_minijtt="$(clean_checkout \
+  buzzard-minijtt "${buzzard_minijtt_repository}" "${buzzard_minijtt_commit}")"
+extensions="$(clean_checkout \
+  extensions "${extensions_repository}" "${extensions_commit}")"
+
 one_file() {
   local root="$1"
   local pattern="$2"
@@ -307,10 +340,10 @@ install -m 0644 -- \
 
 python3 "${wildbuzzard}/wildbuzzard/ci/create-release-manifest.py" \
   --artifact-dir "${artifact_dir}" \
-  --repository "wildbuzzard=${wildbuzzard}" \
-  --repository "buzzard-search=${buzzard_search}" \
-  --repository "buzzard-minijtt=${buzzard_minijtt}" \
-  --repository "extensions=${extensions}" \
+  --repository "wildbuzzard=${wildbuzzard_repository}" \
+  --repository "buzzard-search=${buzzard_search_repository}" \
+  --repository "buzzard-minijtt=${buzzard_minijtt_repository}" \
+  --repository "extensions=${extensions_repository}" \
   --build-manifest "arti=${artifact_dir}/arti-build-manifest.txt" \
   --build-manifest "browser=${artifact_dir}/browser-build-manifest.txt" \
   --build-manifest "qbittorrent=${artifact_dir}/qbittorrent-build-manifest.txt"
