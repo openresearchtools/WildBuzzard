@@ -37,9 +37,11 @@ class ProductNamespaceIsolationTests(unittest.TestCase):
         self.assertIn(
             'imply_option("--enable-crashreporter", False)', product_configure
         )
+        self.assertNotIn("--allow-addon-sideload", product_configure)
         self.assertIn(
-            'imply_option("--allow-addon-sideload", False)', product_configure
+            '@depends(milestone, "MOZ_APP_VENDOR")', toolkit_configure
         )
+        self.assertIn('app_vendor[0] != "WildBuzzard"', toolkit_configure)
         self.assertIn(
             'imply_option("--enable-system-extension-dirs", False)',
             product_configure,

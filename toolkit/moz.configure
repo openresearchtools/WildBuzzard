@@ -2068,9 +2068,14 @@ set_config("MOZ_UNSIGNED_SYSTEM_SCOPE", unsigned_addon_scopes.system)
 
 # Addon sideloading
 # ==============================================================
+@depends(milestone, "MOZ_APP_VENDOR")
+def addon_sideload_default(milestone, app_vendor):
+    return milestone.is_esr and (not app_vendor or app_vendor[0] != "WildBuzzard")
+
+
 option(
     "--allow-addon-sideload",
-    default=milestone.is_esr,
+    default=addon_sideload_default,
     help="Addon sideloading is allowed",
 )
 
