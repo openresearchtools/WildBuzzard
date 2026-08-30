@@ -83,7 +83,6 @@
   --urlbar-input-container-border: var(--urlbar-input-container-border-width) solid var(--toolbar-field-border-color);
   --urlbar-margin-block-start-breakout: calc((var(--urlbar-container-height) - var(--urlbar-height)) / 2);
   --urlbar-searchmode-switcher-panel-list-min-width: 17em;
-  --urlbar-selection-border-radius: var(--border-radius-xsmall);
 
   @media not -moz-pref("browser.nova.enabled") {
     --urlbar-background-border: var(--urlbar-input-container-border-width) solid var(--toolbar-field-border-color);
@@ -99,7 +98,6 @@
     --urlbar-input-container-border: var(--urlbar-input-container-border-width) solid transparent;
     --urlbar-margin-block-start-breakout: 0px;
     --urlbar-searchmode-switcher-panel-list-min-width: auto;
-    --urlbar-selection-border-radius: 0;
   }
 }
 
@@ -348,10 +346,6 @@ toolbar[inactive="true"] .urlbar,
   }
   .urlbar:not([focused])[textoverflow="left"][domaindir="rtl"] > .urlbar-input-container > .urlbar-input-box > & {
     mask-image: linear-gradient(to right, transparent var(--urlbar-scheme-size), black calc(var(--urlbar-scheme-size) + 3ch));
-  }
-
-  &::selection {
-    border-radius: var(--urlbar-selection-border-radius);
   }
 }
 

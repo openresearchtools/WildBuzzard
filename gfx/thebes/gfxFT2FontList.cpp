@@ -230,8 +230,13 @@ gfxFont* FT2FontEntry::CreateFontInstance(const gfxFontStyle* aStyle) {
     loadFlags &= ~FT_LOAD_NO_AUTOHINT;
   }
 
-  RefPtr<UnscaledFontFreeType> unscaledFont(mUnscaledFont);
+  RefPtr<UnscaledFontFreeType> unscaledFont;
+  {
+    AutoReadLock lock(mLock);
+    unscaledFont = RefPtr<UnscaledFontFreeType>(mUnscaledFont);
+  }
   if (!unscaledFont) {
+    AutoWriteLock lock(mLock);
     RefPtr<SharedFTFace> origFace(mFTFace);
     unscaledFont = !mFilename.IsEmpty() && mFilename[0] == '/'
                        ? new UnscaledFontFreeType(mFilename.get(), mFTFontIndex,

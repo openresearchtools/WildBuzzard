@@ -717,6 +717,9 @@ function EngineListItemSetting(settingId, engine) {
 
 Preferences.addSetting({
   id: "addEngineButton",
+  visible() {
+    return Services.policies.isAllowed("installSearchEngine");
+  },
   onUserClick() {
     window.gSubDialog.open(
       "chrome://browser/content/search/addEngine.xhtml",

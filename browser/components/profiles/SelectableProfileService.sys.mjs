@@ -1429,34 +1429,30 @@ class SelectableProfileServiceClass extends EventEmitter {
   async addSelectableProfilePrefs(profileDirPath) {
     const sharedPrefs = await this.getAllDBPrefs();
 
-    const filteredPrefs = sharedPrefs.filter(
-      pref =>
-        !SelectableProfileServiceClass.ignoredSharedPrefs.includes(pref.name)
+    let prefsToAdd = new Map(
+      sharedPrefs
+        .filter(
+          pref =>
+            !SelectableProfileServiceClass.ignoredSharedPrefs.includes(
+              pref.name
+            )
+        )
+        .map(({ name, value }) => [name, value])
     );
-
-    const prefsToAdd = [];
-    for (let pref of filteredPrefs) {
-      prefsToAdd.push(
-        `user_pref("${pref.name}", ${
-          pref.type === "string" ? `"${pref.value}"` : `${pref.value}`
-        });`
-      );
-    }
 
     // Preferences that must be set for selectable profiles.
-    prefsToAdd.push(`user_pref("browser.profiles.enabled", true);`);
-    prefsToAdd.push(`user_pref("browser.profiles.created", true);`);
-    prefsToAdd.push(
-      `user_pref("toolkit.profiles.storeID", "${this.storeID}");`
-    );
-    prefsToAdd.push(
-      `user_pref("${DAU_GROUPID_PREF_NAME}", "${await this.getDBPref(DAU_GROUPID_PREF_NAME)}");`
-    );
+    prefsToAdd.set("browser.profiles.enabled", true);
+    prefsToAdd.set("browser.profiles.created", true);
+    prefsToAdd.set("toolkit.profiles.storeID", this.storeID);
 
     const LINEBREAK = AppConstants.platform === "win" ? "\r\n" : "\n";
     await IOUtils.writeUTF8(
       PathUtils.join(profileDirPath, "prefs.js"),
-      prefsToAdd.join(LINEBREAK) + LINEBREAK,
+      Array.from(
+        prefsToAdd,
+        ([name, value]) =>
+          `user_pref(${JSON.stringify(name)}, ${typeof value === "string" ? JSON.stringify(value) : value});`
+      ).join(LINEBREAK) + LINEBREAK,
       { mode: "appendOrCreate" }
     );
   }

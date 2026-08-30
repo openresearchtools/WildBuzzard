@@ -36,6 +36,7 @@
 #include "mozilla/dom/ContentParent.h"
 #include "mozilla/dom/BrowserParent.h"
 #include "mozilla/dom/MaybeDiscarded.h"
+#include "mozilla/dom/WindowGlobalParent.h"
 #include "mozilla/dom/network/TCPSocketParent.h"
 #include "mozilla/dom/network/TCPServerSocketParent.h"
 #include "mozilla/dom/network/UDPSocketParent.h"
@@ -338,6 +339,22 @@ PWebSocketEventListenerParent* NeckoParent::AllocPWebSocketEventListenerParent(
   RefPtr<WebSocketEventListenerParent> c =
       new WebSocketEventListenerParent(aInnerWindowID);
   return c.forget().take();
+}
+
+mozilla::ipc::IPCResult NeckoParent::RecvPWebSocketEventListenerConstructor(
+    PWebSocketEventListenerParent* aActor, const uint64_t& aInnerWindowID) {
+  RefPtr<dom::WindowGlobalParent> wgp =
+      dom::WindowGlobalParent::GetByInnerWindowId(aInnerWindowID);
+  if (wgp && wgp->GetContentParent() == ContentParent::Cast(Manager())) {
+    return IPC_OK();
+  }
+
+  if (wgp) {
+    return IPC_FAIL(this, "Invalid aInnerWindowID");
+  }
+
+  (void)PWebSocketEventListenerParent::Send__delete__(aActor);
+  return IPC_OK();
 }
 
 bool NeckoParent::DeallocPWebSocketEventListenerParent(
@@ -745,6 +762,13 @@ mozilla::ipc::IPCResult NeckoParent::RecvGetPageThumbStream(
     return IPC_FAIL(this, "Wrong process type");
   }
 
+  nsCOMPtr<nsILoadInfo> loadInfo;
+  nsresult rv = mozilla::ipc::LoadInfoArgsToLoadInfo(
+      aLoadInfoArgs, PRIVILEGEDABOUT_REMOTE_TYPE, getter_AddRefs(loadInfo));
+  if (NS_FAILED(rv)) {
+    return IPC_FAIL(this, "moz-page-thumb request must include loadInfo");
+  }
+
   RefPtr<PageThumbProtocolHandler> ph(PageThumbProtocolHandler::GetSingleton());
   MOZ_ASSERT(ph);
 
@@ -756,7 +780,7 @@ mozilla::ipc::IPCResult NeckoParent::RecvGetPageThumbStream(
   // validating the request.
   nsCOMPtr<nsIInputStream> inputStream;
   bool terminateSender = true;
-  auto inputStreamPromise = ph->NewStream(aURI, &terminateSender);
+  auto inputStreamPromise = ph->NewStream(aURI, loadInfo, &terminateSender);
 
   if (terminateSender) {
     return IPC_FAIL(this, "Malformed moz-page-thumb request");
@@ -790,6 +814,13 @@ mozilla::ipc::IPCResult NeckoParent::RecvGetMozNewTabWallpaperStream(
     return IPC_FAIL(this, "Wrong process type");
   }
 
+  nsCOMPtr<nsILoadInfo> loadInfo;
+  nsresult rv = mozilla::ipc::LoadInfoArgsToLoadInfo(
+      aLoadInfoArgs, PRIVILEGEDABOUT_REMOTE_TYPE, getter_AddRefs(loadInfo));
+  if (NS_FAILED(rv)) {
+    return IPC_FAIL(this, "moz-newtab-wallpaper request must include loadInfo");
+  }
+
   RefPtr<net::MozNewTabWallpaperProtocolHandler> ph(
       net::MozNewTabWallpaperProtocolHandler::GetSingleton());
   MOZ_ASSERT(ph);
@@ -802,7 +833,7 @@ mozilla::ipc::IPCResult NeckoParent::RecvGetMozNewTabWallpaperStream(
   // validating the request.
   nsCOMPtr<nsIInputStream> inputStream;
   bool terminateSender = true;
-  auto inputStreamPromise = ph->NewStream(aURI, &terminateSender);
+  auto inputStreamPromise = ph->NewStream(aURI, loadInfo, &terminateSender);
 
   if (terminateSender) {
     return IPC_FAIL(this, "Malformed moz-newtab-wallpaper request");

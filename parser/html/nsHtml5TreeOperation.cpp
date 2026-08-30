@@ -222,6 +222,14 @@ nsHtml5TreeOperation::~nsHtml5TreeOperation() {
   mOperation.match(TreeOperationMatcher());
 }
 
+static void AbortNodeInsertion(nsINode* aNode) {
+  if (auto* formControl = nsGenericHTMLFormControlElement::FromNode(aNode)) {
+    // Clear form for this element, since it will not actually be
+    // inserted.
+    formControl->ClearForm(true, true);
+  }
+}
+
 nsresult nsHtml5TreeOperation::AppendTextToTextNode(
     const char16_t* aBuffer, uint32_t aLength, Text* aTextNode,
     nsHtml5DocumentBuilder* aBuilder) {
@@ -284,6 +292,7 @@ nsresult nsHtml5TreeOperation::Append(nsIContent* aNode, nsIContent* aParent,
     Detach(aNode, aBuilder);
     if (MOZ_UNLIKELY(aNode->GetParentNode())) {
       // Can this happen? If it can, give up.
+      AbortNodeInsertion(aNode);
       return NS_OK;
     }
   }
@@ -293,6 +302,7 @@ nsresult nsHtml5TreeOperation::Append(nsIContent* aNode, nsIContent* aParent,
     // "If it is not possible to insert element at the adjusted insertion
     // location, abort these steps."
     // But see https://github.com/whatwg/html/issues/12494
+    AbortNodeInsertion(aNode);
     return NS_OK;
   }
 
@@ -325,6 +335,7 @@ nsresult nsHtml5TreeOperation::AppendToDocument(
     Detach(aNode, aBuilder);
     if (MOZ_UNLIKELY(aNode->GetParentNode())) {
       // Can this happen? If it can, give up.
+      AbortNodeInsertion(aNode);
       return NS_OK;
     }
   }
@@ -334,9 +345,11 @@ nsresult nsHtml5TreeOperation::AppendToDocument(
   doc->AppendChildTo(aNode, false, rv);
   if (rv.ErrorCodeIs(NS_ERROR_DOM_HIERARCHY_REQUEST_ERR)) {
     aNode->SetParserHasNotified();
+    AbortNodeInsertion(aNode);
     return NS_OK;
   }
   if (rv.Failed()) {
+    AbortNodeInsertion(aNode);
     return rv.StealNSResult();
   }
 
@@ -398,6 +411,7 @@ nsresult nsHtml5TreeOperation::AppendChildrenToNewParent(
     ErrorResult rv;
     aParent->AppendChildTo(child, false, rv);
     if (rv.Failed()) {
+      AbortNodeInsertion(aNode);
       return rv.StealNSResult();
     }
     didAppend = true;
@@ -420,6 +434,7 @@ nsresult nsHtml5TreeOperation::FosterParent(nsIContent* aNode,
     Detach(aNode, aBuilder);
     if (MOZ_UNLIKELY(aNode->GetParentNode())) {
       // Can this happen? If it can, give up.
+      AbortNodeInsertion(aNode);
       return NS_OK;
     }
   }
@@ -432,6 +447,7 @@ nsresult nsHtml5TreeOperation::FosterParent(nsIContent* aNode,
       // "If it is not possible to insert element at the adjusted insertion
       // location, abort these steps."
       // But see https://github.com/whatwg/html/issues/12494
+      AbortNodeInsertion(aNode);
       return NS_OK;
     }
 
@@ -440,6 +456,7 @@ nsresult nsHtml5TreeOperation::FosterParent(nsIContent* aNode,
     ErrorResult rv;
     foster->InsertChildBefore(aNode, aTable, false, rv);
     if (rv.Failed()) {
+      AbortNodeInsertion(aNode);
       return rv.StealNSResult();
     }
 
@@ -453,6 +470,7 @@ nsresult nsHtml5TreeOperation::FosterParent(nsIContent* aNode,
     // "If it is not possible to insert element at the adjusted insertion
     // location, abort these steps."
     // But see https://github.com/whatwg/html/issues/12494
+    AbortNodeInsertion(aNode);
     return NS_OK;
   }
 

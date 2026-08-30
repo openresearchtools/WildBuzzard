@@ -3884,8 +3884,9 @@ void nsGenericHTMLElement::HidePopoverInternal(bool aFocusPreviousElement,
                                                bool aFireEvents,
                                                mozilla::dom::Element* aSource,
                                                ErrorResult& aRv) {
-  OwnerDoc()->HidePopover(*this, aFocusPreviousElement, aFireEvents, aSource,
-                          aRv);
+  RefPtr<Document> document = OwnerDoc();
+  document->HidePopover(*this, aFocusPreviousElement, aFireEvents, aSource,
+                        aRv);
 }
 
 void nsGenericHTMLElement::ForgetPreviouslyFocusedElementAfterHidingPopover() {

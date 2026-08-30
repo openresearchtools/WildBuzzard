@@ -155,6 +155,9 @@ class NeckoParent : public PNeckoParent {
       const nsIDNSService::DNSFlags& flags, const nsresult& reason);
   PWebSocketEventListenerParent* AllocPWebSocketEventListenerParent(
       const uint64_t& aInnerWindowID);
+  virtual mozilla::ipc::IPCResult RecvPWebSocketEventListenerConstructor(
+      PWebSocketEventListenerParent* aActor,
+      const uint64_t& aInnerWindowID) override;
   bool DeallocPWebSocketEventListenerParent(PWebSocketEventListenerParent*);
 
   mozilla::ipc::IPCResult RecvConnectBaseChannel(const uint32_t& channelId);

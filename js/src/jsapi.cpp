@@ -2777,12 +2777,16 @@ JS_PUBLIC_API JSString* JS_DecompileScript(JSContext* cx, HandleScript script) {
   if (fun) {
     return JS_DecompileFunction(cx, fun);
   }
-  bool haveSource;
-  if (!ScriptSource::loadSource(cx, script->scriptSource(), &haveSource)) {
+
+  bool loaded;
+  Maybe<ScriptSource::DataReader> reader;
+  if (!script->scriptSource()->tryLoadSource(cx, reader, &loaded)) {
     return nullptr;
   }
-  return haveSource ? JSScript::sourceData(cx, script)
-                    : NewStringCopyZ<CanGC>(cx, "[no source]");
+  MOZ_ASSERT_IF(loaded, (*reader).hasSourceText());
+  return loaded ? (*reader)->substring(cx, script->sourceStart(),
+                                       script->sourceEnd())
+                : NewStringCopyZ<CanGC>(cx, "[no source]");
 }
 
 JS_PUBLIC_API JSString* JS_DecompileFunction(JSContext* cx,

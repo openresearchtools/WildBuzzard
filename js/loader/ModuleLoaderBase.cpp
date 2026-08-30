@@ -1368,7 +1368,9 @@ void ModuleLoaderBase::StartFetchingModuleDependencies(
 
     Rooted<JSObject*> loadPromise(cx);
     result = LoadRequestedModules(cx, module, hostDefinedVal, &loadPromise);
-    AddPromiseReactions(cx, loadPromise, resolveFuncObj, rejectFuncObj);
+    if (result) {
+      AddPromiseReactions(cx, loadPromise, resolveFuncObj, rejectFuncObj);
+    }
   } else {
     result = LoadRequestedModules(cx, module, hostDefinedVal,
                                   OnLoadRequestedModulesResolved,

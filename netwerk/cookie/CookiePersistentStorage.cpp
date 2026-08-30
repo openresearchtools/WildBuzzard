@@ -9,6 +9,7 @@
 #include "CookieService.h"
 #include "CookieValidation.h"
 
+#include "mozilla/AppShutdown.h"
 #include "mozilla/Components.h"
 #include "mozilla/ErrorNames.h"
 #include "mozilla/FileUtils.h"
@@ -2499,7 +2500,7 @@ void CookiePersistentStorage::RecordValidationTelemetry() {
   MOZ_ASSERT(NS_IsMainThread());
 
   RefPtr<CookieService> cs = CookieService::GetSingleton();
-  if (!cs) {
+  if (!cs || AppShutdown::IsInOrBeyond(ShutdownPhase::AppShutdownConfirmed)) {
     // We are shutting down, or something bad is happening.
     return;
   }

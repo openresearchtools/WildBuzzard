@@ -70,7 +70,7 @@ var gExceptionPaths = [
 
   // Points to theme preview images, which are defined in browser/ but only used
   // in toolkit/mozapps/extensions/content/aboutaddons.js.
-  "resource://usercontext-content/builtin-themes/",
+  "resource://builtin-themes/",
 
   // Page data schemas are referenced programmatically.
   "chrome://browser/content/pagedata/schemas/",
@@ -133,6 +133,11 @@ var gExceptionPaths = [
   // Remote Settings.
   "chrome://browser/skin/illustrations/yelpRealtime-opt-in.svg",
 ];
+
+if (AppConstants.platform == "win") {
+  // Referenced via resource://gfxsanity/
+  gExceptionPaths.push("resource://gre-resources/gfxsanity/");
+}
 
 // These are not part of the omni.ja file, so we find them only when running
 // the test on a non-packaged build.

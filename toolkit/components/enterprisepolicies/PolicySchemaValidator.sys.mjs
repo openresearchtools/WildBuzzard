@@ -67,23 +67,24 @@ export function validate(
   schema,
   { allowAdditionalProperties = false } = {}
 ) {
-  const normalized = trimInvalidListItems(normalize(value, schema), schema);
-
-  const { valid, errors } = lazy.JsonSchema.validate(normalized, schema);
-  if (!valid) {
-    return { valid: false, error: new Error(formatErrors(errors)) };
-  }
-
   try {
+    const normalized = trimInvalidListItems(normalize(value, schema), schema);
+
+    const { valid, errors } = lazy.JsonSchema.validate(normalized, schema);
+    if (!valid) {
+      return { valid: false, error: new Error(formatErrors(errors)) };
+    }
+
     return {
       valid: true,
       parsedValue: hydrate(normalized, schema, allowAdditionalProperties),
     };
   } catch (ex) {
-    if (ex instanceof PolicyParameterError) {
-      return { valid: false, error: ex };
-    }
-    throw ex;
+    // A single malformed value must never abort the whole policy engine. The
+    // validator throws (rather than returning invalid) for some inputs -- e.g.
+    // an undefined value, as a JSON-string policy whose source could not parse
+    // it produces -- so fail just this policy instead of letting it propagate.
+    return { valid: false, error: ex };
   }
 }
 
@@ -169,7 +170,9 @@ function normalize(value, schema) {
     try {
       value = JSON.parse(value);
     } catch {
-      return value;
+      throw new PolicyParameterError(
+        `value is not valid JSON: ${valueToString(value)}`
+      );
     }
   }
 

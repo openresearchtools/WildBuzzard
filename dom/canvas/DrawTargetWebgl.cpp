@@ -4136,7 +4136,8 @@ already_AddRefed<TextureHandle> SharedContextWebgl::ResolveFilterInputAccel(
     const IntRect& aSourceRect, const Matrix& aDestTransform,
     const DrawOptions& aOptions, const StrokeOptions* aStrokeOptions,
     SurfaceFormat aFormat) {
-  if (SupportsDrawOptions(aOptions) != SupportsDrawOptionsStatus::Yes) {
+  if (SupportsDrawOptions(aOptions) != SupportsDrawOptionsStatus::Yes ||
+      !aPath || aPath->GetBackendType() != BackendType::SKIA) {
     return nullptr;
   }
   if (IsContextLost()) {
@@ -6749,6 +6750,9 @@ already_AddRefed<FilterNode> DrawTargetWebgl::DeferFilterInput(
     const Path* aPath, const Pattern& aPattern, const IntRect& aSourceRect,
     const IntPoint& aDestOffset, const DrawOptions& aOptions,
     const StrokeOptions* aStrokeOptions) {
+  if (!aPath || aPath->GetBackendType() != BackendType::SKIA) {
+    return nullptr;
+  }
   RefPtr<FilterNode> filter = new FilterNodeDeferInputWebgl(
       do_AddRef((Path*)aPath), aPattern, aSourceRect,
       GetTransform().PostTranslate(aDestOffset), aOptions, aStrokeOptions);

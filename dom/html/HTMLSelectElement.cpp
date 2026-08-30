@@ -524,16 +524,17 @@ void HTMLSelectElement::SetLength(uint32_t aLength, ErrorResult& aRv) {
 bool HTMLSelectElement::MatchSelectedOptions(Element* aElement,
                                              int32_t /* unused */,
                                              nsAtom* /* unused */,
-                                             void* /* unused*/) {
-  // FIXME(bug 2035253): This is missing validity checks.
+                                             void* aData) {
   HTMLOptionElement* option = HTMLOptionElement::FromNode(aElement);
-  return option && option->Selected();
+  return option &&
+         option->GetSelect() == static_cast<HTMLSelectElement*>(aData) &&
+         option->Selected();
 }
 
 HTMLCollection* HTMLSelectElement::SelectedOptions() {
   if (!mSelectedOptions) {
     mSelectedOptions = new ContentList(this, MatchSelectedOptions, nullptr,
-                                       nullptr, /* deep */ true);
+                                       this, /* deep */ true);
   }
   return mSelectedOptions;
 }

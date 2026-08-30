@@ -4658,6 +4658,11 @@ fn process_repeat_size(
 /// image_tiling::repetitions's `stride > 0` assertion (NaN width passes the
 /// finite-height needs_repetition check and reaches the assert before the
 /// NaN-aware intersection short-circuit fires).
+///
+/// The ratio is resolved against the *snapped* prim rect at prepare time, which
+/// is not the rect it is computed against here, so an axis that covers the whole
+/// primitive must be reported as exactly `1.0`: anything less would resurrect a
+/// non-repeating primitive as a repeating one with a sub-pixel stride.
 fn compute_stretch_ratio(stretch_size: LayoutSize, prim_size: LayoutSize) -> LayoutSize {
     let prim_ok = prim_size.width.is_finite()
         && prim_size.width > 0.0
@@ -4666,8 +4671,17 @@ fn compute_stretch_ratio(stretch_size: LayoutSize, prim_size: LayoutSize) -> Lay
     if !prim_ok {
         return LayoutSize::new(1.0, 1.0);
     }
-    let w = (stretch_size.width / prim_size.width).min(1.0);
-    let h = (stretch_size.height / prim_size.height).min(1.0);
+    const EPSILON: f32 = 0.001;
+    let w = if stretch_size.width.approx_eq_eps(&prim_size.width, &EPSILON) {
+        1.0
+    } else {
+        (stretch_size.width / prim_size.width).min(1.0)
+    };
+    let h = if stretch_size.height.approx_eq_eps(&prim_size.height, &EPSILON) {
+        1.0
+    } else {
+        (stretch_size.height / prim_size.height).min(1.0)
+    };
     LayoutSize::new(w, h)
 }
 

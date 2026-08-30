@@ -71,12 +71,18 @@ bool WebGLTransformFeedback::PrepareTransformFeedback() {
       }
     }
 
-    const size_t vertCapacity = buffer->ByteLength() / 4 / componentsPerVert;
+    // Use the bound range rather than the whole buffer, since
+    // bindBufferRange may expose only part of it.
+    const size_t vertCapacity =
+        indexedBinding.ByteCount() / 4 / componentsPerVert;
     minVertCapacity = std::min(minVertCapacity, vertCapacity);
   }
 
+  // Don't clamp mActive_VertPosition to the capacity here: it mirrors the
+  // driver's write offset, which persists across buffer re-specification, so
+  // clamping would lose track of the capacity already consumed if the buffer is
+  // grown again. Draw-time validation saturates instead.
   mActive_VertCapacity = minVertCapacity;
-  mActive_VertPosition = std::min(mActive_VertPosition, mActive_VertCapacity);
 
   return true;
 }

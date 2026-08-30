@@ -3400,7 +3400,7 @@ already_AddRefed<gfxFont> gfxFontGroup::FindFontForChar(
           loading = true;
         }
 
-        gfxFontEntry* pfe = ufe->GetPlatformFontEntry();
+        RefPtr<gfxFontEntry> pfe = ufe->GetPlatformFontEntry();
         if (pfe && (pfe->HasCharacter(aCh) ||
                     (fallbackChar && pfe->HasCharacter(fallbackChar)))) {
           font = GetFontAt(i, aCh, &loading);

@@ -17,6 +17,7 @@ function assertInvalid(value, schema, options) {
   const result = PolicySchemaValidator.validate(value, schema, options);
   Assert.ok(!result.valid, `Expected ${JSON.stringify(value)} to be invalid`);
   Assert.ok(result.error, "An error is returned for invalid values");
+  return result.error;
 }
 
 add_task(function test_delegates_structural_validation() {
@@ -103,7 +104,20 @@ add_task(function test_json_string_parsing() {
   Assert.deepEqual(assertValid({ foo: "bar" }, schema), { foo: "bar" });
   // A JSON string (as GPO/macOS deliver ExtensionSettings) is parsed.
   Assert.deepEqual(assertValid('{"foo":"bar"}', schema), { foo: "bar" });
-  assertInvalid("not json", schema);
+  // Unparseable JSON reports the real cause, not a downstream type mismatch.
+  const parseError = assertInvalid("not json", schema);
+  Assert.ok(
+    parseError.message.includes("not valid JSON"),
+    "the error names the unparseable JSON"
+  );
+});
+
+add_task(function test_unsupported_value_fails_without_throwing() {
+  // The validator throws (rather than returning invalid) for values such as
+  // undefined; validate() must catch that so a single bad value can't abort
+  // the whole policy engine. Before that guard this call threw instead of
+  // returning a result.
+  assertInvalid(undefined, { type: "object", properties: {} });
 });
 
 add_task(function test_list_drops_invalid_entries_and_keeps_the_rest() {

@@ -2220,10 +2220,21 @@ MediaResult FFmpegVideoDecoder<LIBAV_VER>::CreateImageVulkan(
 
   auto* devCtx = (AVHWDeviceContext*)mVulkanDeviceContext->data;
   auto* vkDevCtx = (AVVulkanDeviceContext*)devCtx->hwctx;
-  if (!mVulkanDecoder.InitCtx(
-          vkDevCtx->act_dev, vkDevCtx->phys_dev, vkDevCtx->get_proc_addr,
-          vkDevCtx->inst,
-          (uint32_t)std::max<int>(vkDevCtx->queue_family_tx_index, 0))) {
+  uint32_t txQueueFamily = 0;
+#    if LIBAVCODEC_VERSION_MAJOR >= 63
+  // FFmpeg 63 replaced queue_family_tx_index with the qf array.
+  for (int i = 0; i < vkDevCtx->nb_qf; i++) {
+    if (vkDevCtx->qf[i].flags & VK_QUEUE_TRANSFER_BIT) {
+      txQueueFamily = (uint32_t)std::max(vkDevCtx->qf[i].idx, 0);
+      break;
+    }
+  }
+#    else
+  txQueueFamily = (uint32_t)std::max<int>(vkDevCtx->queue_family_tx_index, 0);
+#    endif
+  if (!mVulkanDecoder.InitCtx(vkDevCtx->act_dev, vkDevCtx->phys_dev,
+                              vkDevCtx->get_proc_addr, vkDevCtx->inst,
+                              txQueueFamily)) {
     return MediaResult(
         NS_ERROR_DOM_MEDIA_FATAL_ERR,
         RESULT_DETAIL("Failed to init Vulkan Context structure"));

@@ -9601,19 +9601,21 @@ pub enum CalcAnchorPositioningFunctionResolution {
 
 #[no_mangle]
 pub extern "C" fn Servo_ResolveAnchorFunctionsInCalcPercentage(
-    calc: &computed::length_percentage::CalcLengthPercentage,
+    lp: &computed::LengthPercentage,
     allowed: &AllowAnchorPosResolutionInCalcPercentage,
     params: &AnchorPosOffsetResolutionParams,
     out: &mut CalcAnchorPositioningFunctionResolution,
 ) {
-    let resolved = calc.resolve_anchor(*allowed, params);
-
-    match resolved {
-        Err(()) => *out = CalcAnchorPositioningFunctionResolution::Invalid,
-        Ok((node, clamping_mode)) => {
-            *out = CalcAnchorPositioningFunctionResolution::Valid(
+    use style::values::computed::length_percentage::Unpacked;
+    *out = match lp.unpack() {
+        Unpacked::Calc(c) => match c.resolve_anchor(*allowed, params) {
+            Err(()) => CalcAnchorPositioningFunctionResolution::Invalid,
+            Ok((node, clamping_mode)) => CalcAnchorPositioningFunctionResolution::Valid(
                 computed::LengthPercentage::new_calc(node, clamping_mode),
-            )
+            ),
+        },
+        Unpacked::Length(..) | Unpacked::Percentage(..) => {
+            CalcAnchorPositioningFunctionResolution::Valid(lp.clone())
         },
     };
 }
@@ -11064,7 +11066,7 @@ fn resolve_inset_fallback(
         computed::Inset::AnchorFunction(f) => resolve_anchor_function(f, params, prop_side),
         computed::Inset::AnchorContainingCalcFunction(clp) => {
             let Unpacked::Calc(clp) = clp.unpack() else {
-                unreachable!();
+                return AnchorPositioningFunctionResolution::ResolvedReference(clp as *const _);
             };
             match clp.resolve_anchor(
                 AllowAnchorPosResolutionInCalcPercentage::Both(prop_side),
@@ -11123,7 +11125,7 @@ impl AnchorSizeFallbackResolver for computed::Inset {
             computed::Inset::AnchorSizeFunction(f) => do_resolve_anchor_size(f, params, allowed),
             computed::Inset::AnchorContainingCalcFunction(clp) => {
                 let Unpacked::Calc(clp) = clp.unpack() else {
-                    unreachable!();
+                    return AnchorPositioningFunctionResolution::ResolvedReference(clp as *const _);
                 };
                 match clp.resolve_anchor(allowed, &params) {
                     Ok((node, clamping_mode)) => AnchorPositioningFunctionResolution::Resolved(
@@ -11153,7 +11155,7 @@ impl AnchorSizeFallbackResolver for computed::Margin {
             computed::Margin::AnchorSizeFunction(f) => do_resolve_anchor_size(f, params, allowed),
             computed::Margin::AnchorContainingCalcFunction(clp) => {
                 let Unpacked::Calc(clp) = clp.unpack() else {
-                    unreachable!();
+                    return AnchorPositioningFunctionResolution::ResolvedReference(clp as *const _);
                 };
                 match clp.resolve_anchor(allowed, &params) {
                     Ok((node, clamping_mode)) => AnchorPositioningFunctionResolution::Resolved(
@@ -11190,7 +11192,9 @@ impl AnchorSizeFallbackResolver for computed::Size {
             computed::Size::AnchorSizeFunction(f) => do_resolve_anchor_size(f, params, allowed),
             computed::Size::AnchorContainingCalcFunction(clp) => {
                 let Unpacked::Calc(clp) = clp.0.unpack() else {
-                    unreachable!();
+                    return AnchorPositioningFunctionResolution::ResolvedReference(
+                        &clp.0 as *const _,
+                    );
                 };
                 match clp.resolve_anchor(allowed, &params) {
                     Ok((node, clamping_mode)) => AnchorPositioningFunctionResolution::Resolved(
@@ -11229,7 +11233,9 @@ impl AnchorSizeFallbackResolver for computed::MaxSize {
             computed::MaxSize::AnchorSizeFunction(f) => do_resolve_anchor_size(f, params, allowed),
             computed::MaxSize::AnchorContainingCalcFunction(clp) => {
                 let Unpacked::Calc(clp) = clp.0.unpack() else {
-                    unreachable!();
+                    return AnchorPositioningFunctionResolution::ResolvedReference(
+                        &clp.0 as *const _,
+                    );
                 };
                 match clp.resolve_anchor(allowed, &params) {
                     Ok((node, clamping_mode)) => AnchorPositioningFunctionResolution::Resolved(

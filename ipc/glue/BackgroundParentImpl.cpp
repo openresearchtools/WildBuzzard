@@ -1373,6 +1373,11 @@ BackgroundParentImpl::AllocPServiceWorkerParent(
 IPCResult BackgroundParentImpl::RecvPServiceWorkerConstructor(
     PServiceWorkerParent* aActor,
     const IPCServiceWorkerDescriptor& aDescriptor) {
+  if (!BackgroundParent::ValidatePrincipalInfo(
+          this, aDescriptor.principalInfo(), {})) {
+    return IPC_FAIL(this, "Invalid principal for PServiceWorker");
+  }
+
   dom::InitServiceWorkerParent(aActor, aDescriptor);
   return IPC_OK();
 }
@@ -1400,6 +1405,16 @@ BackgroundParentImpl::RecvPServiceWorkerRegistrationConstructor(
     PServiceWorkerRegistrationParent* aActor,
     const IPCServiceWorkerRegistrationDescriptor& aDescriptor,
     const IPCClientInfo& aForClient) {
+  if (!BackgroundParent::ValidatePrincipalInfo(
+          this, aDescriptor.principalInfo(), {})) {
+    return IPC_FAIL(this, "Invalid principal for PServiceWorkerRegistration");
+  }
+
+  if (!dom::ClientIsValidPrincipalInfo(aForClient.principalInfo(),
+                                       BackgroundParent::GetRemoteType(this))) {
+    return IPC_FAIL(this, "Invalid ClientInfo for PServiceWorkerRegistration");
+  }
+
   dom::InitServiceWorkerRegistrationParent(aActor, aDescriptor, aForClient);
   return IPC_OK();
 }
@@ -1529,6 +1544,10 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvPLockManagerConstructor(
   if (aPrincipalInfo->IsSystemPrincipal() &&
       BackgroundParent::IsOtherProcessActor(this)) {
     return IPC_FAIL_NO_REASON(this);
+  }
+
+  if (!BackgroundParent::ValidatePrincipal(this, aPrincipalInfo, {})) {
+    return IPC_FAIL(this, "Invalid principal for PLockManager");
   }
 
   return IPC_OK();

@@ -809,6 +809,10 @@ nsresult HTMLFormElement::SubmitSubmission(
     return NS_OK;
   }
 
+  if (doc->GetSandboxFlags() & SANDBOXED_FORMS) {
+    return NS_OK;
+  }
+
   // javascript URIs are not really submissions; they just call a function.
   // Also, they may synchronously call submit(), and we want them to be able to
   // do so while still disallowing other double submissions. (Bug 139798)

@@ -41,8 +41,6 @@ const PREF_LOGLEVEL = "browser.policies.loglevel";
 const BROWSER_DOCUMENT_URL = AppConstants.BROWSER_CHROME_URL;
 const ABOUT_CONTRACT = "@mozilla.org/network/protocol/about;1?what=";
 
-const isXpcshell = Services.env.exists("XPCSHELL_TEST_PROFILE_DIR");
-
 ChromeUtils.defineLazyGetter(lazy, "log", () => {
   let { ConsoleAPI } = ChromeUtils.importESModule(
     "resource://gre/modules/Console.sys.mjs"
@@ -87,23 +85,23 @@ export var Policies = {
   // Use the same timing that you used for setting up the policy.
   _cleanup: {
     onBeforeAddons() {
-      if (Cu.isInAutomation || isXpcshell) {
+      if (Cu.isInAutomation) {
         console.log("_cleanup from onBeforeAddons");
         clearBlockedAboutPages();
       }
     },
     onProfileAfterChange() {
-      if (Cu.isInAutomation || isXpcshell) {
+      if (Cu.isInAutomation) {
         console.log("_cleanup from onProfileAfterChange");
       }
     },
     onBeforeUIStartup() {
-      if (Cu.isInAutomation || isXpcshell) {
+      if (Cu.isInAutomation) {
         console.log("_cleanup from onBeforeUIStartup");
       }
     },
     onAllWindowsRestored() {
-      if (Cu.isInAutomation || isXpcshell) {
+      if (Cu.isInAutomation) {
         console.log("_cleanup from onAllWindowsRestored");
       }
     },
@@ -894,6 +892,17 @@ export var Policies = {
     },
   },
 
+  DefaultBrowserSettingEnabled: {
+    onBeforeAddons(manager, param) {
+      if (param) {
+        setAndLockPref("browser.shell.checkDefaultBrowser", true);
+      } else {
+        manager.disallowFeature("setDefaultBrowser");
+        setAndLockPref("browser.shell.checkDefaultBrowser", false);
+      }
+    },
+  },
+
   DefaultDownloadDirectory: {
     onBeforeAddons(manager, param) {
       PoliciesUtils.setDefaultPref(
@@ -1544,7 +1553,9 @@ export var Policies = {
       try {
         manager.setExtensionSettings(param);
       } catch (e) {
-        lazy.log.error("Invalid ExtensionSettings");
+        lazy.log.error(
+          `Some ExtensionSettings could not be applied: ${e.message}`
+        );
       }
       try {
         applyExtensionGuards(param);
