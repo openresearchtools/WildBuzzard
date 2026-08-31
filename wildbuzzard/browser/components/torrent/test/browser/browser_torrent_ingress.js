@@ -9,6 +9,9 @@ const MAGNET = `magnet:?xt=urn:btih:${"1".repeat(40)}&dn=Linux%20fixture`;
 const { TorrentIngressTestUtils } = ChromeUtils.importESModule(
   "resource:///modules/TorrentIngress.sys.mjs"
 );
+const { BrowserControl } = ChromeUtils.importESModule(
+  "chrome://remote/content/wildbuzzard/BrowserControl.sys.mjs"
+);
 
 let calls;
 let confirmations;
@@ -217,6 +220,49 @@ add_task(async function test_user_clicked_torrent_metadata_is_bounded_import() {
   } finally {
     BrowserTestUtils.removeTab(tab);
     TorrentIngressTestUtils.reset();
+  }
+});
+
+add_task(async function test_browser_control_click_is_user_navigation() {
+  configureIngress();
+  const target = `${TEST_ROOT}file_torrent.sjs?attachment=1&nonce=${Date.now()}`;
+  const page = `data:text/html,${encodeURIComponent(`<a href="${target}">Download</a>`)}`;
+  const tab = await BrowserTestUtils.openNewForegroundTab(gBrowser, page);
+  const wasStarted = BrowserControl.started;
+  BrowserControl.start();
+  const pageId = BrowserControl.pageIdFor(tab.linkedBrowser);
+  const clientId = "torrent-ingress-control-test";
+  BrowserControl.pageOwners.set(pageId, clientId);
+  try {
+    const snapshot = await BrowserControl.dispatch(
+      "snapshot",
+      { page: pageId },
+      PathUtils.profileDir,
+      clientId,
+      new AbortController().signal
+    );
+    const link = snapshot.details.refs.find(
+      item => item.role === "link" && item.name === "Download"
+    );
+    Assert.ok(link, "native control exposed the torrent link");
+    await BrowserControl.dispatch(
+      "act",
+      { kind: "click", page: pageId, ref: link.ref },
+      PathUtils.profileDir,
+      clientId,
+      new AbortController().signal
+    );
+    await TestUtils.waitForCondition(
+      () => calls.some(call => call.method === "addTorrentBytes"),
+      "native control click retained explicit user navigation"
+    );
+  } finally {
+    BrowserControl.pageOwners.delete(pageId);
+    BrowserTestUtils.removeTab(tab);
+    TorrentIngressTestUtils.reset();
+    if (!wasStarted) {
+      BrowserControl.stop();
+    }
   }
 });
 

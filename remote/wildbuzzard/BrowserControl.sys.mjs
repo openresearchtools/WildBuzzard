@@ -3528,6 +3528,10 @@ class BrowserControlService {
 
   async actionOrDialog(pageId, action, signal) {
     let finished = false;
+    const settledAction = action.then(async () => {
+      await abortableDelay(ACT_SETTLE_MS, signal);
+      return null;
+    });
     const dialog = (async () => {
       while (!finished) {
         throwIfAborted(signal);
@@ -3540,7 +3544,7 @@ class BrowserControlService {
       return null;
     })();
     try {
-      return await Promise.race([action.then(() => null), dialog]);
+      return await Promise.race([settledAction, dialog]);
     } finally {
       finished = true;
     }
@@ -4700,6 +4704,7 @@ class BrowserControlService {
           });
       if (!(args.background ?? true)) {
         window.gBrowser.selectedTab = tab;
+        window.focus();
       }
       const page = this.pageIdFor(tab.linkedBrowser);
       this.pageOwners.set(page, clientId);

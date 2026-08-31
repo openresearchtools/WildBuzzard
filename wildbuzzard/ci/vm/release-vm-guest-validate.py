@@ -59,10 +59,11 @@ TORRENT_FIXTURE_PIECE_LENGTH = 16 * 1024
 TORRENT_FIXTURE_PAYLOAD = (
     b"WildBuzzard local legal BitTorrent release validation fixture.\n" * 1536
 )
-TEST_DEPENDENCIES = ("python3-pyatspi",)
+TEST_DEPENDENCIES = ("python3-pyatspi", "xdotool")
 ATSPI_HELPER = r"""#!/usr/bin/python3
 import argparse
 import json
+import subprocess
 import time
 
 import pyatspi
@@ -95,6 +96,13 @@ def showing(node):
         return state.contains(pyatspi.STATE_SHOWING) and state.contains(
             pyatspi.STATE_VISIBLE
         )
+    except Exception:
+        return False
+
+
+def active(node):
+    try:
+        return node.getState().contains(pyatspi.STATE_ACTIVE)
     except Exception:
         return False
 
@@ -188,52 +196,73 @@ def find(args, require_action=False):
 def find_address_bar(args):
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
+        address_bars = []
         fallback = []
         for app in applications(args.application):
             for node, ancestors, depth in records(app):
                 if not showing(node):
                     continue
+                if attributes(node).get("id") == "urlbar-input":
+                    address_bars.append(
+                        (any(active(item) for item in ancestors), depth, node)
+                    )
+                    continue
                 node_role = role(node).casefold()
                 if "entry" not in node_role and "text" not in node_role:
                     continue
-                if attributes(node).get("id") == "urlbar-input":
-                    return depth, node
                 if any("toolbar" in role(item).casefold() for item in ancestors):
-                    fallback.append((depth, node))
+                    fallback.append(
+                        (any(active(item) for item in ancestors), depth, node)
+                    )
+        if address_bars:
+            address_bars.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            return address_bars[0][1:]
         if fallback:
-            fallback.sort(key=lambda item: item[0], reverse=True)
-            return fallback[0]
+            fallback.sort(key=lambda item: (item[0], item[1]), reverse=True)
+            return fallback[0][1:]
         time.sleep(0.1)
     raise RuntimeError("WildBuzzard address bar was not exposed through AT-SPI")
 
 
-def chord(modifier, key):
-    pyatspi.Registry.generateKeyboardEvent(0, modifier, pyatspi.KEY_PRESS)
-    try:
-        pyatspi.Registry.generateKeyboardEvent(0, key, pyatspi.KEY_SYM)
-    finally:
-        pyatspi.Registry.generateKeyboardEvent(0, modifier, pyatspi.KEY_RELEASE)
+def click_node(node):
+    extents = node.queryComponent().getExtents(pyatspi.DESKTOP_COORDS)
+    subprocess.run(
+        [
+            "xdotool",
+            "mousemove",
+            "--sync",
+            str(extents.x + max(1, extents.width // 2)),
+            str(extents.y + max(1, extents.height // 2)),
+            "click",
+            "1",
+        ],
+        check=True,
+    )
 
 
 def address_bar_roundtrip(args):
     depth, node = find_address_bar(args)
-    component = node.queryComponent()
-    extents = component.getExtents(pyatspi.DESKTOP_COORDS)
-    pyatspi.Registry.generateMouseEvent(
-        extents.x + max(1, extents.width // 2),
-        extents.y + max(1, extents.height // 2),
-        "b1c",
-    )
-    time.sleep(0.25)
-    if not node.getState().contains(pyatspi.STATE_FOCUSED):
+    deadline = time.monotonic() + 3
+    while time.monotonic() < deadline:
+        click_node(node)
+        time.sleep(0.25)
+        if node.getState().contains(pyatspi.STATE_FOCUSED):
+            break
+    else:
         raise RuntimeError("clicking the WildBuzzard address bar did not focus it")
-    chord("Control_L", "a")
-    pyatspi.Registry.generateKeyboardEvent(0, args.value, pyatspi.KEY_STRING)
-    chord("Control_L", "a")
-    chord("Control_L", "c")
-    pyatspi.Registry.generateKeyboardEvent(0, "discarded", pyatspi.KEY_STRING)
-    chord("Control_L", "a")
-    chord("Control_L", "v")
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
+    subprocess.run(
+        ["xdotool", "type", "--clearmodifiers", "--delay", "10", args.value],
+        check=True,
+    )
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+c"], check=True)
+    subprocess.run(
+        ["xdotool", "type", "--clearmodifiers", "--delay", "10", "discarded"],
+        check=True,
+    )
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
+    subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True)
     time.sleep(0.25)
     text_interface = node.queryText()
     actual = text_interface.getText(0, text_interface.characterCount)
@@ -312,12 +341,19 @@ def main():
             args, require_action=args.operation == "activate"
         )
     if args.operation in {"activate", "accept-dialog"}:
-        interface, index = selected_action
-        if not interface.doAction(index):
-            raise RuntimeError("accessible action failed")
+        click_node(node)
     elif args.operation == "set-text":
-        node.queryComponent().grabFocus()
-        node.queryEditableText().setTextContents(args.value)
+        click_node(node)
+        subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
+        subprocess.run(
+            ["xdotool", "type", "--clearmodifiers", "--delay", "10", args.value],
+            check=True,
+        )
+        time.sleep(0.25)
+        text_interface = node.queryText()
+        actual = text_interface.getText(0, text_interface.characterCount)
+        if actual != args.value:
+            raise RuntimeError(f"text input mismatch: {actual!r} != {args.value!r}")
     print(json.dumps({
         "depth": depth,
         "name": text(node),
@@ -733,14 +769,6 @@ def find_gui_session():
         path.name[1:] for path in pathlib.Path("/tmp/.X11-unix").glob("X[0-9]*")
     )
     display = source.get("DISPLAY", f":{x_displays[0]}" if x_displays else ":0")
-    wayland_sockets = sorted(
-        path.name
-        for path in runtime.glob("wayland-*")
-        if path.is_socket() and not path.name.endswith(".lock")
-    )
-    wayland_display = source.get("WAYLAND_DISPLAY")
-    if not wayland_display and wayland_sockets:
-        wayland_display = wayland_sockets[0]
     authorities = sorted(runtime.glob(".mutter-Xwaylandauth.*"))
     xauthority = source.get("XAUTHORITY")
     if not xauthority and authorities:
@@ -750,6 +778,8 @@ def find_gui_session():
             "DBUS_SESSION_BUS_ADDRESS", f"unix:path={runtime}/bus"
         ),
         "DISPLAY": display,
+        "GDK_BACKEND": "x11",
+        "GNOME_ACCESSIBILITY": "1",
         "HOME": account.pw_dir,
         "LANG": source.get("LANG", "C.UTF-8"),
         "LOGNAME": account.pw_name,
@@ -758,9 +788,6 @@ def find_gui_session():
         "XDG_RUNTIME_DIR": str(runtime),
         "XDG_SESSION_TYPE": source.get("XDG_SESSION_TYPE", "wayland"),
     }
-    if wayland_display:
-        environment["MOZ_ENABLE_WAYLAND"] = "1"
-        environment["WAYLAND_DISPLAY"] = wayland_display
     if xauthority:
         environment["XAUTHORITY"] = xauthority
     for name in (
@@ -810,6 +837,7 @@ def atspi_json(
     contains=False,
     value="",
     timeout=30,
+    required=True,
 ):
     command = [
         "/usr/bin/python3",
@@ -833,7 +861,10 @@ def atspi_json(
     result = runner.run(
         as_user(account, environment, command),
         timeout=timeout + 15,
+        check=required,
     )
+    if result.returncode != 0:
+        return None
     output = parse_json_output(result, label)
     write_json(result_dir / "atspi" / f"{label}.json", output)
     return output
@@ -1362,9 +1393,7 @@ def validate_local_torrent_download(
                 "applied": True,
                 "ids": [fixture.info_hash_hex],
             }:
-                raise RuntimeError(
-                    "WildBuzzard torrent_control contract is invalid"
-                )
+                raise RuntimeError("WildBuzzard torrent_control contract is invalid")
             removed = True
             after_delete = run_wildbuzzard_torrent_json(
                 runner,
@@ -2587,20 +2616,29 @@ def validate_torrent_action_popup(
         "wait",
         "Search torrents",
         role="entry|text",
+        ancestor="Torrent Search",
     )
     perform(
         "torrent-popup-fill-query",
         "set-text",
         "Search torrents",
         role="entry|text",
+        ancestor="Torrent Search",
         value="release fixture",
     )
-    perform("torrent-popup-search", "activate", "Search", role="button")
+    perform(
+        "torrent-popup-search",
+        "activate",
+        "Search",
+        role="button",
+        ancestor="Torrent Search",
+    )
     perform(
         "torrent-popup-wait-review",
         "wait",
         "Review download",
         role="button",
+        ancestor="Torrent Search",
         timeout=45,
     )
     perform(
@@ -2608,18 +2646,21 @@ def validate_torrent_action_popup(
         "activate",
         "Review download",
         role="button",
+        ancestor="Torrent Search",
     )
     perform(
         "torrent-popup-wait-add",
         "wait",
         "Add torrent",
         role="button",
+        ancestor="Torrent Search",
     )
     perform(
         "torrent-popup-add",
         "activate",
         "Add torrent",
         role="button",
+        ancestor="Torrent Search",
     )
     perform(
         "torrent-popup-native-confirm",
@@ -2652,7 +2693,7 @@ def validate_torrent_action_popup(
         "infoHashV1": fixture.info_hash_hex,
         "nativeConfirmation": True,
         "networkScope": "loopback-only",
-        "trustedDesktopActivation": "AT-SPI",
+        "trustedDesktopActivation": "X11 input with AT-SPI targeting",
     }
 
 
@@ -3088,6 +3129,22 @@ def validate_browser(runner, result_dir, account, environment):
     )
     verify_png(screenshots / "fixture-page.png", "fixture page")
     helper = install_atspi_helper(result_dir, account)
+    dismissed_default_prompt = atspi_json(
+        runner,
+        result_dir,
+        account,
+        environment,
+        helper,
+        "wildbuzzard-dismiss-default-browser-prompt",
+        "activate",
+        "Not now",
+        role="button",
+        ancestor="Make WildBuzzard your default browser?",
+        timeout=3,
+        required=False,
+    )
+    if dismissed_default_prompt is not None:
+        time.sleep(1)
     address_bar_value = "https://wildbuzzard.invalid/address-bar-validation"
     address_bar = atspi_json(
         runner,

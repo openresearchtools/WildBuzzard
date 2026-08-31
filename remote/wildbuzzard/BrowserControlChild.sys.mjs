@@ -1699,6 +1699,7 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
         ? armDownloadClickCapture(win, this.browsingContext.id)
         : null;
 
+    const handling = win.windowUtils.setHandlingUserInput(true);
     try {
       switch (args.kind) {
         case "click":
@@ -1933,6 +1934,8 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
     } catch (error) {
       downloadCapture?.stop();
       throw error;
+    } finally {
+      handling.destruct();
     }
     downloadCapture?.stop();
     return {
