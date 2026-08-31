@@ -537,6 +537,7 @@ jobs:
   assemble:
     name: Assemble self-contained amd64 Debian artifact
     needs: [arti, torrent, sources, browser]
+    if: ${{ always() && needs.arti.result == 'success' && needs.torrent.result == 'success' && needs.sources.result == 'success' && needs.browser.result == 'success' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout WildBuzzard
