@@ -5,13 +5,14 @@ set -Eeuo pipefail
 umask 022
 
 usage() {
-  echo "Usage: $0 --wildbuzzard DIR --commit SHA --work-dir DIR --artifact-dir DIR"
+  echo "Usage: $0 --wildbuzzard DIR --commit SHA --work-dir DIR --artifact-dir DIR [--arti-dir DIR]"
 }
 
 wildbuzzard=""
 commit=""
 work_dir=""
 artifact_dir=""
+arti_dir=""
 
 while (($#)); do
   case "$1" in
@@ -19,6 +20,7 @@ while (($#)); do
     --commit) commit="${2:?}"; shift 2 ;;
     --work-dir) work_dir="${2:?}"; shift 2 ;;
     --artifact-dir) artifact_dir="${2:?}"; shift 2 ;;
+    --arti-dir) arti_dir="${2:?}"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -95,14 +97,32 @@ manifest_value() {
   printf '%s\n' "${value}"
 }
 
-arti_root="${work_dir}/arti"
-"${wildbuzzard}/wildbuzzard/scripts/build-arti-runtime.sh" \
-  --build-root "${arti_root}"
-arti_run="$(one_run "${arti_root}")"
-arti_manifest="${arti_run}/build-manifest.txt"
-arti_binary="$(manifest_value "${arti_manifest}" artifact)"
-arti_config="$(manifest_value "${arti_manifest}" config)"
-arti_provenance="$(manifest_value "${arti_manifest}" provenance)"
+if [[ -n "${arti_dir}" ]]; then
+  arti_dir="$(realpath -- "${arti_dir}")"
+  arti_binary="${arti_dir}/arti"
+  arti_config="${arti_dir}/arti.toml"
+  arti_provenance="${arti_dir}/arti-provenance.zip"
+  arti_manifest="${arti_dir}/arti-build-manifest.txt"
+  for input in "${arti_binary}" "${arti_config}" "${arti_provenance}" "${arti_manifest}"; do
+    if [[ ! -f "${input}" || -L "${input}" ]]; then
+      echo "Invalid staged Arti input: ${input}" >&2
+      exit 2
+    fi
+  done
+  if [[ ! -x "${arti_binary}" ]]; then
+    echo "Staged Arti binary is not executable" >&2
+    exit 2
+  fi
+else
+  arti_root="${work_dir}/arti"
+  "${wildbuzzard}/wildbuzzard/scripts/build-arti-runtime.sh" \
+    --build-root "${arti_root}"
+  arti_run="$(one_run "${arti_root}")"
+  arti_manifest="${arti_run}/build-manifest.txt"
+  arti_binary="$(manifest_value "${arti_manifest}" artifact)"
+  arti_config="$(manifest_value "${arti_manifest}" config)"
+  arti_provenance="$(manifest_value "${arti_manifest}" provenance)"
+fi
 
 browser_root="${work_dir}/browser"
 "${wildbuzzard}/wildbuzzard/scripts/build-linux-external.sh" \
