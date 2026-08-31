@@ -584,7 +584,9 @@ jobs:
           set -Eeuo pipefail
           source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
           root="${{ steps.paths.outputs.root }}"
-          chmod 0755 "${root}/arti/arti"
+          chmod 0755 \
+            "${root}/arti/arti" \
+            "${root}/browser/wildbuzzard-native-client"
           cd -- "${source_root}"
           ./wildbuzzard/scripts/package-deb.sh \
             --dist-dir "${root}/browser" \
