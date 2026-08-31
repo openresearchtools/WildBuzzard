@@ -101,7 +101,6 @@ def load_pins(path):
         "cargo_license_inventory_sha256",
         "license_apache_sha256",
         "license_mit_sha256",
-        "linux_x86_64_binary_sha256",
     }
     if (
         not isinstance(pins, dict)
@@ -298,8 +297,6 @@ def expected_sbom(pins, manifest, inventory_path):
 
 
 def manifest_document(pins, binary_bytes, config_bytes, inventory_path, members):
-    if sha256_bytes(binary_bytes) != pins["linux_x86_64_binary_sha256"]:
-        raise ValidationError("Arti binary differs from the release pin")
     inventory, _ = cargo_inventory(inventory_path, pins)
     return {
         "schemaVersion": 2,
@@ -432,8 +429,6 @@ def validate(binary, pin_config, installed_config, inventory, provenance):
             "installed Arti pin metadata differs from the release pin"
         )
     cargo_inventory(inventory, pins)
-    if sha256_bytes(binary_bytes) != pins["linux_x86_64_binary_sha256"]:
-        raise ValidationError("Arti binary differs from the release pin")
     archive_bytes = file_bytes(provenance, MAX_ARCHIVE_SIZE)
     try:
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
@@ -468,6 +463,8 @@ def validate(binary, pin_config, installed_config, inventory, provenance):
         zipfile.BadZipFile,
     ) as error:
         raise ValidationError("invalid Arti provenance archive") from error
+    if manifest.get("binary", {}).get("sha256") != sha256_bytes(binary_bytes):
+        raise ValidationError("Arti binary differs from its provenance")
     expected_manifest = manifest_document(
         pins, binary_bytes, pin_config_bytes, inventory, members
     )

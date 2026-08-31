@@ -271,7 +271,6 @@ class BuildProvenanceTests(unittest.TestCase):
                 f'source_sha256 = "{digests["artiSource"]}"',
                 f'cargo_vendor_sha256 = "{digests["artiCargoVendor"]}"',
                 f'cargo_license_inventory_sha256 = "{MANIFEST.digest(inventory)}"',
-                f'linux_x86_64_binary_sha256 = "{digests["arti"]}"',
             ])
             + "\n",
             encoding="utf-8",

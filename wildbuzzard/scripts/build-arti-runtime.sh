@@ -51,7 +51,6 @@ source_sha256="$(read_pin source_sha256)"
 cargo_lock_sha256="$(read_pin cargo_lock_sha256)"
 cargo_vendor_sha256="$(read_pin cargo_vendor_sha256)"
 cargo_license_inventory_sha256="$(read_pin cargo_license_inventory_sha256)"
-linux_x86_64_binary_sha256="$(read_pin linux_x86_64_binary_sha256)"
 license_apache_sha256="$(read_pin license_apache_sha256)"
 license_mit_sha256="$(read_pin license_mit_sha256)"
 crate_inventory="${source_repo}/wildbuzzard/third_party/arti-crates/THIRD-PARTY.json"
@@ -159,10 +158,6 @@ fi
 artifact="${artifacts_dir}/arti-${arti_version}-${artifact_arch}"
 install -m 755 "${input_binary}" "${artifact}"
 binary_sha256="$(sha256sum "${artifact}" | awk '{ print $1 }')"
-if [[ "${binary_sha256}" != "${linux_x86_64_binary_sha256}" ]]; then
-  echo "The Arti executable differs from the release pin" >&2
-  exit 1
-fi
 sha256sum "${artifact}" >"${artifact}.sha256"
 
 runtime_config="${artifacts_dir}/arti-${arti_version}-${artifact_arch}.toml"

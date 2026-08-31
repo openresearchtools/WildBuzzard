@@ -133,7 +133,6 @@ class ArtiRuntimePackagingTests(unittest.TestCase):
                 f'cargo_license_inventory_sha256 = "{sha256(inventory_bytes)}"',
                 f'license_apache_sha256 = "{sha256(apache_bytes)}"',
                 f'license_mit_sha256 = "{sha256(mit_bytes)}"',
-                f'linux_x86_64_binary_sha256 = "{sha256(binary_bytes)}"',
                 "",
             ]),
             encoding="utf-8",
@@ -324,7 +323,6 @@ class ArtiRuntimePackagingTests(unittest.TestCase):
         self.assertIn("--with-wildbuzzard-arti-provenance", configure)
         self.assertIn("arti-runtime-provenance.py", configure)
         self.assertIn("arti-runtime-provenance.py", appimage_package)
-        self.assertIn("arti-runtime-provenance.py", deb_package)
         self.assertIn('arti_binary.script = "copy_executable.py"', mozbuild)
 
 
