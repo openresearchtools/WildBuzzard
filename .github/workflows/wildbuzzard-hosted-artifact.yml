@@ -33,6 +33,33 @@ jobs:
           echo "WILDBUZZARD_RELEASE_ROOT=${release_root}" >>"${GITHUB_ENV}"
           echo "release_root=${release_root}" >>"${GITHUB_OUTPUT}"
 
+      - name: Free runner disk space
+        run: |
+          set -Eeuo pipefail
+          df -h /
+          unused_paths=(
+            /usr/local/lib/android
+            /usr/share/dotnet
+            /opt/ghc
+            /usr/local/.ghcup
+            /opt/hostedtoolcache/CodeQL
+            /opt/hostedtoolcache/go
+            /opt/hostedtoolcache/PyPy
+            /opt/hostedtoolcache/Ruby
+            /usr/local/share/boost
+          )
+          for path in "${unused_paths[@]}"; do
+            if [[ -e "${path}" ]]; then
+              sudo rm -rf --one-file-system -- "${path}"
+            fi
+          done
+          if command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+            sudo docker system prune --all --force
+          fi
+          sudo apt-get clean
+          sudo find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          df -h /
+
       - name: Checkout WildBuzzard
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
