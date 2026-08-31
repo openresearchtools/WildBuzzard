@@ -170,7 +170,7 @@
 #endif
 @BINPATH@/@MOZ_APP_NAME@
 #endif
-#ifdef WILDBUZZARD_ARTI_RUNTIME
+#if WILDBUZZARD_ARTI_RUNTIME
 @BINPATH@/runtime/tor/arti@BIN_SUFFIX@
 @BINPATH@/runtime/tor/arti.toml
 @BINPATH@/notices/source/wildbuzzard-arti-2.5.1-provenance.zip
