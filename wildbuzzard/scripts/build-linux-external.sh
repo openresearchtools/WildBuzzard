@@ -10,7 +10,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --action ACTION    configure, build, test, deb, package, appimage, or all (default: build)"
+  echo "  --action ACTION    configure, build, gkrust, test, deb, package, appimage, or all (default: build)"
   echo "  --build-root DIR   external build root (default: ../wildbuzzard-builds)"
   echo "  --jobs NUMBER      parallel build jobs (default: all logical CPUs)"
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
@@ -100,7 +100,7 @@ if [[ -n "${arti_binary}" || -n "${arti_config}" || -n "${arti_provenance}" ]]; 
 fi
 
 case "${action}" in
-  configure|build|test|deb|package|appimage|all) ;;
+  configure|build|gkrust|test|deb|package|appimage|all) ;;
   *)
     echo "Unsupported action: ${action}" >&2
     exit 2
@@ -365,6 +365,11 @@ case "${action}" in
     ;;
   build)
     run_step build ./mach build
+    ;;
+  gkrust)
+    run_step configure ./mach configure
+    run_step gkrust ./mach build \
+      toolkit/library/rust/force-cargo-library-build
     ;;
   test)
     run_step build ./mach build

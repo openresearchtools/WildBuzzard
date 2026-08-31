@@ -1,0 +1,156 @@
+name: WildBuzzard gkrust diagnostic artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      arti_run_id:
+        description: Successful WildBuzzard Arti workflow run ID
+        required: true
+        type: string
+      arti_artifact_name:
+        description: Arti artifact name from that run
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  gkrust:
+    name: Build release libgkrust.a
+    runs-on: ubuntu-24.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+    steps:
+      - name: Prepare directories and free runner space
+        id: paths
+        run: |
+          set -Eeuo pipefail
+          release_root="${RUNNER_TEMP}/wildbuzzard-gkrust-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p -- "${release_root}/arti-input" "${release_root}/artifacts" "${release_root}/logs"
+          echo "release_root=${release_root}" >>"${GITHUB_OUTPUT}"
+          df -h /
+          unused_paths=(
+            /usr/local/lib/android
+            /usr/share/dotnet
+            /opt/ghc
+            /usr/local/.ghcup
+            /opt/hostedtoolcache/CodeQL
+            /opt/hostedtoolcache/go
+            /opt/hostedtoolcache/PyPy
+            /opt/hostedtoolcache/Ruby
+            /usr/local/share/boost
+          )
+          for path in "${unused_paths[@]}"; do
+            if [[ -e "${path}" ]]; then
+              sudo rm -rf --one-file-system -- "${path}"
+            fi
+          done
+          if command -v docker >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
+            sudo docker system prune --all --force
+          fi
+          sudo apt-get clean
+          sudo find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          sudo fallocate --length 8G /mnt/wildbuzzard-gkrust.swap
+          sudo chmod 0600 /mnt/wildbuzzard-gkrust.swap
+          sudo mkswap /mnt/wildbuzzard-gkrust.swap
+          sudo swapon /mnt/wildbuzzard-gkrust.swap
+          df -h /
+          free -h
+          swapon --show
+
+      - name: Checkout WildBuzzard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source/wildbuzzard
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download pinned Arti runtime
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.arti_artifact_name }}
+          path: ${{ steps.paths.outputs.release_root }}/arti-input
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.arti_run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Enable resumable compiler cache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.17.0
+
+      - name: Prepare browser toolchain
+        run: |
+          set -Eeuo pipefail
+          source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          work_root="${GITHUB_WORKSPACE}/.wildbuzzard-gkrust"
+          arti_rust="$(
+            awk -F' = ' '$1 == "build_rustc" { print $2 }' \
+              "${source_root}/wildbuzzard/third_party/arti.toml" |
+              sed -E 's/^"rustc ([0-9.]+).*/\1/'
+          )"
+          chmod 0755 "${{ steps.paths.outputs.release_root }}/arti-input/arti"
+          rustup toolchain install "${arti_rust}" --profile minimal
+          rustup default "${arti_rust}"
+          export MOZBUILD_STATE_PATH="${work_root}/state"
+          cd -- "${source_root}"
+          ./mach --no-interactive bootstrap --application-choice browser \
+            2>&1 | tee "${{ steps.paths.outputs.release_root }}/logs/bootstrap.log"
+
+      - name: Build only release gkrust static library
+        run: |
+          set -Eeuo pipefail
+          source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          work_root="${GITHUB_WORKSPACE}/.wildbuzzard-gkrust"
+          release_root="${{ steps.paths.outputs.release_root }}"
+          export CI=1
+          export MOZBUILD_STATE_PATH="${work_root}/state"
+          export WILDBUZZARD_BUILD_RUN_ID=gkrust
+          "${source_root}/wildbuzzard/scripts/build-linux-external.sh" \
+            --action gkrust \
+            --build-root "${work_root}" \
+            --jobs 1 \
+            --ref HEAD \
+            --arti-binary "${release_root}/arti-input/arti" \
+            --arti-config "${release_root}/arti-input/arti.toml" \
+            --arti-provenance "${release_root}/arti-input/arti-provenance.zip" \
+            2>&1 | tee "${release_root}/logs/gkrust-build.log"
+          mapfile -d '' -t libraries < <(
+            find "${work_root}/runs/gkrust/obj" -type f -name libgkrust.a -print0
+          )
+          if ((${#libraries[@]} != 1)); then
+            echo "Expected one libgkrust.a, found ${#libraries[@]}" >&2
+            exit 1
+          fi
+          install -m 0644 -- "${libraries[0]}" "${release_root}/artifacts/libgkrust.a"
+          install -m 0644 -- \
+            "${work_root}/runs/gkrust/build-manifest.txt" \
+            "${release_root}/artifacts/gkrust-build-manifest.txt"
+          (
+            cd -- "${release_root}/artifacts"
+            sha256sum libgkrust.a gkrust-build-manifest.txt >SHA256SUMS
+            sha256sum --check --strict SHA256SUMS
+          )
+
+      - name: Upload gkrust diagnostic artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-gkrust-${{ github.sha }}
+          path: ${{ steps.paths.outputs.release_root }}/artifacts/**
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Upload gkrust build logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-gkrust-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ steps.paths.outputs.release_root }}/logs/**
+            ${{ github.workspace }}/.wildbuzzard-gkrust/runs/gkrust/logs/**
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
