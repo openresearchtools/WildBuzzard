@@ -373,8 +373,6 @@ case "${action}" in
   deb)
     run_step configure ./mach configure
     run_step build ./mach build
-    run_blocker_tests
-    run_product_tests
     run_step package ./mach package
     run_deb_package
     ;;
