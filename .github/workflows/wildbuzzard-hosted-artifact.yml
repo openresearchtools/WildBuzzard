@@ -6,10 +6,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: wildbuzzard-hosted-artifact-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   artifact:
     name: Build amd64 Debian artifact
