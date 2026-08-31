@@ -57,6 +57,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          browser_work="${GITHUB_WORKSPACE}/.wildbuzzard-build"
           arti_rust="$(
             awk -F' = ' '$1 == "build_rustc" { print $2 }' \
               "${source_root}/wildbuzzard/third_party/arti.toml" |
@@ -65,7 +66,7 @@ jobs:
           chmod 0755 "${WILDBUZZARD_RELEASE_ROOT}/arti-input/arti"
           rustup toolchain install "${arti_rust}" --profile minimal
           rustup default "${arti_rust}"
-          export MOZBUILD_STATE_PATH="${WILDBUZZARD_RELEASE_ROOT}/work/browser/state"
+          export MOZBUILD_STATE_PATH="${browser_work}/browser/state"
           cd -- "${source_root}"
           ./mach --no-interactive bootstrap --application-choice browser \
             2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/bootstrap.log"
@@ -74,11 +75,12 @@ jobs:
         run: |
           set -Eeuo pipefail
           export CI=1
-          export MOZBUILD_STATE_PATH="${WILDBUZZARD_RELEASE_ROOT}/work/browser/state"
+          export MOZBUILD_STATE_PATH="${GITHUB_WORKSPACE}/.wildbuzzard-build/browser/state"
+          export WILDBUZZARD_BUILD_RUN_ID=hosted
           "${GITHUB_WORKSPACE}/source/wildbuzzard/wildbuzzard/ci/build-browser-artifact.sh" \
             --wildbuzzard "${GITHUB_WORKSPACE}/source/wildbuzzard" \
             --commit "${GITHUB_SHA}" \
-            --work-dir "${WILDBUZZARD_RELEASE_ROOT}/work" \
+            --work-dir "${GITHUB_WORKSPACE}/.wildbuzzard-build" \
             --artifact-dir "${WILDBUZZARD_RELEASE_ROOT}/artifacts" \
             --arti-dir "${WILDBUZZARD_RELEASE_ROOT}/arti-input" \
             2>&1 | tee "${WILDBUZZARD_RELEASE_ROOT}/logs/browser-build.log"

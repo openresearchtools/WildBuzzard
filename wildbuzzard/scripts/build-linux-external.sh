@@ -134,7 +134,7 @@ esac
 commit="$(git -C "${source_repo}" rev-parse --verify "${build_ref}^{commit}")"
 short_commit="$(git -C "${source_repo}" rev-parse --short=12 "${commit}")"
 source_date_epoch="$(git -C "${source_repo}" show -s --format=%ct "${commit}")"
-run_id="$(date -u +%Y%m%dT%H%M%SZ)-${short_commit}-$$"
+run_id="${WILDBUZZARD_BUILD_RUN_ID:-$(date -u +%Y%m%dT%H%M%SZ)-${short_commit}-$$}"
 run_root="${build_root}/runs/${run_id}"
 checkout_dir="${run_root}/source"
 object_dir="${run_root}/obj"
@@ -217,9 +217,8 @@ export SOURCE_DATE_EPOCH="${source_date_epoch}"
 export CCACHE_DIR="${ccache_dir}"
 export SCCACHE_DIR="${sccache_dir}"
 export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-50G}"
-# Normalize the per-run checkout prefix out of cache keys. Without this,
-# otherwise identical source files in fresh runner directories miss the cache.
-export SCCACHE_BASEDIRS="${checkout_dir}"
+# Normalize source and object roots so fresh runners share cache keys.
+export SCCACHE_BASEDIRS="${run_root}:${checkout_dir}:${object_dir}"
 
 run_step() {
   local name="$1"
