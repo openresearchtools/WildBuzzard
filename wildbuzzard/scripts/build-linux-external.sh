@@ -228,7 +228,7 @@ run_step() {
   if (
     cd -- "${checkout_dir}"
     "$@"
-  ) >"${log_file}" 2>&1; then
+  ) 2>&1 | tee "${log_file}"; then
     echo "Completed ${name}; log: ${log_file}"
   else
     local status=$?
