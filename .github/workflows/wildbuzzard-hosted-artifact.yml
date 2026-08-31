@@ -27,12 +27,30 @@ jobs:
           mkdir -p -- "${root}"
           echo "root=${root}" >>"${GITHUB_OUTPUT}"
 
+      - name: Compute Arti build input digest
+        id: inputs
+        run: |
+          set -Eeuo pipefail
+          source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          digest="$(
+            git -C "${source_root}" ls-files --stage -- \
+              third_party/arti \
+              wildbuzzard/third_party/arti.toml \
+              wildbuzzard/third_party/arti-crates \
+              wildbuzzard/scripts/build-arti-runtime.sh \
+              wildbuzzard/scripts/arti-runtime-provenance.py \
+              wildbuzzard/scripts/arti_crate_provenance.py |
+              sha256sum | awk '{print $1}'
+          )"
+          test "${#digest}" -eq 64
+          echo "digest=${digest}" >>"${GITHUB_OUTPUT}"
+
       - name: Restore pinned Arti artifact
         id: cache
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ${{ steps.paths.outputs.root }}/stage
-          key: wildbuzzard-arti-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('source/wildbuzzard/wildbuzzard/third_party/arti.toml', 'source/wildbuzzard/third_party/arti/**', 'source/wildbuzzard/wildbuzzard/scripts/build-arti-runtime.sh', 'source/wildbuzzard/wildbuzzard/scripts/arti-runtime-provenance.py', 'source/wildbuzzard/wildbuzzard/scripts/arti_crate_provenance.py', 'source/wildbuzzard/wildbuzzard/third_party/arti-crates/**') }}
+          key: wildbuzzard-arti-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.digest }}
 
       - name: Build pinned Arti artifact
         if: steps.cache.outputs.cache-hit != 'true'
@@ -106,12 +124,34 @@ jobs:
           mkdir -p -- "${root}"
           echo "root=${root}" >>"${GITHUB_OUTPUT}"
 
+      - name: Compute qBittorrent build input digest
+        id: inputs
+        run: |
+          set -Eeuo pipefail
+          source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          digest="$(
+            git -C "${source_root}" ls-files --stage -- \
+              COPYING \
+              wildbuzzard/browser/components/torrent \
+              wildbuzzard/ci/build-qbittorrent-artifact.sh \
+              wildbuzzard/scripts/build-qbittorrent-runtime.sh \
+              wildbuzzard/scripts/generate-qbittorrent-runtime-provenance.py \
+              wildbuzzard/scripts/generate-torrent-document-sources.py \
+              wildbuzzard/third_party/bsd3/libtorrent \
+              wildbuzzard/third_party/gpl2/qbittorrent \
+              wildbuzzard/third_party/lgpl3/qt/source.lock.json \
+              wildbuzzard/upstreams.toml |
+              sha256sum | awk '{print $1}'
+          )"
+          test "${#digest}" -eq 64
+          echo "digest=${digest}" >>"${GITHUB_OUTPUT}"
+
       - name: Restore native qBittorrent artifact
         id: cache
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ${{ steps.paths.outputs.root }}/stage
-          key: wildbuzzard-qbittorrent-v1-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('source/wildbuzzard/COPYING', 'source/wildbuzzard/wildbuzzard/scripts/build-qbittorrent-runtime.sh', 'source/wildbuzzard/wildbuzzard/scripts/generate-qbittorrent-runtime-provenance.py', 'source/wildbuzzard/wildbuzzard/scripts/generate-torrent-document-sources.py', 'source/wildbuzzard/wildbuzzard/ci/build-qbittorrent-artifact.sh', 'source/wildbuzzard/wildbuzzard/browser/components/torrent/**', 'source/wildbuzzard/wildbuzzard/third_party/bsd3/libtorrent/**', 'source/wildbuzzard/wildbuzzard/third_party/gpl2/qbittorrent/**', 'source/wildbuzzard/wildbuzzard/third_party/lgpl3/qt/source.lock.json', 'source/wildbuzzard/wildbuzzard/upstreams.toml') }}
+          key: wildbuzzard-qbittorrent-v2-${{ runner.os }}-${{ runner.arch }}-${{ steps.inputs.outputs.digest }}
 
       - name: Prepare qBittorrent toolchain
         if: steps.cache.outputs.cache-hit != 'true'
@@ -194,12 +234,32 @@ jobs:
           mkdir -p -- "${root}"
           echo "root=${root}" >>"${GITHUB_OUTPUT}"
 
+      - name: Compute source-bundle input digest
+        id: inputs
+        run: |
+          set -Eeuo pipefail
+          source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          digest="$(
+            git -C "${source_root}" ls-files --stage -- \
+              browser/components/blocker/assets/SOURCES.lock.json \
+              browser/components/blocker/assets/resources \
+              browser/components/blocker/scripts \
+              wildbuzzard/BLOCKER-ASSET-SOURCE-NOTICE \
+              wildbuzzard/components/wildbuzzard-cli/runner/Cargo.lock \
+              wildbuzzard/components/wildbuzzard-cli/runner/third_party \
+              wildbuzzard/scripts/blocker_asset_provenance.py \
+              wildbuzzard/scripts/runner_crate_provenance.py |
+              sha256sum | awk '{print $1}'
+          )"
+          test "${#digest}" -eq 64
+          echo "digest=${digest}" >>"${GITHUB_OUTPUT}"
+
       - name: Restore corresponding-source bundles
         id: cache
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
           path: ${{ steps.paths.outputs.root }}/stage
-          key: wildbuzzard-sources-v1-${{ runner.os }}-${{ hashFiles('source/wildbuzzard/wildbuzzard/scripts/runner_crate_provenance.py', 'source/wildbuzzard/wildbuzzard/scripts/blocker_asset_provenance.py', 'source/wildbuzzard/wildbuzzard/components/wildbuzzard-cli/runner/Cargo.lock', 'source/wildbuzzard/wildbuzzard/components/wildbuzzard-cli/runner/third_party/**', 'source/wildbuzzard/wildbuzzard/BLOCKER-ASSET-SOURCE-NOTICE', 'source/wildbuzzard/browser/components/blocker/assets/SOURCES.lock.json', 'source/wildbuzzard/browser/components/blocker/assets/resources/**', 'source/wildbuzzard/browser/components/blocker/scripts/**') }}
+          key: wildbuzzard-sources-v2-${{ runner.os }}-${{ steps.inputs.outputs.digest }}
 
       - name: Build corresponding-source bundles
         if: steps.cache.outputs.cache-hit != 'true'
