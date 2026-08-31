@@ -22,6 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       SCCACHE_GHA_ENABLED: "true"
+      WILDBUZZARD_BUILD_JOBS: "1"
     steps:
       - name: Prepare artifact directories
         id: paths

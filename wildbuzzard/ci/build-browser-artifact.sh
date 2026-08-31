@@ -128,7 +128,7 @@ browser_root="${work_dir}/browser"
 "${wildbuzzard}/wildbuzzard/scripts/build-linux-external.sh" \
   --action deb \
   --build-root "${browser_root}" \
-  --jobs "$(nproc)" \
+  --jobs "${WILDBUZZARD_BUILD_JOBS:-$(nproc)}" \
   --ref HEAD \
   --arti-binary "${arti_binary}" \
   --arti-config "${arti_config}" \
