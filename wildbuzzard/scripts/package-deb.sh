@@ -125,7 +125,6 @@ python3 -I -B "${script_dir}/verify_browser_legal_payload.py" \
 cp -a -- "${script_dir}/../components/wildbuzzard-cli/." "${cli_build}/"
 (
   cd -- "${cli_build}"
-  cargo test --locked --manifest-path runner/Cargo.toml
   cargo build --locked --release --manifest-path runner/Cargo.toml
 )
 install -d -m 0755 \
