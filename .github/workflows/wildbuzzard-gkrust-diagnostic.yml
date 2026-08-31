@@ -1,6 +1,16 @@
 name: WildBuzzard gkrust diagnostic artifact
 
 on:
+  workflow_call:
+    inputs:
+      arti_run_id:
+        description: Successful WildBuzzard Arti workflow run ID
+        required: true
+        type: string
+      arti_artifact_name:
+        description: Arti artifact name from that run
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       arti_run_id:

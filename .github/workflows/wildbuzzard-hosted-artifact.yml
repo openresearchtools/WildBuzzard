@@ -17,8 +17,16 @@ permissions:
   contents: read
 
 jobs:
+  gkrust:
+    name: Prove release gkrust build
+    uses: ./.github/workflows/wildbuzzard-gkrust-diagnostic.yml
+    with:
+      arti_run_id: ${{ inputs.arti_run_id }}
+      arti_artifact_name: ${{ inputs.arti_artifact_name }}
+
   browser:
     name: Build amd64 Debian artifact
+    needs: gkrust
     runs-on: ubuntu-24.04
     env:
       SCCACHE_GHA_ENABLED: "true"
