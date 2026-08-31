@@ -379,7 +379,7 @@ jobs:
           retention-days: 7
 
   browser:
-    name: Build or reuse Firefox and gkrust package
+    name: Build or restore complete WildBuzzard browser package
     needs: [arti, torrent, sources, gkrust]
     runs-on: ubuntu-24.04
     env:
@@ -436,7 +436,7 @@ jobs:
           test "${#digest}" -eq 64
           echo "digest=${digest}" >>"${GITHUB_OUTPUT}"
 
-      - name: Restore browser package artifact
+      - name: Restore complete browser package artifact
         id: cache
         uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
         with:
@@ -489,7 +489,7 @@ jobs:
           ./mach --no-interactive bootstrap --application-choice browser \
             2>&1 | tee "${{ steps.paths.outputs.root }}/bootstrap.log"
 
-      - name: Build Firefox and gkrust package
+      - name: Build complete browser package using warmed compiler cache
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
           set -Eeuo pipefail
