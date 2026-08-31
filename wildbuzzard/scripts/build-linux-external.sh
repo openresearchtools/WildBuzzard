@@ -368,6 +368,7 @@ case "${action}" in
     ;;
   gkrust)
     run_step configure ./mach configure
+    run_step pre-export ./mach build pre-export
     run_step gkrust ./mach build \
       toolkit/library/rust/force-cargo-library-build
     ;;
