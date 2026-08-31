@@ -457,7 +457,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let path = env::temp_dir().join(format!("wb-{}-{nonce:x}", std::process::id()));
+        let path = Path::new("/tmp").join(format!("wb-{}-{nonce:x}", std::process::id()));
         fs::create_dir(&path).unwrap();
         path
     }

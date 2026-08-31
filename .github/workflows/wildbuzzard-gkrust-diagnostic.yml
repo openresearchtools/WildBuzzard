@@ -109,6 +109,10 @@ jobs:
           ./mach --no-interactive bootstrap --application-choice browser \
             2>&1 | tee "${{ steps.paths.outputs.release_root }}/logs/bootstrap.log"
 
+      - name: Validate native client before long build
+        working-directory: source/wildbuzzard/wildbuzzard/components/wildbuzzard-cli/runner
+        run: cargo test --locked
+
       - name: Build only release gkrust static library
         run: |
           set -Eeuo pipefail
