@@ -291,6 +291,34 @@ class AptInstallTests(unittest.TestCase):
             )
         runner.run.assert_not_called()
 
+    def test_allow_installed_reinstalls_exact_local_files(self):
+        artifacts = valid_manifest()["artifacts"]
+        expected = {entry["package"]: entry["version"] for entry in artifacts}
+        calls = []
+
+        class FakeRunner:
+            def run(self, command, **options):
+                calls.append((command, options))
+                return types.SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with temporary_directory() as directory, mock.patch.object(
+            guest, "installed_packages", side_effect=[expected, expected]
+        ), mock.patch.object(
+            guest.pathlib.Path, "is_file", return_value=True
+        ), mock.patch.object(guest.os, "access", return_value=True):
+            guest.install_packages(
+                FakeRunner(),
+                artifacts,
+                pathlib.Path(directory),
+                allow_installed=True,
+            )
+        install = next(
+            command
+            for command, _options in calls
+            if command[:2] == ["apt-get", "install"]
+        )
+        self.assertIn("--reinstall", install)
+
 
 class LocalTorrentValidationTests(unittest.TestCase):
     def test_loopback_tracker_and_peer_serve_exact_fixture_bytes(self):

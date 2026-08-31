@@ -1164,15 +1164,16 @@ def install_packages(runner, artifacts, staging, allow_installed):
     environment["DEBIAN_FRONTEND"] = "noninteractive"
     runner.run(["apt-get", "update"], env=environment, timeout=900)
     paths = [staging / entry["filename"] for entry in artifacts]
+    install_command = [
+        "apt-get",
+        "install",
+        "-y",
+        "--no-install-recommends",
+    ]
+    if allow_installed:
+        install_command.append("--reinstall")
     runner.run(
-        [
-            "apt-get",
-            "install",
-            "-y",
-            "--no-install-recommends",
-            *TEST_DEPENDENCIES,
-            *paths,
-        ],
+        [*install_command, *TEST_DEPENDENCIES, *paths],
         env=environment,
         timeout=1200,
     )
