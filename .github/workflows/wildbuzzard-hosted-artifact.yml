@@ -10,7 +10,6 @@ jobs:
   artifact:
     name: Build amd64 Debian artifact
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
     steps:
       - name: Prepare artifact directories
         id: paths
@@ -111,16 +110,6 @@ jobs:
           path: source/wildbuzzard
           fetch-depth: 1
           persist-credentials: false
-
-      - name: Record flattened source size
-        run: |
-          set -Eeuo pipefail
-          {
-            echo "After checkout"
-            du -sh "${GITHUB_WORKSPACE}/source"
-            du -sh --exclude=.git "${GITHUB_WORKSPACE}/source/wildbuzzard"
-            df -h
-          } | tee -a "${WILDBUZZARD_RELEASE_ROOT}/logs/host-disk.txt"
 
       - name: Prepare direct browser toolchain
         run: |
