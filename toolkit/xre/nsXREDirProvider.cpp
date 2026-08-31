@@ -1410,7 +1410,7 @@ bool nsXREDirProvider::LegacyHomeExists(nsIFile** aFile) {
   NS_ENSURE_SUCCESS(rv, false);
 
   // Give a chance to (3)
-  if (!exists) {
+  if (!exists && !IsWildBuzzardApp()) {
     nsCOMPtr<nsIFile> userDir;
     rv = parentDir->Clone(getter_AddRefs(userDir));
     NS_ENSURE_SUCCESS(rv, false);
