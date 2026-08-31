@@ -20,6 +20,8 @@ jobs:
   browser:
     name: Build amd64 Debian artifact
     runs-on: ubuntu-24.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
     steps:
       - name: Prepare artifact directories
         id: paths
@@ -45,6 +47,11 @@ jobs:
           repository: ${{ github.repository }}
           run-id: ${{ inputs.arti_run_id }}
           github-token: ${{ github.token }}
+
+      - name: Enable resumable compiler cache
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
+        with:
+          version: v0.17.0
 
       - name: Prepare browser toolchain
         run: |

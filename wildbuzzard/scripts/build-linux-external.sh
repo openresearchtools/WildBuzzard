@@ -351,7 +351,9 @@ fi
     echo "ac_add_options --with-wildbuzzard-arti-config=${arti_config}"
     echo "ac_add_options --with-wildbuzzard-arti-provenance=${arti_provenance}"
   fi
-  if [[ -x "${state_dir}/sccache/sccache" ]]; then
+  if [[ -n "${SCCACHE_PATH:-}" && -x "${SCCACHE_PATH}" ]]; then
+    echo "ac_add_options --with-ccache=${SCCACHE_PATH}"
+  elif [[ -x "${state_dir}/sccache/sccache" ]]; then
     echo "ac_add_options --with-ccache=${state_dir}/sccache/sccache"
   elif command -v ccache >/dev/null 2>&1; then
     echo "ac_add_options --with-ccache=$(command -v ccache)"
