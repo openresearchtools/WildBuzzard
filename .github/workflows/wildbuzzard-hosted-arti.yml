@@ -1,0 +1,82 @@
+name: WildBuzzard Ubuntu 24.04 Arti runtime
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  arti:
+    name: Build pinned Arti runtime
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Prepare Arti directories
+        id: paths
+        run: |
+          set -Eeuo pipefail
+          root="${RUNNER_TEMP}/wildbuzzard-arti-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          mkdir -p -- "${root}/build" "${root}/stage"
+          echo "root=${root}" >>"${GITHUB_OUTPUT}"
+
+      - name: Checkout WildBuzzard
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: source/wildbuzzard
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Build pinned Arti runtime
+        run: |
+          set -Eeuo pipefail
+          source_root="${GITHUB_WORKSPACE}/source/wildbuzzard"
+          build_root="${{ steps.paths.outputs.root }}/build"
+          stage="${{ steps.paths.outputs.root }}/stage"
+          arti_commit="$(
+            awk -F' = ' '$1 == "commit" { gsub(/^"|"$/, "", $2); print $2 }' \
+              "${source_root}/wildbuzzard/third_party/arti.toml"
+          )"
+          arti_rust="$(
+            awk -F' = ' '$1 == "build_rustc" { print $2 }' \
+              "${source_root}/wildbuzzard/third_party/arti.toml" |
+              sed -E 's/^"rustc ([0-9.]+).*/\1/'
+          )"
+          git -C "${source_root}" fetch --no-tags --depth=1 origin "${arti_commit}"
+          rustup toolchain install "${arti_rust}" --profile minimal
+          rustup default "${arti_rust}"
+          "${source_root}/wildbuzzard/scripts/build-arti-runtime.sh" \
+            --build-root "${build_root}"
+          mapfile -d '' -t runs < <(
+            find "${build_root}/runs" -mindepth 1 -maxdepth 1 -type d -print0
+          )
+          if ((${#runs[@]} != 1)); then
+            echo "Expected one Arti build run, found ${#runs[@]}" >&2
+            exit 1
+          fi
+          manifest="${runs[0]}/build-manifest.txt"
+          manifest_value() {
+            sed -n "s/^$1=//p" "${manifest}"
+          }
+          install -m 0755 -- "$(manifest_value artifact)" "${stage}/arti"
+          install -m 0644 -- "$(manifest_value config)" "${stage}/arti.toml"
+          install -m 0644 -- "$(manifest_value provenance)" "${stage}/arti-provenance.zip"
+          install -m 0644 -- "${manifest}" "${stage}/arti-build-manifest.txt"
+
+      - name: Upload pinned Arti runtime
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-arti-${{ github.sha }}
+          path: ${{ steps.paths.outputs.root }}/stage/**
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
+      - name: Upload Arti build logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wildbuzzard-arti-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.paths.outputs.root }}/build/**/*.log
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
