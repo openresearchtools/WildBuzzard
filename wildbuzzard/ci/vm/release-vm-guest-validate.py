@@ -99,6 +99,17 @@ def showing(node):
         return False
 
 
+def attributes(node):
+    try:
+        return dict(
+            item.split(":", 1)
+            for item in node.getAttributes()
+            if ":" in item
+        )
+    except Exception:
+        return {}
+
+
 def records(root):
     result = []
     stack = [(root, (), 0)]
@@ -174,6 +185,65 @@ def find(args, require_action=False):
     raise RuntimeError(f"accessible target not found: {args.name!r} ({args.role!r})")
 
 
+def find_address_bar(args):
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        fallback = []
+        for app in applications(args.application):
+            for node, ancestors, depth in records(app):
+                if not showing(node):
+                    continue
+                node_role = role(node).casefold()
+                if "entry" not in node_role and "text" not in node_role:
+                    continue
+                if attributes(node).get("id") == "urlbar-input":
+                    return depth, node
+                if any("toolbar" in role(item).casefold() for item in ancestors):
+                    fallback.append((depth, node))
+        if fallback:
+            fallback.sort(key=lambda item: item[0], reverse=True)
+            return fallback[0]
+        time.sleep(0.1)
+    raise RuntimeError("WildBuzzard address bar was not exposed through AT-SPI")
+
+
+def chord(modifier, key):
+    pyatspi.Registry.generateKeyboardEvent(0, modifier, pyatspi.KEY_PRESS)
+    try:
+        pyatspi.Registry.generateKeyboardEvent(0, key, pyatspi.KEY_SYM)
+    finally:
+        pyatspi.Registry.generateKeyboardEvent(0, modifier, pyatspi.KEY_RELEASE)
+
+
+def address_bar_roundtrip(args):
+    depth, node = find_address_bar(args)
+    component = node.queryComponent()
+    extents = component.getExtents(pyatspi.DESKTOP_COORDS)
+    pyatspi.Registry.generateMouseEvent(
+        extents.x + max(1, extents.width // 2),
+        extents.y + max(1, extents.height // 2),
+        "b1c",
+    )
+    time.sleep(0.25)
+    if not node.getState().contains(pyatspi.STATE_FOCUSED):
+        raise RuntimeError("clicking the WildBuzzard address bar did not focus it")
+    chord("Control_L", "a")
+    pyatspi.Registry.generateKeyboardEvent(0, args.value, pyatspi.KEY_STRING)
+    chord("Control_L", "a")
+    chord("Control_L", "c")
+    pyatspi.Registry.generateKeyboardEvent(0, "discarded", pyatspi.KEY_STRING)
+    chord("Control_L", "a")
+    chord("Control_L", "v")
+    time.sleep(0.25)
+    text_interface = node.queryText()
+    actual = text_interface.getText(0, text_interface.characterCount)
+    if actual != args.value:
+        raise RuntimeError(
+            f"address-bar copy/paste mismatch: {actual!r} != {args.value!r}"
+        )
+    return depth, node, actual
+
+
 def accept_dialog(args):
     deadline = time.monotonic() + args.timeout
     accepted = {"accept", "add", "ok", "open", "yes"}
@@ -213,7 +283,16 @@ def accept_dialog(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("operation", choices=("activate", "accept-dialog", "set-text", "wait"))
+    parser.add_argument(
+        "operation",
+        choices=(
+            "activate",
+            "accept-dialog",
+            "address-bar-roundtrip",
+            "set-text",
+            "wait",
+        ),
+    )
     parser.add_argument("--application", default="WildBuzzard")
     parser.add_argument("--name", required=True)
     parser.add_argument("--role", default="")
@@ -222,7 +301,11 @@ def main():
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--value", default="")
     args = parser.parse_args()
-    if args.operation == "accept-dialog":
+    actual = None
+    if args.operation == "address-bar-roundtrip":
+        depth, node, actual = address_bar_roundtrip(args)
+        selected_action = None
+    elif args.operation == "accept-dialog":
         depth, node, selected_action = accept_dialog(args)
     else:
         depth, node, selected_action = find(
@@ -240,6 +323,7 @@ def main():
         "name": text(node),
         "operation": args.operation,
         "role": role(node),
+        "value": actual,
     }, sort_keys=True))
 
 
@@ -3003,6 +3087,21 @@ def validate_browser(runner, result_dir, account, environment):
         ],
     )
     verify_png(screenshots / "fixture-page.png", "fixture page")
+    helper = install_atspi_helper(result_dir, account)
+    address_bar_value = "https://wildbuzzard.invalid/address-bar-validation"
+    address_bar = atspi_json(
+        runner,
+        result_dir,
+        account,
+        environment,
+        helper,
+        "wildbuzzard-address-bar-copy-paste",
+        "address-bar-roundtrip",
+        "urlbar-input",
+        value=address_bar_value,
+    )
+    if address_bar.get("value") != address_bar_value:
+        raise RuntimeError("WildBuzzard address-bar round trip was not preserved")
 
     support_session = "release-addons"
     support_opened = browser_json(
@@ -3121,6 +3220,7 @@ def validate_browser(runner, result_dir, account, environment):
         raise RuntimeError("WildBuzzard native control status is invalid")
     return {
         "addonsManager": addons_manager,
+        "addressBar": address_bar,
         "browserPid": status.get("browserPid"),
         "extensionProfile": extension_profile,
         "extensionUIs": extension_uis,
