@@ -275,7 +275,7 @@ def add_tar_file(archive, name, value, epoch):
     archive.addfile(info, io.BytesIO(value))
 
 
-def create_source_bundle(repository, cache_dir, output, node):
+def create_source_bundle(repository, cache_dir, output, node, reproduce=True):
     paths = repository_paths(repository)
     lock = load_lock(paths["lock"])
     if output.name != lock["artifact"]:
@@ -303,7 +303,8 @@ def create_source_bundle(repository, cache_dir, output, node):
                 raise ValidationError(
                     f"{source['name']} extracted license differs from lock"
                 )
-        run_reproduction_check(node, paths, lock, source_roots)
+        if reproduce:
+            run_reproduction_check(node, paths, lock, source_roots)
 
     payload = {
         "SOURCES.lock.json": paths["lock"].read_bytes(),
@@ -439,6 +440,7 @@ def main():
     build.add_argument("--cache-dir", required=True, type=Path)
     build.add_argument("--output", required=True, type=Path)
     build.add_argument("--node", default="node", type=Path)
+    build.add_argument("--skip-reproduction-check", action="store_true")
     verify = subparsers.add_parser("verify")
     verify.add_argument("--repository", required=True, type=Path)
     verify.add_argument("--source-bundle", required=True, type=Path)
@@ -451,6 +453,7 @@ def main():
                 arguments.cache_dir.resolve(),
                 arguments.output.resolve(),
                 arguments.node,
+                not arguments.skip_reproduction_check,
             )
         else:
             verify_source_bundle(

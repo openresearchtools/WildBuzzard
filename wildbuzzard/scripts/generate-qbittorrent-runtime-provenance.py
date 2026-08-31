@@ -247,7 +247,7 @@ def main():
         raise SystemExit("commit must be a full Git object ID")
     artifacts.mkdir(parents=True, exist_ok=True)
     licenses = runtime / "licenses"
-    notices = runtime / "share" / "doc" / "buzzard-torrent"
+    notices = runtime / "share" / "doc" / "wildbuzzard-qbittorrent-runtime"
     licenses.mkdir(parents=True, exist_ok=True)
     notices.mkdir(parents=True, exist_ok=True)
 
@@ -377,7 +377,7 @@ def main():
 
     inventory = {
         "schema": 2,
-        "component": "buzzard-torrent-runtime",
+        "component": "wildbuzzard-qbittorrent-runtime",
         "platform": "linux-x64",
         "qt": {
             "version": QT_VERSION,
@@ -507,8 +507,8 @@ def main():
         "spdxVersion": "SPDX-2.3",
         "dataLicense": "CC0-1.0",
         "SPDXID": "SPDXRef-DOCUMENT",
-        "name": f"buzzard-torrent-runtime-{arguments.commit[:12]}",
-        "documentNamespace": f"https://github.com/openresearchtools/wildbuzzard/sbom/buzzard-torrent/{arguments.commit}",
+        "name": f"wildbuzzard-qbittorrent-runtime-{arguments.commit[:12]}",
+        "documentNamespace": f"https://github.com/openresearchtools/wildbuzzard/sbom/qbittorrent-runtime/{arguments.commit}",
         "creationInfo": {
             "created": created,
             "creators": ["Organization: openresearchtools", "Tool: generate-qbittorrent-runtime-provenance.py"],

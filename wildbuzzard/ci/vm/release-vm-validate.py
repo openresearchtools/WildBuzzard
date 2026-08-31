@@ -27,7 +27,6 @@ DATA_ROOT = pathlib.Path("/run/media/user/Data")
 PACKAGES = {
     "buzzard-search",
     "buzzard-minijtt",
-    "buzzard-torrent",
     "wildbuzzard",
 }
 PLATFORMS = {
@@ -145,8 +144,8 @@ def artifact_manifest(directory):
     browser_path = directory / browser["filename"]
     dependency_names = relationship_names(package_field(browser_path, "Depends"))
     optional_clis = {"buzzard-search", "buzzard-minijtt"}
-    if "buzzard-torrent" not in dependency_names:
-        raise ValueError("wildbuzzard package does not depend on buzzard-torrent")
+    if "buzzard-torrent" in dependency_names:
+        raise ValueError("wildbuzzard package depends on obsolete buzzard-torrent")
     unexpected_dependencies = dependency_names & optional_clis
     if unexpected_dependencies:
         raise ValueError(
@@ -164,6 +163,24 @@ def artifact_manifest(directory):
         "generatedAt": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "artifacts": sorted(entries, key=lambda entry: entry["package"]),
     }
+
+
+def verify_browser_package(directory, manifest):
+    browser = next(
+        entry for entry in manifest["artifacts"] if entry["package"] == "wildbuzzard"
+    )
+    verifier = pathlib.Path(__file__).resolve().parents[1] / "create-release-manifest.py"
+    run_host(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            verifier,
+            "--verify-browser-deb",
+            directory / browser["filename"],
+        ],
+        timeout=600,
+    )
 
 
 class Guest:
@@ -564,6 +581,7 @@ def main():
         )
     artifact_dir = require_data_path(args.artifact_dir)
     manifest = artifact_manifest(artifact_dir)
+    verify_browser_package(artifact_dir, manifest)
     for label, domain in vms.items():
         vm_preflight(args.connect, label, domain, allow_installed=args.allow_installed)
     if args.preflight_only:

@@ -10,7 +10,7 @@ usage() {
   echo "Usage: $0 [options]"
   echo
   echo "Options:"
-  echo "  --action ACTION    configure, build, gkrust, test, deb, package, appimage, or all (default: build)"
+  echo "  --action ACTION    configure, build, gkrust, test, archive, deb, package, appimage, or all (default: build)"
   echo "  --build-root DIR   external build root (default: ../wildbuzzard-builds)"
   echo "  --jobs NUMBER      parallel build jobs (default: all logical CPUs)"
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
@@ -18,6 +18,7 @@ usage() {
   echo "  --arti-binary FILE  Arti executable to include in the browser package"
   echo "  --arti-config FILE  Arti metadata for the source-built executable"
   echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
+  echo "  --qbittorrent-runtime DIR  verified native qBittorrent runtime tree"
   echo "  --bootstrap        force mach bootstrap before the requested action"
   echo "  --help             show this help"
 }
@@ -33,6 +34,7 @@ include_working_tree=false
 arti_binary=""
 arti_config=""
 arti_provenance=""
+qbittorrent_runtime=""
 
 while (($#)); do
   case "$1" in
@@ -68,6 +70,10 @@ while (($#)); do
       arti_provenance="${2:?--arti-provenance requires a file}"
       shift 2
       ;;
+    --qbittorrent-runtime)
+      qbittorrent_runtime="${2:?--qbittorrent-runtime requires a directory}"
+      shift 2
+      ;;
     --bootstrap)
       run_bootstrap=true
       shift
@@ -99,8 +105,16 @@ if [[ -n "${arti_binary}" || -n "${arti_config}" || -n "${arti_provenance}" ]]; 
   fi
 fi
 
+if [[ -n "${qbittorrent_runtime}" ]]; then
+  qbittorrent_runtime="$(realpath -- "${qbittorrent_runtime}")"
+  if [[ ! -d "${qbittorrent_runtime}" || -L "${qbittorrent_runtime}" ]]; then
+    echo "--qbittorrent-runtime must name a real directory" >&2
+    exit 2
+  fi
+fi
+
 case "${action}" in
-  configure|build|gkrust|test|deb|package|appimage|all) ;;
+  configure|build|gkrust|test|archive|deb|package|appimage|all) ;;
   *)
     echo "Unsupported action: ${action}" >&2
     exit 2
@@ -115,6 +129,12 @@ case "${action}" in
     fi
     ;;
 esac
+if [[ "${action}" == deb || "${action}" == package || "${action}" == all ]]; then
+  if [[ -z "${qbittorrent_runtime}" ]]; then
+    echo "${action} requires --qbittorrent-runtime" >&2
+    exit 2
+  fi
+fi
 
 if [[ ! "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
   echo "--jobs must be a positive integer" >&2
@@ -209,6 +229,7 @@ fi
   echo "arti_binary=${arti_binary}"
   echo "arti_config=${arti_config}"
   echo "arti_provenance=${arti_provenance}"
+  echo "qbittorrent_runtime=${qbittorrent_runtime}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
 
@@ -318,9 +339,22 @@ run_product_tests() {
 }
 
 run_deb_package() {
+  local arti_stage="${run_root}/external/arti"
+  local cli_binary
+  install -d -m 0755 -- "${arti_stage}"
+  install -m 0755 -- "${arti_binary}" "${arti_stage}/arti"
+  install -m 0644 -- "${arti_config}" "${arti_stage}/arti.toml"
+  install -m 0644 -- "${arti_provenance}" "${arti_stage}/arti-provenance.zip"
+  run_step cli-build cargo build --locked --release \
+    --target-dir "${run_root}/cli-target" \
+    --manifest-path wildbuzzard/components/wildbuzzard-cli/runner/Cargo.toml
+  cli_binary="${run_root}/cli-target/release/wildbuzzard-native-client"
   run_step deb-package ./wildbuzzard/scripts/package-deb.sh \
     --dist-dir "${object_dir}/dist" \
-    --output-dir "${run_root}/artifacts"
+    --output-dir "${run_root}/artifacts" \
+    --arti-dir "${arti_stage}" \
+    --qbittorrent-runtime "${qbittorrent_runtime}" \
+    --cli-binary "${cli_binary}"
 }
 
 run_appimage_package() {
@@ -377,6 +411,11 @@ case "${action}" in
     run_step build ./mach build
     run_blocker_tests
     run_product_tests
+    ;;
+  archive)
+    run_step configure ./mach configure
+    run_step build ./mach build
+    run_step package ./mach package
     ;;
   deb)
     run_step configure ./mach configure

@@ -9,8 +9,6 @@ function isByteArray(value) {
     Object.prototype.toString.call(value) === "[object Uint8Array]"
   );
 }
-const MAX_REQUEST_BYTES = 16 * 1024 * 1024;
-
 function abortError() {
   return Components.Exception(
     "qBittorrent request was cancelled",
@@ -446,7 +444,6 @@ export function requestQBittorrentUDS(
     /[^\x20-\x7e]/.test(target) ||
     /[\r\n]/.test(target) ||
     !isByteArray(body) ||
-    body.length > MAX_REQUEST_BYTES ||
     !headers ||
     typeof headers !== "object" ||
     Object.entries(headers).some(

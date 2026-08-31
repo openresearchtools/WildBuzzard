@@ -26,15 +26,17 @@ wildbuzzard-builds/
 ```bash
 ./wildbuzzard/scripts/build-linux-external.sh --action build
 ./wildbuzzard/scripts/build-linux-external.sh --action build --jobs 24
-./wildbuzzard/scripts/build-linux-external.sh --action package --ref <commit>
+./wildbuzzard/scripts/build-linux-external.sh --action archive --ref <commit>
 ./wildbuzzard/scripts/build-linux-external.sh --bootstrap --action build
 ```
 
 The script ignores uncommitted files unless `--working-tree` is supplied. Each
 run records its source commit and whether a working-tree snapshot was applied.
 
-The browser contains Arti because per-tab Tor routing is a core browser
-feature. Supply its verified binary and provenance for release packaging:
+The reusable browser archive is built without external runtimes. Arti and the
+native qBittorrent runtime are built as separate pinned component artifacts and
+are added only when the final Debian package is assembled. This lets packaging
+be retried without rebuilding Firefox and gkrust.
 
 ```bash
 ./wildbuzzard/scripts/build-arti-runtime.sh
@@ -42,28 +44,25 @@ feature. Supply its verified binary and provenance for release packaging:
 ./wildbuzzard/scripts/build-linux-external.sh \
   --working-tree \
   --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
+  --arti-config /absolute/path/to/arti-2.5.1-linux-x86_64.toml \
   --arti-provenance /absolute/path/to/wildbuzzard-arti-2.5.1-provenance.zip \
-  --action all
+  --qbittorrent-runtime /absolute/path/to/qbittorrent/runtime \
+  --action deb
 ```
 
-The browser package depends on the separately built `buzzard-torrent` package
-and suggests `buzzard-search` and `buzzard-minijtt`. It must not contain Pi, Pi
-Web, Node, provider, torrent-discovery, Jackett, or SearXNG runtime trees. The
-reviewed offline UI files from both extension subprojects are synchronized into
-the built-in add-on tree. Debian and AppImage packaging fail if external
-runtime paths appear in the browser archive.
+The final Debian package bundles Arti and the native qBittorrent/libtorrent
+runtime and suggests `buzzard-search` and `buzzard-minijtt`. It does not include
+a Python or Node runtime. The browser archive must not contain Pi, Pi Web,
+provider, torrent-discovery, Jackett, or SearXNG runtime trees.
 
 ## Independent repositories
 
-Build and publish the native torrent package from
-`wildbuzzard/components/buzzard-torrent`, then build the other components from
-their own repositories:
+Build the optional components from their own repositories:
 
-1. `buzzard-torrent` for the qBittorrent/libtorrent runtime;
-2. `buzzard-search` for `/usr/bin/buzzard-search`;
-3. `buzzard-minijtt` for `/usr/bin/buzzard-minijtt`;
-4. `wildbuzzard-extensions` for both synchronized built-in UIs and standalone XPIs;
-5. `buzzard-agent` for the optional Pi-compatible agent and Pi Web UI.
+1. `buzzard-search` for `/usr/bin/buzzard-search`;
+2. `buzzard-minijtt` for `/usr/bin/buzzard-minijtt`;
+3. `wildbuzzard-extensions` for both synchronized built-in UIs and standalone XPIs;
+4. `buzzard-agent` for the optional Pi-compatible agent and Pi Web UI.
 
 Each repository owns its dependencies, tests, license bundle, source archive,
 SBOM, and Debian or XPI release. Build twice from independent roots and require
@@ -78,8 +77,8 @@ Development never weakens release signature or experiment preferences.
 
 ## AppImage and host notes
 
-The AppImage contains browser core, Arti, and the agent-neutral native control
-client, but not independently packaged search, torrent-discovery, or Agent
+The AppImage path is separate from the hosted Debian artifact workflow. It does
+not contain independently packaged search, torrent-discovery, or Agent
 capabilities. Run it as a browser or invoke the same control contract directly:
 
 ```bash

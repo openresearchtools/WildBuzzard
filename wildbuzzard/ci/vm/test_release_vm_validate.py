@@ -58,7 +58,7 @@ def valid_manifest():
 class GuestManifestTests(unittest.TestCase):
     def test_accepts_only_the_exact_amd64_package_set(self):
         manifest = valid_manifest()
-        self.assertEqual(len(guest.manifest_entries(manifest)), 4)
+        self.assertEqual(len(guest.manifest_entries(manifest)), 3)
 
         mutations = []
         duplicate_package = copy.deepcopy(manifest)
@@ -108,7 +108,7 @@ class HostArtifactTests(unittest.TestCase):
 
             by_filename = {value: key for key, value in filenames.items()}
             relationships = {
-                "Depends": "libgtk-3-0 | libgtk-3-0t64, buzzard-torrent",
+                "Depends": "libgtk-3-0 | libgtk-3-0t64",
                 "Suggests": "buzzard-search, buzzard-minijtt",
             }
 
@@ -133,7 +133,7 @@ class HostArtifactTests(unittest.TestCase):
                 relationships["Depends"] += ", buzzard-search"
                 with self.assertRaises(ValueError):
                     host.artifact_manifest(root)
-                relationships["Depends"] = "libgtk-3-0, buzzard-torrent"
+                relationships["Depends"] = "libgtk-3-0"
                 relationships["Suggests"] = "buzzard-search"
                 with self.assertRaises(ValueError):
                     host.artifact_manifest(root)
@@ -240,7 +240,7 @@ class RunnerTests(unittest.TestCase):
 
 
 class AptInstallTests(unittest.TestCase):
-    def test_installs_all_four_local_files_together_and_verifies_versions(self):
+    def test_installs_all_local_files_together_and_verifies_versions(self):
         artifacts = valid_manifest()["artifacts"]
         expected = {entry["package"]: entry["version"] for entry in artifacts}
         calls = []
@@ -367,7 +367,7 @@ class LocalTorrentValidationTests(unittest.TestCase):
 
         calls = []
 
-        def run_json(
+        def run_wildbuzzard_torrent_json(
             _runner,
             result_dir,
             _account,
@@ -375,24 +375,20 @@ class LocalTorrentValidationTests(unittest.TestCase):
             label,
             command,
             *,
-            input_text=None,
             timeout=120,
         ):
             calls.append({
                 "command": command,
                 "environment": environment,
-                "input": json.loads(input_text) if input_text else None,
                 "label": label,
                 "timeout": timeout,
             })
             download_dir = result_dir / "torrent-download"
-            if label == "buzzard-torrent-status":
-                return {"ready": True, "version": "v5.2.3"}
-            if label == "buzzard-torrent-list-initial":
+            if label == "wildbuzzard-torrent-list-initial":
                 return {"limit": 50, "torrents": []}
-            if label == "buzzard-torrent-add-local-fixture":
+            if label == "wildbuzzard-torrent-add-local-fixture":
                 return {"added": True}
-            if label == "buzzard-torrent-list-download":
+            if label == "wildbuzzard-torrent-list-download":
                 (download_dir / guest.TORRENT_FIXTURE_NAME).write_bytes(payload)
                 return {
                     "limit": 100,
@@ -407,7 +403,7 @@ class LocalTorrentValidationTests(unittest.TestCase):
                         }
                     ],
                 }
-            if label == "buzzard-torrent-details-overview":
+            if label == "wildbuzzard-torrent-details-overview":
                 return {
                     "downloadedBytes": len(payload),
                     "id": info_hash,
@@ -416,7 +412,7 @@ class LocalTorrentValidationTests(unittest.TestCase):
                     "private": True,
                     "totalSizeBytes": len(payload),
                 }
-            if label == "buzzard-torrent-details-files":
+            if label == "wildbuzzard-torrent-details-files":
                 return {
                     "id": info_hash,
                     "items": [
@@ -429,15 +425,19 @@ class LocalTorrentValidationTests(unittest.TestCase):
                     "section": "files",
                     "total": 1,
                 }
-            if label == "buzzard-torrent-control-delete":
+            if label == "wildbuzzard-torrent-control-delete":
                 return {"action": "delete", "applied": True, "ids": [info_hash]}
-            if label == "buzzard-torrent-list-after-delete":
+            if label == "wildbuzzard-torrent-list-after-delete":
                 return {"limit": 50, "torrents": []}
             raise AssertionError(label)
 
         with temporary_directory() as directory, mock.patch.object(
             guest, "TorrentFixture", FakeFixture
-        ), mock.patch.object(guest, "run_json", side_effect=run_json):
+        ), mock.patch.object(
+            guest,
+            "run_wildbuzzard_torrent_json",
+            side_effect=run_wildbuzzard_torrent_json,
+        ):
             root = pathlib.Path(directory)
             account = types.SimpleNamespace(
                 pw_gid=os.getgid(), pw_uid=os.getuid(), pw_name="release-user"
@@ -452,16 +452,20 @@ class LocalTorrentValidationTests(unittest.TestCase):
             )
 
         by_label = {call["label"]: call for call in calls}
-        added = by_label["buzzard-torrent-add-local-fixture"]
-        self.assertTrue(added["input"]["confirmed"])
+        added = by_label["wildbuzzard-torrent-add-local-fixture"]
+        self.assertEqual(added["command"][0], "torrent-add")
+        self.assertEqual(added["command"][1], "--file")
+        self.assertTrue(added["command"][2].endswith(".torrent"))
+        deleted = by_label["wildbuzzard-torrent-control-delete"]
         self.assertEqual(
-            base64.b64decode(added["input"]["torrentBase64"]),
-            b"deterministic torrent metadata",
+            deleted["command"],
+            [
+                "torrent-control",
+                "delete",
+                info_hash,
+                "--no-delete-data",
+            ],
         )
-        deleted = by_label["buzzard-torrent-control-delete"]
-        self.assertTrue(deleted["input"]["confirmed"])
-        self.assertFalse(deleted["input"]["deleteData"])
-        self.assertEqual(deleted["input"]["ids"], [info_hash])
         self.assertEqual(
             added["environment"]["BUZZARD_TORRENT_DOWNLOADS"],
             str(pathlib.Path(directory) / "torrent-download"),

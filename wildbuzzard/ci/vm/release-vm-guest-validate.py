@@ -5,7 +5,6 @@
 
 
 import argparse
-import base64
 import contextlib
 import hashlib
 import http.server
@@ -30,7 +29,6 @@ import zipfile
 PACKAGES = (
     "buzzard-search",
     "buzzard-minijtt",
-    "buzzard-torrent",
     "wildbuzzard",
 )
 ADDONS = {
@@ -1104,6 +1102,31 @@ def run_json(
     return value
 
 
+def run_wildbuzzard_torrent_json(
+    runner,
+    result_dir,
+    account,
+    environment,
+    label,
+    arguments,
+    *,
+    timeout=120,
+):
+    value = run_json(
+        runner,
+        result_dir,
+        account,
+        environment,
+        label,
+        ["/usr/bin/wildbuzzard", "--json", *arguments],
+        timeout=timeout,
+    )
+    details = value.get("details")
+    if value.get("ok") is not True or not isinstance(details, dict):
+        raise RuntimeError(f"{label} did not return WildBuzzard torrent details")
+    return details
+
+
 def assert_version(value, package):
     if value.get("package") != package or value.get("protocolVersion") != 1:
         raise RuntimeError(f"{package} version contract is invalid")
@@ -1127,61 +1150,46 @@ def validate_local_torrent_download(
     with fixture:
         torrent_path = result_dir / "torrent-release-validation.torrent"
         torrent_path.write_bytes(fixture.torrent)
-        status = run_json(
+        initial = run_wildbuzzard_torrent_json(
             runner,
             result_dir,
             account,
             torrent_environment,
-            "buzzard-torrent-status",
-            ["/usr/bin/buzzard-torrent", "call", "torrent_status", "{}"],
-            timeout=120,
-        )
-        if status.get("ready") is not True or status.get("version") != "v5.2.3":
-            raise RuntimeError("buzzard-torrent torrent_status contract is invalid")
-        initial = run_json(
-            runner,
-            result_dir,
-            account,
-            torrent_environment,
-            "buzzard-torrent-list-initial",
-            ["/usr/bin/buzzard-torrent", "call", "torrent_list", "{}"],
+            "wildbuzzard-torrent-list-initial",
+            ["torrent-list"],
             timeout=120,
         )
         if initial.get("torrents") != [] or initial.get("limit") != 50:
             raise RuntimeError("fresh VM torrent list is not empty")
         try:
-            added_result = run_json(
+            added_result = run_wildbuzzard_torrent_json(
                 runner,
                 result_dir,
                 account,
                 torrent_environment,
-                "buzzard-torrent-add-local-fixture",
-                ["/usr/bin/buzzard-torrent", "call", "torrent_add", "-"],
-                input_text=json.dumps({
-                    "confirmed": True,
-                    "downloadPath": str(download_dir),
-                    "torrentBase64": base64.b64encode(fixture.torrent).decode("ascii"),
-                }),
+                "wildbuzzard-torrent-add-local-fixture",
+                [
+                    "torrent-add",
+                    "--file",
+                    str(torrent_path),
+                    "--download-path",
+                    str(download_dir),
+                ],
                 timeout=120,
             )
-            if added_result != {"added": True}:
-                raise RuntimeError("buzzard-torrent torrent_add contract is invalid")
+            if added_result.get("added") is not True:
+                raise RuntimeError("WildBuzzard torrent_add contract is invalid")
             added = True
             completed = None
             deadline = time.monotonic() + timeout
             while time.monotonic() < deadline:
-                current = run_json(
+                current = run_wildbuzzard_torrent_json(
                     runner,
                     result_dir,
                     account,
                     torrent_environment,
-                    "buzzard-torrent-list-download",
-                    [
-                        "/usr/bin/buzzard-torrent",
-                        "call",
-                        "torrent_list",
-                        '{"limit":100}',
-                    ],
+                    "wildbuzzard-torrent-list-download",
+                    ["torrent-list", "--limit", "100"],
                     timeout=45,
                 )
                 matches = [
@@ -1214,14 +1222,13 @@ def validate_local_torrent_download(
                 != download_dir.resolve()
             ):
                 raise RuntimeError("downloaded torrent identity or save path differs")
-            overview = run_json(
+            overview = run_wildbuzzard_torrent_json(
                 runner,
                 result_dir,
                 account,
                 torrent_environment,
-                "buzzard-torrent-details-overview",
-                ["/usr/bin/buzzard-torrent", "call", "torrent_details", "-"],
-                input_text=json.dumps({"id": fixture.info_hash_hex}),
+                "wildbuzzard-torrent-details-overview",
+                ["torrent-details", fixture.info_hash_hex],
                 timeout=120,
             )
             if (
@@ -1232,18 +1239,14 @@ def validate_local_torrent_download(
                 or overview.get("downloadedBytes", 0) < len(fixture.payload)
                 or overview.get("private") is not True
             ):
-                raise RuntimeError("buzzard-torrent overview details are invalid")
-            files = run_json(
+                raise RuntimeError("WildBuzzard torrent overview details are invalid")
+            files = run_wildbuzzard_torrent_json(
                 runner,
                 result_dir,
                 account,
                 torrent_environment,
-                "buzzard-torrent-details-files",
-                ["/usr/bin/buzzard-torrent", "call", "torrent_details", "-"],
-                input_text=json.dumps({
-                    "id": fixture.info_hash_hex,
-                    "section": "files",
-                }),
+                "wildbuzzard-torrent-details-files",
+                ["torrent-details", fixture.info_hash_hex, "files"],
                 timeout=120,
             )
             if (
@@ -1255,20 +1258,19 @@ def validate_local_torrent_download(
                 or files["items"][0].get("sizeBytes") != len(fixture.payload)
                 or files["items"][0].get("progress") != 1
             ):
-                raise RuntimeError("buzzard-torrent file details are invalid")
-            control = run_json(
+                raise RuntimeError("WildBuzzard torrent file details are invalid")
+            control = run_wildbuzzard_torrent_json(
                 runner,
                 result_dir,
                 account,
                 torrent_environment,
-                "buzzard-torrent-control-delete",
-                ["/usr/bin/buzzard-torrent", "call", "torrent_control", "-"],
-                input_text=json.dumps({
-                    "action": "delete",
-                    "confirmed": True,
-                    "deleteData": False,
-                    "ids": [fixture.info_hash_hex],
-                }),
+                "wildbuzzard-torrent-control-delete",
+                [
+                    "torrent-control",
+                    "delete",
+                    fixture.info_hash_hex,
+                    "--no-delete-data",
+                ],
                 timeout=120,
             )
             if control != {
@@ -1277,16 +1279,16 @@ def validate_local_torrent_download(
                 "ids": [fixture.info_hash_hex],
             }:
                 raise RuntimeError(
-                    "buzzard-torrent torrent_control contract is invalid"
+                    "WildBuzzard torrent_control contract is invalid"
                 )
             removed = True
-            after_delete = run_json(
+            after_delete = run_wildbuzzard_torrent_json(
                 runner,
                 result_dir,
                 account,
                 torrent_environment,
-                "buzzard-torrent-list-after-delete",
-                ["/usr/bin/buzzard-torrent", "call", "torrent_list", "{}"],
+                "wildbuzzard-torrent-list-after-delete",
+                ["torrent-list"],
                 timeout=120,
             )
             if any(
@@ -1294,7 +1296,7 @@ def validate_local_torrent_download(
                 for item in after_delete.get("torrents", [])
                 if isinstance(item, dict)
             ):
-                raise RuntimeError("local torrent remained after confirmed removal")
+                raise RuntimeError("local torrent remained after removal")
             if not target.is_file() or target.read_bytes() != fixture.payload:
                 raise RuntimeError(
                     "deleteData=false did not preserve downloaded evidence"
@@ -1302,24 +1304,18 @@ def validate_local_torrent_download(
         finally:
             if added and not removed:
                 with contextlib.suppress(Exception):
-                    run_json(
+                    run_wildbuzzard_torrent_json(
                         runner,
                         result_dir,
                         account,
                         torrent_environment,
-                        "buzzard-torrent-control-cleanup",
+                        "wildbuzzard-torrent-control-cleanup",
                         [
-                            "/usr/bin/buzzard-torrent",
-                            "call",
-                            "torrent_control",
-                            "-",
+                            "torrent-control",
+                            "delete",
+                            fixture.info_hash_hex,
+                            "--no-delete-data",
                         ],
-                        input_text=json.dumps({
-                            "action": "delete",
-                            "confirmed": True,
-                            "deleteData": False,
-                            "ids": [fixture.info_hash_hex],
-                        }),
                         timeout=120,
                     )
     statistics = fixture.statistics()
@@ -1353,7 +1349,7 @@ def validate_local_torrent_download(
 
 def validate_clis(runner, result_dir, account, environment, search_query):
     versions = {}
-    for package in ("buzzard-search", "buzzard-minijtt", "buzzard-torrent"):
+    for package in ("buzzard-search", "buzzard-minijtt"):
         value = run_json(
             runner,
             result_dir,
@@ -1433,16 +1429,6 @@ def validate_clis(runner, result_dir, account, environment, search_query):
     torrent_download = validate_local_torrent_download(
         runner, result_dir, account, environment
     )
-    stopped = run_json(
-        runner,
-        result_dir,
-        account,
-        environment,
-        "buzzard-torrent-stop-after-cli-validation",
-        ["/usr/bin/buzzard-torrent", "stop"],
-    )
-    if stopped.get("running") is not False:
-        raise RuntimeError("buzzard-torrent did not stop after CLI validation")
     return versions, torrent_download
 
 
@@ -2604,30 +2590,29 @@ def validate_browser_torrent_ingress(
     active_ids = set()
 
     def list_torrents(label):
-        return run_json(
+        return run_wildbuzzard_torrent_json(
             runner,
             result_dir,
             account,
             environment,
             label,
-            ["/usr/bin/buzzard-torrent", "call", "torrent_list", '{"limit":100}'],
+            ["torrent-list", "--limit", "100"],
             timeout=45,
         )
 
     def remove_torrent(label, *, delete_data=False):
-        result = run_json(
+        result = run_wildbuzzard_torrent_json(
             runner,
             result_dir,
             account,
             environment,
             label,
-            ["/usr/bin/buzzard-torrent", "call", "torrent_control", "-"],
-            input_text=json.dumps({
-                "action": "delete",
-                "confirmed": True,
-                "deleteData": delete_data,
-                "ids": [fixture.info_hash_hex],
-            }),
+            [
+                "torrent-control",
+                "delete",
+                fixture.info_hash_hex,
+                "--delete-data" if delete_data else "--no-delete-data",
+            ],
             timeout=120,
         )
         if result.get("applied") is not True:
@@ -2862,24 +2847,18 @@ def validate_browser_torrent_ingress(
     finally:
         for torrent_id in list(active_ids):
             with contextlib.suppress(Exception):
-                run_json(
+                run_wildbuzzard_torrent_json(
                     runner,
                     result_dir,
                     account,
                     environment,
                     "browser-torrent-cleanup",
                     [
-                        "/usr/bin/buzzard-torrent",
-                        "call",
-                        "torrent_control",
-                        "-",
+                        "torrent-control",
+                        "delete",
+                        torrent_id,
+                        "--no-delete-data",
                     ],
-                    input_text=json.dumps({
-                        "action": "delete",
-                        "confirmed": True,
-                        "deleteData": False,
-                        "ids": [torrent_id],
-                    }),
                     timeout=120,
                 )
 

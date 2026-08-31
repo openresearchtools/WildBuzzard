@@ -35,6 +35,8 @@ tree:
 
 The builder emits the exact source archive and a provenance ZIP containing the
 source, CycloneDX SBOM, runtime manifest, and MIT and Apache license texts.
-Pass the printed executable and provenance ZIP to `build-linux-external.sh`
-with `--arti-binary` and `--arti-provenance` when creating the browser package
-or its derived AppImage and Debian package.
+Pass the printed executable, metadata, and provenance ZIP to
+`build-linux-external.sh` with `--arti-binary`, `--arti-config`, and
+`--arti-provenance` when creating a derived package. Hosted Debian assembly
+keeps the reusable browser archive separate and adds the pinned Arti artifact
+only at the final packaging step.

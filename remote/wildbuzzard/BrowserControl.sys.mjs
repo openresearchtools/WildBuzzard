@@ -4512,6 +4512,7 @@ class BrowserControlService {
       case "torrent_list":
       case "torrent_details":
       case "torrent_control":
+      case "torrent_add":
         return this.torrentControlTool(tool, args);
       case "__resolve_ref":
         return this.resolveRefTool(args);

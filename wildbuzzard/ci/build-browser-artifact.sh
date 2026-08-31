@@ -5,14 +5,14 @@ set -Eeuo pipefail
 umask 022
 
 usage() {
-  echo "Usage: $0 --wildbuzzard DIR --commit SHA --work-dir DIR --artifact-dir DIR [--arti-dir DIR]"
+  echo "Usage: $0 --wildbuzzard DIR --commit SHA --input-digest SHA256 --work-dir DIR --artifact-dir DIR"
 }
 
 wildbuzzard=""
 commit=""
 work_dir=""
 artifact_dir=""
-arti_dir=""
+input_digest=""
 
 while (($#)); do
   case "$1" in
@@ -20,18 +20,23 @@ while (($#)); do
     --commit) commit="${2:?}"; shift 2 ;;
     --work-dir) work_dir="${2:?}"; shift 2 ;;
     --artifact-dir) artifact_dir="${2:?}"; shift 2 ;;
-    --arti-dir) arti_dir="${2:?}"; shift 2 ;;
+    --input-digest) input_digest="${2:?}"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
 
-for variable in wildbuzzard commit work_dir artifact_dir; do
+for variable in wildbuzzard commit input_digest work_dir artifact_dir; do
   if [[ -z "${!variable}" ]]; then
     echo "Missing required value: ${variable}" >&2
     exit 2
   fi
 done
+
+if [[ ! "${input_digest}" =~ ^[0-9a-f]{64}$ ]]; then
+  echo "--input-digest must be a lowercase SHA-256 digest" >&2
+  exit 2
+fi
 
 wildbuzzard="$(realpath -- "${wildbuzzard}")"
 mkdir -p -- "${work_dir}" "${artifact_dir}"
@@ -85,69 +90,36 @@ one_file() {
   printf '%s\n' "${matches[0]}"
 }
 
-manifest_value() {
-  local manifest="$1"
-  local key="$2"
-  local value
-  value="$(sed -n "s/^${key}=//p" "${manifest}")"
-  if [[ -z "${value}" ]]; then
-    echo "Missing ${key} in ${manifest}" >&2
-    exit 1
-  fi
-  printf '%s\n' "${value}"
-}
-
-if [[ -n "${arti_dir}" ]]; then
-  arti_dir="$(realpath -- "${arti_dir}")"
-  arti_binary="${arti_dir}/arti"
-  arti_config="${arti_dir}/arti.toml"
-  arti_provenance="${arti_dir}/arti-provenance.zip"
-  arti_manifest="${arti_dir}/arti-build-manifest.txt"
-  for input in "${arti_binary}" "${arti_config}" "${arti_provenance}" "${arti_manifest}"; do
-    if [[ ! -f "${input}" || -L "${input}" ]]; then
-      echo "Invalid staged Arti input: ${input}" >&2
-      exit 2
-    fi
-  done
-  if [[ ! -x "${arti_binary}" ]]; then
-    echo "Staged Arti binary is not executable" >&2
-    exit 2
-  fi
-else
-  arti_root="${work_dir}/arti"
-  "${wildbuzzard}/wildbuzzard/scripts/build-arti-runtime.sh" \
-    --build-root "${arti_root}"
-  arti_run="$(one_run "${arti_root}")"
-  arti_manifest="${arti_run}/build-manifest.txt"
-  arti_binary="$(manifest_value "${arti_manifest}" artifact)"
-  arti_config="$(manifest_value "${arti_manifest}" config)"
-  arti_provenance="$(manifest_value "${arti_manifest}" provenance)"
-fi
-
 browser_root="${work_dir}/browser"
 "${wildbuzzard}/wildbuzzard/scripts/build-linux-external.sh" \
-  --action deb \
+  --action archive \
   --build-root "${browser_root}" \
   --jobs "${WILDBUZZARD_BUILD_JOBS:-$(nproc)}" \
-  --ref HEAD \
-  --arti-binary "${arti_binary}" \
-  --arti-config "${arti_config}" \
-  --arti-provenance "${arti_provenance}"
+  --ref HEAD
 browser_run="$(one_run "${browser_root}")"
 
 install -m 0644 -- \
-  "$(one_file "${browser_run}/artifacts" 'wildbuzzard_*_amd64.deb')" \
+  "$(one_file "${browser_run}/obj/dist" 'wildbuzzard-*.en-US.linux-x86_64.tar.*')" \
   "${artifact_dir}/"
-install -m 0644 -- "${arti_manifest}" "${artifact_dir}/arti-build-manifest.txt"
 install -m 0644 -- \
   "${browser_run}/build-manifest.txt" \
   "${artifact_dir}/browser-build-manifest.txt"
 
+cargo build \
+  --locked \
+  --release \
+  --target-dir "${work_dir}/cli-target" \
+  --manifest-path "${wildbuzzard}/wildbuzzard/components/wildbuzzard-cli/runner/Cargo.toml"
+install -m 0755 -- \
+  "${work_dir}/cli-target/release/wildbuzzard-native-client" \
+  "${artifact_dir}/wildbuzzard-native-client"
+
 cat >"${artifact_dir}/browser-artifact-manifest.txt" <<EOF
 wildbuzzard_commit=${commit}
+browser_input_sha256=${input_digest}
 architecture=amd64
 runner=ubuntu-24.04
-external_component_repositories=none
+external_components=deferred-to-final-assembly
 EOF
 
 (
@@ -155,7 +127,6 @@ EOF
   find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%f\0' |
     LC_ALL=C sort -z |
     xargs -0 sha256sum >SHA256SUMS
-  sha256sum --check --strict SHA256SUMS
 )
 
 echo "Browser artifacts: ${artifact_dir}"

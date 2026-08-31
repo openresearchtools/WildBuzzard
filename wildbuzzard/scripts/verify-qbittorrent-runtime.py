@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: AGPL-3.0-or-later
 
 import argparse
 import hashlib
@@ -33,20 +34,25 @@ FORBIDDEN_SUFFIXES = {
     ".a",
     ".c",
     ".cc",
+    ".cjs",
     ".cmake",
     ".cpp",
     ".h",
     ".hpp",
+    ".js",
     ".la",
+    ".mjs",
     ".o",
     ".py",
     ".pyc",
     ".rs",
     ".tar",
+    ".ts",
     ".xz",
     ".bz2",
     ".zip",
 }
+FORBIDDEN_RUNTIME_NAMES = {"corepack", "node", "nodejs", "npm", "npx"}
 MAX_RUNTIME_BYTES = 128 * 1024 * 1024
 MAX_RUNTIME_FILES = 128
 
@@ -73,12 +79,12 @@ def runtime_path(root, relative):
     return root.joinpath(*path.parts)
 
 
-def validate_external_sources(sources):
+def validate_external_sources(sources, commit):
     expected = {
-        "core": r"wildbuzzard-qbittorrent-runtime-[0-9a-f]{12}-source\.tar\.xz",
+        "core": rf"wildbuzzard-qbittorrent-runtime-{commit[:12]}-source\.tar\.xz",
         "boost": r"wildbuzzard-qbittorrent-boost-1\.88\.0-source\.tar\.bz2",
         "qt": r"wildbuzzard-qbittorrent-qtbase-6\.10\.2-source\.tar\.xz",
-        "system": r"wildbuzzard-qbittorrent-ubuntu-24\.04-system-sources-[0-9a-f]{12}\.tar\.xz",
+        "system": rf"wildbuzzard-qbittorrent-ubuntu-24\.04-system-sources-{commit[:12]}\.tar\.xz",
     }
     if set(sources) != set(expected):
         raise SystemExit("runtime source offer lacks exact source artifact classes")
@@ -94,14 +100,49 @@ def validate_external_sources(sources):
             raise SystemExit(f"invalid {name} source artifact declaration")
 
 
+def validate_external_source_files(sources, artifacts):
+    input_root = Path(artifacts)
+    if not input_root.is_dir() or input_root.is_symlink():
+        raise SystemExit(f"invalid qBittorrent artifact directory: {input_root}")
+    root = input_root.resolve()
+    for source_class, record in sources.items():
+        path = root / record["name"]
+        if (
+            not path.is_file()
+            or path.is_symlink()
+            or path.stat().st_size != record["size"]
+            or digest(path) != record["sha256"]
+        ):
+            raise SystemExit(f"{source_class} corresponding-source artifact differs")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--runtime", required=True)
+    parser.add_argument("--artifacts")
     arguments = parser.parse_args()
     root = Path(arguments.runtime).resolve()
     manifest_path = root / "wildbuzzard-qbittorrent-runtime.json"
     manifest = load_json(manifest_path)
-    if manifest.get("schema") != 2 or manifest.get("component") != "wildbuzzard-qbittorrent-runtime":
+    commit = manifest.get("wildbuzzardCommit", "")
+    expected_manifest = {
+        "schema": 2,
+        "component": "wildbuzzard-qbittorrent-runtime",
+        "version": "5.2.3",
+        "protocolVersion": 1,
+        "qbittorrentCommit": "0b63c3d17373f6132ea211c9dcd4241284ccdfaf",
+        "libtorrentCommit": "aab2a10e2f60d9eac78e885a696736d043527794",
+        "boostVersion": "1.88.0",
+        "boostArchiveSha256": "46d9d2c06637b219270877c9e16155cbd015b6dc84349af064c088e9b5b12f7b",
+        "qtVersion": "6.10.2",
+        "qtSourceArchiveSha256": "aeb78d29291a2b5fd53cb55950f8f5065b4978c25fb1d77f627d695ab9adf21e",
+        "platform": "linux-x64",
+        "architecture": "x86_64",
+    }
+    if (
+        not re.fullmatch(r"[0-9a-f]{40}", commit)
+        or any(manifest.get(name) != value for name, value in expected_manifest.items())
+    ):
         raise SystemExit("unsupported qBittorrent runtime manifest")
 
     files = {}
@@ -114,7 +155,13 @@ def main():
         relative = path.relative_to(root).as_posix()
         parts = {part.casefold() for part in PurePosixPath(relative).parts}
         suffix = PurePosixPath(relative.casefold()).suffix
-        if parts & FORBIDDEN_COMPONENTS or suffix in FORBIDDEN_SUFFIXES:
+        name = PurePosixPath(relative).name.casefold()
+        if (
+            parts & FORBIDDEN_COMPONENTS
+            or name in FORBIDDEN_RUNTIME_NAMES
+            or re.fullmatch(r"python(?:3(?:\.\d+)?)?", name)
+            or suffix in FORBIDDEN_SUFFIXES
+        ):
             raise SystemExit(f"development or test payload is forbidden: {relative}")
         stat = path.stat()
         expected_mode = 0o755 if relative == "bin/qbittorrent-nox" else 0o644
@@ -147,16 +194,61 @@ def main():
     if hashlib.sha256(payload).hexdigest() != manifest.get("payloadSha256"):
         raise SystemExit("runtime payload digest differs")
 
-    source_offer = load_json(root / "share/doc/buzzard-torrent/source-offer.json")
+    binary = (root / "bin/qbittorrent-nox").read_bytes()
+    for marker in (
+        b"SearchPluginManager",
+        b"nova2.py",
+        b"nova2dl.py",
+        b"api/v2/search",
+        b"fetchMetadataAction",
+        b"api/v2/torrents/fetchMetadata",
+        b"saveMetadataAction",
+        b"handleDownloadParam",
+        b"#download=",
+        b"requestedDownload",
+        b"WildBuzzardTorrentDownloadRouted",
+    ):
+        if marker in binary:
+            raise SystemExit(
+                "qBittorrent binary contains forbidden integration marker: "
+                + marker.decode()
+            )
+    if (
+        b"Only canonical BTIH magnet links are accepted in the `urls` field"
+        not in binary
+    ):
+        raise SystemExit("qBittorrent binary lacks its magnet-only add boundary")
+
+    source_offer = load_json(
+        root / "share/doc/wildbuzzard-qbittorrent-runtime/source-offer.json"
+    )
+    if (
+        source_offer.get("schema") != 1
+        or source_offer.get("component") != "wildbuzzard-qbittorrent-runtime"
+        or source_offer.get("wildbuzzardCommit") != commit
+    ):
+        raise SystemExit("unsupported qBittorrent source offer")
     external_sources = source_offer.get("correspondingSource", {}).get("externalArtifacts")
-    validate_external_sources(external_sources)
+    validate_external_sources(external_sources, commit)
     if set(source_offer.get("correspondingSource", {})) != {"externalArtifacts"}:
         raise SystemExit("corresponding source must remain outside the installed runtime")
     if external_sources != manifest.get("externalSourceArtifacts"):
         raise SystemExit("runtime manifest and source offer differ")
+    if arguments.artifacts:
+        validate_external_source_files(external_sources, arguments.artifacts)
 
-    inventory = load_json(root / "share/doc/buzzard-torrent/runtime-component-inventory.json")
-    if inventory.get("schema") != 2 or inventory.get("platform") != "linux-x64":
+    inventory = load_json(
+        root
+        / "share/doc/wildbuzzard-qbittorrent-runtime/runtime-component-inventory.json"
+    )
+    if (
+        inventory.get("schema") != 2
+        or inventory.get("component") != "wildbuzzard-qbittorrent-runtime"
+        or inventory.get("platform") != "linux-x64"
+        or inventory.get("qt", {}).get("version") != "6.10.2"
+        or inventory.get("qt", {}).get("lreleaseSha256")
+        != "e9f9f468f45fe73b1fe56a235438d802d51fd45dd55b52f06b212029bce458b8"
+    ):
         raise SystemExit("unsupported runtime component inventory")
     components = inventory.get("runtimeLibraries", []) + inventory.get("qt", {}).get("plugins", [])
     component_paths = {entry.get("path") for entry in components if isinstance(entry, dict)}
@@ -197,7 +289,9 @@ def main():
     if inventory.get("externalSourceArtifacts") != external_sources:
         raise SystemExit("component inventory and source offer differ")
 
-    sbom = load_json(root / "share/doc/buzzard-torrent/sbom.spdx.json")
+    sbom = load_json(
+        root / "share/doc/wildbuzzard-qbittorrent-runtime/sbom.spdx.json"
+    )
     if sbom.get("spdxVersion") != "SPDX-2.3" or sbom.get("dataLicense") != "CC0-1.0":
         raise SystemExit("invalid qBittorrent SPDX document")
     packages = sbom.get("packages")

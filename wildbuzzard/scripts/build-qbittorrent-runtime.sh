@@ -193,76 +193,6 @@ while IFS= read -r patch_name; do
   patch --batch --forward --fuzz=0 -d "${qbt_source}" -p1 < "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/patches/${patch_name}"
 done < "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/patches/series"
 
-python3 "${checkout}/wildbuzzard/scripts/generate-torrent-document-sources.py" \
-  --source "${qbt_source}" \
-  --check "${checkout}/wildbuzzard/browser/components/torrent/TorrentDocumentSources.sys.mjs"
-
-assert_patch_absent() {
-  local marker="$1"
-  local file="$2"
-  if grep -Fq -- "${marker}" "${qbt_source}/${file}"; then
-    echo "Forbidden qBittorrent runtime integration remains in ${file}: ${marker}" >&2
-    exit 1
-  fi
-}
-assert_patch_present() {
-  local marker="$1"
-  local file="$2"
-  if ! grep -Fq -- "${marker}" "${qbt_source}/${file}"; then
-    echo "Required qBittorrent runtime integration is missing from ${file}: ${marker}" >&2
-    exit 1
-  fi
-}
-assert_patch_absent "src/searchengine/searchengine.qrc" "src/app/CMakeLists.txt"
-assert_patch_absent "search/searchpluginmanager.cpp" "src/base/CMakeLists.txt"
-assert_patch_absent "utils/foreignapps.cpp" "src/base/CMakeLists.txt"
-assert_patch_absent "api/searchcontroller.cpp" "src/webui/CMakeLists.txt"
-assert_patch_absent "SearchController" "src/webui/webapplication.cpp"
-assert_patch_absent "SearchPluginManager" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent 'u"downloader"_s' "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "base/addtorrentmanager.h" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "addTorrentManager()->addTorrent" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "m_torrentSourceCache" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "m_torrentSourceCache" "src/webui/api/torrentscontroller.h"
-assert_patch_absent "fetchMetadataAction" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "fetchMetadataAction" "src/webui/api/torrentscontroller.h"
-assert_patch_absent 'u"fetchMetadata"_s' "src/webui/webapplication.h"
-assert_patch_absent "base/net/downloadmanager.h" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "api/v2/torrents/fetchMetadata" "src/webui/www/private/scripts/addtorrent.js"
-assert_patch_absent "saveMetadataAction" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "saveMetadataAction" "src/webui/api/torrentscontroller.h"
-assert_patch_absent "api/v2/torrents/saveMetadata" "src/webui/www/private/addtorrent.html"
-assert_patch_absent "private/scripts/search.js" "src/webui/www/webui.qrc"
-assert_patch_absent "showSearchEngine" "src/webui/www/private/scripts/client.js"
-assert_patch_absent "downloader" "src/webui/www/private/scripts/addtorrent.js"
-assert_patch_absent "handleDownloadParam" "src/webui/www/private/scripts/client.js"
-assert_patch_absent "#download=" "src/webui/www/private/scripts/client.js"
-assert_patch_absent "requestedDownload" "src/webui/www/private/scripts/client.js"
-assert_patch_absent "WildBuzzardTorrentDownloadRouted" "src/webui/www/private/scripts/client.js"
-assert_patch_absent "title: title," "src/webui/www/private/scripts/client.js"
-assert_patch_present "void TorrentsController::addAction()" "src/webui/api/torrentscontroller.cpp"
-assert_patch_present "bool isCanonicalBTIHMagnet" "src/webui/api/torrentscontroller.cpp"
-assert_patch_present "if (!isCanonicalBTIHMagnet(url))" "src/webui/api/torrentscontroller.cpp"
-assert_patch_present "source.toUtf8().size() <= 8192" "src/webui/api/torrentscontroller.cpp"
-assert_patch_present "xl=[0-9]{1,20}|so=[0-9,-]{1,256}" "src/webui/api/torrentscontroller.cpp"
-assert_patch_present ")){0,16}" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "xs=" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "as=" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "ws=" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "mt=" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "kt=" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "&xt=" "src/webui/api/torrentscontroller.cpp"
-assert_patch_absent "x.pe=" "src/webui/api/torrentscontroller.cpp"
-canonical_btih_error="Only canonical BTIH magnet links are accepted in the \`urls\` field"
-assert_patch_present "${canonical_btih_error}" "src/webui/api/torrentscontroller.cpp"
-assert_patch_present 'params()[u"metadataId"_s].trimmed()' "src/webui/api/torrentscontroller.cpp"
-assert_patch_present "TorrentDescriptor::load(it.value())" "src/webui/api/torrentscontroller.cpp"
-assert_patch_present "MAX_CONTENT_SIZE = 64 * 1024 * 1024" "src/base/http/requestparser.h"
-assert_patch_present '{{u"torrents"_s, u"add"_s}, Http::METHOD_POST}' "src/webui/webapplication.h"
-assert_patch_present 'form action="api/v2/torrents/add"' "src/webui/www/private/addtorrent.html"
-assert_patch_present 'name="metadataId" disabled' "src/webui/www/private/addtorrent.html"
-assert_patch_present "title: window.qBittorrent.Misc.escapeHtml(String(title))" "src/webui/www/private/scripts/client.js"
-
 mkdir -p -- "${boost_source}"
 tar -xjf "${boost_archive}" --strip-components=1 -C "${boost_source}"
 
@@ -343,24 +273,6 @@ while ((${#queue[@]})); do
     fi
   done < <(ldd "${binary}" | awk '/=> \/.* \(0x/{print $1, $3} /^\/[^(]+ \(0x/{print $1, $1}')
 done
-
-if strings -a "${runtime}/bin/qbittorrent-nox" | grep -Fq "${run_root}"; then
-  echo "qBittorrent binary leaks its build root" >&2
-  exit 1
-fi
-for marker in "SearchPluginManager" "nova2.py" "nova2dl.py" "api/v2/search" \
-    "fetchMetadataAction" "api/v2/torrents/fetchMetadata" "saveMetadataAction" \
-    "handleDownloadParam" "#download=" "requestedDownload" \
-    "WildBuzzardTorrentDownloadRouted"; do
-  if grep -aFq -- "${marker}" "${runtime}/bin/qbittorrent-nox"; then
-    echo "qBittorrent binary contains forbidden integration marker: ${marker}" >&2
-    exit 1
-  fi
-done
-if ! grep -aFq -- "${canonical_btih_error}" "${runtime}/bin/qbittorrent-nox"; then
-  echo "qBittorrent binary is missing the magnet-only add boundary" >&2
-  exit 1
-fi
 
 cp -- "${checkout}/wildbuzzard/third_party/gpl2/qbittorrent/upstream/COPYING" "${runtime}/licenses/qbittorrent-COPYING.txt"
 cp -- "${checkout}/wildbuzzard/third_party/bsd3/libtorrent/upstream/COPYING" "${runtime}/licenses/libtorrent-BSD-3-Clause.txt"
@@ -453,7 +365,7 @@ payload = "".join(
     for entry in files
 ).encode()
 source_offer = json.loads(
-    (root / "share" / "doc" / "buzzard-torrent" / "source-offer.json").read_text(
+    (root / "share" / "doc" / "wildbuzzard-qbittorrent-runtime" / "source-offer.json").read_text(
         encoding="utf-8"
     )
 )

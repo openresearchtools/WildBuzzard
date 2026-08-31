@@ -127,6 +127,7 @@ const TOOL_INFO = [
   ["torrent_list", "Torrent List", "List qBittorrent transfers."],
   ["torrent_details", "Torrent Details", "Inspect one qBittorrent transfer."],
   ["torrent_control", "Torrent Control", "Control qBittorrent transfers."],
+  ["torrent_add", "Torrent Add", "Add a magnet link or local torrent file."],
   [
     "run",
     "Browser Run",
@@ -333,7 +334,6 @@ const TOOL_PARAMETERS = {
   torrent_control: {
     ids: "array-string",
     action: "string",
-    confirmed: "boolean",
     deleteData: "boolean",
     fileIds: "array-number",
     priority: "number",
@@ -341,6 +341,11 @@ const TOOL_PARAMETERS = {
     uploadLimit: "number",
     name: "string",
     enabled: "boolean",
+  },
+  torrent_add: {
+    magnet: "string",
+    file: "string",
+    downloadPath: "string",
   },
   run: { code: "string", timeout: "number" },
 };
@@ -573,6 +578,12 @@ function ensureSession(session) {
 
 function absolute(cwd, path) {
   return PathUtils.isAbsolute(path) ? path : PathUtils.joinRelative(cwd, path);
+}
+
+function localPath(cwd, path) {
+  return PathUtils.isAbsolute(path)
+    ? path
+    : `${cwd.replace(/\/+$/, "")}/${path}`;
 }
 
 function resultPage(result) {
@@ -1050,6 +1061,14 @@ async function execute(request, signal) {
     : undefined;
   const parsed = parseToolFlags(argv, command, input);
   const args = parsed.args;
+  if (command === "torrent_add") {
+    if (args.file !== undefined) {
+      args.file = localPath(cwd, args.file);
+    }
+    if (args.downloadPath !== undefined) {
+      args.downloadPath = localPath(cwd, args.downloadPath);
+    }
+  }
   if (command === "run") {
     const path = codeFile ?? parsed.positionals.shift();
     if (path) {

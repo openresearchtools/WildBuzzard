@@ -8,7 +8,6 @@ import hashlib
 import json
 import posixpath
 import re
-import shutil
 import subprocess
 import sys
 import tarfile
@@ -36,7 +35,6 @@ REQUIRED_ARTIFACTS = {
     "runnerCratesSource": "wildbuzzard-runner-crates-source.tar.xz",
     "searchDeb": "buzzard-search_*_amd64.deb",
     "searchSource": "buzzard-search-*-source-license.tar.xz",
-    "torrentDeb": "buzzard-torrent_*_amd64.deb",
     "torrentSearchXpi": "wildbuzzard-torrent-search-*.xpi",
     "webSearchXpi": "wildbuzzard-web-search-*.xpi",
 }
@@ -44,16 +42,6 @@ REQUIRED_ARTIFACTS = {
 EXPECTED_MAINTAINER = (
     "openresearchtools <229047507+openresearchtools@users.noreply.github.com>"
 )
-
-TORRENT_DEB_FIXED_FILES = {
-    "usr/bin/buzzard-torrent",
-    "usr/lib/buzzard-torrent/buzzard_torrent.py",
-    "usr/share/doc/buzzard-torrent/LICENSE.packaging",
-    "usr/share/doc/buzzard-torrent/README.md",
-    "usr/share/doc/buzzard-torrent/changelog.Debian.gz",
-    "usr/share/doc/buzzard-torrent/copyright",
-}
-TORRENT_DEB_RUNTIME_ROOT = "usr/lib/buzzard-torrent/runtime"
 
 RUNNER_CRATE_LEGAL_RELATIVE_PATHS = {
     "THIRD-PARTY.json",
@@ -107,6 +95,9 @@ BROWSER_DEB_REQUIRED_RUNTIME_FILES = (
         "opt/wildbuzzard/wildbuzzard",
         "opt/wildbuzzard/runtime/tor/arti",
         "opt/wildbuzzard/runtime/tor/arti.toml",
+        "opt/wildbuzzard/runtime/torrent/bin/qbittorrent-nox",
+        "opt/wildbuzzard/runtime/torrent/wildbuzzard-qbittorrent-runtime.json",
+        "opt/wildbuzzard/runtime/torrent/share/doc/wildbuzzard-qbittorrent-runtime/source-offer.json",
         "opt/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip",
     }
     | BROWSER_DEB_LEGAL_PATHS
@@ -205,7 +196,6 @@ BROWSER_DEB_FORBIDDEN_SUFFIXES = {
 EXPECTED_PACKAGES = {
     "buzzard-minijtt": "buzzard-minijtt_*_amd64.deb",
     "buzzard-search": "buzzard-search_*_amd64.deb",
-    "buzzard-torrent": "buzzard-torrent_*_amd64.deb",
     "wildbuzzard": "wildbuzzard_*_amd64.deb",
 }
 
@@ -608,6 +598,12 @@ def verify_qbittorrent_sources(build_manifest, artifacts, external_sources):
             raise SystemExit(
                 f"qBittorrent {component} source differs from its runtime source offer"
             )
+        if Path(manifest.get(field, "")).name != artifact.name or manifest.get(
+            f"{field}_sha256"
+        ) != digest(artifact):
+            raise SystemExit(
+                f"qBittorrent {component} source differs from its build manifest"
+            )
     if (
         external_sources["boost"]["url"]
         != "https://archives.boost.io/release/1.88.0/source/boost_1_88_0.tar.bz2"
@@ -616,12 +612,6 @@ def verify_qbittorrent_sources(build_manifest, artifacts, external_sources):
         or external_sources["system"]["platform"] != "ubuntu-24.04"
     ):
         raise SystemExit("qBittorrent external source identity differs")
-        if Path(manifest.get(field, "")).name != artifact.name or manifest.get(
-            f"{field}_sha256"
-        ) != digest(artifact):
-            raise SystemExit(
-                f"qBittorrent {component} source differs from its build manifest"
-            )
     runtime = artifacts["qbittorrentRuntime"]
     if (
         Path(manifest.get("runtime_zip", "")).name != runtime.name
@@ -818,132 +808,17 @@ def verify_browser_debian_legal_payload(path):
     verify_browser_debian_runtime_members(members)
 
 
-def torrent_parent_directories():
-    directories = set()
-    for filename in TORRENT_DEB_FIXED_FILES | {TORRENT_DEB_RUNTIME_ROOT}:
-        parent = PurePosixPath(filename).parent
-        while parent.as_posix() != ".":
-            directories.add(parent.as_posix())
-            parent = parent.parent
-    return directories
-
-
-def verify_torrent_debian_runtime_members(members):
-    invalid = []
-    parents = torrent_parent_directories()
-    for path, kinds in members.items():
-        if not path:
-            if kinds != ["directory"]:
-                invalid.append(path)
-            continue
-        if len(kinds) != 1:
-            invalid.append(path)
-            continue
-        kind = kinds[0]
-        if path in TORRENT_DEB_FIXED_FILES:
-            if kind != "file":
-                invalid.append(path)
-            continue
-        if path == TORRENT_DEB_RUNTIME_ROOT:
-            if kind != "directory":
-                invalid.append(path)
-            continue
-        if path.startswith(TORRENT_DEB_RUNTIME_ROOT + "/"):
-            if kind not in {"directory", "file"}:
-                invalid.append(path)
-            continue
-        if path in parents:
-            if kind != "directory":
-                invalid.append(path)
-            continue
-        invalid.append(path)
-    missing = sorted(
-        path for path in TORRENT_DEB_FIXED_FILES if members.get(path) != ["file"]
-    )
-    runtime_manifest = (
-        TORRENT_DEB_RUNTIME_ROOT + "/wildbuzzard-qbittorrent-runtime.json"
-    )
-    if members.get(runtime_manifest) != ["file"]:
-        missing.append(runtime_manifest)
-    if invalid or missing:
-        details = []
-        if invalid:
-            details.append("forbidden or non-runtime: " + ", ".join(sorted(invalid)))
-        if missing:
-            details.append("missing runtime: " + ", ".join(sorted(missing)))
-        raise SystemExit(
-            "invalid buzzard-torrent Debian payload: " + "; ".join(details)
-        )
-
-
-def verify_torrent_debian_payload(path, repository):
-    verifier = (
-        repository
-        / "wildbuzzard"
-        / "components"
-        / "buzzard-torrent"
-        / "scripts"
-        / "verify-runtime.py"
-    )
-    with tempfile.TemporaryDirectory(prefix="wildbuzzard-torrent-deb-") as directory:
+def verify_browser_qbittorrent_payload(path, repository):
+    verifier = repository / "wildbuzzard" / "scripts" / "verify-qbittorrent-runtime.py"
+    with tempfile.TemporaryDirectory(prefix="wildbuzzard-deb-") as directory:
         root = Path(directory)
-        process = subprocess.Popen(
-            ["dpkg-deb", "--fsys-tarfile", str(path)],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+        subprocess.run(
+            ["dpkg-deb", "--extract", str(path), str(root)],
+            check=True,
+            capture_output=True,
+            text=True,
         )
-        members = {}
-        try:
-            with tarfile.open(fileobj=process.stdout, mode="r|*") as archive:
-                for member in archive:
-                    name = archive_member_name(member.name)
-                    if member.mode & 0o7000:
-                        kind = "other"
-                    elif member.isdir():
-                        kind = "directory"
-                    elif member.isfile():
-                        kind = "file"
-                    else:
-                        kind = "other"
-                    if name in members:
-                        members[name].append(kind)
-                        continue
-                    members[name] = [kind]
-                    destination = root / name
-                    if kind == "directory":
-                        destination.mkdir(parents=True, exist_ok=True)
-                    elif kind == "file":
-                        destination.parent.mkdir(parents=True, exist_ok=True)
-                        extracted = archive.extractfile(member)
-                        if extracted is None:
-                            raise SystemExit(f"unreadable Debian payload file: {name}")
-                        with extracted, destination.open("xb") as output:
-                            shutil.copyfileobj(extracted, output)
-                        destination.chmod(member.mode & 0o777)
-        except SystemExit:
-            process.kill()
-            process.wait()
-            process.stderr.close()
-            raise
-        except (OSError, tarfile.TarError) as error:
-            process.kill()
-            process.wait()
-            process.stderr.close()
-            raise SystemExit(
-                f"could not inspect Debian payload: {path.name}"
-            ) from error
-        finally:
-            process.stdout.close()
-        stderr = process.stderr.read().decode(errors="replace").strip()
-        process.stderr.close()
-        returncode = process.wait()
-        if returncode:
-            raise SystemExit(
-                f"could not inspect Debian payload: {path.name}: "
-                + (stderr or f"dpkg-deb exited {returncode}")
-            )
-        verify_torrent_debian_runtime_members(members)
-        runtime = root / TORRENT_DEB_RUNTIME_ROOT
+        runtime = root / "opt" / "wildbuzzard" / "runtime" / "torrent"
         result = subprocess.run(
             [sys.executable, "-I", "-B", str(verifier), "--runtime", str(runtime)],
             check=False,
@@ -953,7 +828,7 @@ def verify_torrent_debian_payload(path, repository):
         if result.returncode:
             message = result.stderr.strip() or result.stdout.strip()
             raise SystemExit(
-                "invalid buzzard-torrent runtime: "
+                "invalid bundled qBittorrent runtime: "
                 + (message or f"verifier exited {result.returncode}")
             )
         runtime_manifest = json.loads(
@@ -1009,24 +884,44 @@ def debian_dependency_names(value):
     }
 
 
-def verify_torrent_package_size(path, metadata):
-    if (
-        path.stat().st_size > 96 * 1024 * 1024
-        or metadata["installedSizeKiB"] > 128 * 1024
-    ):
-        raise SystemExit("buzzard-torrent Debian package exceeds its hard size limits")
-
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--artifact-dir")
+    parser.add_argument("--verify-browser-deb")
     parser.add_argument("--verify-browser-runtime-root")
     parser.add_argument("--repository", action="append", default=[])
     parser.add_argument("--build-manifest", action="append", default=[])
     arguments = parser.parse_args()
 
+    if arguments.verify_browser_deb:
+        if (
+            arguments.artifact_dir
+            or arguments.verify_browser_runtime_root
+            or arguments.repository
+            or arguments.build_manifest
+        ):
+            parser.error("--verify-browser-deb cannot be combined with other options")
+        repository = Path(__file__).resolve().parents[2]
+        package = Path(arguments.verify_browser_deb).resolve(strict=True)
+        configure_arti_legal_paths(repository)
+        metadata = debian_metadata(package, "wildbuzzard")
+        dependency_names = debian_dependency_names(metadata["depends"])
+        if dependency_names & {"buzzard-minijtt", "buzzard-search", "buzzard-torrent"}:
+            raise SystemExit("wildbuzzard Debian package has invalid component dependencies")
+        if debian_dependency_names(metadata["suggests"]) != {
+            "buzzard-minijtt",
+            "buzzard-search",
+        }:
+            raise SystemExit("wildbuzzard Debian package has invalid component suggestions")
+        verify_browser_debian_legal_payload(package)
+        verify_browser_qbittorrent_payload(package, repository)
+        return
     if arguments.verify_browser_runtime_root:
-        if arguments.artifact_dir or arguments.repository or arguments.build_manifest:
+        if (
+            arguments.artifact_dir
+            or arguments.repository
+            or arguments.build_manifest
+        ):
             parser.error(
                 "--verify-browser-runtime-root cannot be combined with release options"
             )
@@ -1092,8 +987,9 @@ def main():
         package: exactly_one(files, pattern)
         for package, pattern in EXPECTED_PACKAGES.items()
     }
-    qbittorrent_external_sources = verify_torrent_debian_payload(
-        package_paths["buzzard-torrent"], repositories["wildbuzzard"]
+    verify_browser_debian_legal_payload(package_paths["wildbuzzard"])
+    qbittorrent_external_sources = verify_browser_qbittorrent_payload(
+        package_paths["wildbuzzard"], repositories["wildbuzzard"]
     )
     verify_qbittorrent_sources(
         build_manifests["qbittorrent"], resolved, qbittorrent_external_sources
@@ -1110,17 +1006,12 @@ def main():
     packages = [
         debian_metadata(path, package) for package, path in package_paths.items()
     ]
-    torrent_package = next(
-        package for package in packages if package["package"] == "buzzard-torrent"
-    )
-    verify_torrent_package_size(package_paths["buzzard-torrent"], torrent_package)
     browser_package = next(
         package for package in packages if package["package"] == "wildbuzzard"
     )
-    verify_browser_debian_legal_payload(package_paths["wildbuzzard"])
     dependency_names = debian_dependency_names(browser_package["depends"])
-    if "buzzard-torrent" not in dependency_names:
-        raise SystemExit("wildbuzzard Debian package lacks buzzard-torrent dependency")
+    if "buzzard-torrent" in dependency_names:
+        raise SystemExit("wildbuzzard Debian package depends on obsolete buzzard-torrent")
     optional_packages = {"buzzard-minijtt", "buzzard-search"}
     bundled_optionals = dependency_names & optional_packages
     if bundled_optionals:

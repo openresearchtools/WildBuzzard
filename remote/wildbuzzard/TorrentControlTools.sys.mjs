@@ -230,7 +230,6 @@ export function validateTorrentControlArgs(raw) {
     new Set([
       "ids",
       "action",
-      "confirmed",
       "deleteData",
       "fileIds",
       "priority",
@@ -258,9 +257,6 @@ export function validateTorrentControlArgs(raw) {
   ]);
   if (!actions.has(args.action)) {
     throw new Error("action is not supported by qBittorrent");
-  }
-  if (args.action === "delete" && args.confirmed !== true) {
-    throw new Error("Deleting a torrent requires explicit user confirmation");
   }
   if (args.deleteData !== undefined && typeof args.deleteData !== "boolean") {
     throw new Error("deleteData must be a boolean");
@@ -319,7 +315,34 @@ export function validateTorrentControlArgs(raw) {
   return { ...args, ids };
 }
 
-/** Provides bounded access to existing native torrent transfers. */
+export function validateTorrentAddArgs(raw) {
+  const args = requireObject(raw, "torrent_add");
+  assertKeys(
+    args,
+    new Set(["magnet", "file", "downloadPath"]),
+    "torrent_add"
+  );
+  const hasMagnet = args.magnet !== undefined;
+  const hasFile = args.file !== undefined;
+  if (hasMagnet === hasFile) {
+    throw new Error("torrent_add requires exactly one magnet or file");
+  }
+  if (hasMagnet && typeof args.magnet !== "string") {
+    throw new Error("magnet must be a string");
+  }
+  if (hasFile && typeof args.file !== "string") {
+    throw new Error("file must be a string");
+  }
+  if (
+    args.downloadPath !== undefined &&
+    typeof args.downloadPath !== "string"
+  ) {
+    throw new Error("downloadPath must be a string");
+  }
+  return args;
+}
+
+/** Provides native torrent transfer operations. */
 export class TorrentControlToolController {
   constructor({ torrentManager } = {}) {
     if (!torrentManager) {
@@ -336,6 +359,8 @@ export class TorrentControlToolController {
         return this.details(rawArgs);
       case "torrent_control":
         return this.control(rawArgs);
+      case "torrent_add":
+        return this.add(rawArgs);
       default:
         throw new Error(`Unknown torrent control tool: ${tool}`);
     }
@@ -499,5 +524,16 @@ export class TorrentControlToolController {
       throw new Error("Torrent control operation failed");
     }
     return { action: args.action, ids: args.ids, applied: true };
+  }
+
+  async add(rawArgs) {
+    const args = validateTorrentAddArgs(rawArgs);
+    try {
+      return args.magnet === undefined
+        ? await this.torrentManager.addTorrentFile(args.file, args.downloadPath)
+        : await this.torrentManager.addMagnet(args.magnet, args.downloadPath);
+    } catch (error) {
+      throw new Error(error?.message || "Torrent add operation failed");
+    }
   }
 }

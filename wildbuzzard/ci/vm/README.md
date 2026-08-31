@@ -1,6 +1,6 @@
 # WildBuzzard release VM validation
 
-This harness installs one unchanged set of four `amd64` Debian packages in fresh Ubuntu 24.04 and Debian 13 GNOME virtual machines. It validates the command-line contracts, the installed browser, the two built-in extensions, and both browser-page and full GNOME display evidence.
+This harness installs one unchanged set of three `amd64` Debian packages in fresh Ubuntu 24.04 and Debian 13 GNOME virtual machines. It validates the command-line contracts, the installed browser, the two built-in extensions, and both browser-page and full GNOME display evidence.
 
 The tracked scripts in this directory are canonical. The copies used from `.local/oci-builder` must be byte-for-byte identical before a release run:
 
@@ -90,19 +90,18 @@ Use this single directory for the final set:
 
 `/run/media/user/Data/Repositories/wildbuzzard/.local/oci-builder/workspace/releases/20260830T132743Z-refactor/vm-debs`
 
-It must contain exactly four top-level regular, non-symlink `.deb` files and no other `.deb`:
+It must contain exactly three top-level regular, non-symlink `.deb` files and no other `.deb`:
 
 ```text
 vm-debs/
 ├── buzzard-minijtt_<version>_amd64.deb
 ├── buzzard-search_<version>_amd64.deb
-├── buzzard-torrent_<version>_amd64.deb
 └── wildbuzzard_<version>_amd64.deb
 ```
 
-The host records size and SHA-256 for each file and checks package identity and architecture with `dpkg-deb`. `wildbuzzard` depends on `buzzard-torrent` and lists the two optional discovery CLIs as suggestions. `buzzard-search` and `buzzard-minijtt` are independently usable JSON CLIs; neither package depends on the browser or contains a web UI. The guest downloads the same four bytestrings from the temporary host server, verifies every manifest field before installation, and passes all four local paths together to `apt-get install --no-install-recommends`. APT may retrieve ordinary repository dependencies, but installed versions of the four release packages must exactly match the four supplied files. The default freshness guard aborts if any of the four packages is already installed.
+The host records size and SHA-256 for each file and checks package identity and architecture with `dpkg-deb`. `wildbuzzard` contains the native qBittorrent/libtorrent runtime and lists the two optional discovery CLIs as suggestions. `buzzard-search` and `buzzard-minijtt` are independently usable JSON CLIs; neither package depends on the browser or contains a web UI. The guest downloads the same three bytestrings from the temporary host server, verifies every manifest field before installation, and passes all three local paths together to `apt-get install --no-install-recommends`. APT may retrieve ordinary repository dependencies, but installed versions of the three release packages must exactly match the supplied files. The default freshness guard aborts if any release package is already installed.
 
-Do not use `--allow-installed` for release evidence. Do not run beyond preflight until all four final files, including the final browser package, are present.
+Do not use `--allow-installed` for release evidence. Do not run beyond preflight until all three final files, including the final browser package, are present.
 
 ## Test and run
 
@@ -112,7 +111,7 @@ Run the focused non-installing tests:
 python3 -m unittest -v wildbuzzard/ci/vm/test_release_vm_validate.py
 ```
 
-Run the exact non-installing preflight after assembling all four files:
+Run the exact non-installing preflight after assembling all three files:
 
 ```sh
 python3 wildbuzzard/ci/vm/release-vm-validate.py \
@@ -137,7 +136,7 @@ python3 wildbuzzard/ci/vm/release-vm-validate.py \
 
 The host validates both VMs concurrently. Before launching the browser, the guest calls and validates every standalone CLI contract, including license inventory output. The browser fixture is served only on guest loopback because native browser control intentionally rejects `file:` navigation. The harness uses native accessibility snapshots and `click`, verifies that `about:addons` exposes exactly the two WildBuzzard extensions, and confirms that normal and private search defaults are DuckDuckGo. It then opens the web-search and torrent-search built-in pages by the UUIDs from the launched WildBuzzard profile, in separate control sessions, and uses native `fill` and `click`. Each page must expose a real CLI-backed search response before its screenshot is accepted.
 
-Torrent validation also creates a deterministic private torrent and a loopback-only tracker and peer. It first imports the metadata through the confirmed `buzzard-torrent` CLI contract, downloads the complete 96,768-byte payload through qBittorrent/libtorrent, verifies its SHA-256, info hash, requested save path, list and detail contracts, and then removes the transfer with `deleteData=false`. The browser is then driven like a user to click a `.torrent` link and a magnet link, accept each native confirmation, complete and hash-check the file transfer, and inspect it in `about:torrents`. No public tracker, peer, or copyrighted payload is used. The same run verifies a direct non-Tor request, a Tor-routed request with a different egress address, and a live v3 onion page without recording either public IP address.
+Torrent validation also creates a deterministic private torrent and a loopback-only tracker and peer. It imports the metadata through the native `wildbuzzard` browser-control CLI, downloads the complete 96,768-byte payload through the bundled qBittorrent/libtorrent runtime, verifies its SHA-256, info hash, requested save path, list and detail contracts, and then removes the transfer with `deleteData=false`. The browser is then driven like a user to click a `.torrent` link and a magnet link, accept each native confirmation, complete and hash-check the file transfer, and inspect it in `about:torrents`. No public tracker, peer, or copyrighted payload is used. The same run verifies a direct non-Tor request, a Tor-routed request with a different egress address, and a live v3 onion page without recording either public IP address.
 
 ## Evidence layout
 

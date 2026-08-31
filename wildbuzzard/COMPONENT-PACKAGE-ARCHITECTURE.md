@@ -15,15 +15,14 @@ discovery implementations are not browser source or browser payloads.
 
 | Repository | Package or artifact | Responsibility |
 | --- | --- | --- |
-| `wildbuzzard` | `wildbuzzard` | Browser core, native downloads, Tor, blocker, and `/usr/bin/wildbuzzard` browser control |
+| `wildbuzzard` | `wildbuzzard` | Browser core, bundled native download runtime, Tor, blocker, and `/usr/bin/wildbuzzard` browser control |
 | `buzzard-agent` | `buzzard-agent` | Pi-compatible agent, Pi Web UI, Node dependencies, and agent skills |
 | `buzzard-search` | `buzzard-search` | Universal bounded JSON search CLI at `/usr/bin/buzzard-search` |
 | `buzzard-minijtt` | `buzzard-minijtt` | Universal bounded JSON torrent-discovery CLI at `/usr/bin/buzzard-minijtt` |
 | `wildbuzzard-extensions` | two built-in copies and release-pinned XPIs | Canonical offline web and torrent discovery UIs using the constrained browser APIs |
-| `wildbuzzard` native-torrent package source | `buzzard-torrent` | qBittorrent/libtorrent runtime used by native browser downloads |
 
-The browser Debian package depends on `buzzard-torrent`. It suggests the
-optional `buzzard-search` and `buzzard-minijtt` apt packages; either extension
+The browser Debian package contains its qBittorrent/libtorrent runtime. It
+suggests the optional `buzzard-search` and `buzzard-minijtt` apt packages; either extension
 shows its exact `sudo apt install` command when its CLI is absent. The extension
 monorepo remains canonical, while its two subprojects stay independently
 packageable and exact allowlisted runtime copies are built into the browser.
@@ -76,14 +75,15 @@ providers, and web UI remain in `buzzard-agent`.
 
 Browser packages must fail if they contain Agent, Pi Web, search-provider, or
 torrent-discovery runtimes. They contain only the reviewed offline extension
-files and their source hashes. Arti is the only browser-bundled service
-runtime; qBittorrent and both discovery CLIs are independently apt-installed.
+files and their source hashes. Arti and the core qBittorrent/libtorrent download
+runtime are bundled; both discovery CLIs remain independently apt-installed.
 Standalone release XPIs must be normally signed or match the complete SHA-256
 digest pinned by that browser release. Temporary, modified, unpinned unsigned,
 missing-signature, and preliminary-signature installs never receive either
 restricted namespace, even if they claim an exact release ID.
 
 Every standalone package owns its dependencies, lifecycle, XDG state,
-provenance, license bundle, and versioned CLI. Cross-repository calls use only
+provenance, license bundle, and versioned CLI. The browser owns the native
+download lifecycle and private UDS transport. Cross-repository calls use only
 documented CLI or WebExtension contracts; no consumer reads another package's
 private library directory.

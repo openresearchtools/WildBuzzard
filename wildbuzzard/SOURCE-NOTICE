@@ -4,21 +4,24 @@ WildBuzzard corresponding source is published at:
 
 https://github.com/openresearchtools/wildbuzzard
 
-For a release build, use the exact WildBuzzard commit recorded in the
-release-set release-manifest.json. That manifest also records the exact commits
-for the separately distributed search extensions and command-line packages.
-Complete source and build inputs for bundled third-party code are carried in
-the repository or in the source and provenance artifacts named by the same
-release manifest.
+For a browser-only artifact build, use the exact WildBuzzard commit recorded in
+browser-artifact-manifest.txt. A full release-set release-manifest.json also
+records the exact commits for the separately distributed search extensions and
+command-line packages. Complete source and build inputs for bundled third-party
+code are carried in the repository or in the source and provenance artifacts
+published beside the browser package.
 
 The Rust crates statically linked into the WildBuzzard browser-control client
 are locked by runner/Cargo.lock and the installed THIRD-PARTY.json. Their exact
 crates.io source distributions are published together as
 wildbuzzard-runner-crates-source.tar.xz in the same release set.
 
-The independently installed buzzard-search, buzzard-minijtt, and
-buzzard-torrent releases publish their own license, provenance, and
-corresponding-source artifacts. Those sources are not browser payload.
+The independently installed buzzard-search and buzzard-minijtt releases publish
+their own license, provenance, and corresponding-source artifacts. Their
+sources are not browser payload. The browser package carries the native
+qBittorrent/libtorrent runtime as a distinct GPL-2.0-only program together with
+its component licenses and source-offer metadata; its corresponding-source
+archives are published beside the browser package.
 
 Arti's workspace and local-crate source is distributed as
 wildbuzzard-arti-2.5.1-source.tar.xz. The exact `cargo vendor --locked

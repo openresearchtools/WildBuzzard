@@ -419,73 +419,6 @@ class ReleasePayloadTests(unittest.TestCase):
         members[""] = ["directory"]
         return members
 
-    def torrent_debian_members(self):
-        files = MANIFEST.TORRENT_DEB_FIXED_FILES | {
-            MANIFEST.TORRENT_DEB_RUNTIME_ROOT + "/wildbuzzard-qbittorrent-runtime.json",
-            MANIFEST.TORRENT_DEB_RUNTIME_ROOT + "/bin/qbittorrent-nox",
-        }
-        members = {path: ["file"] for path in files}
-        for filename in files:
-            parent = pathlib.PurePosixPath(filename).parent
-            while parent.as_posix() != ".":
-                members.setdefault(parent.as_posix(), ["directory"])
-                parent = parent.parent
-        members[""] = ["directory"]
-        return members
-
-    def build_torrent_deb(
-        self, root, *, extra_file=None, maintainer=MANIFEST.EXPECTED_MAINTAINER
-    ):
-        stage = root / "stage"
-        (stage / "DEBIAN").mkdir(parents=True)
-        (stage / "DEBIAN/control").write_text(
-            "Package: buzzard-torrent\n"
-            "Version: 1\n"
-            "Architecture: amd64\n"
-            "Installed-Size: 1\n"
-            f"Maintainer: {maintainer}\n"
-            "Description: test\n",
-            encoding="utf-8",
-        )
-        for path in MANIFEST.TORRENT_DEB_FIXED_FILES:
-            destination = stage / path
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text("runtime package\n", encoding="utf-8")
-        runtime = stage / MANIFEST.TORRENT_DEB_RUNTIME_ROOT
-        (runtime / "bin").mkdir(parents=True)
-        (runtime / "bin/qbittorrent-nox").write_text("binary\n", encoding="utf-8")
-        external = {
-            "boost": {"name": "boost", "sha256": "a" * 64, "size": 1},
-            "qt": {"name": "qt", "sha256": "b" * 64, "size": 2},
-            "system": {"name": "system", "sha256": "c" * 64, "size": 3},
-        }
-        (runtime / "wildbuzzard-qbittorrent-runtime.json").write_text(
-            json.dumps({"externalSourceArtifacts": external}), encoding="utf-8"
-        )
-        if extra_file:
-            destination = stage / extra_file
-            destination.parent.mkdir(parents=True, exist_ok=True)
-            destination.write_text("unexpected\n", encoding="utf-8")
-        package = root / "buzzard-torrent_1_amd64.deb"
-        subprocess.run(
-            ["dpkg-deb", "--root-owner-group", "--build", str(stage), str(package)],
-            check=True,
-            capture_output=True,
-        )
-        return package, external
-
-    def test_debian_metadata_requires_authenticated_maintainer(self):
-        with tempfile.TemporaryDirectory() as directory:
-            package, _ = self.build_torrent_deb(pathlib.Path(directory))
-            metadata = MANIFEST.debian_metadata(package, "buzzard-torrent")
-            self.assertEqual(metadata["maintainer"], MANIFEST.EXPECTED_MAINTAINER)
-        with tempfile.TemporaryDirectory() as directory:
-            package, _ = self.build_torrent_deb(
-                pathlib.Path(directory), maintainer="test <test@example.invalid>"
-            )
-            with self.assertRaises(SystemExit):
-                MANIFEST.debian_metadata(package, "buzzard-torrent")
-
     def test_requires_arti_corresponding_source(self):
         self.assertEqual(
             MANIFEST.REQUIRED_ARTIFACTS["artiSource"],
@@ -517,22 +450,6 @@ class ReleasePayloadTests(unittest.TestCase):
             members["opt/wildbuzzard/notices/arti-crates/tests/fixture"] = ["file"]
             with self.assertRaises(SystemExit):
                 MANIFEST.verify_browser_debian_legal_members(members)
-
-    def test_torrent_package_size_limits_are_fail_closed(self):
-        with tempfile.TemporaryDirectory() as directory:
-            package = pathlib.Path(directory) / "buzzard-torrent.deb"
-            package.write_bytes(b"package")
-            MANIFEST.verify_torrent_package_size(
-                package, {"installedSizeKiB": 128 * 1024}
-            )
-            with self.assertRaises(SystemExit):
-                MANIFEST.verify_torrent_package_size(
-                    package, {"installedSizeKiB": 128 * 1024 + 1}
-                )
-            with package.open("wb") as stream:
-                stream.truncate(96 * 1024 * 1024 + 1)
-            with self.assertRaises(SystemExit):
-                MANIFEST.verify_torrent_package_size(package, {"installedSizeKiB": 1})
 
     def test_requires_blocker_corresponding_source(self):
         self.assertEqual(
@@ -647,44 +564,6 @@ class ReleasePayloadTests(unittest.TestCase):
             external["core"]["unexpected"] = True
             with self.assertRaises(SystemExit):
                 MANIFEST.verify_qbittorrent_sources(manifest, artifacts, external)
-
-    def test_torrent_debian_payload_allows_only_wrappers_docs_and_runtime(self):
-        valid = self.torrent_debian_members()
-        MANIFEST.verify_torrent_debian_runtime_members(valid)
-        for path, kind in (
-            ("usr/share/buzzard-torrent/tests/fixture.json", "file"),
-            ("usr/lib/buzzard-torrent/source/Cargo.toml", "file"),
-            ("usr/bin/unrelated", "file"),
-            ("usr/lib/buzzard-torrent/runtime/link", "symlink"),
-        ):
-            with self.subTest(path=path):
-                members = self.torrent_debian_members()
-                members[path] = [kind]
-                with self.assertRaises(SystemExit):
-                    MANIFEST.verify_torrent_debian_runtime_members(members)
-        missing = self.torrent_debian_members()
-        missing.pop("usr/bin/buzzard-torrent")
-        with self.assertRaises(SystemExit):
-            MANIFEST.verify_torrent_debian_runtime_members(missing)
-
-    def test_torrent_debian_archive_is_extracted_and_gated(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory)
-            package, external = self.build_torrent_deb(root)
-            verifier_result = subprocess.CompletedProcess([], 0, "", "")
-            with mock.patch.object(
-                MANIFEST.subprocess, "run", return_value=verifier_result
-            ):
-                self.assertEqual(
-                    MANIFEST.verify_torrent_debian_payload(package, root), external
-                )
-        with tempfile.TemporaryDirectory() as directory:
-            root = pathlib.Path(directory)
-            package, _ = self.build_torrent_deb(
-                root, extra_file="usr/share/buzzard-torrent/tests/fixture.json"
-            )
-            with self.assertRaises(SystemExit):
-                MANIFEST.verify_torrent_debian_payload(package, root)
 
     def test_requires_each_browser_legal_file_once_as_a_regular_file(self):
         valid = {path: ["file"] for path in MANIFEST.BROWSER_DEB_LEGAL_PATHS}

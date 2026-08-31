@@ -12,6 +12,8 @@ wildbuzzard click @e2
 wildbuzzard read
 wildbuzzard screenshot
 wildbuzzard run workflow.js
+wildbuzzard torrent-add --magnet 'magnet:?xt=urn:btih:...'
+wildbuzzard torrent-add --file ./file.torrent
 ```
 
 The installed executable is a small native launcher and Unix-socket client.

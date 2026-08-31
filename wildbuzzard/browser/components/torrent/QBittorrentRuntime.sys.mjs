@@ -2,6 +2,7 @@
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { Subprocess } from "resource://gre/modules/Subprocess.sys.mjs";
+import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 import { requestQBittorrentUDS } from "resource:///modules/QBittorrentUDSTransport.sys.mjs";
 
 const LocalFile = Components.Constructor(
@@ -12,8 +13,11 @@ const LocalFile = Components.Constructor(
 const API_KEY = /^qbt_.{28}$/;
 const INSTANCE_ID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DEFAULT_COMMAND = "/usr/bin/buzzard-torrent";
+const QBITTORRENT_VERSION = "v5.2.3";
 const MAX_LIFECYCLE_OUTPUT = 64 * 1024;
+const KEY_CREATE_ATTEMPTS = 20;
+const START_ATTEMPTS = 80;
+const START_INTERVAL_MS = 250;
 
 function safeDirectory(value, fallback) {
   try {
@@ -83,7 +87,7 @@ async function readPipe(pipe) {
   for (let chunk; (chunk = await pipe.readString()); ) {
     output += chunk;
     if (output.length > MAX_LIFECYCLE_OUTPUT) {
-      throw new Error("buzzard-torrent lifecycle output exceeded its limit");
+      throw new Error("qBittorrent startup output exceeded its limit");
     }
   }
   return output;
@@ -91,6 +95,26 @@ async function readPipe(pipe) {
 
 function decodeText(response) {
   return new TextDecoder("utf-8", { fatal: true }).decode(response.body);
+}
+
+async function makePrivateDirectory(path) {
+  const directory = new LocalFile(path);
+  if (
+    directory.exists() &&
+    (!directory.isDirectory() || directory.isSymlink())
+  ) {
+    throw new Error(`Unsafe qBittorrent directory: ${path}`);
+  }
+  await IOUtils.makeDirectory(path, {
+    createAncestors: true,
+    ignoreExisting: true,
+    permissions: 0o700,
+  });
+  await IOUtils.setPermissions(path, 0o700);
+}
+
+function delay(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
 /** Owns the lifecycle and private transport for the packaged runtime. */
@@ -106,20 +130,28 @@ class QBittorrentRuntimeImpl {
       PathUtils.join(dataHome, "run")
     );
     this.homeDirectory = home;
+    this.downloadDirectory = safeDirectory(
+      Services.env.get("BUZZARD_TORRENT_DOWNLOADS"),
+      PathUtils.join(home, "Downloads")
+    );
     this.configurePaths({ dataHome, runtimeHome });
   }
 
   configurePaths({ dataHome, runtimeHome }) {
-    this.dataHome = dataHome;
-    this.runtimeHome = runtimeHome;
-    this.rootDirectory = PathUtils.join(dataHome, "buzzard", "torrent");
+    this.rootDirectory = PathUtils.join(dataHome, "wildbuzzard", "torrent");
     this.profileDirectory = PathUtils.join(this.rootDirectory, "profile");
-    this.stateDirectory = PathUtils.join(runtimeHome, "buzzard", "torrent");
+    this.stateDirectory = PathUtils.join(runtimeHome, "wildbuzzard", "torrent");
     this.socketPath = PathUtils.join(this.stateDirectory, "q");
     this.apiKeyPath = PathUtils.join(this.stateDirectory, "api-key");
-    this.connectionPath = PathUtils.join(
-      this.stateDirectory,
-      "connection.json"
+    this.runtimeDirectory = PathUtils.join(
+      Services.dirsvc.get("GreD", Ci.nsIFile).path,
+      "runtime",
+      "torrent"
+    );
+    this.executable = PathUtils.join(
+      this.runtimeDirectory,
+      "bin",
+      "qbittorrent-nox"
     );
   }
 
@@ -130,62 +162,169 @@ class QBittorrentRuntimeImpl {
     this.configurePaths(paths);
   }
 
-  validateCommand() {
-    const command = new LocalFile(DEFAULT_COMMAND);
-    const parent = command.parent;
-    if (
-      command.path !== DEFAULT_COMMAND ||
-      parent?.path !== "/usr/bin" ||
-      !parent.isDirectory() ||
-      parent.isSymlink() ||
-      (parent.permissions & 0o022) !== 0 ||
-      !command.isFile() ||
-      command.isSymlink() ||
-      !command.isExecutable() ||
-      (command.permissions & 0o022) !== 0
-    ) {
-      throw new Error("The buzzard-torrent package is not installed");
+  validateRuntime() {
+    try {
+      const runtime = new LocalFile(this.runtimeDirectory);
+      const command = new LocalFile(this.executable);
+      if (
+        !runtime.isDirectory() ||
+        runtime.isSymlink() ||
+        (runtime.permissions & 0o022) !== 0 ||
+        !command.isFile() ||
+        command.isSymlink() ||
+        !command.isExecutable() ||
+        (command.permissions & 0o022) !== 0
+      ) {
+        throw new Error();
+      }
+    } catch {
+      throw new Error("The bundled qBittorrent runtime is unavailable");
     }
-    return DEFAULT_COMMAND;
+    return this.executable;
   }
 
-  async runLifecycle(action) {
+  async #startProcess(downloads) {
+    const environment = {
+      HOME: PathUtils.join(this.rootDirectory, "home"),
+      LANG: "C.UTF-8",
+      LC_ALL: "C.UTF-8",
+      LD_LIBRARY_PATH: PathUtils.join(this.runtimeDirectory, "lib"),
+      PATH: "/usr/bin:/bin",
+      QT_PLUGIN_PATH: PathUtils.join(this.runtimeDirectory, "plugins"),
+      TZ: "UTC",
+      WILDBUZZARD_QBITTORRENT_API_KEY_FILE: this.apiKeyPath,
+      WILDBUZZARD_QBITTORRENT_SOCKET: this.socketPath,
+    };
     const process = await Subprocess.call({
-      command: this.validateCommand(),
-      arguments: [action],
+      command: this.validateRuntime(),
+      arguments: [
+        "--daemon",
+        "--confirm-legal-notice",
+        `--profile=${this.profileDirectory}`,
+        `--save-path=${downloads}`,
+      ],
       environmentAppend: false,
-      environment: {
-        HOME: this.homeDirectory,
-        LANG: "C.UTF-8",
-        LC_ALL: "C.UTF-8",
-        PATH: "/usr/bin:/bin",
-        TZ: "UTC",
-        XDG_DATA_HOME: this.dataHome,
-        XDG_RUNTIME_DIR: this.runtimeHome,
-      },
+      environment,
       stdin: "ignore",
-      stdout: "pipe",
+      stdout: "ignore",
       stderr: "pipe",
     });
-    const settled = await Promise.allSettled([
-      readPipe(process.stdout),
+    const [stderr, result] = await Promise.all([
       readPipe(process.stderr),
       process.wait(),
     ]);
-    const failure = settled.find(entry => entry.status === "rejected");
-    if (failure) {
-      throw failure.reason;
+    if (result.exitCode !== 0) {
+      throw new Error(
+        stderr.trim() || `qBittorrent exited with ${result.exitCode}`
+      );
     }
-    const [stdout, stderr, result] = settled.map(entry => entry.value);
-    if (result.exitCode !== 0 || stderr.trim()) {
-      throw new Error(stderr.trim() || `buzzard-torrent ${action} failed`);
+  }
+
+  async #apiKey() {
+    const random = Services.uuid
+      .generateUUID()
+      .toString()
+      .replace(/[{}-]/g, "")
+      .slice(0, 28);
+    const key = `qbt_${random}`;
+    for (let attempt = 0; attempt < KEY_CREATE_ATTEMPTS; attempt++) {
+      if (await privateRegularFile(this.apiKeyPath)) {
+        const existing = (await IOUtils.readUTF8(this.apiKeyPath)).trim();
+        if (API_KEY.test(existing)) {
+          return existing;
+        }
+      }
+      try {
+        await IOUtils.writeUTF8(this.apiKeyPath, `${key}\n`, {
+          mode: "create",
+        });
+        await IOUtils.setPermissions(this.apiKeyPath, 0o600);
+        return key;
+      } catch {
+        await delay(25);
+      }
     }
-    return JSON.parse(stdout);
+    const temporary = `${this.apiKeyPath}.${Services.appinfo.processID}.tmp`;
+    await IOUtils.writeUTF8(this.apiKeyPath, `${key}\n`, {
+      tmpPath: temporary,
+    });
+    await IOUtils.setPermissions(this.apiKeyPath, 0o600);
+    return key;
+  }
+
+  async #readProcess() {
+    try {
+      const lockPath = PathUtils.join(
+        this.profileDirectory,
+        "qBittorrent",
+        "config",
+        "lockfile"
+      );
+      const lines = (await IOUtils.readUTF8(lockPath)).trim().split(/\r?\n/);
+      const pid = Number.parseInt(lines[0], 10);
+      const instanceId = lines[4];
+      if (
+        lines.length !== 5 ||
+        !Number.isInteger(pid) ||
+        !INSTANCE_ID.test(instanceId || "")
+      ) {
+        return null;
+      }
+      const stat = await readProcFile(`/proc/${pid}/stat`);
+      const pidStartTime = parsePidStartTime(stat);
+      if (!(await processMatches(pid, pidStartTime, this.executable))) {
+        return null;
+      }
+      return { pid, pidStartTime, instanceId };
+    } catch {
+      return null;
+    }
+  }
+
+  async #connectionIfHealthy() {
+    const identity = await this.#readProcess();
+    if (!identity) {
+      return null;
+    }
+    try {
+      const socket = new LocalFile(this.socketPath);
+      if (!socket.isSpecial() || socket.isSymlink()) {
+        return null;
+      }
+      if ((await this.#version()) !== QBITTORRENT_VERSION) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+    return {
+      schema: 1,
+      protocolVersion: 1,
+      ...identity,
+      profileDirectory: this.profileDirectory,
+      socketPath: this.socketPath,
+      apiKeyPath: this.apiKeyPath,
+      executable: this.executable,
+      version: QBITTORRENT_VERSION,
+    };
+  }
+
+  async #waitForHealthy(attempts = START_ATTEMPTS) {
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      const connection = await this.#connectionIfHealthy();
+      if (connection) {
+        return connection;
+      }
+      await delay(START_INTERVAL_MS);
+    }
+    return null;
   }
 
   async ensure() {
     if (AppConstants.platform !== "linux") {
-      throw new Error("The buzzard-torrent package currently supports Linux");
+      throw new Error(
+        "The bundled qBittorrent runtime currently supports Linux"
+      );
     }
     if (!this.initializeTask) {
       this.initializeTask = this.#ensure().catch(error => {
@@ -197,58 +336,38 @@ class QBittorrentRuntimeImpl {
   }
 
   async #ensure() {
-    const connection = await this.runLifecycle("start");
-    if (
-      connection?.schema !== 1 ||
-      connection.protocolVersion !== 1 ||
-      connection.version !== "v5.2.3" ||
-      !INSTANCE_ID.test(connection.instanceId || "") ||
-      typeof connection.socketPath !== "string" ||
-      typeof connection.apiKeyPath !== "string" ||
-      typeof connection.profileDirectory !== "string" ||
-      typeof connection.executable !== "string" ||
-      !(await processMatches(
-        connection.pid,
-        connection.pidStartTime,
-        connection.executable
-      ))
-    ) {
-      throw new Error("buzzard-torrent returned an invalid connection");
-    }
-    const executable = new LocalFile(connection.executable);
-    executable.normalize();
-    if (!executable.isFile() || executable.isSymlink()) {
-      throw new Error("buzzard-torrent executable is unavailable");
-    }
-    const socket = new LocalFile(connection.socketPath);
-    if (!socket.isSpecial() || socket.isSymlink()) {
-      throw new Error("buzzard-torrent socket is unavailable");
-    }
-    if (!(await privateRegularFile(connection.apiKeyPath))) {
-      throw new Error("buzzard-torrent capability file is unsafe");
-    }
-    const key = (await IOUtils.readUTF8(connection.apiKeyPath)).trim();
-    if (!API_KEY.test(key)) {
-      throw new Error("buzzard-torrent capability is invalid");
-    }
-    this.apiKey = key;
-    this.apiKeyPath = connection.apiKeyPath;
-    this.socketPath = connection.socketPath;
-    this.stateDirectory = PathUtils.parent(connection.socketPath);
-    this.connectionPath = PathUtils.join(
+    this.validateRuntime();
+    for (const path of [
+      this.rootDirectory,
+      PathUtils.join(this.rootDirectory, "home"),
+      this.profileDirectory,
       this.stateDirectory,
-      "connection.json"
-    );
-    this.profileDirectory = connection.profileDirectory;
-    this.rootDirectory = PathUtils.parent(connection.profileDirectory);
-    this.runtimeDirectory = PathUtils.parent(
-      PathUtils.parent(connection.executable)
-    );
-    this.executable = connection.executable;
-    this.connection = connection;
-    if ((await this.#version()) !== connection.version) {
-      throw new Error("buzzard-torrent health verification failed");
+    ]) {
+      await makePrivateDirectory(path);
     }
+    this.apiKey = await this.#apiKey();
+    let connection = await this.#connectionIfHealthy();
+    if (!connection) {
+      const startingProcess = await this.#readProcess();
+      if (startingProcess) {
+        connection = await this.#waitForHealthy();
+      }
+    }
+    if (!connection) {
+      if (!(await this.#readProcess())) {
+        await IOUtils.remove(this.socketPath, { ignoreAbsent: true });
+      }
+      await IOUtils.makeDirectory(this.downloadDirectory, {
+        createAncestors: true,
+        ignoreExisting: true,
+      });
+      await this.#startProcess(this.downloadDirectory);
+      connection = await this.#waitForHealthy();
+    }
+    if (!connection) {
+      throw new Error("The bundled qBittorrent runtime did not become ready");
+    }
+    this.connection = connection;
     return connection;
   }
 
@@ -267,6 +386,11 @@ class QBittorrentRuntimeImpl {
 
   async request(target, options = {}) {
     await this.ensure();
+    if (!(await this.#connectionIfHealthy())) {
+      this.connection = null;
+      this.initializeTask = null;
+      await this.ensure();
+    }
     return requestQBittorrentUDS(this.socketPath, {
       ...options,
       target,
@@ -293,7 +417,24 @@ class QBittorrentRuntimeImpl {
     if (!Cu.isInAutomation) {
       throw new Error("qBittorrent is persistent outside automation");
     }
-    await this.runLifecycle("stop").catch(() => {});
+    if (this.connection) {
+      await this.request("/api/v2/app/shutdown", {
+        method: "POST",
+        body: new Uint8Array(),
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      }).catch(() => {});
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (!(await processMatches(
+          this.connection.pid,
+          this.connection.pidStartTime,
+          this.executable
+        ))) {
+          break;
+        }
+        await delay(250);
+      }
+    }
+    await IOUtils.remove(this.socketPath, { ignoreAbsent: true });
     this.connection = null;
     this.initializeTask = null;
   }
@@ -302,7 +443,6 @@ class QBittorrentRuntimeImpl {
 export const QBittorrentRuntime = new QBittorrentRuntimeImpl();
 
 export const QBittorrentRuntimeTestUtils = Object.freeze({
-  DEFAULT_COMMAND,
   configurePaths(paths) {
     QBittorrentRuntime.configurePathsForTests(paths);
   },

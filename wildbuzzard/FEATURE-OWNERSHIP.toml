@@ -56,11 +56,10 @@ paths = [
 id = "native-torrent-downloads"
 owner = "wildbuzzard"
 status = "core"
-runtime_package = "buzzard-torrent"
 paths = [
   "wildbuzzard/browser/components/torrent",
-  "wildbuzzard/components/buzzard-torrent",
   "wildbuzzard/scripts/build-qbittorrent-runtime.sh",
+  "wildbuzzard/scripts/verify-qbittorrent-runtime.py",
   "wildbuzzard/third_party/bsd3/libtorrent",
   "wildbuzzard/third_party/gpl2/qbittorrent",
 ]

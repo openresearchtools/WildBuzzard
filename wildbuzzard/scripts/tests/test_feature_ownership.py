@@ -150,7 +150,7 @@ class FeatureOwnershipTests(unittest.TestCase):
         suggests = next(
             line for line in control.splitlines() if line.startswith("Suggests:")
         )
-        self.assertIn("buzzard-torrent", depends)
+        self.assertNotIn("buzzard-torrent", depends)
         self.assertNotIn("buzzard-search", depends)
         self.assertNotIn("buzzard-minijtt", depends)
         self.assertEqual(suggests, "Suggests: buzzard-search, buzzard-minijtt")
@@ -164,6 +164,13 @@ class FeatureOwnershipTests(unittest.TestCase):
             dist.mkdir()
             for version in ("153.1.0", "153.1.1"):
                 (dist / f"wildbuzzard-{version}.en-US.linux-x86_64.tar.xz").touch()
+            arti = root / "arti"
+            torrent = root / "torrent"
+            arti.mkdir()
+            torrent.mkdir()
+            cli = root / "wildbuzzard"
+            cli.write_text("", encoding="utf-8")
+            cli.chmod(0o755)
             result = subprocess.run(
                 [
                     "bash",
@@ -172,6 +179,12 @@ class FeatureOwnershipTests(unittest.TestCase):
                     str(dist),
                     "--output-dir",
                     str(output),
+                    "--arti-dir",
+                    str(arti),
+                    "--qbittorrent-runtime",
+                    str(torrent),
+                    "--cli-binary",
+                    str(cli),
                 ],
                 check=False,
                 capture_output=True,
@@ -180,43 +193,22 @@ class FeatureOwnershipTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Expected exactly one", result.stderr)
 
-    def test_browser_deb_gates_extracted_runtime_before_cli_build(self):
+    def test_browser_deb_only_assembles_prebuilt_components(self):
         source = (ROOT / "wildbuzzard" / "scripts" / "package-deb.sh").read_text(
             encoding="utf-8"
         )
-        extraction = source.index('tar -xf "${archive}"')
-        gate = source.index("--verify-browser-runtime-root")
-        cli_build = source.index(
-            'cp -a -- "${script_dir}/../components/wildbuzzard-cli/."'
-        )
-        self.assertLess(extraction, gate)
-        self.assertLess(gate, cli_build)
+        self.assertIn("--arti-dir", source)
+        self.assertIn("--qbittorrent-runtime", source)
+        self.assertIn("--cli-binary", source)
+        self.assertNotIn("cargo build", source)
+        self.assertNotIn("python3", source)
+        self.assertNotIn("node ", source)
 
     def test_project_package_identity_is_authenticated(self):
         identity = (
             "openresearchtools <229047507+openresearchtools@users.noreply.github.com>"
         )
-        metadata = [
-            ROOT
-            / "wildbuzzard"
-            / "components"
-            / "buzzard-torrent"
-            / "debian"
-            / "changelog",
-            ROOT
-            / "wildbuzzard"
-            / "components"
-            / "buzzard-torrent"
-            / "debian"
-            / "control",
-            ROOT
-            / "wildbuzzard"
-            / "components"
-            / "buzzard-torrent"
-            / "packaging"
-            / "control",
-            ROOT / "wildbuzzard" / "scripts" / "package-deb.sh",
-        ]
+        metadata = [ROOT / "wildbuzzard" / "scripts" / "package-deb.sh"]
         for path in metadata:
             source = path.read_text(encoding="utf-8")
             self.assertIn(identity, source, path)

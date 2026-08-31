@@ -86,6 +86,12 @@ def wildbuzzard_arti_provenance(value, binary, config, topsrcdir):
         "arti-crates",
         "THIRD-PARTY.json",
     )
+    pin = os.path.join(
+        topsrcdir,
+        "wildbuzzard",
+        "third_party",
+        "arti.toml",
+    )
     check_cmd_output(
         sys.executable,
         "-I",
@@ -95,7 +101,7 @@ def wildbuzzard_arti_provenance(value, binary, config, topsrcdir):
         "--binary",
         binary,
         "--pin-config",
-        config,
+        pin,
         "--installed-config",
         config,
         "--provenance",

@@ -33,15 +33,14 @@ qBittorrent, libtorrent, Qt, Jackett, Python, and provider-policy pins.
 anything. It confirms that both bundled copies exactly match the two subprojects
 in `wildbuzzard-extensions`, runs each extension's offline/security checks and
 tests, packages both installable XPIs, and requires their full SHA-256 digests
-to match the browser's two-entry trust policy. It then builds and tests the three separately
-installable CLI Debian packages and the browser. The browser build invokes the
+to match the browser's two-entry trust policy. It then builds the two separately
+installable discovery CLI Debian packages and the self-contained browser. The browser build invokes the
 product Python, xpcshell, browser, blocker, package, Debian, and AppImage steps
 through `build-linux-external.sh`.
 
 The uploaded Actions artifact contains:
 
-- `wildbuzzard`, `buzzard-search`, `buzzard-minijtt`, and `buzzard-torrent`
-  amd64 Debian packages
+- `wildbuzzard`, `buzzard-search`, and `buzzard-minijtt` amd64 Debian packages
 - the browser archive and AppImage
 - both installable search-extension XPIs
 - pinned Arti runtime, provenance, workspace source, and deterministic Cargo
@@ -56,8 +55,8 @@ The browser archive, Debian package, and AppImage are rejected unless they
 carry the repository licenses, CLI upstream notice and MIT license, and the
 corresponding-source pointer. They also carry an exact Cargo.lock inventory
 and the upstream license bytes for every statically linked browser-control
-crate. The browser Debian package requires buzzard-torrent and advertises
-buzzard-search and buzzard-minijtt as optional suggestions.
+crate. The browser Debian package contains its native qBittorrent/libtorrent
+runtime and advertises buzzard-search and buzzard-minijtt as optional suggestions.
 It also carries an exact all-package Arti Cargo.lock inventory and the exact
 upstream license, copying, notice, and copyright bytes referenced by that
 inventory. Arti's workspace and 70 MiB Cargo vendor source archives remain
@@ -70,18 +69,18 @@ read-only `GITHUB_TOKEN`; the workflow does not require signing keys, package
 registry credentials, or other repository secrets. Signing and publishing to
 an APT repository are intentionally separate release-authority steps.
 
-The `WildBuzzard Ubuntu 24.04 hosted artifact` workflow is the artifact-only
-GitHub-hosted trial path. It reclaims host disk, checks out only WildBuzzard at
-depth one, installs the browser toolchain, and builds directly on the Ubuntu
-24.04 runner. It never checks out or builds the optional `buzzard-search` or
-`buzzard-minijtt` packages or the independent extension repository. The two
-built-in extension snapshots come from the WildBuzzard commit being built.
-`build-browser-artifact.sh` builds the pinned in-tree Arti runtime, runs the
-browser tests, and packages only the amd64 WildBuzzard Debian artifact. The
-workflow uploads that package, build manifests, checksums, and logs. It does not
-sign, publish, create a GitHub release, or push repository changes.
+The `WildBuzzard Ubuntu 24.04 artifact` workflow is the GitHub-hosted build path.
+The first parallel wave builds pinned Arti, the native qBittorrent runtime,
+corresponding-source bundles, and gkrust compiler-cache entries. The Firefox job
+then consumes that shared compiler cache, and the final job assembles the
+self-contained amd64 WildBuzzard Debian package and uploads it with component
+manifests, checksums, and corresponding-source archives. It never checks out or builds the optional
+`buzzard-search`, `buzzard-minijtt`, or independent extension repositories; the
+two built-in extension snapshots come from the selected WildBuzzard commit.
 
-If the GitHub-hosted runner's hard disk or time limit proves insufficient, the
-fallback is to build independently owned Rust and external components on
-separate runners and consume verified artifacts. That multi-runner fallback is
-documented architecture only and is not implemented by this workflow.
+The hosted workflow performs compilation, assembly, and artifact upload only.
+It does not run product tests or post-assembly package, runtime, provenance, or
+license validators. Those checks run locally against the exact downloaded DEB
+before the unchanged package set is installed in Debian 13 and Ubuntu 24.04
+validation VMs. The workflow does not sign, publish, create a GitHub release,
+or push repository changes.

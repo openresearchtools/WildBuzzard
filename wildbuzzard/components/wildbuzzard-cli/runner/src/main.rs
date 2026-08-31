@@ -71,6 +71,8 @@ const COMMANDS: &[&str] = &[
     "torrent_details",
     "torrent-control",
     "torrent_control",
+    "torrent-add",
+    "torrent_add",
     "run",
     "devtools",
     "console",

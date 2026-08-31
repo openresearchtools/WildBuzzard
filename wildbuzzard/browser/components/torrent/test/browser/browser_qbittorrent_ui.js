@@ -38,7 +38,7 @@ add_setup(async function isolate_qbittorrent_runtime() {
     );
   runtime = QBittorrentRuntime;
   try {
-    runtime.validateCommand();
+    runtime.validateRuntime();
     packageAvailable = true;
   } catch {}
   QBittorrentRuntimeTestUtils.configurePaths({
@@ -58,7 +58,7 @@ add_setup(async function isolate_qbittorrent_runtime() {
 
 add_task(async function test_real_qbittorrent_ui() {
   if (!packageAvailable) {
-    ok(true, "Skipped: install buzzard-torrent to run the integrated UI test");
+    ok(true, "Skipped: build the bundled runtime to run the integrated UI test");
     return;
   }
   requestLongerTimeout(4);
@@ -105,7 +105,7 @@ add_task(async function test_real_qbittorrent_ui() {
 
 add_task(async function test_download_hash_is_not_routed_to_qbittorrent() {
   if (!packageAvailable) {
-    ok(true, "Skipped: install buzzard-torrent to run the integrated UI test");
+    ok(true, "Skipped: build the bundled runtime to run the integrated UI test");
     return;
   }
   for (const source of [

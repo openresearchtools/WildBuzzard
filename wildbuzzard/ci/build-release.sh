@@ -306,9 +306,6 @@ minijtt_release="${minijtt_release_root}/artifacts/final"
 copy_artifact "$(one_file "${minijtt_release}" 'buzzard-minijtt_*_amd64.deb')"
 copy_artifact "$(one_file "${minijtt_release}" 'buzzard-minijtt-*-source-license.tar.xz')"
 
-python3 -m unittest discover \
-  -s "${wildbuzzard}/wildbuzzard/components/buzzard-torrent/test" \
-  -p 'test_*.py' -v
 qbittorrent_build_root="${work_dir}/qbittorrent"
 "${wildbuzzard}/wildbuzzard/scripts/build-qbittorrent-runtime.sh" \
   --boost-archive /opt/wildbuzzard-inputs/boost_1_88_0.tar.bz2 \
@@ -317,11 +314,6 @@ qbittorrent_build_root="${work_dir}/qbittorrent"
   --qt-source-archive /opt/wildbuzzard-inputs/qtbase-everywhere-src-6.10.2.tar.xz \
   --ref HEAD
 qbittorrent_run="$(one_run "${qbittorrent_build_root}")"
-env \
-  BUZZARD_TORRENT_RUNTIME="${qbittorrent_run}/runtime" \
-  "${wildbuzzard}/wildbuzzard/components/buzzard-torrent/scripts/build-deb.sh" \
-  "${work_dir}/buzzard-torrent/packages"
-copy_artifact "$(one_file "${work_dir}/buzzard-torrent/packages" 'buzzard-torrent_*_amd64.deb')"
 copy_artifact "$(one_file "${qbittorrent_run}/artifacts" '*.zip')"
 copy_artifact "$(sed -n 's/^core_source=//p' "${qbittorrent_run}/build-manifest.txt")"
 copy_artifact "$(sed -n 's/^boost_source=//p' "${qbittorrent_run}/build-manifest.txt")"
@@ -356,7 +348,8 @@ browser_build_root="${work_dir}/browser"
   --ref HEAD \
   --arti-binary "${arti_binary}" \
   --arti-config "${arti_config}" \
-  --arti-provenance "${arti_provenance}"
+  --arti-provenance "${arti_provenance}" \
+  --qbittorrent-runtime "${qbittorrent_run}/runtime"
 browser_run="$(one_run "${browser_build_root}")"
 browser_object_dir="$(sed -n 's/^object_dir=//p' "${browser_run}/build-manifest.txt")"
 copy_artifact "$(one_file "${browser_run}/artifacts" 'wildbuzzard_*_amd64.deb')"

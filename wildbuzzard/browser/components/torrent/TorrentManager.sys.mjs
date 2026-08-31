@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
-import { Downloads } from "resource://gre/modules/Downloads.sys.mjs";
 import { QBittorrentRuntime } from "resource:///modules/QBittorrentRuntime.sys.mjs";
 import { isValidBTIHMagnet } from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
 
@@ -20,7 +19,10 @@ function formBody(fields) {
 function validateDownloadPath(path) {
   if (
     path !== undefined &&
-    (typeof path !== "string" || path.length > 4096 || /\p{Cc}/u.test(path))
+    (typeof path !== "string" ||
+      !PathUtils.isAbsolute(path) ||
+      path.length > 4096 ||
+      /\p{Cc}/u.test(path))
   ) {
     throw new Error("The torrent download path is invalid");
   }
@@ -96,8 +98,7 @@ class TorrentManagerImpl {
     validateDownloadPath(downloadPath);
     await this.#post("/api/v2/torrents/add", {
       urls: source,
-      savepath:
-        downloadPath || (await Downloads.getPreferredDownloadsDirectory()),
+      savepath: downloadPath || QBittorrentRuntime.downloadDirectory,
     });
     return { added: true };
   }
@@ -110,10 +111,25 @@ class TorrentManagerImpl {
       throw new Error("Torrent metadata is too large");
     }
     validateDownloadPath(downloadPath);
+    return this.#addTorrentData(bytes, downloadPath);
+  }
+
+  async addTorrentFile(path, downloadPath) {
+    if (typeof path !== "string" || !PathUtils.isAbsolute(path)) {
+      throw new Error("An absolute torrent file path is required");
+    }
+    validateDownloadPath(downloadPath);
+    const bytes = await IOUtils.read(path);
+    if (!bytes.length) {
+      throw new Error("Torrent metadata is required");
+    }
+    return this.#addTorrentData(bytes, downloadPath);
+  }
+
+  async #addTorrentData(bytes, downloadPath) {
     const boundary = `wildbuzzard-${Services.uuid.generateUUID().toString().replace(/[{}-]/g, "")}`;
-    const fields = downloadPath
-      ? `--${boundary}\r\nContent-Disposition: form-data; name="savepath"\r\n\r\n${downloadPath}\r\n`
-      : "";
+    const savePath = downloadPath || QBittorrentRuntime.downloadDirectory;
+    const fields = `--${boundary}\r\nContent-Disposition: form-data; name="savepath"\r\n\r\n${savePath}\r\n`;
     const prefix = new TextEncoder().encode(
       `${fields}--${boundary}\r\nContent-Disposition: form-data; name="torrents"; filename="torrent.torrent"\r\nContent-Type: application/x-bittorrent\r\n\r\n`
     );
