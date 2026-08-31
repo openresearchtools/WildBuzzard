@@ -47,9 +47,7 @@ EXPECTED_MAINTAINER = (
 
 TORRENT_DEB_FIXED_FILES = {
     "usr/bin/buzzard-torrent",
-    "usr/bin/buzzard-torrent-mcp",
     "usr/lib/buzzard-torrent/buzzard_torrent.py",
-    "usr/lib/buzzard-torrent/buzzard_torrent_mcp.py",
     "usr/share/doc/buzzard-torrent/LICENSE.packaging",
     "usr/share/doc/buzzard-torrent/README.md",
     "usr/share/doc/buzzard-torrent/changelog.Debian.gz",
