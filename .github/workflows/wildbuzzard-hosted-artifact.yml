@@ -58,7 +58,13 @@ jobs:
           fi
           sudo apt-get clean
           sudo find /var/lib/apt/lists -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
+          sudo fallocate --length 8G /mnt/wildbuzzard-build.swap
+          sudo chmod 0600 /mnt/wildbuzzard-build.swap
+          sudo mkswap /mnt/wildbuzzard-build.swap
+          sudo swapon /mnt/wildbuzzard-build.swap
           df -h /
+          free -h
+          swapon --show
 
       - name: Checkout WildBuzzard
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
