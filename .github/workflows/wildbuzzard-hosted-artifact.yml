@@ -2,6 +2,12 @@ name: WildBuzzard Ubuntu 24.04 artifact
 
 on:
   workflow_dispatch:
+    inputs:
+      warm_gkrust:
+        description: Warm gkrust before starting the browser build
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -292,6 +298,7 @@ jobs:
 
   gkrust:
     name: Warm the Firefox Rust compiler cache
+    if: inputs.warm_gkrust
     runs-on: ubuntu-24.04
     env:
       SCCACHE_GHA_ENABLED: "true"
@@ -380,7 +387,8 @@ jobs:
 
   browser:
     name: Build or restore complete WildBuzzard browser package
-    needs: [arti, torrent, sources, gkrust]
+    needs: gkrust
+    if: ${{ always() && (needs.gkrust.result == 'success' || needs.gkrust.result == 'skipped') }}
     runs-on: ubuntu-24.04
     env:
       SCCACHE_GHA_ENABLED: "true"
