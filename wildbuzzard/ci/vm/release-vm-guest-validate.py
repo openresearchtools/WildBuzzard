@@ -267,7 +267,7 @@ def address_bar_roundtrip(args):
         raise RuntimeError("clicking the WildBuzzard address bar did not focus it")
     subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
     subprocess.run(
-        ["xdotool", "type", "--clearmodifiers", "--delay", "10", args.value],
+        ["xdotool", "type", "--clearmodifiers", "--delay", "50", args.value],
         check=True,
     )
     subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
@@ -278,7 +278,7 @@ def address_bar_roundtrip(args):
     )
     subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
     subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+v"], check=True)
-    time.sleep(0.25)
+    time.sleep(0.5)
     text_interface = node.queryText()
     actual = text_interface.getText(0, text_interface.characterCount)
     if actual != args.value:

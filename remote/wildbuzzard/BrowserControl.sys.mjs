@@ -4775,7 +4775,7 @@ class BrowserControlService {
     throw new Error(`Unknown tabs action: ${action}`);
   }
 
-  ownershipTabsTool(action, page, clientId) {
+  async ownershipTabsTool(action, page, clientId) {
     if (page === undefined || page === null) {
       throw new Error(`tabs ${action}: page is required.`);
     }
@@ -4789,8 +4789,25 @@ class BrowserControlService {
       lazy.SessionStore.setCustomTabValue(entry.tab, TAB_OWNER_KEY, clientId);
     } else {
       this.assertPageOwned(page, clientId);
-      entry.window.gBrowser.selectedTab = entry.tab;
-      entry.window.focus();
+      for (let attempt = 0; attempt < 20; attempt++) {
+        entry.window.focus();
+        entry.window.gBrowser.selectedTab = entry.tab;
+        if (
+          entry.window.gBrowser.selectedTab === entry.tab &&
+          Services.focus.activeWindow === entry.window &&
+          entry.window.document.hasFocus()
+        ) {
+          break;
+        }
+        await delay(50);
+      }
+      if (
+        entry.window.gBrowser.selectedTab !== entry.tab ||
+        Services.focus.activeWindow !== entry.window ||
+        !entry.window.document.hasFocus()
+      ) {
+        throw new Error(`page ${page} could not be activated`);
+      }
     }
     const info = this.pageInfo(entry, clientId);
     return textResult(
