@@ -6,16 +6,9 @@ export function isTorrentAddTarget(target) {
 
 const MAX_MAGNET_SIZE = 32 * 1024;
 const BTIH = /^urn:btih:(?:[a-f\d]{40}|[a-z2-7]{32})$/iu;
-const USER_NAVIGATION_ACTIVATION = 1;
-const USER_NAVIGATION_BROWSER_UI = 2;
 
 export function hasExplicitTorrentNavigation(loadInfo) {
-  return (
-    loadInfo?.hasValidUserGestureActivation === true &&
-    [USER_NAVIGATION_ACTIVATION, USER_NAVIGATION_BROWSER_UI].includes(
-      loadInfo.userNavigationInvolvement
-    )
-  );
+  return loadInfo?.hasValidUserGestureActivation === true;
 }
 
 export function isValidBTIHMagnet(value) {

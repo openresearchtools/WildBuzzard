@@ -8,7 +8,6 @@ import os
 import pathlib
 import socket
 import struct
-import subprocess
 import sys
 import tempfile
 import types
@@ -470,8 +469,16 @@ class LocalTorrentValidationTests(unittest.TestCase):
             account = types.SimpleNamespace(
                 pw_gid=os.getgid(), pw_uid=os.getuid(), pw_name="release-user"
             )
+            browser_downloads = root / "browser-torrent-download"
             evidence = guest.validate_local_torrent_download(
-                object(), root, account, {"HOME": str(root)}, timeout=1
+                object(),
+                root,
+                account,
+                {
+                    "BUZZARD_TORRENT_DOWNLOADS": str(browser_downloads),
+                    "HOME": str(root),
+                },
+                timeout=1,
             )
             self.assertEqual(evidence["downloadedSha256"], evidence["payloadSha256"])
             self.assertEqual(
@@ -484,6 +491,10 @@ class LocalTorrentValidationTests(unittest.TestCase):
         self.assertEqual(added["command"][0], "torrent-add")
         self.assertEqual(added["command"][1], "--file")
         self.assertTrue(added["command"][2].endswith(".torrent"))
+        self.assertEqual(
+            added["command"][3:],
+            ["--download-path", str(pathlib.Path(directory) / "torrent-download")],
+        )
         deleted = by_label["wildbuzzard-torrent-control-delete"]
         self.assertEqual(
             deleted["command"],
@@ -496,7 +507,7 @@ class LocalTorrentValidationTests(unittest.TestCase):
         )
         self.assertEqual(
             added["environment"]["BUZZARD_TORRENT_DOWNLOADS"],
-            str(pathlib.Path(directory) / "torrent-download"),
+            str(pathlib.Path(directory) / "browser-torrent-download"),
         )
 
 
@@ -882,41 +893,6 @@ class EvidenceHelperTests(unittest.TestCase):
         self.assertIn(
             urllib.parse.quote(fixture.announce_url, safe=""), source["magnet"]
         )
-
-    def test_minijtt_fixture_stub_is_deterministic_and_loopback_only(self):
-        magnet = (
-            f"magnet:?xt=urn:btih:{'a' * 40}"
-            "&dn=release&tr=http%3A%2F%2F127.0.0.1%3A49000%2Fannounce"
-        )
-        with temporary_directory() as directory:
-            script = pathlib.Path(directory) / "buzzard-minijtt-fixture"
-            script.write_text(guest.minijtt_fixture_stub(magnet), encoding="utf-8")
-
-            def call(arguments, request=None):
-                result = subprocess.run(
-                    [sys.executable, script, *arguments],
-                    input=None if request is None else json.dumps(request),
-                    capture_output=True,
-                    check=True,
-                    text=True,
-                )
-                return json.loads(result.stdout)
-
-            self.assertEqual(call(["version"])["package"], "buzzard-minijtt")
-            sources = call(["call", "torrent_sources", "-"], {"schemaVersion": 1})
-            self.assertEqual(sources["sources"][0]["id"], "release.fixture")
-            searched = call(
-                ["call", "torrent_search", "-"],
-                {"schemaVersion": 1, "query": "release fixture", "limit": 5},
-            )
-            resolved = call(
-                ["call", "torrent_resolve", "-"],
-                {
-                    "schemaVersion": 1,
-                    "resultId": searched["results"][0]["resultId"],
-                },
-            )
-            self.assertEqual(resolved["payload"], {"kind": "magnet", "value": magnet})
 
     def test_fixture_server_is_loopback_http_and_png_validation_is_strict(self):
         body = b"<!doctype html><title>fixture</title>"

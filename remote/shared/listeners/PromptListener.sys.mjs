@@ -156,6 +156,9 @@ export class PromptListener {
             return;
           }
         } else {
+          if (!browsingContext) {
+            return;
+          }
           curBrowser = { contentBrowser: browsingContext.embedderElement };
         }
 

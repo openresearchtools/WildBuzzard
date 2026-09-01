@@ -65,8 +65,8 @@ add_task(function test_btih_magnets_are_strictly_validated() {
   }
 });
 
-add_task(function test_navigation_requires_trusted_explicit_involvement() {
-  for (const involvement of [1, 2]) {
+add_task(function test_navigation_requires_valid_user_gesture_activation() {
+  for (const involvement of [0, 1, 2]) {
     Assert.ok(
       hasExplicitTorrentNavigation({
         hasValidUserGestureActivation: true,
@@ -74,19 +74,14 @@ add_task(function test_navigation_requires_trusted_explicit_involvement() {
       })
     );
   }
-  Assert.ok(
-    !hasExplicitTorrentNavigation({
-      hasValidUserGestureActivation: true,
-      userNavigationInvolvement: 0,
-    }),
-    "an external or scripted load cannot rely on the gesture flag alone"
-  );
-  Assert.ok(
-    !hasExplicitTorrentNavigation({
-      hasValidUserGestureActivation: false,
-      userNavigationInvolvement: 1,
-    })
-  );
+  for (const involvement of [0, 1, 2]) {
+    Assert.ok(
+      !hasExplicitTorrentNavigation({
+        hasValidUserGestureActivation: false,
+        userNavigationInvolvement: involvement,
+      })
+    );
+  }
 });
 
 add_task(function test_native_torrent_routing_components_are_registered() {

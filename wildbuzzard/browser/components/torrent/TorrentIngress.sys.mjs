@@ -20,13 +20,20 @@ const TORRENT_L10N = new Localization(
 const pendingSources = new Set();
 
 let manager = DefaultTorrentManager;
-let confirmPrompt = (window, title, message) =>
-  Services.prompt.confirm(window, title, message);
+let confirmPrompt = (context, title, message) =>
+  Services.prompt.confirmBC(
+    context.browsingContext,
+    Services.prompt.MODAL_TYPE_TAB,
+    title,
+    message
+  );
 let openManager = window => {
-  window.gBrowser.loadOneTab("about:torrents", {
+  const tab = window.gBrowser.addTab("about:torrents", {
+    skipAnimation: true,
     inBackground: false,
     triggeringPrincipal: Services.scriptSecurityManager.getSystemPrincipal(),
   });
+  window.gBrowser.selectedTab = tab;
 };
 let fetchBytes = fetchTorrentBytes;
 
@@ -63,12 +70,10 @@ function activeContext(loadInfo) {
       return null;
     }
     const browser = browsingContext?.embedderElement;
-    const window = browser?.ownerGlobal;
+    const window = browser?.documentGlobal;
     if (
       !window ||
       window.closed ||
-      Services.focus.activeWindow !== window ||
-      !window.document.hasFocus() ||
       window.gBrowser?.selectedBrowser !== browser ||
       !browsingContext.isActive
     ) {
@@ -85,12 +90,10 @@ function contextRemainsActive(context) {
     return Boolean(
       context?.window &&
       !context.window.closed &&
-      context.browser?.ownerGlobal === context.window &&
+      context.browser?.documentGlobal === context.window &&
       context.browsingContext?.isActive &&
       context.browsingContext.top === context.browsingContext &&
-      context.window.gBrowser?.selectedBrowser === context.browser &&
-      Services.focus.activeWindow === context.window &&
-      context.window.document.hasFocus()
+      context.window.gBrowser?.selectedBrowser === context.browser
     );
   } catch {
     return false;
@@ -144,7 +147,7 @@ async function confirmImport(context, { kind, name, source, size }) {
   ]);
   return Boolean(
     contextRemainsActive(context) &&
-    confirmPrompt(context.window, title, message) &&
+    confirmPrompt(context, title, message) &&
     contextRemainsActive(context)
   );
 }
@@ -310,17 +313,24 @@ export const TorrentIngressTestUtils = Object.freeze({
     manager = testManager || DefaultTorrentManager;
     confirmPrompt =
       confirm ||
-      ((window, title, message) =>
-        Services.prompt.confirm(window, title, message));
+      ((context, title, message) =>
+        Services.prompt.confirmBC(
+          context.browsingContext,
+          Services.prompt.MODAL_TYPE_TAB,
+          title,
+          message
+        ));
     fetchBytes = testFetch || fetchTorrentBytes;
     openManager =
       open ||
       (window => {
-        window.gBrowser.loadOneTab("about:torrents", {
+        const tab = window.gBrowser.addTab("about:torrents", {
+          skipAnimation: true,
           inBackground: false,
           triggeringPrincipal:
             Services.scriptSecurityManager.getSystemPrincipal(),
         });
+        window.gBrowser.selectedTab = tab;
       });
   },
   reset() {

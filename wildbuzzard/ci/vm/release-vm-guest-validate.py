@@ -160,6 +160,8 @@ def matching(args, require_action=False):
             node_role = role(node)
             if not showing(node):
                 continue
+            if args.id and attributes(node).get("id") != args.id:
+                continue
             if args.contains:
                 if args.name.casefold() not in node_name.casefold():
                     continue
@@ -175,11 +177,23 @@ def matching(args, require_action=False):
                 for item in ancestors
             ):
                 continue
+            if args.ancestor_id and not any(
+                attributes(item).get("id") == args.ancestor_id
+                for item in ancestors
+            ):
+                continue
             selected_action = action(node)
             if require_action and selected_action is None:
                 continue
-            candidates.append((depth, node, selected_action))
-    candidates.sort(key=lambda item: item[0], reverse=True)
+            candidates.append(
+                (
+                    active(node) or any(active(item) for item in ancestors),
+                    depth,
+                    node,
+                    selected_action,
+                )
+            )
+    candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
     return candidates
 
 
@@ -188,7 +202,7 @@ def find(args, require_action=False):
     while time.monotonic() < deadline:
         candidates = matching(args, require_action=require_action)
         if candidates:
-            return candidates[0]
+            return candidates[0][1:]
         time.sleep(0.1)
     raise RuntimeError(f"accessible target not found: {args.name!r} ({args.role!r})")
 
@@ -325,8 +339,11 @@ def main():
     parser.add_argument("--application", default="WildBuzzard")
     parser.add_argument("--name", required=True)
     parser.add_argument("--role", default="")
+    parser.add_argument("--submit", action="store_true")
     parser.add_argument("--ancestor", default="")
+    parser.add_argument("--ancestor-id", default="")
     parser.add_argument("--contains", action="store_true")
+    parser.add_argument("--id", default="")
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--value", default="")
     args = parser.parse_args()
@@ -340,10 +357,23 @@ def main():
         depth, node, selected_action = find(
             args, require_action=args.operation == "activate"
         )
-    if args.operation in {"activate", "accept-dialog"}:
+    if args.operation == "activate":
         click_node(node)
+    elif args.operation == "accept-dialog":
+        interface, index = selected_action
+        if not interface.doAction(index):
+            raise RuntimeError("native confirmation action failed")
     elif args.operation == "set-text":
-        click_node(node)
+        if not node.getState().contains(pyatspi.STATE_FOCUSED):
+            click_node(node)
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if node.getState().contains(pyatspi.STATE_FOCUSED):
+                    break
+                time.sleep(0.1)
+            else:
+                if not node.queryComponent().grabFocus():
+                    raise RuntimeError("text input did not accept focus")
         subprocess.run(["xdotool", "key", "--clearmodifiers", "ctrl+a"], check=True)
         subprocess.run(
             ["xdotool", "type", "--clearmodifiers", "--delay", "10", args.value],
@@ -354,6 +384,10 @@ def main():
         actual = text_interface.getText(0, text_interface.characterCount)
         if actual != args.value:
             raise RuntimeError(f"text input mismatch: {actual!r} != {args.value!r}")
+        if args.submit:
+            subprocess.run(
+                ["xdotool", "key", "--clearmodifiers", "Return"], check=True
+            )
     print(json.dumps({
         "depth": depth,
         "name": text(node),
@@ -834,10 +868,13 @@ def atspi_json(
     *,
     role="",
     ancestor="",
+    ancestor_id="",
     contains=False,
+    target_id="",
     value="",
     timeout=30,
     required=True,
+    submit=False,
 ):
     command = [
         "/usr/bin/python3",
@@ -854,8 +891,14 @@ def atspi_json(
         command.extend(("--role", role))
     if ancestor:
         command.extend(("--ancestor", ancestor))
+    if ancestor_id:
+        command.extend(("--ancestor-id", ancestor_id))
     if contains:
         command.append("--contains")
+    if target_id:
+        command.extend(("--id", target_id))
+    if submit:
+        command.append("--submit")
     if value:
         command.extend(("--value", value))
     result = runner.run(
@@ -868,130 +911,6 @@ def atspi_json(
     output = parse_json_output(result, label)
     write_json(result_dir / "atspi" / f"{label}.json", output)
     return output
-
-
-def minijtt_fixture_stub(magnet):
-    fixture = {
-        "magnet": magnet,
-        "name": TORRENT_FIXTURE_NAME,
-        "resultId": "R" * 32,
-        "sourceId": "release.fixture",
-        "sourceName": "Offline release fixture",
-    }
-    encoded = json.dumps(fixture, sort_keys=True)
-    return f"""#!/usr/bin/python3
-import json
-import sys
-
-FIXTURE = json.loads({encoded!r})
-
-
-def emit(value):
-    print(json.dumps(value, separators=(",", ":"), sort_keys=True))
-
-
-arguments = sys.argv[1:]
-if arguments == ["version"]:
-    emit({{
-        "package": "buzzard-minijtt",
-        "protocolVersion": 1,
-        "schemaVersion": 1,
-        "version": "0.0.0-test",
-    }})
-    raise SystemExit(0)
-if len(arguments) != 3 or arguments[0] != "call" or arguments[2] != "-":
-    raise SystemExit(2)
-request = json.load(sys.stdin)
-if arguments[1] == "torrent_sources" and request == {{"schemaVersion": 1}}:
-    emit({{
-        "ok": True,
-        "schemaVersion": 1,
-        "sources": [{{"id": FIXTURE["sourceId"], "name": FIXTURE["sourceName"]}}],
-    }})
-elif arguments[1] == "torrent_search":
-    emit({{
-        "ok": True,
-        "query": request.get("query"),
-        "results": [{{
-            "leechers": 0,
-            "publishedAt": None,
-            "resultId": FIXTURE["resultId"],
-            "seeders": 1,
-            "sizeBytes": {len(TORRENT_FIXTURE_PAYLOAD)},
-            "sourceId": FIXTURE["sourceId"],
-            "sourceName": FIXTURE["sourceName"],
-            "title": FIXTURE["name"],
-        }}],
-        "schemaVersion": 1,
-        "truncated": False,
-    }})
-elif (
-    arguments[1] == "torrent_resolve"
-    and request == {{"schemaVersion": 1, "resultId": FIXTURE["resultId"]}}
-):
-    emit({{
-        "name": FIXTURE["name"],
-        "ok": True,
-        "payload": {{"kind": "magnet", "value": FIXTURE["magnet"]}},
-        "schemaVersion": 1,
-        "sizeBytes": {len(TORRENT_FIXTURE_PAYLOAD)},
-        "sourceName": FIXTURE["sourceName"],
-    }})
-else:
-    emit({{
-        "error": {{"code": "INVALID_REQUEST", "message": "invalid fixture request"}},
-        "ok": False,
-        "schemaVersion": 1,
-    }})
-    raise SystemExit(2)
-"""
-
-
-@contextlib.contextmanager
-def mounted_minijtt_fixture(runner, result_dir, magnet):
-    installed = pathlib.Path("/usr/bin/buzzard-minijtt")
-    before = {
-        "gid": installed.stat().st_gid,
-        "mode": installed.stat().st_mode & 0o7777,
-        "sha256": sha256(installed),
-        "size": installed.stat().st_size,
-        "uid": installed.stat().st_uid,
-    }
-    if runner.run(["mountpoint", "-q", installed], check=False).returncode == 0:
-        raise RuntimeError("buzzard-minijtt already has a mounted test override")
-    runtime = result_dir / "runtime"
-    runtime.mkdir(mode=0o700, exist_ok=True)
-    stub = runtime / "buzzard-minijtt-fixture"
-    stub.write_text(minijtt_fixture_stub(magnet), encoding="utf-8")
-    stub.chmod(0o555)
-    evidence = {
-        "installedBefore": before,
-        "stubSha256": sha256(stub),
-        "temporaryBindMount": True,
-    }
-    mounted = False
-    try:
-        runner.run(["mount", "--bind", stub, installed], timeout=30)
-        mounted = True
-        if sha256(installed) != evidence["stubSha256"]:
-            raise RuntimeError("buzzard-minijtt fixture bind mount differs")
-        yield evidence
-    finally:
-        if mounted:
-            runner.run(["umount", installed], timeout=30)
-        after_stat = installed.stat()
-        after = {
-            "gid": after_stat.st_gid,
-            "mode": after_stat.st_mode & 0o7777,
-            "sha256": sha256(installed),
-            "size": after_stat.st_size,
-            "uid": after_stat.st_uid,
-        }
-        evidence["installedAfter"] = after
-        evidence["restored"] = after == before
-        write_json(result_dir / "minijtt-test-override.json", evidence)
-        if after != before:
-            raise RuntimeError("installed buzzard-minijtt was not restored exactly")
 
 
 def prepare_gui_session(runner, account, environment):
@@ -1259,7 +1178,6 @@ def validate_local_torrent_download(
     if target.exists():
         raise RuntimeError("local torrent validation target already exists")
     torrent_environment = dict(environment)
-    torrent_environment["BUZZARD_TORRENT_DOWNLOADS"] = str(download_dir)
     added = False
     removed = False
     fixture = TorrentFixture()
@@ -1786,7 +1704,7 @@ def find_extension_profile(account, result_dir, environment, timeout=60):
     raise RuntimeError("could not discover the launched WildBuzzard extension profile")
 
 
-def snapshot_ref(snapshot, name, roles=()):
+def snapshot_ref(snapshot, name, roles=(), *, index=None):
     refs = snapshot.get("details", {}).get("refs", [])
     matches = [
         item
@@ -1796,11 +1714,13 @@ def snapshot_ref(snapshot, name, roles=()):
         and (not roles or item.get("role") in roles)
         and isinstance(item.get("ref"), str)
     ]
-    if len(matches) != 1:
+    if index is None and len(matches) != 1:
         raise RuntimeError(
             f"expected one native browser target named {name}, got {len(matches)}"
         )
-    return f"@{matches[0]['ref']}"
+    if index is not None and (index < 0 or index >= len(matches)):
+        raise RuntimeError(f"native browser target {name} has no item at index {index}")
+    return f"@{matches[0 if index is None else index]['ref']}"
 
 
 def opened_page(result, label):
@@ -2436,7 +2356,7 @@ def validate_torrent_extension_tab_rejection(
             str(page),
             "--",
             snapshot_ref(snapshot, "Search torrents"),
-            "release fixture",
+            "Debian Linux",
         ],
     )
     browser_json(
@@ -2463,6 +2383,7 @@ def validate_torrent_extension_tab_rejection(
         session,
         page,
         ".review-button",
+        attempts=3,
     )
     results_snapshot = browser_json(
         runner,
@@ -2484,7 +2405,7 @@ def validate_torrent_extension_tab_rejection(
             "click",
             "--page",
             str(page),
-            snapshot_ref(results_snapshot, "Review download", ("button",)),
+            snapshot_ref(results_snapshot, "Review download", ("button",), index=0),
         ],
     )
     wait_for_selector(
@@ -2578,12 +2499,18 @@ def validate_torrent_action_popup(
     account,
     environment,
     helper,
-    fixture,
     list_torrents,
     *,
     timeout=60,
 ):
     actions = []
+    popup_scope = {"ancestor_id": "customizationui-widget-panel"}
+    before = list_torrents("browser-torrent-list-before-extension-popup")
+    baseline_ids = {
+        item.get("id")
+        for item in before.get("torrents", [])
+        if isinstance(item, dict) and isinstance(item.get("id"), str)
+    }
 
     def perform(label, operation, name, **options):
         result = atspi_json(
@@ -2600,11 +2527,29 @@ def validate_torrent_action_popup(
         actions.append(result)
         return result
 
+    dismissed_default_prompt = atspi_json(
+        runner,
+        result_dir,
+        account,
+        environment,
+        helper,
+        "torrent-popup-dismiss-default-browser-prompt",
+        "activate",
+        "Not now",
+        role="button",
+        ancestor="Make WildBuzzard your default browser?",
+        timeout=3,
+        required=False,
+    )
+    if dismissed_default_prompt is not None:
+        actions.append(dismissed_default_prompt)
+        time.sleep(1)
     perform(
         "torrent-popup-open-extensions",
         "activate",
         "Extensions",
         role="button",
+        target_id="unified-extensions-button",
     )
     perform(
         "torrent-popup-open-action",
@@ -2618,6 +2563,7 @@ def validate_torrent_action_popup(
         "Search torrents",
         role="entry|text",
         ancestor="Torrent Search",
+        **popup_scope,
     )
     perform(
         "torrent-popup-fill-query",
@@ -2625,14 +2571,9 @@ def validate_torrent_action_popup(
         "Search torrents",
         role="entry|text",
         ancestor="Torrent Search",
-        value="release fixture",
-    )
-    perform(
-        "torrent-popup-search",
-        "activate",
-        "Search",
-        role="button",
-        ancestor="Torrent Search",
+        submit=True,
+        value="Debian Linux",
+        **popup_scope,
     )
     perform(
         "torrent-popup-wait-review",
@@ -2640,7 +2581,17 @@ def validate_torrent_action_popup(
         "Review download",
         role="button",
         ancestor="Torrent Search",
-        timeout=45,
+        timeout=75,
+        **popup_scope,
+    )
+    perform(
+        "torrent-popup-wait-debian-result",
+        "wait",
+        "Debian",
+        contains=True,
+        ancestor="Torrent Search",
+        timeout=75,
+        **popup_scope,
     )
     perform(
         "torrent-popup-review",
@@ -2648,25 +2599,62 @@ def validate_torrent_action_popup(
         "Review download",
         role="button",
         ancestor="Torrent Search",
+        **popup_scope,
     )
-    perform(
-        "torrent-popup-wait-add",
+    add_button = atspi_json(
+        runner,
+        result_dir,
+        account,
+        environment,
+        helper,
+        "torrent-popup-wait-add-first-attempt",
         "wait",
         "Add torrent",
         role="button",
         ancestor="Torrent Search",
+        timeout=3,
+        required=False,
+        **popup_scope,
     )
+    if add_button is None:
+        atspi_json(
+            runner,
+            result_dir,
+            account,
+            environment,
+            helper,
+            "torrent-popup-review-retry",
+            "activate",
+            "Review download",
+            role="button",
+            ancestor="Torrent Search",
+            timeout=2,
+            required=False,
+            **popup_scope,
+        )
+        add_button = perform(
+            "torrent-popup-wait-add",
+            "wait",
+            "Add torrent",
+            role="button",
+            ancestor="Torrent Search",
+            timeout=45,
+            **popup_scope,
+        )
+    else:
+        actions.append(add_button)
     perform(
         "torrent-popup-add",
         "activate",
         "Add torrent",
         role="button",
         ancestor="Torrent Search",
+        **popup_scope,
     )
     perform(
         "torrent-popup-native-confirm",
         "accept-dialog",
-        TORRENT_FIXTURE_NAME,
+        "torrent",
         contains=True,
         timeout=45,
     )
@@ -2678,22 +2666,27 @@ def validate_torrent_action_popup(
         matches = [
             item
             for item in current.get("torrents", [])
-            if isinstance(item, dict) and item.get("id") == fixture.info_hash_hex
+            if isinstance(item, dict)
+            and isinstance(item.get("id"), str)
+            and item["id"] not in baseline_ids
         ]
         if len(matches) > 1:
-            raise RuntimeError("extension-popup torrent appears more than once")
+            raise RuntimeError("extension popup added more than one torrent")
         if matches:
             matched = matches[0]
             break
         time.sleep(0.25)
     if matched is None:
-        raise RuntimeError("extension popup did not add the exact fixture info hash")
+        raise RuntimeError("extension popup did not add a torrent")
     return {
         "actions": actions,
         "addonId": ADDONS["torrent-search"],
-        "infoHashV1": fixture.info_hash_hex,
         "nativeConfirmation": True,
-        "networkScope": "loopback-only",
+        "networkScope": "installed buzzard-minijtt providers",
+        "query": "Debian Linux",
+        "savePath": matched.get("savePath"),
+        "torrentId": matched["id"],
+        "torrentName": matched.get("name"),
         "trustedDesktopActivation": "X11 input with AT-SPI targeting",
     }
 
@@ -2726,7 +2719,8 @@ def validate_browser_torrent_ingress(
             timeout=45,
         )
 
-    def remove_torrent(label, *, delete_data=False):
+    def remove_torrent(label, torrent_id=None, *, delete_data=False):
+        torrent_id = torrent_id or fixture.info_hash_hex
         result = run_wildbuzzard_torrent_json(
             runner,
             result_dir,
@@ -2736,16 +2730,26 @@ def validate_browser_torrent_ingress(
             [
                 "torrent-control",
                 "delete",
-                fixture.info_hash_hex,
+                torrent_id,
                 "--delete-data" if delete_data else "--no-delete-data",
             ],
             timeout=120,
         )
         if result.get("applied") is not True:
             raise RuntimeError("browser-imported torrent could not be removed")
-        active_ids.discard(fixture.info_hash_hex)
+        active_ids.discard(torrent_id)
 
     def click_and_accept(page, name, label):
+        activated = browser_json(
+            runner,
+            result_dir,
+            account,
+            environment,
+            f"wildbuzzard-activate-{label}",
+            ["--session", session, "tabs", "activate", str(page)],
+        )
+        if activated.get("details", {}).get("page", {}).get("active") is not True:
+            raise RuntimeError(f"{label} page was not activated")
         snapshot = browser_json(
             runner,
             result_dir,
@@ -2790,45 +2794,59 @@ def validate_browser_torrent_ingress(
     try:
         with fixture, BrowserTorrentFixtureServer(fixture) as source:
             helper = install_atspi_helper(result_dir, account)
-            with mounted_minijtt_fixture(
-                runner, result_dir, source["magnet"]
-            ) as minijtt_override:
-                direct_tab_rejection = validate_torrent_extension_tab_rejection(
-                    runner,
-                    result_dir,
-                    account,
-                    environment,
-                    extension_profile,
-                )
-                if any(
-                    item.get("id") == fixture.info_hash_hex
-                    for item in list_torrents(
-                        "browser-torrent-list-after-extension-tab-rejection"
-                    ).get("torrents", [])
-                    if isinstance(item, dict)
-                ):
-                    raise RuntimeError("rejected extension tab added a torrent")
-                extension_popup = validate_torrent_action_popup(
-                    runner,
-                    result_dir,
-                    account,
-                    environment,
-                    helper,
-                    fixture,
-                    list_torrents,
-                )
-                active_ids.add(fixture.info_hash_hex)
-                remove_torrent(
-                    "browser-torrent-delete-extension-popup-import",
-                    delete_data=True,
-                )
-                deadline = time.monotonic() + 30
-                while target.exists() and time.monotonic() < deadline:
-                    time.sleep(0.25)
-                if target.exists():
-                    raise RuntimeError(
-                        "extension-popup fixture data remained after safe cleanup"
-                    )
+            before_direct = list_torrents(
+                "browser-torrent-list-before-extension-tab-rejection"
+            )
+            baseline_ids = {
+                item.get("id")
+                for item in before_direct.get("torrents", [])
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            }
+            direct_tab_rejection = validate_torrent_extension_tab_rejection(
+                runner,
+                result_dir,
+                account,
+                environment,
+                extension_profile,
+            )
+            after_direct = list_torrents(
+                "browser-torrent-list-after-extension-tab-rejection"
+            )
+            after_direct_ids = {
+                item.get("id")
+                for item in after_direct.get("torrents", [])
+                if isinstance(item, dict) and isinstance(item.get("id"), str)
+            }
+            if after_direct_ids != baseline_ids:
+                active_ids.update(after_direct_ids - baseline_ids)
+                raise RuntimeError("rejected extension tab changed the torrent list")
+
+            popup_files_before = {path.name for path in download_dir.iterdir()}
+            extension_popup = validate_torrent_action_popup(
+                runner,
+                result_dir,
+                account,
+                environment,
+                helper,
+                list_torrents,
+            )
+            popup_id = extension_popup["torrentId"]
+            active_ids.add(popup_id)
+            if extension_popup.get("savePath") != str(download_dir):
+                raise RuntimeError("extension popup escaped its download directory")
+            remove_torrent(
+                "browser-torrent-delete-extension-popup-import",
+                popup_id,
+                delete_data=True,
+            )
+            deadline = time.monotonic() + 30
+            while time.monotonic() < deadline:
+                current_files = {path.name for path in download_dir.iterdir()}
+                if current_files == popup_files_before:
+                    break
+                time.sleep(0.25)
+            else:
+                raise RuntimeError("extension popup download data was not removed")
 
             opened = browser_json(
                 runner,
@@ -2961,7 +2979,6 @@ def validate_browser_torrent_ingress(
             "magnetConfirmation": magnet_confirmation,
             "managerPageId": manager_page,
             "managerScreenshot": str(manager_screenshot),
-            "minijttTestOverride": minijtt_override,
             "networkScope": "loopback-only",
             "payloadSha256": hashlib.sha256(fixture.payload).hexdigest(),
             **statistics,
@@ -3326,15 +3343,15 @@ def main():
     artifacts = verify_artifacts(runner, manifest, args.staging)
     write_json(args.results / "artifact-verification.json", artifacts)
     packages = install_packages(runner, artifacts, args.staging, args.allow_installed)
-    versions, torrent_download = validate_clis(
-        runner, args.results, account, environment, args.search_query
-    )
-    builtins = inspect_builtin_addons(args.results)
     browser_downloads = args.results / "browser-torrent-download"
     browser_downloads.mkdir(mode=0o700)
     browser_downloads.chmod(0o700)
     os.chown(browser_downloads, account.pw_uid, account.pw_gid)
     environment["BUZZARD_TORRENT_DOWNLOADS"] = str(browser_downloads)
+    versions, torrent_download = validate_clis(
+        runner, args.results, account, environment, args.search_query
+    )
+    builtins = inspect_builtin_addons(args.results)
     prepare_gui_session(runner, account, environment)
     browser = validate_browser(runner, args.results, account, environment)
     report = {
