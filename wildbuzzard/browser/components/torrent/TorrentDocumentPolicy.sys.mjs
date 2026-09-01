@@ -3,6 +3,16 @@
 import { TORRENT_DOCUMENT_SOURCES } from "resource:///modules/TorrentDocumentSources.sys.mjs";
 
 const NONCE_PATTERN = /^[A-Za-z0-9_-]{32}$/;
+const PACKAGED_SCRIPT_ORIGIN = "moz-torrent://local/__wildbuzzard/";
+const PACKAGED_SCRIPT_RESOURCES = new Map(
+  [
+    "torrent-bootstrap.js",
+    "torrent-content-bridge.js",
+    "torrent-dialog-bootstrap.js",
+    "torrent-document-guard.js",
+    "torrent-script-executor.js",
+  ].map(name => [name, `resource:///modules/${name}`])
+);
 // qB dialogs require parent access; principal, actor, CSP, and bridge checks
 // remain the authority boundary.
 const FRAME_SANDBOX =
@@ -190,6 +200,21 @@ export function isTorrentDocumentNonce(value) {
   return typeof value === "string" && NONCE_PATTERN.test(value);
 }
 
+export function torrentPackagedScriptURL(name) {
+  if (!PACKAGED_SCRIPT_RESOURCES.has(name)) {
+    throw new TypeError("Unexpected packaged torrent script");
+  }
+  return `${PACKAGED_SCRIPT_ORIGIN}${name}`;
+}
+
+export function torrentPackagedScriptResource(target) {
+  if (typeof target !== "string" || !target.startsWith("/__wildbuzzard/")) {
+    return null;
+  }
+  const name = target.slice("/__wildbuzzard/".length);
+  return PACKAGED_SCRIPT_RESOURCES.get(name) || null;
+}
+
 export function torrentDocumentCSP(nonce) {
   if (!isTorrentDocumentNonce(nonce)) {
     throw new TypeError("Invalid torrent document nonce");
@@ -206,7 +231,7 @@ export function torrentDocumentCSP(nonce) {
     "media-src 'none'",
     "object-src 'none'",
     "script-src 'none'",
-    `script-src-elem 'nonce-${nonce}' ${INLINE_SCRIPT_HASHES.map(hash => `'sha256-${hash}'`).join(" ")} ${EXTERNAL_SCRIPT_SOURCES.map(path => `moz-torrent://local${path}`).join(" ")}`,
+    `script-src-elem 'nonce-${nonce}' ${INLINE_SCRIPT_HASHES.map(hash => `'sha256-${hash}'`).join(" ")} ${[...PACKAGED_SCRIPT_RESOURCES.keys()].map(torrentPackagedScriptURL).join(" ")} ${EXTERNAL_SCRIPT_SOURCES.map(path => `moz-torrent://local${path}`).join(" ")}`,
     `script-src-attr 'unsafe-hashes' ${EVENT_HANDLER_HASHES.map(hash => `'sha256-${hash}'`).join(" ")}`,
     "style-src 'none'",
     `style-src-elem 'nonce-${nonce}' moz-torrent://local`,
@@ -220,7 +245,7 @@ export function torrentBootstrapDocument(nonce, script, title) {
     throw new TypeError("Invalid torrent bootstrap document");
   }
   const csp = torrentDocumentCSP(nonce);
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="referrer" content="no-referrer"><title>${title}</title><script nonce="${nonce}" src="resource:///modules/torrent-content-bridge.js"></script><script nonce="${nonce}" src="resource:///modules/${script}"></script></head><body></body></html>`;
+  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="referrer" content="no-referrer"><title>${title}</title><script nonce="${nonce}" src="${torrentPackagedScriptURL("torrent-content-bridge.js")}"></script><script nonce="${nonce}" src="${torrentPackagedScriptURL(script)}"></script></head><body></body></html>`;
 }
 
 export function isFixedTorrentHTMLTarget(target) {
@@ -398,11 +423,11 @@ export function prepareTorrentHTML(source, target, nonce) {
     '<meta name="referrer" content="no-referrer">',
     '<base href="moz-torrent://local/">',
     nonceScript(
-      '<script nonce="{nonce}" src="resource:///modules/torrent-document-guard.js"></script>',
+      `<script nonce="{nonce}" src="${torrentPackagedScriptURL("torrent-document-guard.js")}"></script>`,
       nonce
     ),
     nonceScript(
-      '<script nonce="{nonce}" src="resource:///modules/torrent-content-bridge.js"></script>',
+      `<script nonce="{nonce}" src="${torrentPackagedScriptURL("torrent-content-bridge.js")}"></script>`,
       nonce
     ),
     DOCUMENT_POLICIES.get(canonical).external.has(
@@ -419,7 +444,7 @@ export function prepareTorrentHTML(source, target, nonce) {
   if (core) {
     const end = core.index + core[0].length;
     transformed = `${transformed.slice(0, end)}${nonceScript(
-      '<script defer nonce="{nonce}" src="resource:///modules/torrent-script-executor.js"></script>',
+      `<script defer nonce="{nonce}" src="${torrentPackagedScriptURL("torrent-script-executor.js")}"></script>`,
       nonce
     )}${transformed.slice(end)}`;
   }

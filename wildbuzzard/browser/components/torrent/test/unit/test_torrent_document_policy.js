@@ -8,6 +8,8 @@ const {
   prepareTorrentHTML,
   torrentBootstrapDocument,
   torrentDocumentCSP,
+  torrentPackagedScriptResource,
+  torrentPackagedScriptURL,
 } = ChromeUtils.importESModule(
   "resource:///modules/TorrentDocumentPolicy.sys.mjs"
 );
@@ -37,7 +39,28 @@ add_task(function test_bootstrap_contains_only_packaged_external_scripts() {
   );
   Assert.equal((source.match(/<script\b/g) || []).length, 2);
   Assert.equal((source.match(/<script[^>]+\bsrc=/g) || []).length, 2);
+  Assert.ok(source.includes("moz-torrent://local/__wildbuzzard/"));
+  Assert.ok(!source.includes('src="resource:'));
   Assert.ok(!source.includes("<script>("));
+});
+
+add_task(function test_only_exact_packaged_script_targets_are_resolved() {
+  const name = "torrent-content-bridge.js";
+  Assert.equal(
+    torrentPackagedScriptURL(name),
+    `moz-torrent://local/__wildbuzzard/${name}`
+  );
+  Assert.equal(
+    torrentPackagedScriptResource(`/__wildbuzzard/${name}`),
+    `resource:///modules/${name}`
+  );
+  for (const target of [
+    `/__wildbuzzard/${name}?cache=1`,
+    "/__wildbuzzard/unknown.js",
+    "/scripts/torrent-content-bridge.js",
+  ]) {
+    Assert.equal(torrentPackagedScriptResource(target), null, target);
+  }
 });
 
 add_task(function test_only_pinned_dialogs_are_subdocuments() {

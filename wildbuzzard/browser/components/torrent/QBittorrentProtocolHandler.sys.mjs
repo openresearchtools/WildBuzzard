@@ -4,11 +4,20 @@ import {
   createTorrentDocumentNonce,
   isPinnedTorrentSubdocumentTarget,
   isTorrentStaticResourceTarget,
+  torrentPackagedScriptResource,
   torrentBootstrapDocument,
 } from "resource:///modules/TorrentDocumentPolicy.sys.mjs";
-import { isPrivateTorrentLoad } from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
+import {
+  isPrivateTorrentLoad,
+  isTorrentWebUIPrincipal,
+} from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
 
 const ACTOR_REQUEST_TOPIC = "wildbuzzard-qbittorrent-actor-request";
+const lazy = {};
+
+ChromeUtils.defineESModuleGetters(lazy, {
+  NetUtil: "resource://gre/modules/NetUtil.sys.mjs",
+});
 
 /** Loads qBittorrent WebUI resources through the private runtime. */
 export class QBittorrentProtocolHandler {
@@ -26,9 +35,7 @@ export class QBittorrentProtocolHandler {
       );
     }
     const loadingPrincipal = loadInfo.loadingPrincipal;
-    const trusted =
-      loadingPrincipal?.originNoSuffix ===
-      "https://torrent.wildbuzzard.invalid";
+    const trusted = isTorrentWebUIPrincipal(loadingPrincipal);
     if (
       loadInfo.externalContentPolicyType ===
         Ci.nsIContentPolicy.TYPE_DOCUMENT ||
@@ -43,6 +50,23 @@ export class QBittorrentProtocolHandler {
       );
     }
     const target = `${uri.filePath || "/"}${uri.query ? `?${uri.query}` : ""}`;
+    const packagedScript = torrentPackagedScriptResource(target);
+    if (packagedScript) {
+      const stream = lazy.NetUtil.newChannel({
+        uri: packagedScript,
+        loadUsingSystemPrincipal: true,
+      }).open();
+      const script = Cc["@mozilla.org/network/input-stream-channel;1"]
+        .createInstance(Ci.nsIInputStreamChannel)
+        .QueryInterface(Ci.nsIChannel);
+      script.loadInfo = loadInfo;
+      script.setURI(uri);
+      script.owner = loadingPrincipal;
+      script.contentStream = stream;
+      script.contentType = "text/javascript";
+      script.contentCharset = "UTF-8";
+      return script;
+    }
     if (
       loadInfo.externalContentPolicyType ===
       Ci.nsIContentPolicy.TYPE_SUBDOCUMENT

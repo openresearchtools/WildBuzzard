@@ -4,10 +4,12 @@ import {
   createTorrentDocumentNonce,
   torrentBootstrapDocument,
 } from "resource:///modules/TorrentDocumentPolicy.sys.mjs";
-import { isPrivateTorrentLoad } from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
+import {
+  isPrivateTorrentLoad,
+  TORRENT_WEBUI_URL,
+} from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
 
 const BOOTSTRAP_URL = "resource:///modules/torrent-bootstrap.html";
-const WEBUI_PRINCIPAL_URL = "https://torrent.wildbuzzard.invalid/";
 
 /**
  *
@@ -36,7 +38,7 @@ export class AboutTorrents {
     channel.setURI(Services.io.newURI(BOOTSTRAP_URL));
     channel.originalURI = uri;
     channel.owner = Services.scriptSecurityManager.createContentPrincipal(
-      Services.io.newURI(WEBUI_PRINCIPAL_URL),
+      Services.io.newURI(TORRENT_WEBUI_URL),
       loadInfo.originAttributes
     );
     channel.contentStream = stream;

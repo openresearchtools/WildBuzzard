@@ -10,7 +10,9 @@ const {
   hasExplicitTorrentNavigation,
   isPrivateTorrentLoad,
   isTorrentAddTarget,
+  isTorrentWebUIPrincipal,
   isValidBTIHMagnet,
+  TORRENT_WEBUI_URL,
 } = ChromeUtils.importESModule(
   "resource:///modules/TorrentSecurityPolicy.sys.mjs"
 );
@@ -27,6 +29,22 @@ add_task(function test_torrent_add_target_is_literal_only() {
     "\\api\\v2\\torrents\\add",
   ]) {
     Assert.ok(!isTorrentAddTarget(target), target);
+  }
+});
+
+add_task(function test_webui_principal_is_the_exact_internal_origin() {
+  Assert.equal(TORRENT_WEBUI_URL, "https://torrent.wildbuzzard.invalid/");
+  Assert.ok(
+    isTorrentWebUIPrincipal({
+      originNoSuffix: "https://torrent.wildbuzzard.invalid",
+    })
+  );
+  for (const originNoSuffix of [
+    "moz-torrent://local",
+    "https://torrent.wildbuzzard.invalid.attacker",
+    "https://torrent.wildbuzzard.invalid:443",
+  ]) {
+    Assert.ok(!isTorrentWebUIPrincipal({ originNoSuffix }), originNoSuffix);
   }
 });
 

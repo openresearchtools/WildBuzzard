@@ -3,6 +3,7 @@
 import {
   isTorrentDocumentNonce,
   prepareTorrentHTML,
+  torrentPackagedScriptURL,
 } from "resource:///modules/TorrentDocumentPolicy.sys.mjs";
 import {
   isPrivateTorrentLoad,
@@ -11,7 +12,9 @@ import {
 
 const ACTOR_REQUEST_TOPIC = "wildbuzzard-qbittorrent-actor-request";
 const ACTIVATION_TTL_MS = 10_000;
-const CONTENT_BRIDGE_URL = "resource:///modules/torrent-content-bridge.js";
+const CONTENT_BRIDGE_URL = torrentPackagedScriptURL(
+  "torrent-content-bridge.js"
+);
 const MAX_BODY_BYTES = 16 * 1024 * 1024;
 const MAX_HEADERS = 64;
 const MAX_HEADER_BYTES = 64 * 1024;

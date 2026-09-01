@@ -14,6 +14,7 @@ import pathlib
 import pwd
 import re
 import shlex
+import signal
 import socket
 import socketserver
 import struct
@@ -1071,6 +1072,48 @@ def installed_packages(runner):
         ):
             installed[package] = result.stdout.split("\t", 1)[1].strip()
     return installed
+
+
+def stop_existing_runtime(runner, account):
+    executables = {
+        "/opt/wildbuzzard/wildbuzzard",
+        "/opt/wildbuzzard/runtime/torrent/bin/qbittorrent-nox",
+    }
+
+    def processes():
+        result = []
+        for entry in pathlib.Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                if entry.stat().st_uid != account.pw_uid:
+                    continue
+                executable = os.readlink(entry / "exe")
+            except (FileNotFoundError, PermissionError, ProcessLookupError):
+                continue
+            if executable.removesuffix(" (deleted)") in executables:
+                result.append(int(entry.name))
+        return result
+
+    found = processes()
+    with runner.log_path.open("a", encoding="utf-8") as log:
+        log.write(f"$ stop existing WildBuzzard runtime for uid {account.pw_uid}\n")
+        log.write(f"[pids {' '.join(map(str, found)) or 'none'}]\n")
+    for pid in found:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGTERM)
+    deadline = time.monotonic() + 15
+    while found and time.monotonic() < deadline:
+        time.sleep(0.1)
+        found = processes()
+    for pid in found:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+    deadline = time.monotonic() + 5
+    while processes() and time.monotonic() < deadline:
+        time.sleep(0.1)
+    if processes():
+        raise RuntimeError("existing WildBuzzard runtime did not stop")
 
 
 def install_packages(runner, artifacts, staging, allow_installed):
@@ -3336,6 +3379,7 @@ def main():
         raise RuntimeError(f"unexpected guest architecture: {architecture}")
     account, environment = find_gui_session()
     prepare_gui_session(runner, account, environment)
+    stop_existing_runtime(runner, account)
     args.results.chmod(0o700)
     os.chown(args.results, account.pw_uid, account.pw_gid)
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))

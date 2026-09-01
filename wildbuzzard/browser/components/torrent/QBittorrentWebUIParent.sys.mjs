@@ -5,6 +5,7 @@ import { isTorrentStaticResourceTarget } from "resource:///modules/TorrentDocume
 import {
   isPrivateTorrentLoad,
   isTorrentAddTarget,
+  isTorrentWebUIPrincipal,
 } from "resource:///modules/TorrentSecurityPolicy.sys.mjs";
 
 const TORRENT_L10N = new Localization(
@@ -34,10 +35,7 @@ export class QBittorrentWebUIParent extends JSWindowActorParent {
     if (this.manager.remoteType !== "privilegedabout") {
       return Promise.reject(new Error("Process type mismatch"));
     }
-    if (
-      this.manager.documentPrincipal?.originNoSuffix !==
-      "https://torrent.wildbuzzard.invalid"
-    ) {
+    if (!isTorrentWebUIPrincipal(this.manager.documentPrincipal)) {
       return Promise.reject(new Error("Principal mismatch"));
     }
     if (message.name === "Request") {
@@ -86,8 +84,7 @@ export class QBittorrentWebUIParent extends JSWindowActorParent {
       Services.focus.activeWindow === chromeWindow &&
       chromeWindow.document.hasFocus() &&
       !isPrivateTorrentLoad(this.browsingContext) &&
-      this.manager.documentPrincipal?.originNoSuffix ===
-        "https://torrent.wildbuzzard.invalid" &&
+      isTorrentWebUIPrincipal(this.manager.documentPrincipal) &&
       this.browsingContext.isActive &&
       this.browsingContext.top.isActive
     );

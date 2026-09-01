@@ -1,5 +1,11 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
+export const TORRENT_WEBUI_URL = "https://torrent.wildbuzzard.invalid/";
+
+export function isTorrentWebUIPrincipal(principal) {
+  return principal?.originNoSuffix === "https://torrent.wildbuzzard.invalid";
+}
+
 export function isTorrentAddTarget(target) {
   return target === "/api/v2/torrents/add";
 }

@@ -82,7 +82,9 @@ add_task(async function test_real_qbittorrent_ui() {
       Assert.ok(!policy.includes("frame-src about:"));
       for (const script of content.document.querySelectorAll("script[nonce]")) {
         Assert.ok(
-          script.src.startsWith("resource:///modules/torrent-"),
+          script.src.startsWith(
+            "moz-torrent://local/__wildbuzzard/torrent-"
+          ),
           "Only packaged torrent infrastructure receives a nonce"
         );
       }
