@@ -58,8 +58,6 @@ pref("browser.urlbar.trending.featureGate", false);
 
 pref("browser.search.separatePrivateDefault.ui.enabled", true);
 
-pref("browser.startup.upgradeDialog.enabled", true);
-
 // Widevine support is built into desktop releases. Enable EME by default while
 // leaving the preference unlocked so users can disable proprietary DRM.
 pref("media.eme.enabled", true);

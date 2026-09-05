@@ -7,24 +7,10 @@ import { SettingGroupManager } from "chrome://browser/content/preferences/config
 
 const lazy = {};
 ChromeUtils.defineESModuleGetters(lazy, {
-  WildBuzzardBrowserStyle:
-    "resource:///modules/WildBuzzardBrowserStyle.sys.mjs",
   WildBuzzardThemeColors: "resource:///modules/WildBuzzardThemeColors.sys.mjs",
 });
 
-const NOVA_PREF = "browser.nova.enabled";
-const BROWSER_STYLE_PREF = "browser.theme.wildbuzzard.browserStyle";
-const MODE_PREF = "browser.theme.enableWildBuzzardCustomizations";
 const WILDBUZZARD_THEME_MODE_PREF = "browser.theme.wildbuzzard.mode";
-const WILDBUZZARD_THEME_COLOR_PREF = "browser.theme.wildbuzzard.color";
-const STATUS_BAR_PREF = "browser.statusbar.enabled";
-const STATUS_BAR_TEXT_PREF = "browser.statusbar.appendStatusText";
-
-const MODE_VALUES = {
-  "all-themes": 0,
-  "default-themes": 1,
-  off: 2,
-};
 
 const THEME_MODES = [
   {
@@ -273,161 +259,6 @@ if (!customElements.get("wildbuzzard-mode-segmented")) {
   customElements.define("wildbuzzard-mode-segmented", WildBuzzardModeSegmented);
 }
 
-const TOGGLES = [
-  {
-    id: "wildbuzzard-appearance-transparency",
-    l10nId: "wildbuzzard-appearance-transparent-toggle",
-    prefs: [
-      "userChrome.theme.transparent.panel",
-      "userChrome.theme.transparent.menu",
-    ],
-  },
-  {
-    id: "wildbuzzard-appearance-autohide-tabbar",
-    l10nId: "wildbuzzard-appearance-autohide-tabbar-toggle",
-    prefs: ["userChrome.autohide.tabbar"],
-  },
-  {
-    id: "wildbuzzard-appearance-autohide-bookmarks",
-    l10nId: "wildbuzzard-appearance-autohide-bookmarks-toggle",
-    prefs: ["userChrome.autohide.bookmarkbar"],
-  },
-  {
-    id: "wildbuzzard-appearance-autohide-sidebar",
-    l10nId: "wildbuzzard-appearance-autohide-sidebar-toggle",
-    prefs: ["userChrome.autohide.sidebar"],
-  },
-  {
-    id: "wildbuzzard-appearance-autohide-navigation",
-    l10nId: "wildbuzzard-appearance-autohide-navigation-toggle",
-    prefs: [
-      "userChrome.autohide.back_button",
-      "userChrome.autohide.forward_button",
-    ],
-  },
-  {
-    id: "wildbuzzard-appearance-close-button-hover",
-    l10nId: "wildbuzzard-appearance-close-button-hover-toggle",
-    prefs: ["userChrome.tab.close_button_at_hover"],
-  },
-  {
-    id: "wildbuzzard-appearance-drag-space",
-    l10nId: "wildbuzzard-appearance-drag-space-toggle",
-    prefs: ["userChrome.padding.drag_space"],
-  },
-];
-
-function svgDataUri(svg) {
-  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
-}
-
-const BROWSER_STYLE_PREVIEW =
-  "chrome://browser/content/wildbuzzard/style/wildbuzzard-style-";
-
-// A full-bleed diagonal gradient; the blob corner shape is applied in CSS so
-// the swatch matches the onboarding theme color tiles. The stops mirror the
-// light variant of the WildBuzzardThemeColors palettes.
-function gradientSwatch(from, to) {
-  return svgDataUri(`
-<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="${from}"/>
-      <stop offset="1" stop-color="${to}"/>
-    </linearGradient>
-  </defs>
-  <rect width="64" height="64" fill="url(#g)"/>
-</svg>`);
-}
-
-const BROWSER_STYLE_OPTIONS = [
-  {
-    value: "nova",
-    l10nId: "wildbuzzard-appearance-browser-style-option-nova",
-    imageSrc: `${BROWSER_STYLE_PREVIEW}nova.svg`,
-  },
-  {
-    value: "proton",
-    l10nId: "wildbuzzard-appearance-browser-style-option-proton",
-    imageSrc: `${BROWSER_STYLE_PREVIEW}proton.svg`,
-  },
-  {
-    value: "photon",
-    l10nId: "wildbuzzard-appearance-browser-style-option-photon",
-    imageSrc: `${BROWSER_STYLE_PREVIEW}photon.svg`,
-  },
-];
-
-const THEME_COLORS = [
-  {
-    value: "default",
-    l10nId: "wildbuzzard-appearance-theme-color-option-default",
-    imageSrc: gradientSwatch("#e7f3ff", "#b1d3f5"),
-  },
-  {
-    value: "smoke",
-    l10nId: "wildbuzzard-appearance-theme-color-option-smoke",
-    imageSrc: gradientSwatch("#f7f4f0", "#ebe4dc"),
-  },
-  {
-    value: "ash",
-    l10nId: "wildbuzzard-appearance-theme-color-option-ash",
-    imageSrc: gradientSwatch("#f7f8ff", "#dfe3f2"),
-  },
-  {
-    value: "sun",
-    l10nId: "wildbuzzard-appearance-theme-color-option-sun",
-    imageSrc: gradientSwatch("#fff0a8", "#ffd25f"),
-  },
-  {
-    value: "spark",
-    l10nId: "wildbuzzard-appearance-theme-color-option-spark",
-    imageSrc: gradientSwatch("#ffd8bd", "#ff9b6a"),
-  },
-  {
-    value: "flame",
-    l10nId: "wildbuzzard-appearance-theme-color-option-flame",
-    imageSrc: gradientSwatch("#ffd6de", "#ff8fa6"),
-  },
-  {
-    value: "flare",
-    l10nId: "wildbuzzard-appearance-theme-color-option-flare",
-    imageSrc: gradientSwatch("#ffd6f0", "#ff7fca"),
-  },
-  {
-    value: "lavender",
-    l10nId: "wildbuzzard-appearance-theme-color-option-lavender",
-    imageSrc: gradientSwatch("#efd6ff", "#c58cff"),
-  },
-  {
-    value: "dusk",
-    l10nId: "wildbuzzard-appearance-theme-color-option-dusk",
-    imageSrc: gradientSwatch("#e6dcff", "#b5a0ff"),
-  },
-  {
-    value: "lagoon",
-    l10nId: "wildbuzzard-appearance-theme-color-option-lagoon",
-    imageSrc: gradientSwatch("#d4ecff", "#79c8ff"),
-  },
-  {
-    value: "tide",
-    l10nId: "wildbuzzard-appearance-theme-color-option-tide",
-    imageSrc: gradientSwatch("#d8f4fb", "#80d5e5"),
-  },
-  {
-    value: "pine",
-    l10nId: "wildbuzzard-appearance-theme-color-option-pine",
-    imageSrc: gradientSwatch("#d8f6e5", "#80dca8"),
-  },
-];
-
-Preferences.addAll([
-  { id: MODE_PREF, type: "int" },
-  { id: STATUS_BAR_PREF, type: "bool" },
-  { id: STATUS_BAR_TEXT_PREF, type: "bool" },
-  ...TOGGLES.map(toggle => ({ id: toggle.prefs[0], type: "bool" })),
-]);
-
 function observeBranches(branches, emitChange) {
   for (let branch of branches) {
     Services.prefs.addObserver(branch, emitChange);
@@ -439,144 +270,25 @@ function observeBranches(branches, emitChange) {
   };
 }
 
-// The browser style is the theme. Lepton (the WildBuzzard chrome customisation
-// layer) only styles tabs for Photon; Nova and Proton run on the stock Firefox
-// chrome. So Photon turns Lepton on and Nova/Proton turn it off, with the Nova
-// flag distinguishing the two stock styles.
-function getBrowserStyle() {
-  const mode = Services.prefs.getIntPref(MODE_PREF, MODE_VALUES.off);
-  if (mode != MODE_VALUES.off) {
-    return "photon";
-  }
-  return Services.prefs.getBoolPref(NOVA_PREF, false) ? "nova" : "proton";
-}
-
-function setBrowserStyle(style) {
-  switch (style) {
-    case "nova":
-      lazy.WildBuzzardBrowserStyle.applyStockTabStyle();
-      Services.prefs.setStringPref(BROWSER_STYLE_PREF, style);
-      Services.prefs.setIntPref(MODE_PREF, MODE_VALUES.off);
-      Services.prefs.setBoolPref(NOVA_PREF, true);
-      break;
-    case "proton":
-      lazy.WildBuzzardBrowserStyle.applyStockTabStyle();
-      Services.prefs.setStringPref(BROWSER_STYLE_PREF, style);
-      Services.prefs.setIntPref(MODE_PREF, MODE_VALUES.off);
-      Services.prefs.setBoolPref(NOVA_PREF, false);
-      break;
-    case "photon":
-      lazy.WildBuzzardBrowserStyle.applyPhotonTabStyle();
-      Services.prefs.setStringPref(BROWSER_STYLE_PREF, style);
-      Services.prefs.setIntPref(MODE_PREF, MODE_VALUES["default-themes"]);
-      Services.prefs.setBoolPref(NOVA_PREF, false);
-      break;
-  }
-}
-
-function leptonOff(deps) {
-  return deps["wildbuzzard-lepton-mode"].value == "off";
-}
-
-function photonSelected(deps) {
-  return deps["wildbuzzard-browser-style"].value == "photon";
-}
-
-function statusBarOff(deps) {
-  return !deps["wildbuzzard-statusbar-enabled"].value;
-}
-
-Preferences.addSetting({
-  id: "wildbuzzard-browser-style",
-  get: getBrowserStyle,
-  set: setBrowserStyle,
-  setup: emitChange =>
-    observeBranches([BROWSER_STYLE_PREF, NOVA_PREF, MODE_PREF], emitChange),
-});
-
-Preferences.addSetting({
-  id: "wildbuzzard-lepton-mode",
-  pref: MODE_PREF,
-  get(val) {
-    return (
-      Object.keys(MODE_VALUES).find(key => MODE_VALUES[key] == val) ??
-      "default-themes"
-    );
-  },
-  set(val) {
-    return MODE_VALUES[val] ?? MODE_VALUES["default-themes"];
-  },
-});
-
 Preferences.addSetting({
   id: "wildbuzzard-theme-mode",
   get: () => lazy.WildBuzzardThemeColors.getMode(),
-  set: val => lazy.WildBuzzardThemeColors.setMode(val),
+  async set(val) {
+    const { AddonManager: Manager } = ChromeUtils.importESModule(
+      "resource://gre/modules/AddonManager.sys.mjs"
+    );
+    await (await Manager.getAddonByID("default-theme@mozilla.org")).enable();
+    lazy.WildBuzzardThemeColors.setColor("default");
+    return lazy.WildBuzzardThemeColors.setMode(val);
+  },
   setup: emitChange =>
     observeBranches([WILDBUZZARD_THEME_MODE_PREF], emitChange),
 });
 
-Preferences.addSetting({
-  id: "wildbuzzard-theme-color",
-  get: () => lazy.WildBuzzardThemeColors.getColor(),
-  set: val => lazy.WildBuzzardThemeColors.setColor(val),
-  setup: emitChange =>
-    observeBranches([WILDBUZZARD_THEME_COLOR_PREF], emitChange),
-});
-
-for (let toggle of TOGGLES) {
-  Preferences.addSetting({
-    id: toggle.id,
-    pref: toggle.prefs[0],
-    deps: ["wildbuzzard-browser-style", "wildbuzzard-lepton-mode"],
-    set(val) {
-      for (let pref of toggle.prefs.slice(1)) {
-        Services.prefs.setBoolPref(pref, val);
-      }
-      return val;
-    },
-    disabled: leptonOff,
-    visible: photonSelected,
-  });
-}
-
-Preferences.addSetting({
-  id: "wildbuzzard-statusbar-enabled",
-  pref: STATUS_BAR_PREF,
-});
-
-Preferences.addSetting({
-  id: "wildbuzzard-statusbar-show-links",
-  pref: STATUS_BAR_TEXT_PREF,
-  deps: ["wildbuzzard-statusbar-enabled"],
-  disabled: statusBarOff,
-});
-
 SettingGroupManager.registerGroups({
-  wildbuzzardBrowserStyle: {
-    l10nId: "wildbuzzard-appearance-browser-style-group",
-    headingLevel: 2,
-    controlAttrs: { badge: "wildbuzzard-exclusive" },
-    items: [
-      {
-        id: "wildbuzzard-browser-style",
-        control: "moz-visual-picker",
-        controlAttrs: { class: "wildbuzzard-browser-style-picker" },
-        options: BROWSER_STYLE_OPTIONS.map(option => ({
-          value: option.value,
-          l10nId: option.l10nId,
-          controlAttrs: {
-            class: "setting-chooser-item",
-            imagesrc: option.imageSrc,
-          },
-        })),
-      },
-    ],
-  },
   wildbuzzardThemeColors: {
-    l10nId: "wildbuzzard-appearance-theme-colors-group",
+    l10nId: "wildbuzzard-appearance-mode-group",
     headingLevel: 2,
-    controlAttrs: { badge: "wildbuzzard-exclusive" },
     items: [
       {
         id: "wildbuzzard-theme-mode",
@@ -585,57 +297,8 @@ SettingGroupManager.registerGroups({
         controlAttrs: {
           class: "wildbuzzard-mode-segmented",
           ".options": THEME_MODES,
-          searchkeywords: "theme mode system light dark",
+          searchkeywords: "appearance mode system light dark",
         },
-      },
-      {
-        id: "wildbuzzard-theme-color",
-        l10nId: "wildbuzzard-appearance-theme-color-picker",
-        control: "moz-visual-picker",
-        controlAttrs: {
-          class: "wildbuzzard-color-grid",
-          searchkeywords: "theme color accent palette",
-        },
-        options: THEME_COLORS.map(option => ({
-          value: option.value,
-          l10nId: option.l10nId,
-          controlAttrs: {
-            class: "wildbuzzard-color-option",
-            imagesrc: option.imageSrc,
-          },
-        })),
-      },
-    ],
-  },
-  wildbuzzardAppearanceDetails: {
-    l10nId: "wildbuzzard-appearance-details-group",
-    headingLevel: 2,
-    controlAttrs: { badge: "wildbuzzard-exclusive" },
-    items: [
-      ...TOGGLES.map(toggle => ({
-        id: toggle.id,
-        l10nId: toggle.l10nId,
-        control: "moz-toggle",
-      })),
-    ],
-  },
-  wildbuzzardStatusBar: {
-    l10nId: "wildbuzzard-appearance-statusbar-heading",
-    headingLevel: 2,
-    controlAttrs: { badge: "wildbuzzard-exclusive" },
-    items: [
-      {
-        id: "wildbuzzard-statusbar-enabled",
-        l10nId: "wildbuzzard-appearance-statusbar-enabled-toggle",
-        control: "moz-toggle",
-        controlAttrs: {
-          searchkeywords: "status bar links bottom toolbar",
-        },
-      },
-      {
-        id: "wildbuzzard-statusbar-show-links",
-        l10nId: "wildbuzzard-appearance-statusbar-links-toggle",
-        control: "moz-toggle",
       },
     ],
   },

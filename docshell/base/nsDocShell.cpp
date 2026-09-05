@@ -3336,6 +3336,10 @@ nsDocShell::DisplayLoadError(nsresult aError, nsIURI* aURI,
     NS_ENSURE_ARG_POINTER(aURI);
     addHostPort = true;
     error = "connectionFailure";
+  } else if (NS_ERROR_ONION_AUTH_REQUIRED == aError ||
+             NS_ERROR_ONION_AUTH_FAILED == aError) {
+    error = aError == NS_ERROR_ONION_AUTH_REQUIRED ? "onionAuthRequired"
+                                                   : "onionAuthFailed";
   } else if (NS_ERROR_NET_INTERRUPT == aError) {
     NS_ENSURE_ARG_POINTER(aURI);
     addHostPort = true;
@@ -6127,6 +6131,8 @@ nsresult nsDocShell::FilterStatusForErrorPage(
   // Errors to be shown only on top-level frames
   if ((aStatus == NS_ERROR_UNKNOWN_HOST ||
        aStatus == NS_ERROR_CONNECTION_REFUSED ||
+       aStatus == NS_ERROR_ONION_AUTH_REQUIRED ||
+       aStatus == NS_ERROR_ONION_AUTH_FAILED ||
        aStatus == NS_ERROR_UNKNOWN_PROXY_HOST ||
        aStatus == NS_ERROR_PROXY_CONNECTION_REFUSED ||
        aStatus == NS_ERROR_PROXY_FORBIDDEN ||
@@ -8949,7 +8955,8 @@ bool nsDocShell::CanLoadInParentProcess(nsIURI* aURI) {
     }
   }
   // Allow about: URIs, execept about:srcdoc, which can include arbitrary code.
-  // And allow moz-extension ones if we're running extension content in the parent process.
+  // And allow moz-extension ones if we're running extension content in the
+  // parent process.
   if (!uri || (uri->SchemeIs("about") && !NS_IsAboutSrcdoc(uri)) ||
       (!StaticPrefs::extensions_webextensions_remote() &&
        uri->SchemeIs("moz-extension"))) {

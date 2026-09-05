@@ -54,6 +54,16 @@ export class NetErrorChild extends RemotePageChild {
     let doc = aEvent.originalTarget.ownerDocument || aEvent.originalTarget;
 
     switch (aEvent.type) {
+      case "DOMContentLoaded": {
+        const error = new URL(doc.documentURI).searchParams.get("e");
+        if (
+          this.browsingContext == this.browsingContext.top &&
+          ["onionAuthRequired", "onionAuthFailed"].includes(error)
+        ) {
+          this.sendAsyncMessage("Browser:OnionAuthorizationNeeded");
+        }
+        break;
+      }
       case "click": {
         let elem = aEvent.originalTarget;
         if (elem.id == "viewCertificate") {

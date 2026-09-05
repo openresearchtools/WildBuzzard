@@ -26,6 +26,34 @@ export const SettingGroupManager = {
     if (this._data.has(id)) {
       throw new Error(`Setting group "${id}" already registered`);
     }
+    if (
+      Services.prefs
+        .getStringPref("app.support.baseURL", "")
+        .startsWith("about:blank")
+    ) {
+      const trimHelpLinks = item => {
+        if (
+          (item.supportPage && item.control === "moz-box-link") ||
+          item.controlAttrs?.href?.startsWith("about:blank")
+        ) {
+          return false;
+        }
+        delete item.supportPage;
+        if (item.items?.length) {
+          item.items = item.items.filter(trimHelpLinks);
+          if (!item.items.length) {
+            return false;
+          }
+        }
+        if (item.options) {
+          item.options = item.options.filter(trimHelpLinks);
+        }
+        return true;
+      };
+      if (!trimHelpLinks(config)) {
+        config.hidden = true;
+      }
+    }
     this._data.set(id, config);
   },
 

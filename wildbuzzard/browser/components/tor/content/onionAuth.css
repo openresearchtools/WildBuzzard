@@ -1,0 +1,33 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+#onion-auth-window {
+  min-width: 42em;
+}
+#key-form {
+  display: grid;
+  gap: var(--space-small);
+}
+#onion-address {
+  font-family: monospace;
+  font-size: var(--font-size-small);
+}
+.remember {
+  display: flex;
+  align-items: center;
+  gap: var(--space-small);
+}
+#saved-keys {
+  max-height: 12em;
+  overflow: auto;
+  padding: 0;
+  list-style: none;
+}
+#saved-keys li {
+  margin-block: var(--space-small);
+  overflow-wrap: anywhere;
+}
+#feedback {
+  min-height: 1.5em;
+}

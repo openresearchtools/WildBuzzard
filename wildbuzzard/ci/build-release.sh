@@ -136,11 +136,7 @@ else
     exit 2
   fi
 fi
-if [[ "$(<"${wildbuzzard}/browser/config/version_display.txt")" != "${firefox_version}" ]] ||
-  [[ "$(<"${wildbuzzard}/browser/config/version.txt")esr" != "${firefox_version}" ]]; then
-  echo "Firefox version files do not match the exact ESR release pin" >&2
-  exit 2
-fi
+python3 -I -B "${wildbuzzard}/wildbuzzard/scripts/firefox_release.py" check --versions-only
 
 for repository in \
   "${wildbuzzard}" \
@@ -243,23 +239,17 @@ python3 "${wildbuzzard}/wildbuzzard/scripts/sync_builtin_search_extensions.py" \
 (
   cd -- "${wildbuzzard}"
   python3 -m unittest -v \
-    wildbuzzard/scripts/tests/test_arti_crate_provenance.py \
-    wildbuzzard/scripts/tests/test_arti_runtime_packaging.py \
+    wildbuzzard/scripts/tests/test_tor_runtime_packaging.py \
     wildbuzzard/scripts/tests/test_blocker_asset_provenance.py \
     wildbuzzard/scripts/tests/test_builtin_search_extensions.py \
     wildbuzzard/scripts/tests/test_feature_ownership.py \
+    wildbuzzard/scripts/tests/test_firefox_release.py \
     wildbuzzard/scripts/tests/test_installable_extension_xpis.py \
     wildbuzzard/scripts/tests/test_legal_payload.py \
     wildbuzzard/scripts/tests/test_product_namespace_isolation.py \
-    wildbuzzard/scripts/tests/test_runner_crate_provenance.py \
+    wildbuzzard/scripts/tests/test_native_command_line.py \
     wildbuzzard/scripts/tests/test_release_manifest.py
 )
-
-python3 -I -B \
-  "${wildbuzzard}/wildbuzzard/scripts/runner_crate_provenance.py" \
-  source-archive \
-  --cache-dir "${work_dir}/cache/runner-crates" \
-  --output "${artifact_dir}/wildbuzzard-runner-crates-source.tar.xz"
 
 python3 -I -B \
   "${wildbuzzard}/wildbuzzard/scripts/blocker_asset_provenance.py" \
@@ -323,22 +313,20 @@ install -m 0644 -- \
   "${qbittorrent_run}/build-manifest.txt" \
   "${artifact_dir}/qbittorrent-build-manifest.txt"
 
-arti_build_root="${work_dir}/arti"
-"${wildbuzzard}/wildbuzzard/scripts/build-arti-runtime.sh" \
-  --build-root "${arti_build_root}"
-arti_run="$(one_run "${arti_build_root}")"
-arti_binary="$(sed -n 's/^artifact=//p' "${arti_run}/build-manifest.txt")"
-arti_config="$(sed -n 's/^config=//p' "${arti_run}/build-manifest.txt")"
-arti_provenance="$(sed -n 's/^provenance=//p' "${arti_run}/build-manifest.txt")"
-arti_source="$(sed -n 's/^source=//p' "${arti_run}/build-manifest.txt")"
-arti_cargo_vendor="$(sed -n 's/^cargo_vendor=//p' "${arti_run}/build-manifest.txt")"
-copy_artifact "${arti_binary}" 0755
-copy_artifact "${arti_provenance}"
-copy_artifact "${arti_source}"
-copy_artifact "${arti_cargo_vendor}"
+tor_build_root="${work_dir}/tor"
+"${wildbuzzard}/wildbuzzard/scripts/build-tor-runtime.sh" \
+  --build-root "${tor_build_root}"
+tor_run="$(one_run "${tor_build_root}")"
+tor_binary="$(sed -n 's/^artifact=//p' "${tor_run}/build-manifest.txt")"
+tor_config="$(sed -n 's/^config=//p' "${tor_run}/build-manifest.txt")"
+tor_provenance="$(sed -n 's/^provenance=//p' "${tor_run}/build-manifest.txt")"
+tor_source="$(sed -n 's/^source=//p' "${tor_run}/build-manifest.txt")"
+copy_artifact "${tor_binary}" 0755
+copy_artifact "${tor_provenance}"
+copy_artifact "${tor_source}"
 install -m 0644 -- \
-  "${arti_run}/build-manifest.txt" \
-  "${artifact_dir}/arti-build-manifest.txt"
+  "${tor_run}/build-manifest.txt" \
+  "${artifact_dir}/tor-build-manifest.txt"
 
 browser_build_root="${work_dir}/browser"
 "${wildbuzzard}/wildbuzzard/scripts/build-linux-external.sh" \
@@ -346,9 +334,9 @@ browser_build_root="${work_dir}/browser"
   --build-root "${browser_build_root}" \
   --jobs "$(nproc)" \
   --ref HEAD \
-  --arti-binary "${arti_binary}" \
-  --arti-config "${arti_config}" \
-  --arti-provenance "${arti_provenance}" \
+  --tor-binary "${tor_binary}" \
+  --tor-config "${tor_config}" \
+  --tor-provenance "${tor_provenance}" \
   --qbittorrent-runtime "${qbittorrent_run}/runtime"
 browser_run="$(one_run "${browser_build_root}")"
 browser_object_dir="$(sed -n 's/^object_dir=//p' "${browser_run}/build-manifest.txt")"
@@ -365,7 +353,7 @@ python3 "${wildbuzzard}/wildbuzzard/ci/create-release-manifest.py" \
   --repository "buzzard-search=${buzzard_search_repository}" \
   --repository "buzzard-minijtt=${buzzard_minijtt_repository}" \
   --repository "extensions=${extensions_repository}" \
-  --build-manifest "arti=${artifact_dir}/arti-build-manifest.txt" \
+  --build-manifest "tor=${artifact_dir}/tor-build-manifest.txt" \
   --build-manifest "browser=${artifact_dir}/browser-build-manifest.txt" \
   --build-manifest "qbittorrent=${artifact_dir}/qbittorrent-build-manifest.txt"
 checksum_file="${work_dir}/SHA256SUMS"

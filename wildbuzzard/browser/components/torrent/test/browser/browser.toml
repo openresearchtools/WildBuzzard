@@ -10,3 +10,5 @@ skip-if = ["os != 'linux'"]
 
 ["browser_torrent_ingress.js"]
 skip-if = ["os != 'linux'"]
+
+["browser_torrent_menu.js"]

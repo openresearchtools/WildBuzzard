@@ -33,24 +33,24 @@ wildbuzzard-builds/
 The script ignores uncommitted files unless `--working-tree` is supplied. Each
 run records its source commit and whether a working-tree snapshot was applied.
 
-The reusable browser archive is built without external runtimes. Arti and the
+The reusable browser archive is built without external runtimes. Tor and the
 native qBittorrent runtime are built as separate pinned component artifacts and
 are added only when the final Debian package is assembled. This lets packaging
 be retried without rebuilding Firefox and gkrust.
 
 ```bash
-./wildbuzzard/scripts/build-arti-runtime.sh
+./wildbuzzard/scripts/build-tor-runtime.sh
 
 ./wildbuzzard/scripts/build-linux-external.sh \
   --working-tree \
-  --arti-binary /absolute/path/to/arti-2.5.1-linux-x86_64 \
-  --arti-config /absolute/path/to/arti-2.5.1-linux-x86_64.toml \
-  --arti-provenance /absolute/path/to/wildbuzzard-arti-2.5.1-provenance.zip \
+  --tor-binary /absolute/path/to/tor-0.4.9.11-linux-x86_64 \
+  --tor-config /absolute/path/to/tor.toml \
+  --tor-provenance /absolute/path/to/wildbuzzard-tor-0.4.9.11-provenance.zip \
   --qbittorrent-runtime /absolute/path/to/qbittorrent/runtime \
   --action deb
 ```
 
-The final Debian package bundles Arti and the native qBittorrent/libtorrent
+The final Debian package bundles Tor and the native qBittorrent/libtorrent
 runtime and suggests `buzzard-search` and `buzzard-minijtt`. It does not include
 a Python or Node runtime. The browser archive must not contain Pi, Pi Web,
 provider, torrent-discovery, Jackett, or SearXNG runtime trees.

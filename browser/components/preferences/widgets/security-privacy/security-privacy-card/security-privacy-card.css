@@ -75,9 +75,3 @@ h3 {
 .status-alert moz-box-link {
   margin-block-start: var(--space-medium);
 }
-
-.status-image {
-  margin-inline-start: var(--space-xsmall);
-  max-width: 100px;
-  object-fit: contain;
-}

@@ -1,3 +1,0 @@
-[storage.keystore.ctor.services."tgen_hs"]
-path = "./ctor-store"
-id = "tgen_hs"

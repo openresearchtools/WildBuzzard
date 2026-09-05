@@ -978,6 +978,12 @@ export class nsContextMenu {
       this.showItem("spell-no-suggestions", false);
     }
 
+    const canDownloadDictionaries = !Services.urlFormatter
+      .formatURLPref("browser.dictionaries.download.url")
+      .startsWith("about:blank");
+    this.showItem("spell-add-dictionaries", canDownloadDictionaries);
+    this.showItem("spell-language-separator", canDownloadDictionaries);
+
     // dictionary list
     this.showItem("spell-dictionaries", showDictionaries);
     if (canSpell) {
@@ -989,7 +995,10 @@ export class nsContextMenu {
       // when there is no spellchecker but we might be able to spellcheck
       // add the add to dictionaries item. This will ensure that people
       // with no dictionaries will be able to download them
-      this.showItem("spell-add-dictionaries-main", showDictionaries);
+      this.showItem(
+        "spell-add-dictionaries-main",
+        showDictionaries && canDownloadDictionaries
+      );
     } else {
       this.showItem("spell-add-dictionaries-main", false);
     }

@@ -26,7 +26,7 @@ wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-options {
   gap: 0;
   padding: 3px;
   border-radius: var(--border-radius-circle);
-  background: light-dark(#e6e6ee, #2e2c35);
+  background: light-dark(#e6e6e6, #303030);
 }
 
 wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-option {
@@ -44,7 +44,7 @@ wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-option {
   border: 0;
   border-radius: var(--border-radius-circle);
   background: transparent;
-  color: light-dark(#2b2a33, #fbfbfe);
+  color: light-dark(#303030, #fafafa);
   font: inherit;
   font-size: 13px;
   font-weight: var(--font-weight-bold);
@@ -53,12 +53,12 @@ wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-option {
 }
 
 wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-option[aria-checked="true"] {
-  background: light-dark(#fff, #55545e);
+  background: light-dark(#fff, #555555);
   box-shadow: 0 1px 2px color-mix(in srgb, var(--box-shadow-color, var(--box-shadow-color-darker-layer-2)) 18%, transparent);
 }
 
 wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-option:hover {
-  background-color: light-dark(#f3f3f6, #46444f);
+  background-color: light-dark(#f3f3f3, #464646);
 }
 
 wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-option:focus-visible {
@@ -85,51 +85,3 @@ wildbuzzard-mode-segmented .wildbuzzard-mode-segmented-text {
 /* stylelint-enable stylelint-plugin-mozilla/use-design-tokens */
 
 /* Theme color: uniform gradient swatches in a grid, matching onboarding. */
-moz-visual-picker.wildbuzzard-color-grid {
-  --wildbuzzard-swatch-size: calc(var(--size-item-large) * 2);
-}
-
-moz-visual-picker.wildbuzzard-color-grid::part(inputs) {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(calc(var(--wildbuzzard-swatch-size) + var(--space-medium)), 1fr));
-  justify-items: center;
-  gap: var(--space-large) var(--space-medium);
-}
-
-moz-visual-picker-item.wildbuzzard-color-option {
-  /* Flatten the card: no box, border, hover/active fill, and no rounded
-     overflow clip, so the swatch shows as a bare blob like onboarding. */
-  --visual-picker-item-border-color: transparent;
-  --visual-picker-item-border-width: 0;
-  --visual-picker-item-border-width-checked: 0;
-  --visual-picker-item-border-radius: 0;
-  --background-color-box: transparent;
-  --button-background-color-hover: transparent;
-  --button-background-color-active: transparent;
-
-  color: var(--text-color-deemphasized);
-  font-size: var(--font-size-small);
-  cursor: pointer;
-}
-
-/* The selection ring is the swatch's own border (inside its box, so the card's
-   overflow:hidden cannot clip it); the width stays constant to avoid reflow. */
-moz-visual-picker-item.wildbuzzard-color-option::part(image) {
-  box-sizing: border-box;
-  width: var(--wildbuzzard-swatch-size);
-  height: var(--wildbuzzard-swatch-size);
-  border: var(--focus-outline-width) solid color-mix(in srgb, var(--border-color) 45%, transparent);
-  border-radius: var(--border-radius-circle) var(--border-radius-circle) var(--border-radius-circle) var(--border-radius-medium);
-}
-
-moz-visual-picker-item.wildbuzzard-color-option[checked]::part(image) {
-  border-color: var(--focus-outline-color);
-}
-
-moz-visual-picker.wildbuzzard-browser-style-picker .setting-chooser-item::part(image) {
-  width: 100%;
-  margin-block: 0;
-  border: none;
-  border-radius: var(--border-radius-medium);
-  box-shadow: none;
-}

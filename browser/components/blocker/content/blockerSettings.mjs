@@ -14,10 +14,7 @@ ChromeUtils.defineESModuleGetters(lazy, {
   isEnabledAdblockAddon: "resource:///modules/WildBuzzardBlockerUtils.sys.mjs",
 });
 
-Preferences.addAll([
-  { id: "wildbuzzard.blocker.enabled", type: "bool" },
-  { id: "wildbuzzard.blocker.showBadge", type: "bool" },
-]);
+Preferences.addAll([{ id: "wildbuzzard.blocker.enabled", type: "bool" }]);
 
 Preferences.addSetting({
   id: "wildbuzzard-blocker-enabled",
@@ -59,13 +56,6 @@ Preferences.addSetting({
       l10nArgs: { extensionName: this._extensionName },
     };
   },
-});
-
-Preferences.addSetting({
-  id: "wildbuzzard-blocker-show-badge",
-  pref: "wildbuzzard.blocker.showBadge",
-  deps: ["wildbuzzard-blocker-enabled"],
-  disabled: deps => !deps["wildbuzzard-blocker-enabled"].value,
 });
 
 Preferences.addSetting({ id: "wildbuzzardBlockerListsBoxGroup" });
@@ -137,11 +127,6 @@ SettingGroupManager.registerGroups({
         controlAttrs: {
           role: "status",
         },
-      },
-      {
-        id: "wildbuzzard-blocker-show-badge",
-        l10nId: "wildbuzzard-blocker-show-badge-pref",
-        control: "moz-checkbox",
       },
     ],
   },

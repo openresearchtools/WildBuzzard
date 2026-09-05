@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<!-- This Source Code Form is subject to the terms of the Mozilla Public
+   - License, v. 2.0. If a copy of the MPL was not distributed with this
+   - file, You can obtain one at http://mozilla.org/MPL/2.0/. -->
+<?csp default-src chrome:; style-src chrome:; ?>
+<window xmlns="http://www.mozilla.org/keymaster/gatekeeper/there.is.only.xul"
+        xmlns:html="http://www.w3.org/1999/xhtml" id="onion-auth-window">
+  <dialog id="onion-auth-dialog" buttons="accept,cancel">
+    <linkset>
+      <html:link rel="stylesheet" href="chrome://global/skin/global.css"/>
+      <html:link rel="stylesheet" href="chrome://browser/content/tor/onionAuth.css"/>
+      <html:link rel="localization" href="browser/wildbuzzard/tor.ftl"/>
+    </linkset>
+    <script src="chrome://browser/content/tor/onionAuth.js"/>
+    <html:h1 id="heading" data-l10n-id="wildbuzzard-onion-auth-title"/>
+    <html:p id="explanation" data-l10n-id="wildbuzzard-onion-auth-explanation"/>
+    <html:section id="authorizations" hidden="hidden">
+      <html:h2 data-l10n-id="wildbuzzard-onion-auth-saved"/>
+      <html:ul id="saved-keys"/>
+    </html:section>
+    <html:form id="key-form" autocomplete="off">
+      <html:label for="onion-address" data-l10n-id="wildbuzzard-onion-auth-address"/>
+      <html:input id="onion-address" type="text" required="required" spellcheck="false"/>
+      <html:label for="private-key" data-l10n-id="wildbuzzard-onion-auth-key"/>
+      <html:input id="private-key" type="password" required="required" autocomplete="new-password" spellcheck="false"/>
+      <html:label for="identity-name" data-l10n-id="wildbuzzard-onion-auth-name"/>
+      <html:input id="identity-name" type="text" maxlength="120"/>
+      <html:label class="remember"><html:input id="remember-key" type="checkbox"/><html:span data-l10n-id="wildbuzzard-onion-auth-remember"/></html:label>
+      <html:label class="remember"><html:input id="private-mode" type="checkbox" checked="checked"/><html:span data-l10n-id="wildbuzzard-onion-auth-private-mode"/></html:label>
+      <html:p data-l10n-id="wildbuzzard-onion-auth-private-mode-description"/>
+    </html:form>
+    <html:p id="feedback" role="status"/>
+  </dialog>
+</window>

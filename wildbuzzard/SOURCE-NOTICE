@@ -11,10 +11,10 @@ command-line packages. Complete source and build inputs for bundled third-party
 code are carried in the repository or in the source and provenance artifacts
 published beside the browser package.
 
-The Rust crates statically linked into the WildBuzzard browser-control client
-are locked by runner/Cargo.lock and the installed THIRD-PARTY.json. Their exact
-crates.io source distributions are published together as
-wildbuzzard-runner-crates-source.tar.xz in the same release set.
+The browser executable implements its shell command transport in
+browser/app/WildBuzzardCommandLine.cpp, using the in-tree JsonCpp library.
+Browser commands and workflows execute in Gecko. Their complete source and
+the JsonCpp license are included in the browser source tree.
 
 The independently installed buzzard-search and buzzard-minijtt releases publish
 their own license, provenance, and corresponding-source artifacts. Their
@@ -23,13 +23,12 @@ qBittorrent/libtorrent runtime as a distinct GPL-2.0-only program together with
 its component licenses and source-offer metadata; its corresponding-source
 archives are published beside the browser package.
 
-Arti's workspace and local-crate source is distributed as
-wildbuzzard-arti-2.5.1-source.tar.xz. The exact `cargo vendor --locked
---versioned-dirs` source for all registry packages in Arti's Cargo.lock is
-distributed as wildbuzzard-arti-2.5.1-cargo-vendor.tar.xz. Both are external
-release artifacts bound by the installed Arti provenance and
-notices/arti-crates/THIRD-PARTY.json; neither source archive is installed in
-the browser package.
+Tor's exact pinned source is distributed as
+wildbuzzard-tor-0.4.9.11-source.tar. The installed Tor provenance binds that
+archive, the native binary, and notices/tor-notices/THIRD-PARTY.json, which
+identifies its statically linked OpenSSL, libevent, and zlib dependencies and
+includes their exact copyright and license texts. The source archive is an
+external release artifact and is not installed in the browser package.
 The exact Brave adblock-resources and uBlock Origin corresponding source used
 to generate the bundled blocker assets is distributed as
 wildbuzzard-blocker-assets-source.tar.xz in that release set.

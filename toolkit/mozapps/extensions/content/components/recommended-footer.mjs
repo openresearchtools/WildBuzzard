@@ -29,6 +29,14 @@ export class RecommendedFooter extends AboutAddonsHTMLElement {
   }
 
   connectedCallback() {
+    if (
+      Services.prefs
+        .getStringPref("extensions.getAddons.link.url", "")
+        .startsWith("about:blank")
+    ) {
+      this.hidden = true;
+      return;
+    }
     if (this.childElementCount == 0) {
       this.appendChild(RecommendedFooter.fragment);
       this.querySelector(".privacy-policy-link").href =

@@ -265,6 +265,16 @@ nsresult ErrorAccordingToNSPR(PRErrorCode errorCode) {
   return rv;
 }
 
+static nsresult ErrorAccordingToSOCKS(PRErrorCode errorCode) {
+  if (errorCode == 0xF4) {
+    return NS_ERROR_ONION_AUTH_REQUIRED;
+  }
+  if (errorCode == 0xF5) {
+    return NS_ERROR_ONION_AUTH_FAILED;
+  }
+  return ErrorAccordingToNSPR(errorCode);
+}
+
 //-----------------------------------------------------------------------------
 // socket input stream impl
 //-----------------------------------------------------------------------------
@@ -1660,7 +1670,7 @@ nsresult nsSocketTransport::InitiateSocket() {
     else if (PR_UNKNOWN_ERROR == code && mProxyTransparent &&
              !mProxyHost.IsEmpty()) {
       code = PR_GetOSError();
-      rv = ErrorAccordingToNSPR(code);
+      rv = ErrorAccordingToSOCKS(code);
     }
     //
     // The connection was refused...
@@ -2248,7 +2258,7 @@ void nsSocketTransport::OnSocketReady(PRFileDesc* fd, int16_t outFlags) {
       else if (PR_UNKNOWN_ERROR == code && mProxyTransparent &&
                !mProxyHost.IsEmpty()) {
         code = PR_GetOSError();
-        mCondition = ErrorAccordingToNSPR(code);
+        mCondition = ErrorAccordingToSOCKS(code);
       } else {
         //
         // else, the connection failed...

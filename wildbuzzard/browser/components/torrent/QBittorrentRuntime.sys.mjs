@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: AGPL-3.0-or-later */
 
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
+import { AsyncShutdown } from "resource://gre/modules/AsyncShutdown.sys.mjs";
 import { Subprocess } from "resource://gre/modules/Subprocess.sys.mjs";
 import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
 import { requestQBittorrentUDS } from "resource:///modules/QBittorrentUDSTransport.sys.mjs";
@@ -58,9 +59,10 @@ async function processMatches(pid, startTime, executable) {
   try {
     const stat = await readProcFile(`/proc/${pid}/stat`);
     const processExecutable = new LocalFile(`/proc/${pid}/exe`);
+    const target = processExecutable.target;
     return (
       parsePidStartTime(stat) === String(startTime) &&
-      processExecutable.target === executable
+      (target === executable || target === `${executable} (deleted)`)
     );
   } catch {
     return false;
@@ -85,10 +87,7 @@ async function privateRegularFile(path, mode = 0o600) {
 async function readPipe(pipe) {
   let output = "";
   for (let chunk; (chunk = await pipe.readString()); ) {
-    output += chunk;
-    if (output.length > MAX_LIFECYCLE_OUTPUT) {
-      throw new Error("qBittorrent startup output exceeded its limit");
-    }
+    output = (output + chunk).slice(-MAX_LIFECYCLE_OUTPUT);
   }
   return output;
 }
@@ -135,6 +134,10 @@ class QBittorrentRuntimeImpl {
       PathUtils.join(home, "Downloads")
     );
     this.configurePaths({ dataHome, runtimeHome });
+    AsyncShutdown.profileBeforeChange.addBlocker(
+      "WildBuzzard: stop the torrent engine",
+      () => this.stop()
+    );
   }
 
   configurePaths({ dataHome, runtimeHome }) {
@@ -194,30 +197,33 @@ class QBittorrentRuntimeImpl {
       TZ: "UTC",
       WILDBUZZARD_QBITTORRENT_API_KEY_FILE: this.apiKeyPath,
       WILDBUZZARD_QBITTORRENT_SOCKET: this.socketPath,
+      WILDBUZZARD_QBITTORRENT_LIFETIME: "stdin",
     };
     const process = await Subprocess.call({
       command: this.validateRuntime(),
       arguments: [
-        "--daemon",
         "--confirm-legal-notice",
         `--profile=${this.profileDirectory}`,
         `--save-path=${downloads}`,
       ],
       environmentAppend: false,
       environment,
-      stdin: "ignore",
-      stdout: "ignore",
       stderr: "pipe",
     });
-    const [stderr, result] = await Promise.all([
+    this.process = process;
+    this.processError = null;
+    const output = Promise.all([
+      readPipe(process.stdout),
       readPipe(process.stderr),
-      process.wait(),
-    ]);
-    if (result.exitCode !== 0) {
-      throw new Error(
-        stderr.trim() || `qBittorrent exited with ${result.exitCode}`
-      );
-    }
+    ]).catch(error => ["", error.message]);
+    process.wait().then(async result => {
+      const [, stderr] = await output;
+      if (this.process === process) {
+        this.process = null;
+        this.processError =
+          stderr.trim() || `qBittorrent exited with ${result.exitCode}`;
+      }
+    });
   }
 
   async #apiKey() {
@@ -315,19 +321,35 @@ class QBittorrentRuntimeImpl {
       if (connection) {
         return connection;
       }
+      if (this.processError) {
+        throw new Error(this.processError);
+      }
       await delay(START_INTERVAL_MS);
     }
     return null;
   }
 
   async ensure() {
+    if (
+      Services.appinfo.processType !== Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT
+    ) {
+      throw new Error(
+        "The torrent engine belongs to the browser parent process"
+      );
+    }
+    if (this.stopping) {
+      throw new Error("The torrent engine is shutting down");
+    }
     if (AppConstants.platform !== "linux") {
       throw new Error(
         "The bundled qBittorrent runtime currently supports Linux"
       );
     }
     if (!this.initializeTask) {
-      this.initializeTask = this.#ensure().catch(error => {
+      this.initializeTask = this.#ensure().catch(async error => {
+        if (this.process) {
+          await this.process.kill(10000);
+        }
         this.initializeTask = null;
         throw error;
       });
@@ -347,6 +369,20 @@ class QBittorrentRuntimeImpl {
     }
     this.apiKey = await this.#apiKey();
     let connection = await this.#connectionIfHealthy();
+    if (connection) {
+      const environment = await readProcFile(
+        `/proc/${connection.pid}/environ`,
+        128 * 1024
+      );
+      if (
+        !environment
+          .split("\0")
+          .includes("WILDBUZZARD_QBITTORRENT_LIFETIME=stdin")
+      ) {
+        await this.#stopProcess(connection);
+        connection = null;
+      }
+    }
     if (!connection) {
       const startingProcess = await this.#readProcess();
       if (startingProcess) {
@@ -413,30 +449,101 @@ class QBittorrentRuntimeImpl {
     return JSON.parse(await this.requestText(target, options));
   }
 
-  async stopForTests() {
-    if (!Cu.isInAutomation) {
-      throw new Error("qBittorrent is persistent outside automation");
+  stop() {
+    if (!this.stopTask) {
+      this.stopping = true;
+      this.stopTask = this.#stop();
     }
-    if (this.connection) {
-      await this.request("/api/v2/app/shutdown", {
+    return this.stopTask;
+  }
+
+  async #stop() {
+    await this.initializeTask?.catch(() => {});
+    if (this.process) {
+      await this.#stopProcess(this.connection);
+    }
+    this.connection = null;
+    this.initializeTask = null;
+  }
+
+  async #stopProcess(connection) {
+    const process = this.process;
+    if (process) {
+      await process.stdin.close().catch(() => {});
+    }
+    if (connection) {
+      await requestQBittorrentUDS(this.socketPath, {
+        target: "/api/v2/app/shutdown",
         method: "POST",
         body: new Uint8Array(),
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        timeout: 3000,
       }).catch(() => {});
-      for (let attempt = 0; attempt < 40; attempt++) {
-        if (!(await processMatches(
-          this.connection.pid,
-          this.connection.pidStartTime,
-          this.executable
-        ))) {
+      for (let attempt = 0; attempt < 80; attempt++) {
+        if (
+          !(await processMatches(
+            connection.pid,
+            connection.pidStartTime,
+            this.executable
+          ))
+        ) {
           break;
         }
         await delay(250);
       }
     }
+    if (process) {
+      await process.kill(10000);
+      await process.wait();
+    } else if (
+      connection &&
+      (await processMatches(
+        connection.pid,
+        connection.pidStartTime,
+        this.executable
+      ))
+    ) {
+      const signal = await Subprocess.call({
+        command: "/bin/kill",
+        arguments: ["-TERM", String(connection.pid)],
+      });
+      await signal.wait();
+      for (let attempt = 0; attempt < 40; attempt++) {
+        if (
+          !(await processMatches(
+            connection.pid,
+            connection.pidStartTime,
+            this.executable
+          ))
+        ) {
+          break;
+        }
+        await delay(250);
+      }
+      if (
+        await processMatches(
+          connection.pid,
+          connection.pidStartTime,
+          this.executable
+        )
+      ) {
+        throw new Error("The previous torrent engine did not shut down");
+      }
+    }
     await IOUtils.remove(this.socketPath, { ignoreAbsent: true });
-    this.connection = null;
-    this.initializeTask = null;
+  }
+
+  async stopForTests() {
+    if (!Cu.isInAutomation) {
+      throw new Error("qBittorrent test cleanup is unavailable");
+    }
+    await this.stop();
+    this.stopTask = null;
+    this.stopping = false;
+    this.processError = null;
   }
 }
 

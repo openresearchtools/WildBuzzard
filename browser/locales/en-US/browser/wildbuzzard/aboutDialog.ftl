@@ -9,7 +9,11 @@ aboutdialog-help-label = Help
 aboutdialog-support-docs = Support Documentation
 
 # <label data-l10n-name="project-link"> links to the public source repository.
-aboutdialog-community = { -brand-short-name } is developed transparently by <label data-l10n-name="project-link">its contributors</label>. It is built to answer to the person using it, with no project telemetry or commercial service integrations.
+aboutdialog-community = { -brand-short-name } is an open-source browser for people and external agents. Browse normally or use the wildbuzzard shell command to control tabs, pages and downloads. Developed transparently by <label data-l10n-name="project-link">its contributors</label>, with no project telemetry or commercial service integrations.
 
 aboutdialog-get-involved-link = Get involved
 aboutdialog-license-link = Licensing
+
+aboutdialog-support-link = Support and report an issue
+aboutdialog-source-link = Source code
+aboutdialog-build-link = Build information

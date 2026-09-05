@@ -6,3 +6,5 @@ support-files = ["head.js"]
 ["browser_wildbuzzard_data_collection.js"]
 
 ["browser_wildbuzzard_tabs.js"]
+
+["browser_wildbuzzard_product_surfaces.js"]

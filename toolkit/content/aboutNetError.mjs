@@ -36,6 +36,8 @@ const HOST_NAME = getHostName();
 const KNOWN_ERROR_TITLE_IDS = new Set([
   // Error titles:
   "connectionFailure-title",
+  "onionAuthRequired-title",
+  "onionAuthFailed-title",
   "deniedPortAccess-title",
   "dnsNotFound-title",
   "dns-not-found-trr-only-title2",
@@ -676,6 +678,9 @@ function setNetErrorMessageFromParts(parentElement, parts) {
  * @returns { Array<["li" | "p" | "span" | "a", string, Record<string, string> | undefined]> }
  */
 function getNetErrorDescParts(noConnectivity) {
+  if (["onionAuthRequired", "onionAuthFailed"].includes(gErrorCode)) {
+    return [];
+  }
   // Build context for resolving description parts
   const context = {
     hostname: HOST_NAME,

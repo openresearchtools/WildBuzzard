@@ -52,6 +52,9 @@ function getL10nIdMapping(id) {
 
 // Define views
 gViewController.defineView("list", async type => {
+  if (type === "theme") {
+    type = "extension";
+  }
   if (!AddonManager.hasAddonType(type)) {
     return null;
   }

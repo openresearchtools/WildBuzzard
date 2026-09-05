@@ -15,9 +15,9 @@ usage() {
   echo "  --jobs NUMBER      parallel build jobs (default: all logical CPUs)"
   echo "  --ref REF          committed Git ref to build (default: HEAD)"
   echo "  --working-tree     include tracked and untracked developer changes"
-  echo "  --arti-binary FILE  Arti executable to include in the browser package"
-  echo "  --arti-config FILE  Arti metadata for the source-built executable"
-  echo "  --arti-provenance FILE  Pinned Arti source, SBOM, and license ZIP"
+  echo "  --tor-binary FILE  Tor executable to include in the browser package"
+  echo "  --tor-config FILE  Tor metadata for the source-built executable"
+  echo "  --tor-provenance FILE  Pinned Tor source binding and license ZIP"
   echo "  --qbittorrent-runtime DIR  verified native qBittorrent runtime tree"
   echo "  --bootstrap        force mach bootstrap before the requested action"
   echo "  --help             show this help"
@@ -31,9 +31,9 @@ build_ref="HEAD"
 jobs="$(nproc)"
 run_bootstrap=false
 include_working_tree=false
-arti_binary=""
-arti_config=""
-arti_provenance=""
+tor_binary=""
+tor_config=""
+tor_provenance=""
 qbittorrent_runtime=""
 
 while (($#)); do
@@ -58,16 +58,16 @@ while (($#)); do
       include_working_tree=true
       shift
       ;;
-    --arti-binary)
-      arti_binary="${2:?--arti-binary requires a file}"
+    --tor-binary)
+      tor_binary="${2:?--tor-binary requires a file}"
       shift 2
       ;;
-    --arti-config)
-      arti_config="${2:?--arti-config requires a file}"
+    --tor-config)
+      tor_config="${2:?--tor-config requires a file}"
       shift 2
       ;;
-    --arti-provenance)
-      arti_provenance="${2:?--arti-provenance requires a file}"
+    --tor-provenance)
+      tor_provenance="${2:?--tor-provenance requires a file}"
       shift 2
       ;;
     --qbittorrent-runtime)
@@ -90,17 +90,17 @@ while (($#)); do
   esac
 done
 
-if [[ -n "${arti_binary}" || -n "${arti_config}" || -n "${arti_provenance}" ]]; then
-  if [[ -z "${arti_binary}" || -z "${arti_config}" || -z "${arti_provenance}" ]]; then
-    echo "--arti-binary, --arti-config, and --arti-provenance must be supplied together" >&2
+if [[ -n "${tor_binary}" || -n "${tor_config}" || -n "${tor_provenance}" ]]; then
+  if [[ -z "${tor_binary}" || -z "${tor_config}" || -z "${tor_provenance}" ]]; then
+    echo "--tor-binary, --tor-config, and --tor-provenance must be supplied together" >&2
     exit 2
   fi
-  arti_binary="$(realpath -- "${arti_binary}")"
-  arti_config="$(realpath -- "${arti_config}")"
-  arti_provenance="$(realpath -- "${arti_provenance}")"
-  if [[ ! -f "${arti_binary}" || ! -x "${arti_binary}" || \
-    ! -f "${arti_config}" || ! -f "${arti_provenance}" ]]; then
-    echo "Arti binary, config, and provenance inputs must be regular files" >&2
+  tor_binary="$(realpath -- "${tor_binary}")"
+  tor_config="$(realpath -- "${tor_config}")"
+  tor_provenance="$(realpath -- "${tor_provenance}")"
+  if [[ ! -f "${tor_binary}" || ! -x "${tor_binary}" || \
+    ! -f "${tor_config}" || ! -f "${tor_provenance}" ]]; then
+    echo "Tor binary, config, and provenance inputs must be regular files" >&2
     exit 2
   fi
 fi
@@ -123,8 +123,8 @@ esac
 
 case "${action}" in
   deb|package|appimage|all)
-    if [[ -z "${arti_binary}" || -z "${arti_config}" || -z "${arti_provenance}" ]]; then
-      echo "${action} requires --arti-binary, --arti-config, and --arti-provenance" >&2
+    if [[ -z "${tor_binary}" || -z "${tor_config}" || -z "${tor_provenance}" ]]; then
+      echo "${action} requires --tor-binary, --tor-config, and --tor-provenance" >&2
       exit 2
     fi
     ;;
@@ -226,9 +226,9 @@ fi
   echo "action=${action}"
   echo "working_tree=${include_working_tree}"
   echo "source_date_epoch=${source_date_epoch}"
-  echo "arti_binary=${arti_binary}"
-  echo "arti_config=${arti_config}"
-  echo "arti_provenance=${arti_provenance}"
+  echo "tor_binary=${tor_binary}"
+  echo "tor_config=${tor_config}"
+  echo "tor_provenance=${tor_provenance}"
   echo "qbittorrent_runtime=${qbittorrent_runtime}"
   echo "started_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >"${run_root}/build-manifest.txt"
@@ -339,22 +339,16 @@ run_product_tests() {
 }
 
 run_deb_package() {
-  local arti_stage="${run_root}/external/arti"
-  local cli_binary
-  install -d -m 0755 -- "${arti_stage}"
-  install -m 0755 -- "${arti_binary}" "${arti_stage}/arti"
-  install -m 0644 -- "${arti_config}" "${arti_stage}/arti.toml"
-  install -m 0644 -- "${arti_provenance}" "${arti_stage}/arti-provenance.zip"
-  run_step cli-build cargo build --locked --release \
-    --target-dir "${run_root}/cli-target" \
-    --manifest-path wildbuzzard/components/wildbuzzard-cli/runner/Cargo.toml
-  cli_binary="${run_root}/cli-target/release/wildbuzzard-native-client"
+  local tor_stage="${run_root}/external/tor"
+  install -d -m 0755 -- "${tor_stage}"
+  install -m 0755 -- "${tor_binary}" "${tor_stage}/tor"
+  install -m 0644 -- "${tor_config}" "${tor_stage}/tor.toml"
+  install -m 0644 -- "${tor_provenance}" "${tor_stage}/tor-provenance.zip"
   run_step deb-package ./wildbuzzard/scripts/package-deb.sh \
     --dist-dir "${object_dir}/dist" \
     --output-dir "${run_root}/artifacts" \
-    --arti-dir "${arti_stage}" \
-    --qbittorrent-runtime "${qbittorrent_runtime}" \
-    --cli-binary "${cli_binary}"
+    --tor-dir "${tor_stage}" \
+    --qbittorrent-runtime "${qbittorrent_runtime}"
 }
 
 run_appimage_package() {
@@ -362,6 +356,8 @@ run_appimage_package() {
     --dist-dir "${object_dir}/dist" \
     --output-dir "${run_root}/artifacts"
 }
+
+run_step release-version python3 -I -B wildbuzzard/scripts/firefox_release.py check --versions-only
 
 if [[ "${run_bootstrap}" == true || ! -x "${state_dir}/cbindgen/cbindgen" ]]; then
   run_step bootstrap ./mach --no-interactive bootstrap \
@@ -379,10 +375,10 @@ fi
   echo "ac_add_options --enable-optimize"
   echo "ac_add_options --disable-debug"
   echo "ac_add_options --disable-crashreporter"
-  if [[ -n "${arti_binary}" ]]; then
-    echo "ac_add_options --with-wildbuzzard-arti=${arti_binary}"
-    echo "ac_add_options --with-wildbuzzard-arti-config=${arti_config}"
-    echo "ac_add_options --with-wildbuzzard-arti-provenance=${arti_provenance}"
+  if [[ -n "${tor_binary}" ]]; then
+    echo "ac_add_options --with-wildbuzzard-tor=${tor_binary}"
+    echo "ac_add_options --with-wildbuzzard-tor-config=${tor_config}"
+    echo "ac_add_options --with-wildbuzzard-tor-provenance=${tor_provenance}"
   fi
   if [[ -n "${SCCACHE_PATH:-}" && -x "${SCCACHE_PATH}" ]]; then
     echo "ac_add_options --with-ccache=${SCCACHE_PATH}"

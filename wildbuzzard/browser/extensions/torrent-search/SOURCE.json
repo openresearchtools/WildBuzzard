@@ -23,13 +23,13 @@
     },
     {
       "path": "manifest.json",
-      "sha256": "85d5e9a08672dc0bcf5dcc3bf480794073bba899a0fe8605eece924467a235da",
-      "size": 1308
+      "sha256": "462029a4ef4ef807bf1e99e27b943da17b725be6582e65ec45b46d5eb5b38b94",
+      "size": 1563
     },
     {
       "path": "src/background.js",
-      "sha256": "ec52fa9e29f3241ca862621b68178408495a6f6719b409a7bc18216ac4c020ec",
-      "size": 557
+      "sha256": "4e8a602bc769eeac8758dced39df0e286731d6af3e2d3aba4310dbbd2fab01dd",
+      "size": 325
     },
     {
       "path": "src/contract.js",
@@ -43,8 +43,8 @@
     },
     {
       "path": "src/options.css",
-      "sha256": "05fc790e0102ac7419a1e144c1a9b8c1e6e4e0360fc61c1ce2578cf424ff8c0f",
-      "size": 750
+      "sha256": "2a7bbc839e624e3efca2bcd56620499b437bd4771a0d6bb8e0ca846a73c0f02b",
+      "size": 1069
     },
     {
       "path": "src/options.html",
@@ -58,8 +58,8 @@
     },
     {
       "path": "src/popup.css",
-      "sha256": "a55ee4dc95cb8973dc7d7ddc178e1a4db471cf1706144c07bae84105229a8b8a",
-      "size": 2915
+      "sha256": "b59c31e1343517ebf61b12896e37d3ed91c319d92a6a702bc668d0f14ccd275c",
+      "size": 3252
     },
     {
       "path": "src/popup.html",
@@ -72,10 +72,10 @@
       "size": 9469
     }
   ],
-  "runtimeTreeSha256": "9865e3aa2c28948399364d2365b3bfe2e32c2f12c07ba7b75f7dca47a1146587",
+  "runtimeTreeSha256": "6979ef06c9ac8901b1bc05c1a95d2506398f907384ce56043c1290d43bd10415",
   "schema": 3,
   "sourcePath": "extensions/torrent-search",
   "sourceRepository": "wildbuzzard-extensions",
   "treeHashAlgorithm": "sha256-length-prefixed-path-and-content",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

@@ -10,10 +10,9 @@ const { TorRouting } = ChromeUtils.importESModule(
 const LIVE_TEST_PREF = "wildbuzzard.tor.test.live";
 const CHECK_URL = "https://check.torproject.org/api/ip";
 const ONION_URL =
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
-  "http://2gzyxa5ihm7nsggfxnu52rck2vv4rvmdlkiu3zzui5du4xyclen53wid.onion/index.html";
+  "https://2gzyxa5ihm7nsggfxnu52rck2vv4rvmdlkiu3zzui5du4xyclen53wid.onion/index.html";
 
-add_task(async function test_live_bundled_arti() {
+add_task(async function test_live_bundled_tor() {
   if (!Services.prefs.getBoolPref(LIVE_TEST_PREF, false)) {
     ok(true, `Set ${LIVE_TEST_PREF}=true to run the live Tor test`);
     return;
@@ -25,7 +24,7 @@ add_task(async function test_live_bundled_arti() {
     "about:blank"
   );
   const torTab = await TorRouting.toggle(window, tab);
-  ok(torTab, "The bundled Arti runtime started");
+  ok(torTab, "The bundled Tor runtime started");
   try {
     const checkLoaded = BrowserTestUtils.browserLoaded(
       torTab.linkedBrowser,

@@ -60,3 +60,7 @@ pref("extensions.webextensions.restrictedDomains", "accounts-static.cdn.mozilla.
 pref("media.navigator.mediadatadecoder_vpx_enabled", true);
 pref("media.allowed-to-play.enabled", true);
 pref("svg.context-properties.content.enabled", true);
+
+// Neutral page defaults, including sites that opt into dark color schemes.
+pref("browser.display.background_color.dark", "#1e1e1e");
+pref("browser.display.foreground_color.dark", "#e5e5e5");

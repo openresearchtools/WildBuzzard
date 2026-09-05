@@ -1543,9 +1543,6 @@ class SelectableProfileServiceClass extends EventEmitter {
       let path = this.groupToolkitProfile.rootDir;
       this.#currentProfile = await this.#createProfile(path, null);
 
-      // And also set the profile selector window to show at startup (bug 1933911).
-      await this.setShowProfileSelectorWindow(true);
-
       // For first-run dark mode macOS users, the original profile's dock icon
       // disappears after creating and launching an additional profile for the
       // first time. Here we hack around this problem.

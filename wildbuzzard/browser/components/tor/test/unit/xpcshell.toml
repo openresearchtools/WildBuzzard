@@ -1,0 +1,7 @@
+[DEFAULT]
+firefox-appdir = "browser"
+
+["test_onion_authorizations.js"]
+
+["test_tor_control.js"]
+run-if = ["os == 'linux'"]

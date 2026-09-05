@@ -4,15 +4,14 @@
 set -Eeuo pipefail
 
 usage() {
-  echo "Usage: $0 --dist-dir DIR --output-dir DIR --arti-dir DIR --qbittorrent-runtime DIR --cli-binary FILE"
+  echo "Usage: $0 --dist-dir DIR --output-dir DIR --tor-dir DIR --qbittorrent-runtime DIR"
 }
 
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 dist_dir=""
 output_dir=""
-arti_dir=""
+tor_dir=""
 qbittorrent_runtime=""
-cli_binary=""
 
 while (($#)); do
   case "$1" in
@@ -24,16 +23,12 @@ while (($#)); do
       output_dir="${2:?--output-dir requires a directory}"
       shift 2
       ;;
-    --arti-dir)
-      arti_dir="${2:?--arti-dir requires a directory}"
+    --tor-dir)
+      tor_dir="${2:?--tor-dir requires a directory}"
       shift 2
       ;;
     --qbittorrent-runtime)
       qbittorrent_runtime="${2:?--qbittorrent-runtime requires a directory}"
-      shift 2
-      ;;
-    --cli-binary)
-      cli_binary="${2:?--cli-binary requires a file}"
       shift 2
       ;;
     --help|-h)
@@ -48,19 +43,14 @@ while (($#)); do
   esac
 done
 
-if [[ -z "${dist_dir}" || -z "${output_dir}" || -z "${arti_dir}" || -z "${qbittorrent_runtime}" || -z "${cli_binary}" ]]; then
+if [[ -z "${dist_dir}" || -z "${output_dir}" || -z "${tor_dir}" || -z "${qbittorrent_runtime}" ]]; then
   usage >&2
   exit 2
 fi
 
 dist_dir="$(cd -- "${dist_dir}" && pwd -P)"
-arti_dir="$(cd -- "${arti_dir}" && pwd -P)"
+tor_dir="$(cd -- "${tor_dir}" && pwd -P)"
 qbittorrent_runtime="$(cd -- "${qbittorrent_runtime}" && pwd -P)"
-cli_binary="$(realpath -- "${cli_binary}")"
-if [[ ! -f "${cli_binary}" || -L "${cli_binary}" || ! -x "${cli_binary}" ]]; then
-  echo "--cli-binary must name the compiled native client" >&2
-  exit 2
-fi
 mkdir -p -- "${output_dir}"
 output_dir="$(cd -- "${output_dir}" && pwd -P)"
 
@@ -122,9 +112,9 @@ for component_path in \
   fi
 done
 
-for arti_name in arti arti.toml arti-provenance.zip; do
-  if [[ ! -f "${arti_dir}/${arti_name}" || -L "${arti_dir}/${arti_name}" ]]; then
-    echo "Arti input is missing required file: ${arti_name}" >&2
+for tor_name in tor tor.toml tor-provenance.zip; do
+  if [[ ! -f "${tor_dir}/${tor_name}" || -L "${tor_dir}/${tor_name}" ]]; then
+    echo "Tor input is missing required file: ${tor_name}" >&2
     exit 1
   fi
 done
@@ -132,14 +122,14 @@ install -d -m 0755 \
   "${stage}/opt/wildbuzzard/runtime/tor" \
   "${stage}/opt/wildbuzzard/notices/source"
 install -m 0755 \
-  "${arti_dir}/arti" \
-  "${stage}/opt/wildbuzzard/runtime/tor/arti"
+  "${tor_dir}/tor" \
+  "${stage}/opt/wildbuzzard/runtime/tor/tor"
 install -m 0644 \
-  "${arti_dir}/arti.toml" \
-  "${stage}/opt/wildbuzzard/runtime/tor/arti.toml"
+  "${tor_dir}/tor.toml" \
+  "${stage}/opt/wildbuzzard/runtime/tor/tor.toml"
 install -m 0644 \
-  "${arti_dir}/arti-provenance.zip" \
-  "${stage}/opt/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
+  "${tor_dir}/tor-provenance.zip" \
+  "${stage}/opt/wildbuzzard/notices/source/wildbuzzard-tor-0.4.9.11-provenance.zip"
 
 install -d -m 0755 "${stage}/opt/wildbuzzard/runtime/torrent"
 cp -a -- \
@@ -152,24 +142,37 @@ fi
 find "${stage}/opt/wildbuzzard/runtime/torrent" -type d -exec chmod 0755 {} +
 find "${stage}/opt/wildbuzzard/runtime/torrent" -type f -exec chmod 0644 {} +
 chmod 0755 "${stage}/opt/wildbuzzard/runtime/torrent/bin/qbittorrent-nox"
-arti_binary="${stage}/opt/wildbuzzard/runtime/tor/arti"
-arti_config="${stage}/opt/wildbuzzard/runtime/tor/arti.toml"
-arti_provenance="${stage}/opt/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
-for arti_file in "${arti_binary}" "${arti_config}" "${arti_provenance}"; do
-  if [[ ! -f "${arti_file}" || -L "${arti_file}" ]]; then
-    echo "Release archive is missing required Arti runtime provenance" >&2
+python3 -I -B - "${script_dir}/../third_party/torrent-notices/THIRD-PARTY.json" "${qbittorrent_runtime}" <<'PY_CHECK_NOTICES'
+import hashlib, json, pathlib, sys
+inventory = json.loads(pathlib.Path(sys.argv[1]).read_text())
+runtime = pathlib.Path(sys.argv[2])
+for package in inventory["packages"]:
+    for entry in package["licenseFiles"]:
+        path = runtime / entry["installedPath"]
+        if hashlib.sha256(path.read_bytes()).hexdigest() != entry["sha256"]:
+            raise SystemExit(f"Torrent licence notice changed: {path}")
+PY_CHECK_NOTICES
+tor_binary="${stage}/opt/wildbuzzard/runtime/tor/tor"
+tor_config="${stage}/opt/wildbuzzard/runtime/tor/tor.toml"
+tor_provenance="${stage}/opt/wildbuzzard/notices/source/wildbuzzard-tor-0.4.9.11-provenance.zip"
+python3 -I -B "${script_dir}/tor-runtime-provenance.py" validate \
+  --binary "${tor_binary}" \
+  --pin-config "${script_dir}/../third_party/tor.toml" \
+  --installed-config "${tor_config}" \
+  --provenance "${tor_provenance}" \
+  --inventory "${script_dir}/../third_party/tor-notices/THIRD-PARTY.json"
+for tor_file in "${tor_binary}" "${tor_config}" "${tor_provenance}"; do
+  if [[ ! -f "${tor_file}" || -L "${tor_file}" ]]; then
+    echo "Release archive is missing required Tor runtime provenance" >&2
     exit 1
   fi
 done
 install -d -m 0755 \
   "${stage}/usr/share/doc/wildbuzzard" \
-  "${stage}/usr/share/doc/wildbuzzard/arti-third-party" \
+  "${stage}/usr/share/doc/wildbuzzard/tor-third-party" \
   "${stage}/usr/share/doc/wildbuzzard/blocker" \
-  "${stage}/usr/share/doc/wildbuzzard/runner-third-party/licenses" \
   "${stage}/usr/share/wildbuzzard/skills/wildbuzzard"
-install -m 0755 \
-  "${cli_binary}" \
-  "${stage}/usr/bin/wildbuzzard"
+ln -s /opt/wildbuzzard/wildbuzzard "${stage}/usr/bin/wildbuzzard"
 install -m 0644 \
   "${stage}/opt/wildbuzzard/notices/NOTICE" \
   "${stage}/usr/share/doc/wildbuzzard/cli-NOTICE"
@@ -187,22 +190,8 @@ install -m 0644 \
   "${stage}/opt/wildbuzzard/notices/blocker/SOURCES.lock.json" \
   "${stage}/usr/share/doc/wildbuzzard/blocker/SOURCES.lock.json"
 cp -a -- \
-  "${stage}/opt/wildbuzzard/notices/arti-crates/." \
-  "${stage}/usr/share/doc/wildbuzzard/arti-third-party/"
-runner_legal_files=(
-  "THIRD-PARTY.json"
-  "licenses/Apache-2.0.txt"
-  "licenses/MIT-dtolnay-serde.txt"
-  "licenses/Unicode-3.0.txt"
-  "licenses/Unlicense.txt"
-  "licenses/memchr-COPYING.txt"
-  "licenses/memchr-MIT.txt"
-)
-for legal_file in "${runner_legal_files[@]}"; do
-  install -m 0644 \
-    "${stage}/opt/wildbuzzard/notices/wildbuzzard-cli/${legal_file}" \
-    "${stage}/usr/share/doc/wildbuzzard/runner-third-party/${legal_file}"
-done
+  "${stage}/opt/wildbuzzard/notices/tor-notices/." \
+  "${stage}/usr/share/doc/wildbuzzard/tor-third-party/"
 install -m 0644 \
   "${script_dir}/../components/wildbuzzard-cli/skills/wildbuzzard/SKILL.md" \
   "${stage}/usr/share/wildbuzzard/skills/wildbuzzard/SKILL.md"

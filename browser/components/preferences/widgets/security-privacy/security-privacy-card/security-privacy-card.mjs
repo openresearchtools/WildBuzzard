@@ -17,8 +17,6 @@ const L10N_IDS = {
   okLabel: "security-privacy-status-ok-label",
   problemLabel: "security-privacy-status-problem-label",
   problemHelperLabel: "security-privacy-status-problem-helper-label",
-  trackersPendingLabel: "security-privacy-status-pending-trackers-label",
-  trackersLabel: "security-privacy-status-trackers-label",
   strictEnabledLabel: "security-privacy-status-strict-enabled-label",
   customEnabledLabel: "security-privacy-status-custom-enabled-label",
   upToDateLabel: "security-privacy-status-up-to-date-label",
@@ -63,10 +61,6 @@ export default class SecurityPrivacyCard extends MozLitElement {
     return this.setting.deps.etpCustomEnabled.value;
   }
 
-  get trackersBlocked() {
-    return this.setting.deps.trackerCount.value;
-  }
-
   get appUpdateStatus() {
     return this.setting.deps.appUpdateStatus.value;
   }
@@ -82,7 +76,6 @@ export default class SecurityPrivacyCard extends MozLitElement {
     let filteredWarnings = [
       "etpStrictEnabled",
       "etpCustomEnabled",
-      "trackerCount",
       "appUpdateStatus",
     ];
     return Object.values(this.setting.deps).filter(
@@ -113,21 +106,6 @@ export default class SecurityPrivacyCard extends MozLitElement {
     this.#spotlightSubcategoryOnPane("#privacy", "security-warning-card")();
   }
 
-  getStatusImage() {
-    if (this.configIssueCount > 0) {
-      return html`<img
-        class="status-image"
-        src="chrome://global/skin/illustrations/shield-alert.svg"
-        data-l10n-id="security-privacy-image-warning"
-      />`;
-    }
-    return html`<img
-      class="status-image"
-      src="chrome://global/skin/illustrations/shield-check.svg"
-      data-l10n-id="security-privacy-image-ok"
-    />`;
-  }
-
   /**
    * Create the bullet point for the current count of "issues" in the user profile.
    * Really only depends on `this.configIssueCount`
@@ -156,28 +134,10 @@ export default class SecurityPrivacyCard extends MozLitElement {
     </li>`;
   }
 
-  /**
-   * Create the bullet point for the current count of trackers blocked in the past week.
-   * Really only depends on `this.trackersBlocked`and `this.strictEnabled`
-   *
-   * @returns {TemplateResult} the HTML for the "trackers" bullet of the custom element
-   */
-  buildTrackersElement() {
-    let trackerData = {
-      trackerCount: this.trackersBlocked,
-    };
-    let trackerLabelElement =
-      this.trackersBlocked != null
-        ? html`<p
-            data-l10n-id=${L10N_IDS.trackersLabel}
-            data-l10n-args=${JSON.stringify(trackerData)}
-          ></p>`
-        : html`<p data-l10n-id=${L10N_IDS.trackersPendingLabel}></p>`;
-
+  buildProtectionModeElement() {
     if (this.strictEnabled) {
       return html`<li class="status-ok">
         <div>
-          ${trackerLabelElement}
           <p>
             <small
               data-l10n-id=${L10N_IDS.strictEnabledLabel}
@@ -195,7 +155,6 @@ export default class SecurityPrivacyCard extends MozLitElement {
     } else if (this.customEnabled) {
       return html`<li class="status-ok">
         <div>
-          ${trackerLabelElement}
           <p>
             <small
               data-l10n-id=${L10N_IDS.customEnabledLabel}
@@ -211,7 +170,7 @@ export default class SecurityPrivacyCard extends MozLitElement {
         </div>
       </li>`;
     }
-    return html`<li class="status-ok">${trackerLabelElement}</li>`;
+    return html``;
   }
 
   /**
@@ -324,11 +283,10 @@ export default class SecurityPrivacyCard extends MozLitElement {
               data-l10n-id=${headerL10nId}
             ></h3>
             <ul>
-              ${this.buildIssuesElement()} ${this.buildTrackersElement()}
+              ${this.buildIssuesElement()} ${this.buildProtectionModeElement()}
               ${this.buildUpdateElement()}
             </ul>
           </div>
-          ${this.getStatusImage()}
         </div>
       </moz-card>
     `;

@@ -94,10 +94,6 @@ wildbuzzard-blocker-toolbar-button =
     .label = Ad blocking
     .tooltiptext = Ad blocking
 
-wildbuzzard-torrent-toolbar-button =
-    .label = Torrents
-    .tooltiptext = Open Torrents
-
 wildbuzzard-blocker-panel-not-available = Not available on this page
 
 wildbuzzard-blocker-panel-toggle =
@@ -110,16 +106,7 @@ wildbuzzard-blocker-panel-site-excepted = Ads allowed on this site
 
 # Variables:
 #   $count (Number) - Number of ads blocked on this site.
-wildbuzzard-blocker-stats =
-    { $count ->
-        [one] { $count } ad blocked on this site
-       *[other] { $count } ads blocked on this site
-    }
-
 wildbuzzard-blocker-panel-settings-button = Ad blocking settings
-
-wildbuzzard-blocker-show-badge-pref =
-    .label = Show blocked count on toolbar button
 
 wildbuzzard-blocker-filter-lists-category-core = Default
 

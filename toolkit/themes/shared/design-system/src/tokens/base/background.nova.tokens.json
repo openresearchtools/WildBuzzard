@@ -32,8 +32,8 @@
     },
     "information": {
       "value": {
-        "light": "{color.violet.10}",
-        "dark": "{color.violet.70}",
+        "light": "#e6e6e6",
+        "dark": "#363636",
         "forcedColors": "{background.color.canvas}"
       }
     },

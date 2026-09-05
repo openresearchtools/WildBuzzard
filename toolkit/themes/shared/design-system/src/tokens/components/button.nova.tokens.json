@@ -12,16 +12,16 @@
       "hover": {
         "value": {
           "nativeTheme": "color-mix(in srgb, currentColor 17%, transparent)",
-          "light": "{color.violet-desaturated.20}",
-          "dark": "{color.violet-desaturated.50}",
+          "light": "{color.gray.20}",
+          "dark": "{color.gray.50}",
           "forcedColors": "SelectedItemText"
         }
       },
       "active": {
         "value": {
           "nativeTheme": "color-mix(in srgb, currentColor 30%, transparent)",
-          "light": "{color.violet-desaturated.30}",
-          "dark": "{color.violet-desaturated.40}",
+          "light": "{color.gray.30}",
+          "dark": "{color.gray.40}",
           "forcedColors": "SelectedItemText"
         }
       },
@@ -31,8 +31,8 @@
       "primary": {
         "disabled": {
           "value": {
-            "light": "{color.violet-desaturated.50}",
-            "dark": "{color.violet-desaturated.40}",
+            "light": "{color.gray.50}",
+            "dark": "{color.gray.40}",
             "forcedColors": "GrayText"
           }
         }
@@ -186,7 +186,7 @@
       "@base": {
         "value": {
           "nativeTheme": "currentColor",
-          "light": "{color.violet.90}",
+          "light": "{color.gray.85}",
           "dark": "{color.gray.0}",
           "forcedColors": "ButtonText"
         }

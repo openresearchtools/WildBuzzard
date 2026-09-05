@@ -2615,7 +2615,6 @@ class BrowserControlService {
     this.downloadLock = Promise.resolve();
     this.logpoints = new Map();
     this.networkRecords = new Map();
-    this.sessionGroups = new Map();
     this.pendingDialogActions = new Map();
     this.geckoRenderer = new GeckoRenderController(this);
     this.geckoRenderTestLock = new RenderOverrideLock();
@@ -2688,6 +2687,7 @@ class BrowserControlService {
     this.networkListener.on("response-started", this.#onNetworkResponse);
     this.networkListener.on("response-completed", this.#onNetworkResponse);
     this.networkListener.startListening();
+    Services.obs.addObserver(this.#onTabReplaced, "wildbuzzard-tab-replaced");
     this.started = true;
     return { ready: true };
   }
@@ -2697,6 +2697,10 @@ class BrowserControlService {
       return;
     }
     this.geckoRenderer.stop();
+    Services.obs.removeObserver(
+      this.#onTabReplaced,
+      "wildbuzzard-tab-replaced"
+    );
     if (this.networkListener) {
       this.networkListener.off(
         "before-request-sent",
@@ -2718,6 +2722,22 @@ class BrowserControlService {
     this.torrentControlTools = null;
     this.started = false;
   }
+
+  #onTabReplaced = subject => {
+    const { oldBrowser, newBrowser, newTab } = subject.wrappedJSObject;
+    const page = this.pageIds.get(oldBrowser);
+    if (!page) {
+      return;
+    }
+    this.pageIds.set(newBrowser, page);
+    this.pageIds.delete(oldBrowser);
+    this.pageStates.get(page)?.reset();
+    this.clearRawNodesForPage(page);
+    const owner = this.pageOwners.get(page);
+    if (owner) {
+      lazy.SessionStore.setCustomTabValue(newTab, TAB_OWNER_KEY, owner);
+    }
+  };
 
   #pageForNetworkRequest(request) {
     const context = request.contextId
@@ -3550,6 +3570,41 @@ class BrowserControlService {
     }
   }
 
+  beginActionNavigation(pageId, signal) {
+    const { browser } = this.pageForId(pageId);
+    const listener = new lazy.ProgressListener(browser.webProgress, {
+      unloadTimeout: ACT_SETTLE_MS,
+      waitForExplicitStart: true,
+    });
+    const navigation = listener.start();
+    let closed = false;
+    const close = () => {
+      if (closed) {
+        return;
+      }
+      closed = true;
+      if (listener.isStarted) {
+        listener.stop();
+      }
+      listener.destroy();
+    };
+    return {
+      close,
+      wait: async () => {
+        try {
+          await Promise.race([
+            navigation,
+            abortableDelay(30000, signal).then(() => {
+              throw new Error("Action navigation timed out");
+            }),
+          ]);
+        } finally {
+          close();
+        }
+      },
+    };
+  }
+
   trackPendingDialogAction(pageId, action) {
     let pending;
     pending = Promise.resolve(action).finally(() => {
@@ -3633,21 +3688,27 @@ class BrowserControlService {
       const context = BrowsingContext.get(contextId);
       await this.ensureContextVisible(context);
       const actor = this.actorForBrowsingContext(context);
+      const navigation = this.beginActionNavigation(pageId, signal);
       let actionResult;
-      const action = actor.sendQuery("act", payload).then(result => {
-        actionResult = result;
-        return result;
-      });
-      const dialog = await this.actionOrDialog(pageId, action, signal);
-      if (dialog) {
-        deferredOverlayCleanup = true;
-        this.trackPendingDialogAction(pageId, action);
-        return textResult(`${dialog.line}\n\nok (${args.kind})`, {
-          page: pageId,
-          kind: args.kind,
-          pendingDialog: true,
-          dialog,
+      try {
+        const action = actor.sendQuery("act", payload).then(result => {
+          actionResult = result;
+          return result;
         });
+        const dialog = await this.actionOrDialog(pageId, action, signal);
+        if (dialog) {
+          deferredOverlayCleanup = true;
+          this.trackPendingDialogAction(pageId, action);
+          return textResult(`${dialog.line}\n\nok (${args.kind})`, {
+            page: pageId,
+            kind: args.kind,
+            pendingDialog: true,
+            dialog,
+          });
+        }
+        await navigation.wait();
+      } finally {
+        navigation.close();
       }
       await delay(
         ["drag", "drag_at"].includes(args.kind) ? DRAG_SETTLE_MS : ACT_SETTLE_MS
@@ -4693,8 +4754,9 @@ class BrowserControlService {
       ) {
         window = await this.openWindow(privateRequested);
       }
-      const tab = torRequested
+      let tab = torRequested
         ? await lazy.TorRouting.createTab(window, {
+            uri,
             inBackground: args.background ?? true,
             skipAnimation: true,
           })
@@ -4709,9 +4771,10 @@ class BrowserControlService {
       const page = this.pageIdFor(tab.linkedBrowser);
       this.pageOwners.set(page, clientId);
       lazy.SessionStore.setCustomTabValue(tab, TAB_OWNER_KEY, clientId);
+      let navigation;
       if (uri.spec !== "about:blank") {
         try {
-          await this.navigateAndWait(
+          navigation = await this.navigateAndWait(
             tab.linkedBrowser,
             () =>
               tab.linkedBrowser.loadURI(uri, {
@@ -4721,6 +4784,7 @@ class BrowserControlService {
             signal,
             uri.spec
           );
+          tab = this.pageForId(page).tab;
         } catch (error) {
           window.gBrowser.removeTab(tab, { animate: false });
           this.clearRawNodesForPage(page);
@@ -4745,16 +4809,13 @@ class BrowserControlService {
           );
         }
         found.group.addTabs([tab]);
-      } else if (args.skipSessionGroup) {
-        if (tab.group) {
-          window.gBrowser.ungroupTab(tab);
-        }
-      } else {
-        this.ensureSessionTabGroup(window, tab, clientId);
+      } else if (tab.group) {
+        window.gBrowser.ungroupTab(tab);
       }
       return textResult(`opened${torRequested ? " Tor" : ""} page ${page}`, {
         page,
         tor: torRequested,
+        ...navigation,
       });
     }
     if (action === "close") {
@@ -4829,50 +4890,6 @@ class BrowserControlService {
       throw new Error("Browser window did not finish starting");
     }
     return window;
-  }
-
-  ensureSessionTabGroup(window, tab, clientId) {
-    if (!clientId) {
-      return;
-    }
-    if (!lazy.tabGroupsEnabled) {
-      Services.prefs.setBoolPref("browser.tabs.groups.enabled", true);
-    }
-    const windowId =
-      window.windowGlobalChild?.innerWindowId ?? window.docShell.outerWindowID;
-    const key = `${clientId}\0${windowId}`;
-    let group = window.gBrowser.tabGroups.find(
-      item => item.id === this.sessionGroups.get(key)
-    );
-    if (!group) {
-      group = window.gBrowser.tabGroups.find(
-        item =>
-          item.label.startsWith("control/") &&
-          !!item.tabs.length &&
-          item.tabs.every(
-            existing =>
-              this.pageOwners.get(this.pageIdFor(existing.linkedBrowser)) ===
-              clientId
-          )
-      );
-    }
-    if (!group) {
-      const slug =
-        String(clientId)
-          .toLowerCase()
-          .split(/[^a-z0-9]+/)
-          .filter(Boolean)
-          .slice(0, 3)
-          .join("-")
-          .slice(0, 32) || "session";
-      group = window.gBrowser.addTabGroup([tab], {
-        label: `control/${slug}`,
-      });
-      group.color = "blue";
-      this.sessionGroups.set(key, group.id);
-      return;
-    }
-    group.addTabs([tab]);
   }
 
   async windowsTool(args, clientId, signal) {
@@ -5367,10 +5384,10 @@ class BrowserControlService {
       }
       const uri = controlNavigationURI(args.url);
       if (
-        lazy.TorRouting.isOnionURI(uri) &&
-        !lazy.TorRouting.isTorTab(this.tabForBrowser(browser))
+        lazy.TorRouting.isOnionURI(uri) ||
+        lazy.TorRouting.isTorTab(this.tabForBrowser(browser))
       ) {
-        ({ browser } = await this.convertPageToTor(args.page, signal));
+        ({ browser } = await this.convertPageToTor(args.page, signal, uri));
       }
       startNavigation = () =>
         browser.loadURI(uri, {
@@ -5394,12 +5411,24 @@ class BrowserControlService {
     }
     this.pageStates.get(args.page).reset();
     this.clearRawNodesForPage(args.page);
-    await this.navigateAndWait(
+    const navigation = await this.navigateAndWait(
       browser,
       startNavigation,
       signal,
       action === "url" ? controlNavigationURI(args.url).spec : null
     );
+    ({ browser } = this.pageForId(args.page));
+    if (navigation?.onionAuthorization) {
+      return textResult(
+        `page ${args.page} requires an onion authorization key`,
+        {
+          page: args.page,
+          action,
+          url: browser.currentURI.spec,
+          ...navigation,
+        }
+      );
+    }
     if (captureSnapshot) {
       return this.snapshot(args.page);
     }
@@ -5410,15 +5439,21 @@ class BrowserControlService {
     });
   }
 
-  async convertPageToTor(page, signal) {
+  async convertPageToTor(page, signal, uri = null) {
     throwIfAborted(signal);
     const { window, tab } = this.pageForId(page);
-    if (lazy.TorRouting.isTorTab(tab)) {
+    await lazy.TorRouting.ensureProxy();
+    if (
+      lazy.TorRouting.isTorTab(tab) &&
+      tab.userContextId ==
+        lazy.TorRouting.contextIdForURI(uri ?? tab.linkedBrowser.currentURI)
+    ) {
       return this.pageForId(page);
     }
     const selected = window.gBrowser.selectedTab === tab;
     const owner = this.pageOwners.get(page);
     const torTab = await lazy.TorRouting.createTab(window, {
+      uri,
       inBackground: !selected,
       skipAnimation: true,
       tabGroup: tab.group ?? undefined,
@@ -5449,6 +5484,7 @@ class BrowserControlService {
       waitForExplicitStart: true,
     });
     const navigation = listener.start();
+    let onionAuthorization;
     try {
       startNavigation();
       await Promise.race([
@@ -5460,6 +5496,31 @@ class BrowserControlService {
           throw new Error("Navigation timed out");
         }),
       ]);
+    } catch (error) {
+      if (
+        ["NS_ERROR_ONION_AUTH_REQUIRED", "NS_ERROR_ONION_AUTH_FAILED"].includes(
+          error.message
+        ) &&
+        lazy.TorRouting.isTorTab(this.tabForBrowser(browser)) &&
+        lazy.TorRouting.isOnionURI(browser.currentURI)
+      ) {
+        onionAuthorization =
+          error.message === "NS_ERROR_ONION_AUTH_REQUIRED"
+            ? "required"
+            : "failed";
+      } else if (
+        error.message === "NS_BINDING_ABORTED" &&
+        lazy.TorRouting.navigationReplacement(browser)
+      ) {
+        const replacement =
+          await lazy.TorRouting.navigationReplacement(browser);
+        if (!replacement || replacement.closing) {
+          throw error;
+        }
+        browser = replacement.linkedBrowser;
+      } else {
+        throw error;
+      }
     } finally {
       listener.destroy();
     }
@@ -5486,6 +5547,7 @@ class BrowserControlService {
       }
     }
     await abortableDelay(100, signal);
+    return onionAuthorization ? { onionAuthorization } : undefined;
   }
 
   pageOrigin(pageId) {
@@ -5651,11 +5713,36 @@ class BrowserControlService {
       );
     }
     let onAbort;
+    const deadline = Date.now() + timeout;
+    const waitForMatch = async () => {
+      while (true) {
+        throwIfAborted(signal);
+        const { browser } = this.pageForId(args.page);
+        const global = browser.browsingContext.currentWindowGlobal;
+        try {
+          return await this.queryPage(args.page, "wait", {
+            ...args,
+            timeout: Math.max(0, deadline - Date.now()),
+          });
+        } catch (error) {
+          throwIfAborted(signal);
+          const current = this.pageForId(args.page).browser;
+          if (
+            current == browser &&
+            current.browsingContext.currentWindowGlobal == global &&
+            !current.webProgress.isLoadingDocument
+          ) {
+            throw error;
+          }
+          if (Date.now() >= deadline) {
+            return { matched: false };
+          }
+          await abortableDelay(50, signal);
+        }
+      }
+    };
     const result = await Promise.race([
-      this.queryPage(args.page, "wait", {
-        ...args,
-        timeout,
-      }),
+      waitForMatch(),
       new Promise((resolve, reject) => {
         if (!signal) {
           return;
@@ -6712,7 +6799,6 @@ class BrowserControlService {
             url: params.url,
             background: false,
             windowId: this.rawWindowInfo(window).windowId,
-            skipSessionGroup: true,
           },
           clientId,
           signal
@@ -6947,7 +7033,6 @@ class BrowserControlService {
           url: params.url ?? "about:blank",
           background: params.background ?? false,
           windowId: params.windowId,
-          skipSessionGroup: true,
         },
         clientId,
         signal

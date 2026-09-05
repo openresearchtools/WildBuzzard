@@ -3319,7 +3319,14 @@ def moz_app_displayname(value, username):
     return value[0]
 
 
-set_define("MOZ_APP_UA_VERSION", depends(milestone.app_version)(lambda v: f'"{v}"'))
+set_define(
+    "MOZ_APP_UA_VERSION",
+    depends(milestone, build_project)(
+        lambda version, project: '"{}"'.format(
+            version.version if project == "browser" else version.app_version
+        )
+    ),
+)
 
 set_config("MOZ_APP_DISPLAYNAME", moz_app_displayname)
 

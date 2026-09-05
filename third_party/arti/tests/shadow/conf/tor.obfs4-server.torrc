@@ -1,3 +1,0 @@
-ServerTransportPlugin obfs4 exec /usr/bin/obfs4proxy
-ServerTransportListenAddr obfs4 0.0.0.0:9876
-ExtORPort auto

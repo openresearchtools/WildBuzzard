@@ -73,6 +73,10 @@ const TOOLKIT_ID = "toolkit@mozilla.org";
 
 const KEY_APP_SYSTEM_ADDONS = "app-system-addons";
 const KEY_APP_SYSTEM_BUILTINS = "app-builtin-addons";
+const USER_CONTROLLED_BUILTIN_IDS = new Set([
+  "web-search@extensions.wildbuzzard",
+  "torrent-search@extensions.wildbuzzard",
+]);
 const KEY_APP_SYSTEM_PROFILE = "app-system-profile";
 const KEY_APP_BUILTINS = "app-builtin";
 const KEY_APP_SYSTEM_LOCAL = "app-system-local";
@@ -708,7 +712,11 @@ export class AddonInternal {
     if (this.inDatabase) {
       // System add-ons should not be user disabled, as there is no UI to
       // re-enable them.
-      if (this.location.isSystem && !allowSystemAddons) {
+      if (
+        this.location.isSystem &&
+        !allowSystemAddons &&
+        !(this.location.isBuiltin && USER_CONTROLLED_BUILTIN_IDS.has(this.id))
+      ) {
         throw new Error(`Cannot disable system add-on ${this.id}`);
       }
       await XPIDatabase.updateAddonDisabledState(this, { userDisabled: val });

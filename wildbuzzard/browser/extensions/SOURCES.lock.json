@@ -5,30 +5,30 @@
       "backendInstallCommand": "sudo apt install buzzard-search",
       "backendPackage": "buzzard-search",
       "backendRole": "standalone-system-cli-no-browser-or-web-ui",
-      "bundleTreeSha256": "8dd6163c94c52530e15bb1bc7624903cf38e4b5a143df520e232c655ba2c5920",
+      "bundleTreeSha256": "0515177bf52fe44ba503d7373ee45cb20e81ec1f5591c40378596218b6bdf187",
       "componentRole": "browser-ui-only",
       "extensionId": "web-search@extensions.wildbuzzard",
       "slug": "web-search",
-      "sourceManifestSha256": "3a5976952721f5d31cf98f4ddcc4402cf47b9fec6c4c80c0fef70f05dc222593",
+      "sourceManifestSha256": "8bd73f9d603a0f90090cbce0706a3175d6bc76b975fb196805a2f261e93fbed7",
       "sourcePath": "extensions/web-search",
       "sourceRepository": "wildbuzzard-extensions",
-      "sourceTreeSha256": "80e689ec534934eee6e2424b01bb0ea02f28c76483b9651fe46a8abc6f778a75",
-      "version": "0.1.0"
+      "sourceTreeSha256": "cc61d472eb240e765f251c1f71cb6269aa3add865b39a81678b528647549e9c3",
+      "version": "0.1.1"
     },
     {
       "backendExecutable": "/usr/bin/buzzard-minijtt",
       "backendInstallCommand": "sudo apt install buzzard-minijtt",
       "backendPackage": "buzzard-minijtt",
       "backendRole": "standalone-system-cli-no-browser-or-web-ui",
-      "bundleTreeSha256": "1ff435363a0f5aa871ba7998868b30771f1524a47904d5793fb1b484a82bf533",
+      "bundleTreeSha256": "353944541fc42ee0a689ee44b938bca709b5e05d8a1ec70cd54284e5807fd5af",
       "componentRole": "browser-ui-only",
       "extensionId": "torrent-search@extensions.wildbuzzard",
       "slug": "torrent-search",
-      "sourceManifestSha256": "edaafc41c51941ebe9bd9d99424bfb74b70c5364491ac9408c2c79813949eada",
+      "sourceManifestSha256": "a149793ab0796cb3dcea49b7b086bed30efa152b074d6dfe644fb6ab32eae5d3",
       "sourcePath": "extensions/torrent-search",
       "sourceRepository": "wildbuzzard-extensions",
-      "sourceTreeSha256": "9865e3aa2c28948399364d2365b3bfe2e32c2f12c07ba7b75f7dca47a1146587",
-      "version": "0.1.0"
+      "sourceTreeSha256": "6979ef06c9ac8901b1bc05c1a95d2506398f907384ce56043c1290d43bd10415",
+      "version": "0.1.1"
     }
   ],
   "schema": 3,

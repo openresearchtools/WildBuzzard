@@ -3,9 +3,15 @@
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 
 EXTRA_JS_MODULES += [
+    "OnionAuthStore.sys.mjs",
+    "TorControl.sys.mjs",
     "TorRouting.sys.mjs",
 ]
+
+JAR_MANIFESTS += ["jar.mn"]
 
 BROWSER_CHROME_MANIFESTS += [
     "test/browser/browser.toml",
 ]
+
+XPCSHELL_TESTS_MANIFESTS += ["test/unit/xpcshell.toml"]

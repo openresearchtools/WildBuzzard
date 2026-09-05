@@ -37,61 +37,49 @@ const PALETTES = {
   default: {
     labelId: "wildbuzzard-onboarding-color-default-label",
     swatch:
-      "linear-gradient(135deg, light-dark(#e7f3ff, #0d2640), light-dark(#b1d3f5, #081a2d))",
+      "linear-gradient(135deg, light-dark(#e6e6e6, #252525), light-dark(#c8c8c8, #303030))",
     light: {
-      frame: "#e7f3ff",
-      toolbar: "#f7fbff",
-      toolbar_text: "#09429f",
-      tab_background_text: "#09429f",
+      frame: "#e6e6e6",
+      toolbar: "#f5f5f5",
+      toolbar_text: "#4a4a4a",
+      tab_background_text: "#4a4a4a",
       tab_selected: "#ffffff",
       toolbar_field: "#ffffff",
-      toolbar_field_text: "#0a2540",
-      toolbar_field_border_focus: "#09429f",
-      tab_line: "#09429f",
-      icons_attention: "#09429f",
-      ntp_background: "#f7fbff",
-      ntp_text: "#0a2540",
+      toolbar_field_text: "#252525",
+      toolbar_field_border_focus: "#4a4a4a",
+      tab_line: "#4a4a4a",
+      icons_attention: "#4a4a4a",
+      ntp_background: "#f5f5f5",
+      ntp_text: "#252525",
     },
     dark: {
-      frame: "#0d2640",
-      toolbar: "#081a2d",
-      toolbar_text: "#d7ecff",
-      tab_background_text: "#d7ecff",
-      tab_selected: "#123556",
-      toolbar_field: "#061523",
-      toolbar_field_text: "#d7ecff",
-      toolbar_field_border_focus: "#b1d3f5",
-      tab_line: "#b1d3f5",
-      icons_attention: "#b1d3f5",
-      ntp_background: "#061523",
-      ntp_text: "#d7ecff",
-    },
-    images: {
-      light: {
-        theme_frame: {
-          "linear-gradient": "96deg, #e7f3ff 39.84%, #b1d3f5 101.72%",
-        },
-      },
-      dark: {
-        theme_frame: {
-          "linear-gradient": "96deg, #0d2640 39.84%, #081a2d 101.72%",
-        },
-      },
+      frame: "#252525",
+      toolbar: "#303030",
+      toolbar_text: "#e5e5e5",
+      tab_background_text: "#e5e5e5",
+      tab_selected: "#414141",
+      toolbar_field: "#1e1e1e",
+      toolbar_field_text: "#e5e5e5",
+      toolbar_field_border_focus: "#c8c8c8",
+      tab_line: "#c8c8c8",
+      icons_attention: "#c8c8c8",
+      ntp_background: "#1e1e1e",
+      ntp_text: "#e5e5e5",
     },
     content: {
       light: {
-        wildbuzzard_accent_primary: "#09429f",
-        wildbuzzard_accent_primary_hover: "#083578",
-        wildbuzzard_accent_primary_active: "#07295c",
-        wildbuzzard_background_color_information: "#d8e7f3",
-        wildbuzzard_icon_color_information: "#09429f",
+        wildbuzzard_accent_primary: "#4a4a4a",
+        wildbuzzard_accent_primary_hover: "#363636",
+        wildbuzzard_accent_primary_active: "#292929",
+        wildbuzzard_background_color_information: "#e6e6e6",
+        wildbuzzard_icon_color_information: "#4a4a4a",
       },
       dark: {
-        wildbuzzard_accent_primary: "#b1d3f5",
-        wildbuzzard_accent_primary_hover: "#c5def6",
-        wildbuzzard_accent_primary_active: "#d8e7f3",
-        wildbuzzard_background_color_information: "#07295c",
-        wildbuzzard_icon_color_information: "#c5def6",
+        wildbuzzard_accent_primary: "#c8c8c8",
+        wildbuzzard_accent_primary_hover: "#d8d8d8",
+        wildbuzzard_accent_primary_active: "#e6e6e6",
+        wildbuzzard_background_color_information: "#292929",
+        wildbuzzard_icon_color_information: "#d8d8d8",
       },
     },
   },
@@ -623,9 +611,7 @@ export const WildBuzzardThemeColors = {
       Services.prefs.clearUserPref(WILDBUZZARD_THEME_COLOR_PREF);
     }
 
-    if (this.hasSelection()) {
-      this.apply();
-    }
+    this.apply();
   },
 
   uninit() {
@@ -645,17 +631,12 @@ export const WildBuzzardThemeColors = {
       return;
     }
 
-    if (this.hasSelection()) {
-      this.apply();
-    } else {
-      this._clearThemeData();
-    }
+    this.apply();
   },
 
   _onThemeUpdate(data) {
     if (
       data?.theme?.id !== DEFAULT_THEME_ID ||
-      !this.hasSelection() ||
       this._defaultThemeReapplyPending
     ) {
       return;
@@ -666,20 +647,12 @@ export const WildBuzzardThemeColors = {
       this._defaultThemeReapplyPending = false;
       if (
         this._initialized &&
-        this.hasSelection() &&
         this.shouldApply() &&
         lazy.LightweightThemeManager.themeData.theme?.id === DEFAULT_THEME_ID
       ) {
         this.apply();
       }
     });
-  },
-
-  hasSelection() {
-    return (
-      Services.prefs.prefHasUserValue(WILDBUZZARD_THEME_MODE_PREF) ||
-      Services.prefs.prefHasUserValue(WILDBUZZARD_THEME_COLOR_PREF)
-    );
   },
 
   getMode() {
@@ -708,10 +681,7 @@ export const WildBuzzardThemeColors = {
       if (Services.prefs.prefHasUserValue(WILDBUZZARD_THEME_COLOR_PREF)) {
         Services.prefs.clearUserPref(WILDBUZZARD_THEME_COLOR_PREF);
       }
-      if (this.hasSelection()) {
-        return this.apply();
-      }
-      return this._clearThemeData();
+      return this.apply();
     }
 
     Services.prefs.setStringPref(WILDBUZZARD_THEME_COLOR_PREF, color);
@@ -759,13 +729,6 @@ export const WildBuzzardThemeColors = {
     return data;
   },
 
-  _clearThemeData() {
-    const data = { theme: null };
-    lazy.LightweightThemeManager.fallbackThemeData = null;
-    notifyTheme(data);
-    return data;
-  },
-
   clear() {
     for (let pref of [
       WILDBUZZARD_THEME_MODE_PREF,
@@ -775,6 +738,6 @@ export const WildBuzzardThemeColors = {
         Services.prefs.clearUserPref(pref);
       }
     }
-    return this._clearThemeData();
+    return this.apply();
   },
 };

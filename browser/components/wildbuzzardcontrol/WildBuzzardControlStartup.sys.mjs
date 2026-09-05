@@ -64,7 +64,9 @@ function validatedOverridePath() {
   });
   if (
     !PathUtils.isAbsolute(value) ||
-    PathUtils.normalize(value) !== value ||
+    value.includes("//") ||
+    value.split("/").some(part => part === "." || part === "..") ||
+    value.endsWith("/") ||
     !PathUtils.filename(value) ||
     hasControlCharacter
   ) {
@@ -92,12 +94,13 @@ export function wildBuzzardControlSocketPath({
     crypto.getRandomValues(new Uint8Array(9)),
     { pad: false }
   ),
-  profilePath = Services.dirsvc.get("ProfD", Ci.nsIFile).path,
+  profilePath,
 } = {}) {
   const override = validatedOverridePath();
   if (override) {
     return override;
   }
+  profilePath ??= Services.dirsvc.get("ProfD", Ci.nsIFile).path;
   if (!/^[A-Za-z0-9_-]{12}$/.test(instanceId)) {
     throw new Error("Invalid Wild Buzzard control socket instance ID");
   }

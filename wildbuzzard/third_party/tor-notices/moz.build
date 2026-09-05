@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: MPL-2.0
+FINAL_TARGET_FILES.notices["tor-notices"] += ["THIRD-PARTY.json"]
+FINAL_TARGET_FILES.notices["tor-notices"]["licenses"] += [
+    "licenses/libevent.txt",
+    "licenses/OpenSSL.txt",
+    "licenses/Tor.txt",
+    "licenses/zlib.txt",
+]

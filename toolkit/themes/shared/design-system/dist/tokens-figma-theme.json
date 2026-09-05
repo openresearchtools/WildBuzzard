@@ -20,8 +20,8 @@
     "forcedColors": "{Theme$background/color/canvas}"
   },
   "background/color/information": {
-    "light": "{Colors$color/blue/0}",
-    "dark": "{Colors$color/blue/90}",
+    "light": "#e6e6e6",
+    "dark": "#363636",
     "forcedColors": "{Theme$background/color/canvas}"
   },
   "background/color/success": {
@@ -123,23 +123,23 @@
     "forcedColors": "transparent"
   },
   "color/accent/primary": {
-    "light": "{Colors$color/blue/60}",
-    "dark": "{Colors$color/cyan/30}",
+    "light": "#4a4a4a",
+    "dark": "#c8c8c8",
     "forcedColors": "{HCM Theme$ButtonText}"
   },
   "color/accent/primary/hover": {
-    "light": "{Colors$color/blue/70}",
-    "dark": "{Colors$color/cyan/20}",
+    "light": "#363636",
+    "dark": "#d8d8d8",
     "forcedColors": "{HCM Theme$SelectedItem}"
   },
   "color/accent/primary/active": {
-    "light": "{Colors$color/blue/80}",
-    "dark": "{Colors$color/cyan/10}",
+    "light": "#292929",
+    "dark": "#e6e6e6",
     "forcedColors": "{Theme$color/accent/primary/hover}"
   },
   "color/accent/primary/selected": {
-    "light": "{Colors$color/blue/60}",
-    "dark": "{Colors$color/cyan/30}",
+    "light": "#292929",
+    "dark": "#e6e6e6",
     "forcedColors": "{HCM Theme$SelectedItem}"
   },
   "color/accent/attention": {
@@ -745,8 +745,8 @@
     "forcedColors": "{Theme$text/color}"
   },
   "icon/color/information": {
-    "light": "{Colors$color/blue/60}",
-    "dark": "{Colors$color/blue/20}",
+    "light": "#4a4a4a",
+    "dark": "#d8d8d8",
     "forcedColors": "{Theme$icon/color}"
   },
   "icon/color/success": {
@@ -841,7 +841,7 @@
   },
   "panel/background/color": {
     "light": "{Colors$color/white}",
-    "dark": "rgb(66, 65, 77)",
+    "dark": "rgb(48, 48, 48)",
     "forcedColors": "transparent"
   },
   "panel/background/color/dimmed": {
@@ -855,23 +855,23 @@
     "forcedColors": "{Theme$background/color/dimmed/further}"
   },
   "panel/border/color": {
-    "light": "rgb(240, 240, 244)",
-    "dark": "rgb(82, 82, 94)",
+    "light": "rgb(240, 240, 240)",
+    "dark": "rgb(82, 82, 82)",
     "forcedColors": "transparent"
   },
   "panel/text/color": {
     "light": "{Colors$color/black}",
-    "dark": "rgb(251, 251, 254)",
+    "dark": "rgb(250, 250, 250)",
     "forcedColors": "transparent"
   },
   "sidebar/background/color": {
     "light": "white",
-    "dark": "rgb(28, 27, 34)",
+    "dark": "rgb(30, 30, 30)",
     "forcedColors": "transparent"
   },
   "sidebar/text/color": {
-    "light": "rgb(21, 20, 26)",
-    "dark": "rgb(249, 249, 250)",
+    "light": "rgb(21, 21, 21)",
+    "dark": "rgb(250, 250, 250)",
     "forcedColors": "transparent"
   },
   "sidebar/border/color": {

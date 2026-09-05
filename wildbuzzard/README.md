@@ -32,6 +32,11 @@ file-level licenses and notices remain in force; see
 Linux builds and blocker tests run from a clean external checkout; see
 [`BUILDING-LINUX.md`](BUILDING-LINUX.md).
 
+WildBuzzard versions track Firefox ESR: `153.2`, followed by `153.2.1`,
+`153.2.2`, and so on for product releases on that Firefox line. Use the
+[Firefox update workflow](UPDATING-FIREFOX.md) to check for upstream security
+updates, merge an exact release, or increment the product version.
+
 Wild Buzzard is intentionally agent-independent. Component ownership, the
 standalone Agent and search repositories, bundled offline extension UIs with
 separately packageable release-pinned XPIs, and the

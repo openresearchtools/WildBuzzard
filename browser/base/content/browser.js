@@ -1280,7 +1280,10 @@ function HandleAppCommandEvent(evt) {
       gLazyFindCommand("onFindCommand");
       break;
     case "Help":
-      openHelpLink("firefox-help");
+      openTrustedLinkIn(
+        "https://github.com/openresearchtools/WildBuzzard/issues",
+        "tab"
+      );
       break;
     case "Open":
       BrowserCommands.openFileWindow();

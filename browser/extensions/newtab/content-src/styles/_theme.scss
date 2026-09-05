@@ -36,7 +36,7 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
   --newtab-contextual-text-secondary-color: color-mix(in srgb, var(--newtab-contextual-text-primary-color) 70%, transparent);
 
   // A background color for weather widget to help with wallpaper contrast.
-  --newtab-weather-background-color: light-dark(rgba(255, 255, 255, 85%), rgba(66, 65, 77, 85%));
+  --newtab-weather-background-color: light-dark(rgba(255, 255, 255, 85%), rgba(48, 48, 48, 85%));
 
   // --newtab-element-*-color is used when an element needs to be set off from
   // the primary background color.
@@ -53,10 +53,10 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
 
   // --newtab-button-static*-color is used on pocket cards and require a
   // static color unit due to transparency issues with `color-mix`
-  --newtab-button-static-background: light-dark(#F0F0F4, #2B2A33);
+  --newtab-button-static-background: light-dark(#F0F0F0, #303030);
   --newtab-button-static-focus-background: var(--newtab-button-static-background);
-  --newtab-button-static-hover-background: light-dark(#E0E0E6, #52525E);
-  --newtab-button-static-active-background: light-dark(#CFCFD8, #5B5B66);
+  --newtab-button-static-hover-background: light-dark(#E0E0E0, #525252);
+  --newtab-button-static-active-background: light-dark(#CFCFCF, #5B5B5B);
 
   // --newtab-element-secondary*-color is used when an element needs to be set
   // off from the secondary background color.
@@ -75,7 +75,7 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
   --newtab-status-success: #{$status-green};
   --newtab-status-error: var(--color-red-60);
   --newtab-inner-box-shadow-color: #{$black-10};
-  --newtab-section-card-box-shadow-color: rgba(58, 57, 68, 20%);
+  --newtab-section-card-box-shadow-color: rgba(58, 58, 58, 20%);
   --newtab-overlay-color: color-mix(in srgb, var(--newtab-background-color) 85%, transparent);
 
   // Custom border radius
@@ -95,7 +95,7 @@ $shadow-image-inset: inset 0 0 0 0.5px $black-15;
     // Card Background includes 20% transparency
     --newtab-background-card: #{$newtab-background-card-dark};
     --newtab-text-topic-label-color: var(--color-violet-30);
-    --newtab-text-secondary-text: #FBFBFEB0;
+    --newtab-text-secondary-text: #FAFAFAB0;
 
     --newtab-contextual-text-primary-color: light-dark(#{$in-content-page-color}, var(--newtab-text-primary-color));
     --newtab-primary-action-background-pocket: #{$primary-blue-dark};

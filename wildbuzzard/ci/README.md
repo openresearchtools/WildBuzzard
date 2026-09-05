@@ -26,7 +26,7 @@ checkout.
 
 The workflow builds its toolchain image from a digest-pinned Ubuntu 24.04 base.
 Downloaded Node.js, .NET, Rust bootstrap, Boost, and AppImageKit inputs are
-checksum-verified. Existing component builders additionally verify their Arti,
+checksum-verified. Existing component builders additionally verify their Tor,
 qBittorrent, libtorrent, Qt, Jackett, Python, and provider-policy pins.
 
 `build-release.sh` runs the external extension policy check before compiling
@@ -43,9 +43,7 @@ The uploaded Actions artifact contains:
 - `wildbuzzard`, `buzzard-search`, and `buzzard-minijtt` amd64 Debian packages
 - the browser archive and AppImage
 - both installable search-extension XPIs
-- pinned Arti runtime, provenance, workspace source, and deterministic Cargo
-  vendor source artifacts; the
-  browser-control client's checksum-pinned Rust crate source bundle; and
+- pinned Tor runtime, provenance, and exact upstream source archive; and
   the native MiniJTT source/license artifact plus qBittorrent runtime,
   provenance, patched qBittorrent/libtorrent core source, Boost, Qt Base, and
   Ubuntu system corresponding-source artifacts
@@ -53,16 +51,19 @@ The uploaded Actions artifact contains:
 
 The browser archive, Debian package, and AppImage are rejected unless they
 carry the repository licenses, CLI upstream notice and MIT license, and the
-corresponding-source pointer. They also carry an exact Cargo.lock inventory
-and the upstream license bytes for every statically linked browser-control
-crate. The browser Debian package contains its native qBittorrent/libtorrent
+corresponding-source pointer. The browser Debian package contains its native qBittorrent/libtorrent
 runtime and advertises buzzard-search and buzzard-minijtt as optional suggestions.
-It also carries an exact all-package Arti Cargo.lock inventory and the exact
-upstream license, copying, notice, and copyright bytes referenced by that
-inventory. Arti's workspace and 70 MiB Cargo vendor source archives remain
-outside the installed browser payload and are hash-bound into its provenance.
+It also carries the Tor dependency inventory and exact upstream license and
+copyright bytes. Tor's exact source archive remains outside the installed
+browser payload and is hash-bound into its provenance.
 `release-manifest.json` records every repository commit, package identity,
 artifact size, and SHA-256 digest. `SHA256SUMS` is verified before upload.
+
+The application version follows the Firefox ESR major and minor numbers, with
+an optional final number for WildBuzzard-only releases. Version consistency is
+checked before compilation and when the release manifest is produced. See
+[`../UPDATING-FIREFOX.md`](../UPDATING-FIREFOX.md) for checking upstream releases,
+preparing an ESR merge, and incrementing the WildBuzzard release number.
 
 All participating repositories must be readable with the workflow's standard
 read-only `GITHUB_TOKEN`; the workflow does not require signing keys, package
@@ -70,7 +71,7 @@ registry credentials, or other repository secrets. Signing and publishing to
 an APT repository are intentionally separate release-authority steps.
 
 The `WildBuzzard Ubuntu 24.04 artifact` workflow is the GitHub-hosted build path.
-The first parallel wave builds pinned Arti, the native qBittorrent runtime,
+The first parallel wave builds pinned Tor, the native qBittorrent runtime,
 corresponding-source bundles, and gkrust compiler-cache entries. The Firefox job
 then consumes that shared compiler cache, and the final job assembles the
 self-contained amd64 WildBuzzard Debian package and uploads it with component

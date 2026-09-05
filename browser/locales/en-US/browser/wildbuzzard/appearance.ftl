@@ -243,7 +243,7 @@ wildbuzzard-appearance-theme-colors-group =
     .description = Pick the WildBuzzard color palette and whether it follows your system theme.
 
 wildbuzzard-appearance-theme-mode-picker =
-    .label = Theme mode
+    .label = Mode
 
 wildbuzzard-appearance-theme-mode-option-system =
     .label = System
@@ -317,3 +317,6 @@ wildbuzzard-appearance-close-button-hover-toggle =
 
 wildbuzzard-appearance-drag-space-toggle =
     .label = Keep a drag space above the tabs
+
+wildbuzzard-appearance-mode-group =
+    .label = Colour mode

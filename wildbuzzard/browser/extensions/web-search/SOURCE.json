@@ -18,13 +18,13 @@
     },
     {
       "path": "background/background.js",
-      "sha256": "525f60b9bd5880ec6d4ea3d4f30240ecacc6277a2a732e61ae90141e2c0f8508",
-      "size": 1128
+      "sha256": "1ddeb14ae2cd636bcaacd6680a0f5dce0e265e45c5fe76b78473556dce21affd",
+      "size": 912
     },
     {
       "path": "common/base.css",
-      "sha256": "e433fcfaffe64dee4903b0883c5daeb975b710bc58268ac1695d8e3c9d77b918",
-      "size": 2661
+      "sha256": "56c62f12bf6433f88f3ac5ba7f159bf196e378f4a188e91ad455a9ea03f25f1c",
+      "size": 2798
     },
     {
       "path": "common/constants.js",
@@ -38,13 +38,13 @@
     },
     {
       "path": "icons/search.svg",
-      "sha256": "d7476a3be57b3af75f092369d16abb0f4089b9b420de6aeeacd7741bf126a11e",
+      "sha256": "41de2c664b39d85bd7a4db3ed1c063c954b1e094c026b36a48309e77e5454ec8",
       "size": 299
     },
     {
       "path": "manifest.json",
-      "sha256": "2622f152de35145f7ffdbbebe84dbbfaf08a302a10a3647fa7de502ca8b77a97",
-      "size": 1495
+      "sha256": "2eb081761106f6cc89db836cc6fb01d30f11cf7c257efa309c7419adbf560245",
+      "size": 1773
     },
     {
       "path": "options/options.css",
@@ -92,10 +92,10 @@
       "size": 10131
     }
   ],
-  "runtimeTreeSha256": "80e689ec534934eee6e2424b01bb0ea02f28c76483b9651fe46a8abc6f778a75",
+  "runtimeTreeSha256": "cc61d472eb240e765f251c1f71cb6269aa3add865b39a81678b528647549e9c3",
   "schema": 3,
   "sourcePath": "extensions/web-search",
   "sourceRepository": "wildbuzzard-extensions",
   "treeHashAlgorithm": "sha256-length-prefixed-path-and-content",
-  "version": "0.1.0"
+  "version": "0.1.1"
 }

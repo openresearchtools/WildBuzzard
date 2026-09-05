@@ -1,3 +1,0 @@
-debian/arti.toml etc/arti
-debian/if-up.d/arti etc/network/if-up.d
-debian/systemd/arti.service lib/systemd/system

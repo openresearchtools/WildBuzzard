@@ -76,6 +76,13 @@ export const SettingPaneManager = {
       throw new Error(`Setting pane "${id}" already registered`);
     }
     let fullConfig = { ...config, id };
+    if (
+      Services.prefs
+        .getStringPref("app.support.baseURL", "")
+        .startsWith("about:blank")
+    ) {
+      delete fullConfig.supportPage;
+    }
     this._data.set(id, fullConfig);
     if (!fullConfig.groupIds.length) {
       // If we don't have groupIds then we're just registering the l10nId.

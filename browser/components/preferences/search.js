@@ -57,8 +57,8 @@ var gSearchPane = {
     this._engineStore.init().catch(console.error);
 
     if (
-      Services.policies &&
-      !Services.policies.isAllowed("installSearchEngine")
+      lazy.SearchUIUtils.searchEnginesURL.startsWith("about:blank") ||
+      (Services.policies && !Services.policies.isAllowed("installSearchEngine"))
     ) {
       document.getElementById("addEnginesBox").hidden = true;
     } else {

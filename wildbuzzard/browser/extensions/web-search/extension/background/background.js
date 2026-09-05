@@ -1,6 +1,6 @@
 "use strict";
 
-const { DEFAULT_SETTINGS, SEARCH_PAGE } = BuzzardSearchExtension;
+const { SEARCH_PAGE } = BuzzardSearchExtension;
 
 function searchPageUrl(query) {
   const url = new URL(browser.runtime.getURL(SEARCH_PAGE));
@@ -9,11 +9,6 @@ function searchPageUrl(query) {
   }
   return url.href;
 }
-
-browser.runtime.onInstalled.addListener(async () => {
-  const stored = await browser.storage.local.get(DEFAULT_SETTINGS);
-  await browser.storage.local.set({ ...DEFAULT_SETTINGS, ...stored });
-});
 
 browser.omnibox.setDefaultSuggestion({
   description: browser.i18n.getMessage("omniboxSuggestion"),

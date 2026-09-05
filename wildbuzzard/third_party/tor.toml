@@ -1,0 +1,12 @@
+name = "Tor"
+repository = "https://gitlab.torproject.org/tpo/core/tor.git"
+tag = "tor-0.4.9.11"
+tag_object = "75a560c75680a45c62aac5be928a21b9936f7e2e"
+commit = "f3d28b2e0978ca075ec324834bec077673478ded"
+tree = "a77de259ff32eedfc96730ba5e5e1f3fda4054e9"
+source_date_epoch = 1782410294
+subtree = "third_party/tor"
+version = "0.4.9.11"
+license = "BSD-3-Clause"
+source_sha256 = "5188d76b5f97e52ff6b7ae81db1691360abc5390ae1ca7a023694d9cd9a81542"
+license_sha256 = "5dc29ea302cc75db6db4a7c88d7b5d4638b4e0f5f1d2e6d21ce71f707470b766"

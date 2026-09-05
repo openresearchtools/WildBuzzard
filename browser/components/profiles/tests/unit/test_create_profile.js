@@ -43,6 +43,10 @@ add_task(async function test_create_profile() {
   Assert.ok(!profiles.length, "No selectable profiles exist yet");
 
   await SelectableProfileService.maybeSetupDataStore();
+  Assert.ok(
+    !SelectableProfileService.groupToolkitProfile.showProfileSelector,
+    "Setting up profiles keeps the startup chooser off by default"
+  );
   let currentProfile = SelectableProfileService.currentProfile;
 
   let leafName = (await currentProfile.rootDir).leafName;
@@ -63,6 +67,17 @@ add_task(async function test_create_profile() {
     null,
     "tests"
   );
+  Assert.ok(
+    !SelectableProfileService.groupToolkitProfile.showProfileSelector,
+    "Creating another profile does not enable the startup chooser"
+  );
+  await SelectableProfileService.setShowProfileSelectorWindow(true);
+  await SelectableProfileService.maybeSetupDataStore();
+  Assert.ok(
+    SelectableProfileService.groupToolkitProfile.showProfileSelector,
+    "An explicit choice to show the startup chooser is preserved"
+  );
+  await SelectableProfileService.setShowProfileSelectorWindow(false);
   leafName = (await newProfile.rootDir).leafName;
 
   Assert.equal(

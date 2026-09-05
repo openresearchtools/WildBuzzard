@@ -182,6 +182,15 @@ def web_manifest(version):
         },
         "background": {"scripts": ["common/constants.js", "background/background.js"]},
         "omnibox": {"keyword": "buzz"},
+        "chrome_settings_overrides": {
+            "search_provider": {
+                "name": "__MSG_extensionName__",
+                "search_url": "search/search.html",
+                "search_url_get_params": "q={searchTerms}",
+                "keyword": "@buzz",
+                "is_default": False,
+            }
+        },
         "commands": {
             "_execute_browser_action": {
                 "suggested_key": {"default": "Alt+Shift+S"},
@@ -222,6 +231,15 @@ def torrent_manifest(version):
             "96": "icons/torrent-search.svg",
         },
         "omnibox": {"keyword": "torrent"},
+        "chrome_settings_overrides": {
+            "search_provider": {
+                "name": "__MSG_extensionName__",
+                "search_url": "src/popup.html",
+                "search_url_get_params": "query={searchTerms}",
+                "keyword": "@torrent",
+                "is_default": False,
+            }
+        },
         "options_ui": {"page": "src/options.html", "open_in_tab": False},
         "commands": {
             "_execute_browser_action": {

@@ -1,7 +1,7 @@
 {
   "gray": {
     "0": {
-      "value": "#fbfbfe"
+      "value": "#fafafa"
     },
     "10": {
       "override": true,
@@ -12,14 +12,14 @@
       "value": "unset"
     },
     "20": {
-      "value": "#f0f0f4"
+      "value": "#f0f0f0"
     },
     "25": {
       "override": true,
       "value": "unset"
     },
     "30": {
-      "value": "#bac2ca"
+      "value": "#c2c2c2"
     },
     "35": {
       "override": true,
@@ -34,38 +34,38 @@
       "value": "unset"
     },
     "50": {
-      "value": "#bfbfc9"
+      "value": "#bfbfbf"
     },
     "55": {
       "override": true,
       "value": "unset"
     },
     "60": {
-      "value": "#8f8f9d"
+      "value": "#8f8f8f"
     },
     "65": {
       "override": true,
       "value": "unset"
     },
     "70": {
-      "value": "#5b5b66"
+      "value": "#5b5b5b"
     },
     "75": {
       "override": true,
       "value": "unset"
     },
     "80": {
-      "value": "#23222b"
+      "value": "#292929"
     },
     "85": {
       "override": true,
       "value": "unset"
     },
     "90": {
-      "value": "#1c1b22"
+      "value": "#1e1e1e"
     },
     "100": {
-      "value": "#15141a"
+      "value": "#151515"
     }
   },
   "red": {
@@ -524,8 +524,8 @@
     "primary": {
       "@base": {
         "value": {
-          "light": "{color.blue.60}",
-          "dark": "{color.cyan.30}",
+          "light": "#4a4a4a",
+          "dark": "#c8c8c8",
           "nativeTheme": "AccentColor",
           "forcedColors": "ButtonText"
         }
@@ -533,24 +533,24 @@
       "hover": {
         "value": {
           "forcedColors": "SelectedItem",
-          "light": "{color.blue.70}",
-          "dark": "{color.cyan.20}",
+          "light": "#363636",
+          "dark": "#d8d8d8",
           "nativeTheme": "color-mix(in srgb, black 10%, {color.accent.primary.@base})"
         }
       },
       "active": {
         "value": {
           "forcedColors": "{color.accent.primary.hover}",
-          "light": "{color.blue.80}",
-          "dark": "{color.cyan.10}",
+          "light": "#292929",
+          "dark": "#e6e6e6",
           "nativeTheme": "color-mix(in srgb, black 20%, {color.accent.primary.@base})"
         }
       },
       "selected": {
         "value": {
           "forcedColors": "SelectedItem",
-          "light": "{color.blue.60}",
-          "dark": "{color.cyan.30}",
+          "light": "#292929",
+          "dark": "#e6e6e6",
           "nativeTheme": "SelectedItem"
         }
       }

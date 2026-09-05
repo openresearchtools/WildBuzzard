@@ -138,6 +138,8 @@ XPC_MSG_DEF(NS_ERROR_FIRST_HEADER_FIELD_COMPONENT_EMPTY, "Couldn't extract first
 XPC_MSG_DEF(NS_ERROR_ALREADY_CONNECTED              , "The connection is already established")
 XPC_MSG_DEF(NS_ERROR_NOT_CONNECTED                  , "The connection does not exist")
 XPC_MSG_DEF(NS_ERROR_CONNECTION_REFUSED             , "The connection was refused")
+XPC_MSG_DEF(NS_ERROR_ONION_AUTH_REQUIRED            , "The onion service requires a private authorization key")
+XPC_MSG_DEF(NS_ERROR_ONION_AUTH_FAILED              , "The onion service rejected the private authorization key")
 XPC_MSG_DEF(NS_ERROR_BASIC_HTTP_AUTH_DISABLED       , "User attempted basic HTTP authentication when it is disabled")
 XPC_MSG_DEF(NS_ERROR_LOCAL_NETWORK_ACCESS_DENIED    , "The access to local network is denied")
 

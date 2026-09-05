@@ -31,6 +31,14 @@ const lazy = XPCOMUtils.declareLazy({
     }),
 });
 
+function filterWildBuzzardEngines(configuration) {
+  return configuration.filter(
+    record =>
+      record.recordType !== "engine" ||
+      !/^(bing|perplexity|wikipedia)(-|$)/.test(record.identifier)
+  );
+}
+
 /**
  * SearchEngineSelector parses the JSON configuration for
  * search engines and returns the applicable engines depending
@@ -96,7 +104,7 @@ export class SearchEngineSelector {
       this.#getConfigurationOverrides(),
     ]);
     let remoteSettingsData = await this.#getConfigurationPromise;
-    this.#configuration = remoteSettingsData[0];
+    this.#configuration = filterWildBuzzardEngines(remoteSettingsData[0]);
     this.#getConfigurationPromise = null;
 
     if (!this.#configuration?.length) {
@@ -366,7 +374,7 @@ export class SearchEngineSelector {
    *   The new configuration object
    */
   _onConfigurationUpdated({ data: { current } }) {
-    this.#configuration = current;
+    this.#configuration = filterWildBuzzardEngines(current);
 
     this.#selector.setSearchConfig(
       JSON.stringify({ data: this.#configuration })

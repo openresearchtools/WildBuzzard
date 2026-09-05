@@ -57,39 +57,25 @@ class LegalPayloadTests(unittest.TestCase):
         }
         for destination, source_name in documentation_names.items():
             (documentation / destination).write_bytes(values[source_name])
-        actual_runner = HERE.parents[1] / "components" / "wildbuzzard-cli" / "runner"
-        runner = source / "wildbuzzard/components/wildbuzzard-cli/runner"
-        runner.mkdir()
-        shutil.copy2(actual_runner / "Cargo.lock", runner / "Cargo.lock")
-        shutil.copytree(actual_runner / "third_party", runner / "third_party")
-        runner_payloads = LEGAL.runner_payloads(source)
-        for destination_root in (
-            browser / "notices/wildbuzzard-cli",
-            documentation / "runner-third-party",
-        ):
-            for relative, source_path in runner_payloads.items():
-                destination = destination_root / relative
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source_path, destination)
         actual_source = HERE.parents[2]
-        source_arti = source / "third_party/arti"
-        source_arti.mkdir(parents=True)
-        shutil.copy2(actual_source / "third_party/arti/Cargo.lock", source_arti)
-        source_arti_legal = source / "wildbuzzard/third_party/arti-crates"
+        source_tor = source / "third_party/tor"
+        source_tor.mkdir(parents=True)
+        shutil.copy2(actual_source / "third_party/tor/LICENSE", source_tor)
+        source_tor_legal = source / "wildbuzzard/third_party/tor-notices"
         shutil.copytree(
-            actual_source / "wildbuzzard/third_party/arti-crates",
-            source_arti_legal,
+            actual_source / "wildbuzzard/third_party/tor-notices",
+            source_tor_legal,
         )
         shutil.copy2(
-            actual_source / "wildbuzzard/third_party/arti.toml",
-            source / "wildbuzzard/third_party/arti.toml",
+            actual_source / "wildbuzzard/third_party/tor.toml",
+            source / "wildbuzzard/third_party/tor.toml",
         )
-        arti_payloads = LEGAL.arti_payloads(source)
+        tor_payloads = LEGAL.tor_payloads(source)
         for destination_root in (
-            browser / "notices/arti-crates",
-            documentation / "arti-third-party",
+            browser / "notices/tor-notices",
+            documentation / "tor-third-party",
         ):
-            for relative, source_path in arti_payloads.items():
+            for relative, source_path in tor_payloads.items():
                 destination = destination_root / relative
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_path, destination)
@@ -123,38 +109,17 @@ class LegalPayloadTests(unittest.TestCase):
             with self.assertRaises(LEGAL.ValidationError):
                 LEGAL.verify_payload(source, browser, documentation)
 
-    def test_rejects_tampered_or_extra_runner_legal_files(self):
+    def test_rejects_tampered_or_extra_tor_legal_files(self):
         with tempfile.TemporaryDirectory() as directory:
             source, browser, documentation = self.make_payload(pathlib.Path(directory))
-            license_path = (
-                documentation / "runner-third-party/licenses/MIT-dtolnay-serde.txt"
-            )
-            license_path.write_text("wrong\n", encoding="utf-8")
-            with self.assertRaises(LEGAL.ValidationError):
-                LEGAL.verify_payload(source, browser, documentation)
-            shutil.copy2(
-                source
-                / "wildbuzzard/components/wildbuzzard-cli/runner/third_party/licenses/MIT-dtolnay-serde.txt",
-                license_path,
-            )
-            (browser / "notices/wildbuzzard-cli/tests").mkdir()
-            (browser / "notices/wildbuzzard-cli/tests/fixture.json").write_text(
-                "{}\n", encoding="utf-8"
-            )
-            with self.assertRaises(LEGAL.ValidationError):
-                LEGAL.verify_payload(source, browser, documentation)
-
-    def test_rejects_tampered_or_extra_arti_legal_files(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source, browser, documentation = self.make_payload(pathlib.Path(directory))
-            license_path = next((documentation / "arti-third-party/licenses").iterdir())
+            license_path = next((documentation / "tor-third-party/licenses").iterdir())
             original = license_path.read_bytes()
             license_path.write_bytes(b"wrong\n")
             with self.assertRaises(LEGAL.ValidationError):
                 LEGAL.verify_payload(source, browser, documentation)
             license_path.write_bytes(original)
-            (browser / "notices/arti-crates/tests").mkdir()
-            (browser / "notices/arti-crates/tests/fixture").write_text(
+            (browser / "notices/tor-notices/tests").mkdir()
+            (browser / "notices/tor-notices/tests/fixture").write_text(
                 "dev-only\n", encoding="utf-8"
             )
             with self.assertRaises(LEGAL.ValidationError):

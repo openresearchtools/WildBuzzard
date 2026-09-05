@@ -7,4 +7,9 @@ support-files = ["file_gecko_render.sjs"]
 
 ["browser_logpoint_reload.js"]
 
+["browser_native_network.js"]
+
+["browser_native_tab_groups.js"]
+run-if = ["os == 'linux'"]
+
 ["browser_window_create.js"]

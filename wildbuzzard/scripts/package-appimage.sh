@@ -79,7 +79,6 @@ fi
 staging_root="${output_dir}/appimage-staging"
 extract_root="${staging_root}/release"
 app_dir="${staging_root}/WildBuzzard.AppDir"
-cli_build="${staging_root}/wildbuzzard-cli"
 if [[ -e "${staging_root}" ]]; then
   echo "AppImage staging path already exists: ${staging_root}" >&2
   exit 1
@@ -90,9 +89,8 @@ mkdir -p -- \
   "${app_dir}/usr/lib" \
   "${app_dir}/usr/share/applications" \
   "${app_dir}/usr/share/doc/wildbuzzard" \
-  "${app_dir}/usr/share/doc/wildbuzzard/arti-third-party" \
+  "${app_dir}/usr/share/doc/wildbuzzard/tor-third-party" \
   "${app_dir}/usr/share/doc/wildbuzzard/blocker" \
-  "${app_dir}/usr/share/doc/wildbuzzard/runner-third-party/licenses" \
   "${app_dir}/usr/share/icons/hicolor/256x256/apps" \
   "${app_dir}/usr/share/wildbuzzard/skills/wildbuzzard"
 tar -xaf "${package_archive}" -C "${extract_root}"
@@ -117,9 +115,9 @@ for component_path in \
 done
 
 required_runtime_files=(
-  "runtime/tor/arti"
-  "runtime/tor/arti.toml"
-  "notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
+  "runtime/tor/tor"
+  "runtime/tor/tor.toml"
+  "notices/source/wildbuzzard-tor-0.4.9.11-provenance.zip"
 )
 for relative_path in "${required_runtime_files[@]}"; do
   runtime_file="${app_dir}/usr/lib/wildbuzzard/${relative_path}"
@@ -128,23 +126,16 @@ for relative_path in "${required_runtime_files[@]}"; do
     exit 1
   fi
 done
-python3 -I -B "${product_dir}/scripts/arti-runtime-provenance.py" validate \
-  --binary "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti" \
-  --pin-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti.toml" \
-  --installed-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/arti.toml" \
-  --inventory "${app_dir}/usr/lib/wildbuzzard/notices/arti-crates/THIRD-PARTY.json" \
-  --provenance "${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip"
+python3 -I -B "${product_dir}/scripts/tor-runtime-provenance.py" validate \
+  --binary "${app_dir}/usr/lib/wildbuzzard/runtime/tor/tor" \
+  --pin-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/tor.toml" \
+  --installed-config "${app_dir}/usr/lib/wildbuzzard/runtime/tor/tor.toml" \
+  --inventory "${app_dir}/usr/lib/wildbuzzard/notices/tor-notices/THIRD-PARTY.json" \
+  --provenance "${app_dir}/usr/lib/wildbuzzard/notices/source/wildbuzzard-tor-0.4.9.11-provenance.zip"
 python3 -I -B "${product_dir}/scripts/verify_browser_legal_payload.py" \
   --source-root "${product_dir}/.." \
   --browser-root "${app_dir}/usr/lib/wildbuzzard"
-cp -a -- "${product_dir}/components/wildbuzzard-cli/." "${cli_build}/"
-(
-  cd -- "${cli_build}"
-  cargo build --locked --release --manifest-path runner/Cargo.toml
-)
-install -m 755 \
-  "${cli_build}/runner/target/release/wildbuzzard-native-client" \
-  "${app_dir}/usr/bin/wildbuzzard-native-client"
+ln -s ../lib/wildbuzzard/wildbuzzard "${app_dir}/usr/bin/wildbuzzard"
 install -m 644 \
   "${app_dir}/usr/lib/wildbuzzard/notices/NOTICE" \
   "${app_dir}/usr/share/doc/wildbuzzard/cli-NOTICE"
@@ -162,22 +153,8 @@ install -m 644 \
   "${app_dir}/usr/lib/wildbuzzard/notices/blocker/SOURCES.lock.json" \
   "${app_dir}/usr/share/doc/wildbuzzard/blocker/SOURCES.lock.json"
 cp -a -- \
-  "${app_dir}/usr/lib/wildbuzzard/notices/arti-crates/." \
-  "${app_dir}/usr/share/doc/wildbuzzard/arti-third-party/"
-runner_legal_files=(
-  "THIRD-PARTY.json"
-  "licenses/Apache-2.0.txt"
-  "licenses/MIT-dtolnay-serde.txt"
-  "licenses/Unicode-3.0.txt"
-  "licenses/Unlicense.txt"
-  "licenses/memchr-COPYING.txt"
-  "licenses/memchr-MIT.txt"
-)
-for legal_file in "${runner_legal_files[@]}"; do
-  install -m 644 \
-    "${app_dir}/usr/lib/wildbuzzard/notices/wildbuzzard-cli/${legal_file}" \
-    "${app_dir}/usr/share/doc/wildbuzzard/runner-third-party/${legal_file}"
-done
+  "${app_dir}/usr/lib/wildbuzzard/notices/tor-notices/." \
+  "${app_dir}/usr/share/doc/wildbuzzard/tor-third-party/"
 install -m 644 \
   "${product_dir}/components/wildbuzzard-cli/skills/wildbuzzard/SKILL.md" \
   "${app_dir}/usr/share/wildbuzzard/skills/wildbuzzard/SKILL.md"

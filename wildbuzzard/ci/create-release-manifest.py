@@ -5,6 +5,7 @@ import argparse
 import datetime
 import fnmatch
 import hashlib
+import importlib.util
 import json
 import posixpath
 import re
@@ -16,11 +17,17 @@ from pathlib import Path, PurePosixPath
 
 import tomllib
 
+RELEASE_SPEC = importlib.util.spec_from_file_location(
+    "firefox_release",
+    Path(__file__).resolve().parents[1] / "scripts/firefox_release.py",
+)
+RELEASE = importlib.util.module_from_spec(RELEASE_SPEC)
+RELEASE_SPEC.loader.exec_module(RELEASE)
+
 REQUIRED_ARTIFACTS = {
-    "arti": "arti-*-linux-x86_64",
-    "artiProvenance": "wildbuzzard-arti-*-provenance.zip",
-    "artiSource": "wildbuzzard-arti-*-source.tar.xz",
-    "artiCargoVendor": "wildbuzzard-arti-*-cargo-vendor.tar.xz",
+    "tor": "tor-*-linux-x86_64",
+    "torProvenance": "wildbuzzard-tor-*-provenance.zip",
+    "torSource": "wildbuzzard-tor-*-source.tar",
     "browserAppImage": "WildBuzzard-*-x86_64.AppImage",
     "browserArchive": "wildbuzzard-*.en-US.linux-x86_64.tar.*",
     "blockerAssetSource": "wildbuzzard-blocker-assets-source.tar.xz",
@@ -32,7 +39,6 @@ REQUIRED_ARTIFACTS = {
     "qbittorrentBoostSource": "wildbuzzard-qbittorrent-boost-1.88.0-source.tar.bz2",
     "qbittorrentQtSource": "wildbuzzard-qbittorrent-qtbase-6.10.2-source.tar.xz",
     "qbittorrentSystemSource": "wildbuzzard-qbittorrent-ubuntu-24.04-system-sources-*.tar.xz",
-    "runnerCratesSource": "wildbuzzard-runner-crates-source.tar.xz",
     "searchDeb": "buzzard-search_*_amd64.deb",
     "searchSource": "buzzard-search-*-source-license.tar.xz",
     "torrentSearchXpi": "wildbuzzard-torrent-search-*.xpi",
@@ -43,42 +49,22 @@ EXPECTED_MAINTAINER = (
     "openresearchtools <229047507+openresearchtools@users.noreply.github.com>"
 )
 
-RUNNER_CRATE_LEGAL_RELATIVE_PATHS = {
-    "THIRD-PARTY.json",
-    "licenses/Apache-2.0.txt",
-    "licenses/MIT-dtolnay-serde.txt",
-    "licenses/Unicode-3.0.txt",
-    "licenses/Unlicense.txt",
-    "licenses/memchr-COPYING.txt",
-    "licenses/memchr-MIT.txt",
+BROWSER_DEB_LEGAL_PATHS = {
+    "opt/wildbuzzard/notices/BLOCKER-ASSET-SOURCE-NOTICE",
+    "opt/wildbuzzard/notices/COPYING",
+    "opt/wildbuzzard/notices/LICENSE",
+    "opt/wildbuzzard/notices/MOZILLA-MCP-LICENSE",
+    "opt/wildbuzzard/notices/NOTICE",
+    "opt/wildbuzzard/notices/SOURCE-NOTICE",
+    "opt/wildbuzzard/notices/blocker/SOURCES.lock.json",
+    "usr/share/doc/wildbuzzard/BLOCKER-ASSET-SOURCE-NOTICE",
+    "usr/share/doc/wildbuzzard/COPYING",
+    "usr/share/doc/wildbuzzard/LICENSE",
+    "usr/share/doc/wildbuzzard/MOZILLA-MCP-LICENSE",
+    "usr/share/doc/wildbuzzard/SOURCE-NOTICE",
+    "usr/share/doc/wildbuzzard/blocker/SOURCES.lock.json",
+    "usr/share/doc/wildbuzzard/cli-NOTICE",
 }
-
-BROWSER_DEB_LEGAL_PATHS = (
-    {
-        "opt/wildbuzzard/notices/BLOCKER-ASSET-SOURCE-NOTICE",
-        "opt/wildbuzzard/notices/COPYING",
-        "opt/wildbuzzard/notices/LICENSE",
-        "opt/wildbuzzard/notices/MOZILLA-MCP-LICENSE",
-        "opt/wildbuzzard/notices/NOTICE",
-        "opt/wildbuzzard/notices/SOURCE-NOTICE",
-        "opt/wildbuzzard/notices/blocker/SOURCES.lock.json",
-        "usr/share/doc/wildbuzzard/BLOCKER-ASSET-SOURCE-NOTICE",
-        "usr/share/doc/wildbuzzard/COPYING",
-        "usr/share/doc/wildbuzzard/LICENSE",
-        "usr/share/doc/wildbuzzard/MOZILLA-MCP-LICENSE",
-        "usr/share/doc/wildbuzzard/SOURCE-NOTICE",
-        "usr/share/doc/wildbuzzard/blocker/SOURCES.lock.json",
-        "usr/share/doc/wildbuzzard/cli-NOTICE",
-    }
-    | {
-        f"opt/wildbuzzard/notices/wildbuzzard-cli/{path}"
-        for path in RUNNER_CRATE_LEGAL_RELATIVE_PATHS
-    }
-    | {
-        f"usr/share/doc/wildbuzzard/runner-third-party/{path}"
-        for path in RUNNER_CRATE_LEGAL_RELATIVE_PATHS
-    }
-)
 
 BROWSER_DEB_EXTERNAL_FILES = {
     path for path in BROWSER_DEB_LEGAL_PATHS if path.startswith("usr/")
@@ -93,12 +79,12 @@ BROWSER_DEB_REQUIRED_RUNTIME_FILES = (
     BROWSER_DEB_EXTERNAL_FILES
     | {
         "opt/wildbuzzard/wildbuzzard",
-        "opt/wildbuzzard/runtime/tor/arti",
-        "opt/wildbuzzard/runtime/tor/arti.toml",
+        "opt/wildbuzzard/runtime/tor/tor",
+        "opt/wildbuzzard/runtime/tor/tor.toml",
         "opt/wildbuzzard/runtime/torrent/bin/qbittorrent-nox",
         "opt/wildbuzzard/runtime/torrent/wildbuzzard-qbittorrent-runtime.json",
         "opt/wildbuzzard/runtime/torrent/share/doc/wildbuzzard-qbittorrent-runtime/source-offer.json",
-        "opt/wildbuzzard/notices/source/wildbuzzard-arti-2.5.1-provenance.zip",
+        "opt/wildbuzzard/notices/source/wildbuzzard-tor-0.4.9.11-provenance.zip",
     }
     | BROWSER_DEB_LEGAL_PATHS
 )
@@ -207,18 +193,16 @@ EXPECTED_REPOSITORIES = {
 }
 
 EXPECTED_BUILD_MANIFESTS = {
-    "arti": "arti-build-manifest.txt",
+    "tor": "tor-build-manifest.txt",
     "browser": "browser-build-manifest.txt",
     "qbittorrent": "qbittorrent-build-manifest.txt",
 }
 
 EXACT_BROWSER_LEGAL_ROOTS = {
-    "opt/wildbuzzard/notices/arti-crates",
+    "opt/wildbuzzard/notices/tor-notices",
     "opt/wildbuzzard/notices/blocker",
-    "opt/wildbuzzard/notices/wildbuzzard-cli",
-    "usr/share/doc/wildbuzzard/arti-third-party",
+    "usr/share/doc/wildbuzzard/tor-third-party",
     "usr/share/doc/wildbuzzard/blocker",
-    "usr/share/doc/wildbuzzard/runner-third-party",
 }
 
 
@@ -266,21 +250,8 @@ def parse_build_manifest(path):
     return values
 
 
-def configure_arti_legal_paths(repository):
-    verifier = repository / "wildbuzzard/scripts/arti_crate_provenance.py"
-    result = subprocess.run(
-        [sys.executable, "-I", "-B", str(verifier), "verify"],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode:
-        message = result.stderr.strip() or result.stdout.strip()
-        raise SystemExit(
-            "invalid Arti crate legal payload: "
-            + (message or f"verifier exited {result.returncode}")
-        )
-    inventory_path = repository / "wildbuzzard/third_party/arti-crates/THIRD-PARTY.json"
+def configure_tor_legal_paths(repository):
+    inventory_path = repository / "wildbuzzard/third_party/tor-notices/THIRD-PARTY.json"
     inventory = json.loads(inventory_path.read_text(encoding="utf-8"))
     relative = {"THIRD-PARTY.json"}
     relative.update(
@@ -288,9 +259,9 @@ def configure_arti_legal_paths(repository):
         for package in inventory["packages"]
         for license_file in package["licenseFiles"]
     )
-    browser_paths = {f"opt/wildbuzzard/notices/arti-crates/{path}" for path in relative}
+    browser_paths = {f"opt/wildbuzzard/notices/tor-notices/{path}" for path in relative}
     documentation_paths = {
-        f"usr/share/doc/wildbuzzard/arti-third-party/{path}" for path in relative
+        f"usr/share/doc/wildbuzzard/tor-third-party/{path}" for path in relative
     }
     BROWSER_DEB_LEGAL_PATHS.update(browser_paths | documentation_paths)
     BROWSER_DEB_EXTERNAL_FILES.update(documentation_paths)
@@ -323,7 +294,6 @@ def verify_firefox_release_provenance(repository, commit):
     )["firefox"]
     release_ref = pins.get("ref", "")
     release_commit = pins.get("commit", "")
-    release_version = pins.get("version", "")
     if not re.fullmatch(r"FIREFOX_[0-9_]+esr_RELEASE", release_ref) or not re.fullmatch(
         r"[0-9a-f]{40}", release_commit
     ):
@@ -368,64 +338,44 @@ def verify_firefox_release_provenance(repository, commit):
         )
         if ancestor.returncode != 0:
             raise SystemExit("WildBuzzard does not contain the pinned Firefox release")
-    display_version = (
-        (repository / "browser" / "config" / "version_display.txt")
-        .read_text(encoding="utf-8")
-        .strip()
-    )
-    source_version = (
-        (repository / "browser" / "config" / "version.txt")
-        .read_text(encoding="utf-8")
-        .strip()
-    )
-    if display_version != release_version or f"{source_version}esr" != release_version:
-        raise SystemExit("Firefox version files do not match the release pin")
+    try:
+        RELEASE.validate_versions(repository)
+    except (RELEASE.ReleaseError, OSError) as error:
+        raise SystemExit(str(error)) from error
 
 
-def verify_arti_build_provenance(build_manifest, artifacts, repository):
+def verify_tor_build_provenance(build_manifest, artifacts, repository):
     manifest = parse_build_manifest(build_manifest)
     pins = tomllib.loads(
-        (repository / "wildbuzzard" / "third_party" / "arti.toml").read_text(
+        (repository / "wildbuzzard" / "third_party" / "tor.toml").read_text(
             encoding="utf-8"
         )
     )
-    for field in ("arti_tag", "arti_commit", "arti_tree"):
-        pin = field.removeprefix("arti_")
+    for field in ("tor_tag", "tor_commit", "tor_tree"):
+        pin = field.removeprefix("tor_")
         if manifest.get(field) != pins.get(pin):
-            raise SystemExit(f"Arti build {field} does not match the source pin")
+            raise SystemExit(f"Tor build {field} does not match the source pin")
     expectations = {
-        "arti": ("artifact", "binary_sha256", None),
-        "artiProvenance": ("provenance", "provenance_sha256", None),
-        "artiSource": ("source", "source_sha256", "source_sha256"),
-        "artiCargoVendor": (
-            "cargo_vendor",
-            "cargo_vendor_sha256",
-            "cargo_vendor_sha256",
-        ),
+        "tor": ("artifact", "binary_sha256", None),
+        "torProvenance": ("provenance", "provenance_sha256", None),
+        "torSource": ("source", "source_sha256", "source_sha256"),
     }
     for name, (path_field, digest_field, pin_field) in expectations.items():
         artifact = artifacts[name]
         if Path(manifest.get(path_field, "")).name != artifact.name:
-            raise SystemExit(f"Arti {path_field} does not match the release artifact")
+            raise SystemExit(f"Tor {path_field} does not match the release artifact")
         declared_digest = manifest.get(digest_field)
         if digest(artifact) != declared_digest:
-            raise SystemExit(f"Arti {name} digest does not match its build manifest")
+            raise SystemExit(f"Tor {name} digest does not match its build manifest")
         if pin_field and declared_digest != pins.get(pin_field):
-            raise SystemExit(f"Arti {name} digest does not match the source pin")
-    inventory = repository / "wildbuzzard/third_party/arti-crates/THIRD-PARTY.json"
-    if (
-        Path(manifest.get("cargo_license_inventory", "")) != inventory
-        or manifest.get("cargo_license_inventory_sha256")
-        != pins.get("cargo_license_inventory_sha256")
-        or digest(inventory) != pins.get("cargo_license_inventory_sha256")
-    ):
-        raise SystemExit("Arti crate license inventory differs from its build manifest")
-    validator = repository / "wildbuzzard/scripts/arti-runtime-provenance.py"
+            raise SystemExit(f"Tor {name} digest does not match the source pin")
+    inventory = repository / "wildbuzzard/third_party/tor-notices/THIRD-PARTY.json"
+    validator = repository / "wildbuzzard/scripts/tor-runtime-provenance.py"
     runtime_config = Path(manifest.get("config", ""))
     if not runtime_config.is_file() or digest(runtime_config) != manifest.get(
         "config_sha256"
     ):
-        raise SystemExit("Arti runtime config differs from its build manifest")
+        raise SystemExit("Tor runtime config differs from its build manifest")
     result = subprocess.run(
         [
             sys.executable,
@@ -434,7 +384,7 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
             str(validator),
             "validate",
             "--binary",
-            str(artifacts["arti"]),
+            str(artifacts["tor"]),
             "--pin-config",
             str(runtime_config),
             "--installed-config",
@@ -442,7 +392,7 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
             "--inventory",
             str(inventory),
             "--provenance",
-            str(artifacts["artiProvenance"]),
+            str(artifacts["torProvenance"]),
         ],
         check=False,
         capture_output=True,
@@ -451,52 +401,7 @@ def verify_arti_build_provenance(build_manifest, artifacts, repository):
     if result.returncode:
         message = result.stderr.strip() or result.stdout.strip()
         raise SystemExit(
-            "invalid Arti runtime provenance: "
-            + (message or f"verifier exited {result.returncode}")
-        )
-    source_validator = repository / "wildbuzzard/scripts/arti_crate_provenance.py"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-I",
-            "-B",
-            str(source_validator),
-            "verify",
-            "--source-bundle",
-            str(artifacts["artiCargoVendor"]),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode:
-        message = result.stderr.strip() or result.stdout.strip()
-        raise SystemExit(
-            "invalid Arti Cargo vendor source: "
-            + (message or f"verifier exited {result.returncode}")
-        )
-
-
-def verify_runner_crate_source(path, repository):
-    verifier = repository / "wildbuzzard" / "scripts" / "runner_crate_provenance.py"
-    result = subprocess.run(
-        [
-            sys.executable,
-            "-I",
-            "-B",
-            str(verifier),
-            "verify",
-            "--source-bundle",
-            str(path),
-        ],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode:
-        message = result.stderr.strip() or result.stdout.strip()
-        raise SystemExit(
-            "invalid WildBuzzard CLI corresponding source: "
+            "invalid Tor runtime provenance: "
             + (message or f"verifier exited {result.returncode}")
         )
 
@@ -673,6 +578,8 @@ def external_parent_directories():
 
 
 def safe_browser_symlink_target(path, target):
+    if path == "usr/bin/wildbuzzard":
+        return target == "/opt/wildbuzzard/wildbuzzard"
     if (
         not target
         or "\\" in target
@@ -731,6 +638,10 @@ def verify_browser_debian_runtime_members(members, *, archive_only=False):
             ):
                 invalid.append(path)
             continue
+        if path == "usr/bin/wildbuzzard":
+            if entry != ("symlink", "/opt/wildbuzzard/wildbuzzard"):
+                invalid.append(path)
+            continue
         if path in BROWSER_DEB_EXTERNAL_FILES:
             if kind != "file":
                 invalid.append(path)
@@ -743,7 +654,16 @@ def verify_browser_debian_runtime_members(members, *, archive_only=False):
     required = BROWSER_DEB_REQUIRED_RUNTIME_FILES
     if archive_only:
         required = {path for path in required if path.startswith("opt/")}
-    missing = sorted(path for path in required if members.get(path) != ["file"])
+    missing = sorted(
+        path
+        for path in required
+        if members.get(path)
+        != (
+            [("symlink", "/opt/wildbuzzard/wildbuzzard")]
+            if path == "usr/bin/wildbuzzard"
+            else ["file"]
+        )
+    )
     if invalid or missing:
         details = []
         if invalid:
@@ -903,25 +823,25 @@ def main():
             parser.error("--verify-browser-deb cannot be combined with other options")
         repository = Path(__file__).resolve().parents[2]
         package = Path(arguments.verify_browser_deb).resolve(strict=True)
-        configure_arti_legal_paths(repository)
+        configure_tor_legal_paths(repository)
         metadata = debian_metadata(package, "wildbuzzard")
         dependency_names = debian_dependency_names(metadata["depends"])
         if dependency_names & {"buzzard-minijtt", "buzzard-search", "buzzard-torrent"}:
-            raise SystemExit("wildbuzzard Debian package has invalid component dependencies")
+            raise SystemExit(
+                "wildbuzzard Debian package has invalid component dependencies"
+            )
         if debian_dependency_names(metadata["suggests"]) != {
             "buzzard-minijtt",
             "buzzard-search",
         }:
-            raise SystemExit("wildbuzzard Debian package has invalid component suggestions")
+            raise SystemExit(
+                "wildbuzzard Debian package has invalid component suggestions"
+            )
         verify_browser_debian_legal_payload(package)
         verify_browser_qbittorrent_payload(package, repository)
         return
     if arguments.verify_browser_runtime_root:
-        if (
-            arguments.artifact_dir
-            or arguments.repository
-            or arguments.build_manifest
-        ):
+        if arguments.artifact_dir or arguments.repository or arguments.build_manifest:
             parser.error(
                 "--verify-browser-runtime-root cannot be combined with release options"
             )
@@ -948,7 +868,7 @@ def main():
     for name, repository in repositories.items():
         if git(repository, "status", "--porcelain=v1", "--untracked-files=all"):
             raise SystemExit(f"repository checkout is dirty: {name}")
-    configure_arti_legal_paths(repositories["wildbuzzard"])
+    configure_tor_legal_paths(repositories["wildbuzzard"])
     wildbuzzard_commit = git(repositories["wildbuzzard"], "rev-parse", "HEAD")
     verify_firefox_release_provenance(repositories["wildbuzzard"], wildbuzzard_commit)
     verify_wildbuzzard_build_provenance(build_manifests, wildbuzzard_commit)
@@ -962,11 +882,8 @@ def main():
         name: exactly_one(files, pattern)
         for name, pattern in REQUIRED_ARTIFACTS.items()
     }
-    verify_arti_build_provenance(
-        build_manifests["arti"], resolved, repositories["wildbuzzard"]
-    )
-    verify_runner_crate_source(
-        resolved["runnerCratesSource"], repositories["wildbuzzard"]
+    verify_tor_build_provenance(
+        build_manifests["tor"], resolved, repositories["wildbuzzard"]
     )
     verify_search_source(resolved["searchSource"], repositories["buzzard-search"])
     verify_minijtt_source(resolved["minijttSource"], repositories["buzzard-minijtt"])
@@ -1011,7 +928,9 @@ def main():
     )
     dependency_names = debian_dependency_names(browser_package["depends"])
     if "buzzard-torrent" in dependency_names:
-        raise SystemExit("wildbuzzard Debian package depends on obsolete buzzard-torrent")
+        raise SystemExit(
+            "wildbuzzard Debian package depends on obsolete buzzard-torrent"
+        )
     optional_packages = {"buzzard-minijtt", "buzzard-search"}
     bundled_optionals = dependency_names & optional_packages
     if bundled_optionals:
@@ -1040,6 +959,7 @@ def main():
     ).replace(microsecond=0)
     payload = {
         "schema": 1,
+        "versions": RELEASE.validate_versions(repositories["wildbuzzard"]),
         "architecture": "amd64",
         "artifacts": [
             {

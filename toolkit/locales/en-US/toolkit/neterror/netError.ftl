@@ -242,3 +242,6 @@ fp-neterror-vpn-error-title = Couldn’t connect to VPN
 fp-neterror-vpn-error-description = Try again in a few minutes.
 
 fp-neterror-denied-port-access = This address uses a network port which is normally used for purposes other than Web browsing. { -brand-short-name } has canceled the request for your protection.
+
+onionAuthRequired-title = Onion service requires a key
+onionAuthFailed-title = Onion service rejected the key

@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "__MSG_extensionName__",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "__MSG_extensionDescription__",
   "default_locale": "en",
   "incognito": "not_allowed",
@@ -48,5 +48,14 @@
       "description": "__MSG_openSearchCommand__"
     }
   },
-  "content_security_policy": "default-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:"
+  "content_security_policy": "default-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:",
+  "chrome_settings_overrides": {
+    "search_provider": {
+      "name": "__MSG_extensionName__",
+      "search_url": "src/popup.html",
+      "search_url_get_params": "query={searchTerms}",
+      "keyword": "@torrent",
+      "is_default": false
+    }
+  }
 }

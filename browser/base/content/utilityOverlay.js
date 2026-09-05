@@ -512,6 +512,20 @@ function buildHelpMenu() {
     document.getElementById("helpPolicySeparator").hidden = false;
   }
 
+  if (
+    Services.urlFormatter
+      .formatURLPref("app.support.baseURL")
+      .startsWith("about:blank")
+  ) {
+    for (const id of [
+      "helpSwitchDevice",
+      "feedbackPage",
+      "help_reportBrokenSite",
+    ]) {
+      document.getElementById(id).hidden = true;
+    }
+  }
+
   // Enable/disable the "Report Web Forgery" menu item.
   if (typeof gSafeBrowsing != "undefined") {
     gSafeBrowsing.setReportPhishingMenu();

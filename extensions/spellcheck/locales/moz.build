@@ -6,3 +6,9 @@ LOCALIZED_FILES.dictionaries += [
     "en-US/hunspell/*.aff",
     "en-US/hunspell/*.dic",
 ]
+
+LOCALIZED_FILES.dictionaries += [
+    "en-US/hunspell/en-GB.SOURCE.json",
+    "en-US/hunspell/README_en_GB.txt",
+    "en-US/hunspell/README_en_US.txt",
+]

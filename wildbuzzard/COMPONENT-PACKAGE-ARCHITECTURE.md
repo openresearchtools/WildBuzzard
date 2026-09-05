@@ -4,7 +4,7 @@
 
 Wild Buzzard is a browser, not an agent distribution. The browser remains a
 normal Firefox ESR fork with the reviewed Waterfox-derived UI and privacy
-ports, native content blocking, Tor/Arti tabs, Widevine support, native
+ports, native content blocking, Tor/Tor tabs, Widevine support, native
 qBittorrent downloads, and a general browser-control CLI.
 
 Pi, Pi Web, their Node runtime, web-search implementations, and torrent
@@ -61,7 +61,10 @@ windows.
 
 ## Browser-control boundary
 
-`/usr/bin/wildbuzzard` is the stable control surface for humans and any agent.
+`/usr/bin/wildbuzzard` links to the actual browser executable, which handles
+both normal browser launches and shell commands such as `wildbuzzard snapshot`.
+There is no separate browser-control executable or Rust launcher. This is the
+stable control surface for humans and any agent.
 It owns tabs, navigation, snapshots, actions, downloads, screenshots, Tor-tab
 controls, and other browser-generic operations. It contains no Pi adapter and
 does not expose web or torrent discovery. Agents use the search CLIs directly;
@@ -75,7 +78,7 @@ providers, and web UI remain in `buzzard-agent`.
 
 Browser packages must fail if they contain Agent, Pi Web, search-provider, or
 torrent-discovery runtimes. They contain only the reviewed offline extension
-files and their source hashes. Arti and the core qBittorrent/libtorrent download
+files and their source hashes. Tor and the core qBittorrent/libtorrent download
 runtime are bundled; both discovery CLIs remain independently apt-installed.
 Standalone release XPIs must be normally signed or match the complete SHA-256
 digest pinned by that browser release. Temporary, modified, unpinned unsigned,

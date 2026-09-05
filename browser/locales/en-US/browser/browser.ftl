@@ -274,7 +274,7 @@ quickactions-addons = View add-ons
 # In English we provide multiple spellings for "add-ons". If that's not
 # applicable to your language, only use the correct spelling (don't repeat the
 # same word).
-quickactions-cmd-addons3 = extensions, themes, addons, add-ons
+quickactions-cmd-addons3 = extensions, addons, add-ons
 
 # Opens the bookmarks library window
 quickactions-bookmarks2 = Manage bookmarks
@@ -1336,7 +1336,8 @@ private-browsing-indicator-label = Private browsing
 
 # Tooltip for the indicator shown in the private browsing window titlebar.
 private-browsing-indicator-tooltip =
-    .tooltiptext = Private browsing
+    .tooltiptext = Private mode
+    .aria-label = Private mode
 
 # Tooltip for the indicator shown in the window titlebar when content analysis is active.
 # Variables:

@@ -115,10 +115,10 @@
 
       /** color **/
       --color-accent-attention: light-dark(#2ac3a2, #54ffbd);
-      --color-accent-primary: light-dark(var(--color-blue-60), var(--color-cyan-30));
-      --color-accent-primary-hover: light-dark(var(--color-blue-70), var(--color-cyan-20));
-      --color-accent-primary-active: light-dark(var(--color-blue-80), var(--color-cyan-10));
-      --color-accent-primary-selected: light-dark(var(--color-blue-60), var(--color-cyan-30));
+      --color-accent-primary: light-dark(#4a4a4a, #c8c8c8);
+      --color-accent-primary-hover: light-dark(#363636, #d8d8d8);
+      --color-accent-primary-active: light-dark(#292929, #e6e6e6);
+      --color-accent-primary-selected: light-dark(#292929, #e6e6e6);
 
       /** input **/
       --input-text-background-color: light-dark(var(--color-white), #42414d);
@@ -128,14 +128,14 @@
       --link-color: light-dark(var(--color-blue-60), var(--color-cyan-30));
 
       /** panel **/
-      --panel-background-color: light-dark(var(--color-white), rgb(66, 65, 77));
-      --panel-border-color: light-dark(rgb(240, 240, 244), rgb(82, 82, 94));
-      --panel-text-color: light-dark(var(--color-black), rgb(251, 251, 254));
+      --panel-background-color: light-dark(var(--color-white), rgb(48, 48, 48));
+      --panel-border-color: light-dark(rgb(240, 240, 240), rgb(82, 82, 82));
+      --panel-text-color: light-dark(var(--color-black), rgb(250, 250, 250));
 
       /** sidebar **/
-      --sidebar-background-color: light-dark(white, rgb(28, 27, 34));
+      --sidebar-background-color: light-dark(white, rgb(30, 30, 30));
       --sidebar-border-color: var(--card-border-color);
-      --sidebar-text-color: light-dark(rgb(21, 20, 26), rgb(249, 249, 250));
+      --sidebar-text-color: light-dark(rgb(21, 21, 21), rgb(250, 250, 250));
 
       /** toolbar **/
       --toolbar-background-color: light-dark(#f9f9fb, rgb(43, 42, 51));
@@ -176,8 +176,6 @@
       /** color **/
       --color-accent-attention: AccentColor;
       --color-accent-primary: AccentColor;
-      --color-accent-primary-hover: color-mix(in srgb, black 10%, var(--color-accent-primary));
-      --color-accent-primary-active: color-mix(in srgb, black 20%, var(--color-accent-primary));
       --color-accent-primary-selected: SelectedItem;
 
       /** link **/
@@ -214,17 +212,15 @@
         /** button **/
         /* TODO Bug 1821203 - Gray use needs to be consolidated */
         --button-background-color: transparent;
-        --button-background-color-hover: light-dark(var(--color-violet-desaturated-20), var(--color-violet-desaturated-50));
-        --button-background-color-active: light-dark(var(--color-violet-desaturated-30), var(--color-violet-desaturated-40));
+        --button-background-color-hover: light-dark(var(--color-gray-20), var(--color-gray-50));
+        --button-background-color-active: light-dark(var(--color-gray-30), var(--color-gray-40));
         --button-background-color-ghost: var(--button-background-color);
-        --button-text-color: light-dark(var(--color-violet-90), var(--color-gray-0));
+        --button-text-color: light-dark(var(--color-gray-85), var(--color-gray-0));
         --button-text-color-primary: light-dark(var(--color-white), var(--color-gray-70));
 
         /** color **/
         --color-accent-attention: light-dark(var(--color-green-40), var(--color-green-30));
-        --color-accent-primary: light-dark(var(--color-violet-50), var(--color-violet-30));
-        --color-accent-primary-hover: light-dark(var(--color-violet-60), var(--color-violet-20));
-        --color-accent-primary-active: light-dark(var(--color-violet-70), var(--color-violet-10));
+        --color-accent-primary: light-dark(#4a4a4a, #c8c8c8);
         --color-accent-primary-selected: var(--button-background-color-primary-active);
 
         /** link **/
@@ -238,11 +234,11 @@
         /** toolbar **/
         --toolbar-background-color: var(--background-color-box);
         --toolbar-field-background-color-focus: var(--background-color-box);
-        --toolbar-field-text-color: light-dark(var(--color-violet-desaturated-70), var(--color-violet-desaturated-10));
+        --toolbar-field-text-color: light-dark(var(--color-gray-65), var(--color-gray-15));
         --toolbar-field-text-color-focus: var(--toolbar-field-text-color);
 
         /** toolbarbutton **/
-        --toolbarbutton-icon-fill: light-dark(var(--color-violet-desaturated-50), var(--color-violet-desaturated-10));
+        --toolbarbutton-icon-fill: light-dark(var(--color-gray-50), var(--color-gray-15));
         --toolbarbutton-icon-fill-attention: var(--color-accent-primary);
 
         /** toolbox **/

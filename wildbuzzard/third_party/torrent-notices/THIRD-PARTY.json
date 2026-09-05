@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "sourceRuntimeManifest": "wildbuzzard-qbittorrent-runtime.json",
+  "packages": [
+    {
+      "name": "qBittorrent, libtorrent, Qt, Boost and bundled runtime libraries",
+      "version": "5.2.3",
+      "license": "See exact component notices below",
+      "licenseFiles": [
+        {
+          "sourcePath": "licenses/boost-BSL-1.0.txt",
+          "installedPath": "licenses/boost-BSL-1.0.txt",
+          "sha256": "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+        },
+        {
+          "sourcePath": "licenses/libtorrent-BSD-3-Clause.txt",
+          "installedPath": "licenses/libtorrent-BSD-3-Clause.txt",
+          "sha256": "f4b492afbde73d2f4e051050a619622876a13b77e7b8b6ea3ec2868a6929b31b"
+        },
+        {
+          "sourcePath": "licenses/qbittorrent-COPYING.txt",
+          "installedPath": "licenses/qbittorrent-COPYING.txt",
+          "sha256": "e675cd856f9817474455200ba7e6f5b7cc42d6598a5eecbbbdaa0e6fd304d6b7"
+        },
+        {
+          "sourcePath": "licenses/qt-GPL-2.0-only.txt",
+          "installedPath": "licenses/qt-GPL-2.0-only.txt",
+          "sha256": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643"
+        },
+        {
+          "sourcePath": "licenses/qt-GPL-3.0-only.txt",
+          "installedPath": "licenses/qt-GPL-3.0-only.txt",
+          "sha256": "8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903"
+        },
+        {
+          "sourcePath": "licenses/qt-LGPL-3.0-only.txt",
+          "installedPath": "licenses/qt-LGPL-3.0-only.txt",
+          "sha256": "da7eabb7bafdf7d3ae5e9f223aa5bdc1eece45ac569dc21b3b037520b4464768"
+        },
+        {
+          "sourcePath": "licenses/system-libbrotli1-amd64.copyright",
+          "installedPath": "licenses/system-libbrotli1-amd64.copyright",
+          "sha256": "24a64e5bb83d0960d1835696a1e23c0896ad6055b0ca47c66ab0eb9a766324b1"
+        },
+        {
+          "sourcePath": "licenses/system-libcom-err2-amd64.copyright",
+          "installedPath": "licenses/system-libcom-err2-amd64.copyright",
+          "sha256": "1ca415a294c0e56958c4f795b3f1f69ea3479bca53d7811f5cdd020a258949db"
+        },
+        {
+          "sourcePath": "licenses/system-libgcc-s1-amd64.copyright",
+          "installedPath": "licenses/system-libgcc-s1-amd64.copyright",
+          "sha256": "20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79"
+        },
+        {
+          "sourcePath": "licenses/system-libglib2.0-0t64-amd64.copyright",
+          "installedPath": "licenses/system-libglib2.0-0t64-amd64.copyright",
+          "sha256": "b52574b109fb876dfa71dea7a98b8aee1bb583f6aa90c327d1e4dc0a1d59f211"
+        },
+        {
+          "sourcePath": "licenses/system-libgssapi-krb5-2-amd64.copyright",
+          "installedPath": "licenses/system-libgssapi-krb5-2-amd64.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        {
+          "sourcePath": "licenses/system-libk5crypto3-amd64.copyright",
+          "installedPath": "licenses/system-libk5crypto3-amd64.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        {
+          "sourcePath": "licenses/system-libkeyutils1-amd64.copyright",
+          "installedPath": "licenses/system-libkeyutils1-amd64.copyright",
+          "sha256": "c62fe37d22203046611112bc10a9e03a39a7f73bec1b061e7c615326166d9ff5"
+        },
+        {
+          "sourcePath": "licenses/system-libkrb5-3-amd64.copyright",
+          "installedPath": "licenses/system-libkrb5-3-amd64.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        {
+          "sourcePath": "licenses/system-libkrb5support0-amd64.copyright",
+          "installedPath": "licenses/system-libkrb5support0-amd64.copyright",
+          "sha256": "936728f4181718f42951b881c1e8f1386bf6b2723c4fbc533c374d6f42c71816"
+        },
+        {
+          "sourcePath": "licenses/system-libpcre2-8-0-amd64.copyright",
+          "installedPath": "licenses/system-libpcre2-8-0-amd64.copyright",
+          "sha256": "030511beb4d9d620ad09914c369c36ec0528dcf301d1923cc643c948ee7c6a38"
+        },
+        {
+          "sourcePath": "licenses/system-libssl3t64-amd64.copyright",
+          "installedPath": "licenses/system-libssl3t64-amd64.copyright",
+          "sha256": "6a7da622fe0637a334d2a8fc470852d2ffb77d9a2b2f930f854e32a41ad6ef35"
+        },
+        {
+          "sourcePath": "licenses/system-libstdc++6-amd64.copyright",
+          "installedPath": "licenses/system-libstdc++6-amd64.copyright",
+          "sha256": "20390f8a6f3b1e4d7cb45dd8652dabb259bbef688cbad839bcdb0b9ba7252f79"
+        },
+        {
+          "sourcePath": "licenses/system-libzstd1-amd64.copyright",
+          "installedPath": "licenses/system-libzstd1-amd64.copyright",
+          "sha256": "35e85e8e9bbb71492c5f5dddf39ed65b68775a02ad8d710c25d097b497f06c49"
+        },
+        {
+          "sourcePath": "licenses/system-zlib1g-amd64.copyright",
+          "installedPath": "licenses/system-zlib1g-amd64.copyright",
+          "sha256": "9e5b96d63773a5d177ba264254390f792be07e41748ebd94730981c6cac31cc6"
+        }
+      ]
+    }
+  ]
+}

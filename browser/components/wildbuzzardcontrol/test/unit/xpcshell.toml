@@ -7,3 +7,5 @@ run-if = ["os == 'linux'"]
 ["test_GeckoRenderPolicy.js"]
 
 ["test_WildBuzzardControlStartup.js"]
+
+["test_WildBuzzardCommand.js"]

@@ -52,14 +52,6 @@ const CATEGORIES = [
     defaultHidden: false,
   },
   {
-    name: "theme",
-    viewId: "addons://list/theme",
-    iconSrc: "chrome://mozapps/skin/extensions/category-themes.svg",
-    l10nId: "addon-category-theme",
-    titleL10nId: "addon-category-theme-title",
-    defaultHidden: false,
-  },
-  {
     name: "plugin",
     viewId: "addons://list/plugin",
     iconSrc: "chrome://mozapps/skin/extensions/category-plugins.svg",
@@ -261,14 +253,6 @@ class CategoriesBox extends MozLitElement {
           @click=${this.#handlePreferencesButton}
         >
           <span data-l10n-id="addons-settings-button"></span>
-        </moz-page-nav-button>
-        <moz-page-nav-button
-          slot="secondary-nav"
-          support-page="addons-help"
-          iconsrc="chrome://global/skin/icons/help.svg"
-          data-l10n-id="sidebar-help-button-title"
-        >
-          <span data-l10n-id="help-button"></span>
         </moz-page-nav-button>
       </moz-page-nav>
     `;

@@ -2,6 +2,13 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
 
+import { AsyncShutdown } from "resource://gre/modules/AsyncShutdown.sys.mjs";
+import { TorControl } from "resource:///modules/TorControl.sys.mjs";
+import {
+  OnionAuthStore,
+  onionAddress,
+  onionPrivateKey,
+} from "resource:///modules/OnionAuthStore.sys.mjs";
 import { AppConstants } from "resource://gre/modules/AppConstants.sys.mjs";
 import { Subprocess } from "resource://gre/modules/Subprocess.sys.mjs";
 import { setTimeout } from "resource://gre/modules/Timer.sys.mjs";
@@ -25,8 +32,9 @@ XPCOMUtils.defineLazyServiceGetter(
 
 const CONTAINER_NAME = "Tor";
 const CONTAINER_ID_PREF = "wildbuzzard.tor.containerId";
+const PERSISTENT_CONTAINER_ID_PREF = "wildbuzzard.tor.persistentContainerId";
 const STATE_EVENT = "WildBuzzardTorStateChange";
-const BINARY_PREF = "wildbuzzard.tor.arti.path";
+const BINARY_PREF = "wildbuzzard.tor.binary.path";
 const TEST_PORT_PREF = "wildbuzzard.tor.test.socksPort";
 const DEAD_PROXY_PORT = 9;
 const PROXY_TIMEOUT_SECONDS = 10;
@@ -34,11 +42,11 @@ const START_ATTEMPTS = 120;
 const START_INTERVAL_MS = 250;
 
 async function readAll(pipe) {
-  const chunks = [];
+  let output = "";
   for (let chunk; (chunk = await pipe.readString()); ) {
-    chunks.push(chunk);
+    output = (output + chunk).slice(-65536);
   }
-  return chunks.join("");
+  return output;
 }
 
 function quoteToml(value) {
@@ -50,20 +58,36 @@ export const TorRouting = {
   _windows: new WeakSet(),
   _isolationKeys: new WeakMap(),
   _pendingOnionNavigations: new WeakMap(),
+  _navigationReplacements: new WeakMap(),
+  _authorizationPrompts: new WeakMap(),
+  _authorizationDialogs: new WeakMap(),
   _startTask: null,
+  _authorizationUpdates: Promise.resolve(),
   _process: null,
   _port: 0,
   _busy: false,
   _busyCount: 0,
   _lastError: "",
   container: null,
+  persistentContainer: null,
 
   init() {
     if (this._initialized) {
       return;
     }
+    if (Services.appinfo.processType != Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT) {
+      throw new Error("Tor belongs to the main browser process");
+    }
     this._initialized = true;
+    AsyncShutdown.profileBeforeChange.addBlocker("WildBuzzard: stop Tor", () =>
+      this.stop()
+    );
     this.container = this._ensureContainer();
+    if (Services.prefs.getIntPref(PERSISTENT_CONTAINER_ID_PREF, 0)) {
+      this.persistentContainer = this._ensureContainer(
+        PERSISTENT_CONTAINER_ID_PREF
+      );
+    }
     if (!this.container) {
       this._lastError = "Could not create the Tor container";
       return;
@@ -72,12 +96,13 @@ export const TorRouting = {
     this.clearData();
     lazy.ProxyService.registerChannelFilter(this, 0);
     Services.obs.addObserver(this, "http-on-modify-request");
+    Services.obs.addObserver(this, "wildbuzzard-onion-authorization-needed");
     Services.obs.addObserver(this, "quit-application-granted");
   },
 
-  _ensureContainer() {
+  _ensureContainer(pref = CONTAINER_ID_PREF) {
     const identities = lazy.ContextualIdentityService.getPublicIdentities();
-    const savedId = Services.prefs.getIntPref(CONTAINER_ID_PREF, 0);
+    const savedId = Services.prefs.getIntPref(pref, 0);
     let identity = identities.find(item => item.userContextId == savedId);
     if (!identity) {
       identity = lazy.ContextualIdentityService.create(
@@ -85,7 +110,7 @@ export const TorRouting = {
         "fingerprint",
         "purple"
       );
-      Services.prefs.setIntPref(CONTAINER_ID_PREF, identity.userContextId);
+      Services.prefs.setIntPref(pref, identity.userContextId);
     }
     return identity ?? null;
   },
@@ -107,7 +132,41 @@ export const TorRouting = {
   },
 
   isTorTab(tab) {
-    return !!this.container && tab?.userContextId == this.userContextId;
+    return this.isTorContext(tab?.userContextId);
+  },
+
+  isTorContext(id) {
+    return (
+      !!id &&
+      (id == this.userContextId ||
+        id == this.persistentContainer?.userContextId)
+    );
+  },
+
+  serviceAddress(uri) {
+    if (!this.isOnionURI(uri)) {
+      return null;
+    }
+    try {
+      return onionAddress(uri.host.replace(/\.$/, "").split(".").at(-2));
+    } catch {
+      return null;
+    }
+  },
+
+  contextIdForURI(uri) {
+    const address = this.serviceAddress(uri);
+    if (address && !OnionAuthStore.usesPrivateMode(address)) {
+      this.persistentContainer ??= this._ensureContainer(
+        PERSISTENT_CONTAINER_ID_PREF
+      );
+      return this.persistentContainer.userContextId;
+    }
+    return this.userContextId;
+  },
+
+  navigationReplacement(browser) {
+    return this._navigationReplacements.get(browser);
   },
 
   isOnionURI(uri) {
@@ -152,6 +211,16 @@ export const TorRouting = {
       return;
     }
     this._windows.add(win);
+    const menu = win.document.getElementById("menu_ToolsPopup");
+    if (menu) {
+      const item = win.document.createXULElement("menuitem");
+      item.id = "wildbuzzard-onion-authorizations";
+      win.document.l10n.setAttributes(item, "wildbuzzard-onion-auth-menu");
+      item.addEventListener("command", () =>
+        this.manageOnionAuthorizations(win)
+      );
+      menu.append(item);
+    }
     for (const tab of win.gBrowser.tabs) {
       this._markTorTab(tab);
     }
@@ -163,7 +232,7 @@ export const TorRouting = {
         return;
       }
       Services.tm.dispatchToMainThread(() => {
-        if (!this._anyTorTabs()) {
+        if (!this._anyTorTabs(true)) {
           this.clearData();
         }
         this._notifyState();
@@ -180,11 +249,102 @@ export const TorRouting = {
     lazy.PrivateTab.markPrivateTab(tab);
   },
 
-  _anyTorTabs() {
+  manageOnionAuthorizations(win) {
+    return win.gDialogBox.open("chrome://browser/content/tor/onionAuth.xhtml", {
+      manage: true,
+    });
+  },
+
+  async promptOnionAuthorization(browser, uri, failed) {
+    if (this._authorizationPrompts.has(browser)) {
+      return this._authorizationPrompts.get(browser);
+    }
+    const task = (async () => {
+      const win = browser.documentGlobal;
+      const tab = win.gBrowser.getTabForBrowser(browser);
+      if (!tab || tab.closing || !this.isTorTab(tab)) {
+        return;
+      }
+      const address = onionAddress(
+        uri.host.replace(/\.$/, "").split(".").at(-2)
+      );
+      const entries = await OnionAuthStore.load().catch(() => new Map());
+      const info = {
+        address,
+        failed,
+        accepted: false,
+        remember: entries.get(address)?.remember === true,
+        privateMode: entries.get(address)?.privateMode !== false,
+      };
+      const { closedPromise, dialog } = win.gBrowser
+        .getTabDialogBox(browser)
+        .open(
+          "chrome://browser/content/tor/onionAuth.xhtml",
+          { keepOpenSameOriginNav: true, hideContent: true },
+          info
+        );
+      this._authorizationDialogs.set(browser, { info, dialog, closedPromise });
+      await closedPromise;
+      if (
+        info.accepted &&
+        !tab.closing &&
+        this.isTorTab(tab) &&
+        browser.currentURI.spec == uri.spec
+      ) {
+        const contextId = this.contextIdForURI(uri);
+        if (contextId != tab.userContextId) {
+          await this._reopenInContext(win, tab, contextId, uri.spec);
+        } else {
+          browser.reload();
+        }
+      }
+    })();
+    this._authorizationPrompts.set(browser, task);
+    try {
+      return await task;
+    } finally {
+      this._authorizationPrompts.delete(browser);
+      this._authorizationDialogs.delete(browser);
+    }
+  },
+
+  async completeOnionAuthorization(address) {
+    address = onionAddress(address);
+    const closed = [];
+    for (const win of Services.wm.getEnumerator("navigator:browser")) {
+      for (const tab of win.gBrowser.tabs) {
+        const pending = this._authorizationDialogs.get(tab.linkedBrowser);
+        if (pending?.info.address == address) {
+          pending.info.accepted = true;
+          closed.push(this._authorizationPrompts.get(tab.linkedBrowser));
+          pending.dialog.close();
+        }
+      }
+    }
+    await Promise.all(closed);
+    for (const win of Services.wm.getEnumerator("navigator:browser")) {
+      for (const tab of [...win.gBrowser.tabs]) {
+        const uri = tab.linkedBrowser.currentURI;
+        if (this.isTorTab(tab) && this.serviceAddress(uri) == address) {
+          const contextId = this.contextIdForURI(uri);
+          if (tab.userContextId != contextId) {
+            await this._reopenInContext(win, tab, contextId, uri.spec);
+          }
+        }
+      }
+    }
+  },
+
+  _anyTorTabs(privateOnly = false) {
     for (const win of Services.wm.getEnumerator("navigator:browser")) {
       if (
         !win.closed &&
-        win.gBrowser?.tabs.some(tab => !tab.closing && this.isTorTab(tab))
+        win.gBrowser?.tabs.some(
+          tab =>
+            !tab.closing &&
+            this.isTorTab(tab) &&
+            (!privateOnly || tab.userContextId == this.userContextId)
+        )
       ) {
         return true;
       }
@@ -225,7 +385,11 @@ export const TorRouting = {
         );
       }
       await this.ensureProxy();
-      return await this._reopenInContext(win, tab, this.userContextId);
+      return await this._reopenInContext(
+        win,
+        tab,
+        this.contextIdForURI(tab.linkedBrowser.currentURI)
+      );
     } catch (error) {
       this._lastError = error.message;
       console.error("TorRouting toggle failed:", error);
@@ -256,20 +420,18 @@ export const TorRouting = {
       throw new Error("Tor tabs must be opened in a normal browser window");
     }
     await this.ensureProxy();
+    const { uri = null, ...tabOptions } = options;
     const tab = win.gBrowser.addTrustedTab(null, {
-      ...options,
+      ...tabOptions,
       skipLoad: true,
-      userContextId: this.userContextId,
+      userContextId: this.contextIdForURI(uri),
     });
     this._markTorTab(tab);
     return tab;
   },
 
-  routeOnion(win, tab, url) {
+  routeOnion(win, tab, url, { reloadIfSame = false } = {}) {
     this.init();
-    if (this.isTorTab(tab)) {
-      return Promise.resolve(tab);
-    }
     const pending = this._pendingOnionNavigations.get(tab);
     if (pending) {
       pending.url = url;
@@ -284,12 +446,17 @@ export const TorRouting = {
         if (tab.closing || !tab.isConnected) {
           return null;
         }
-        return await this._reopenInContext(
-          win,
-          tab,
-          this.userContextId,
-          request.url
-        );
+        const contextId = this.contextIdForURI(Services.io.newURI(request.url));
+        if (tab.userContextId == contextId) {
+          if (reloadIfSame) {
+            tab.linkedBrowser.loadURI(Services.io.newURI(request.url), {
+              triggeringPrincipal:
+                Services.scriptSecurityManager.getSystemPrincipal(),
+            });
+          }
+          return tab;
+        }
+        return await this._reopenInContext(win, tab, contextId, request.url);
       } catch (error) {
         this._lastError = error.message;
         console.error("TorRouting onion navigation failed:", error);
@@ -300,6 +467,7 @@ export const TorRouting = {
       }
     })();
     this._pendingOnionNavigations.set(tab, request);
+    this._navigationReplacements.set(tab.linkedBrowser, request.task);
     return request.task;
   },
 
@@ -323,6 +491,16 @@ export const TorRouting = {
     if (selected) {
       gBrowser.selectedTab = newTab;
     }
+    Services.obs.notifyObservers(
+      {
+        wrappedJSObject: {
+          oldBrowser: tab.linkedBrowser,
+          newBrowser: newTab.linkedBrowser,
+          newTab,
+        },
+      },
+      "wildbuzzard-tab-replaced"
+    );
     gBrowser.removeTab(tab, { skipPermitUnload: true });
 
     const triggeringPrincipal =
@@ -354,6 +532,9 @@ export const TorRouting = {
   },
 
   async ensureProxy() {
+    if (this._stopping) {
+      throw new Error("Tor is shutting down");
+    }
     const testPort = Services.prefs.getIntPref(TEST_PORT_PREF, 0);
     if (testPort > 0) {
       this._port = testPort;
@@ -376,7 +557,7 @@ export const TorRouting = {
       return configured;
     }
     const applicationDirectory = Services.dirsvc.get("GreD", Ci.nsIFile).path;
-    const binaryName = AppConstants.platform == "win" ? "arti.exe" : "arti";
+    const binaryName = AppConstants.platform == "win" ? "tor.exe" : "tor";
     const sourcePath = PathUtils.join(
       applicationDirectory,
       "runtime",
@@ -384,7 +565,7 @@ export const TorRouting = {
       binaryName
     );
     if (!(await IOUtils.exists(sourcePath))) {
-      throw new Error("The bundled Arti runtime is not installed");
+      throw new Error("The bundled Tor runtime is not installed");
     }
 
     const runtimeDirectory = PathUtils.join(
@@ -409,17 +590,11 @@ export const TorRouting = {
   async _startProxy() {
     const root = PathUtils.join(PathUtils.profileDir, "wildbuzzard-tor");
     const binaryPath = await this._binaryPath(root);
-    const cacheDirectory = PathUtils.join(root, "cache");
-    const stateDirectory = PathUtils.join(root, "state");
-    const publicDirectory = PathUtils.join(root, "public");
-    const portInfoPath = PathUtils.join(publicDirectory, "port_info.json");
-    const configPath = PathUtils.join(root, "arti.toml");
-    for (const path of [
-      root,
-      cacheDirectory,
-      stateDirectory,
-      publicDirectory,
-    ]) {
+    const stateDirectory = PathUtils.join(root, "tor-state");
+    const portInfoPath = PathUtils.join(root, "control-port");
+    const cookiePath = PathUtils.join(root, "control-cookie");
+    const configPath = PathUtils.join(root, "torrc");
+    for (const path of [root, stateDirectory]) {
       await IOUtils.makeDirectory(path, {
         createAncestors: true,
         ignoreExisting: true,
@@ -428,24 +603,32 @@ export const TorRouting = {
       await IOUtils.setPermissions(path, 0o700);
     }
     await IOUtils.remove(portInfoPath, { ignoreAbsent: true });
+    await IOUtils.remove(cookiePath, { ignoreAbsent: true });
     const config = [
-      "[proxy]",
-      'socks_listen = "127.0.0.1:auto"',
-      "",
-      "[storage]",
-      `cache_dir = ${quoteToml(cacheDirectory)}`,
-      `state_dir = ${quoteToml(stateDirectory)}`,
-      `port_info_file = ${quoteToml(portInfoPath)}`,
+      `DataDirectory ${quoteToml(stateDirectory)}`,
+      "ClientOnly 1",
+      "RunAsDaemon 0",
+      "SocksPort 127.0.0.1:auto IsolateSOCKSAuth ExtendedErrors",
+      "ControlPort 127.0.0.1:auto",
+      `ControlPortWriteToFile ${quoteToml(portInfoPath)}`,
+      "CookieAuthentication 1",
+      `CookieAuthFile ${quoteToml(cookiePath)}`,
+      "SafeLogging 1",
+      "Log warn stderr",
       "",
     ].join("\n");
     await IOUtils.writeUTF8(configPath, config, {
       tmpPath: `${configPath}.tmp`,
     });
     await IOUtils.setPermissions(configPath, 0o600);
-
     const process = await Subprocess.call({
       command: binaryPath,
-      arguments: ["proxy", "-c", configPath, "--log-level", "warn"],
+      arguments: [
+        "-f",
+        configPath,
+        "--__OwningControllerProcess",
+        String(Services.appinfo.processID),
+      ],
       environmentAppend: true,
       stdout: "pipe",
       stderr: "pipe",
@@ -460,13 +643,15 @@ export const TorRouting = {
         if (this._process != process) {
           return;
         }
+        this._control?.close();
+        this._control = null;
         this._process = null;
         this._port = 0;
         if (result.exitCode !== 0) {
           this._lastError =
             stderr.trim() ||
             stdout.trim() ||
-            `Arti exited with ${result.exitCode}`;
+            `Tor exited with ${result.exitCode}`;
         }
         this._notifyState();
       })
@@ -479,32 +664,144 @@ export const TorRouting = {
         }
       });
 
-    for (let attempt = 0; attempt < START_ATTEMPTS; attempt++) {
-      const port = await this._readSocksPort(portInfoPath);
-      if (port) {
-        this._port = port;
-        this._notifyState();
-        return port;
+    try {
+      for (let attempt = 0; attempt < START_ATTEMPTS; attempt++) {
+        if (this._stopping || this._process != process) {
+          throw new Error("Tor exited during startup");
+        }
+        if (
+          (await IOUtils.exists(portInfoPath)) &&
+          (await IOUtils.exists(cookiePath))
+        ) {
+          const portInfo = await IOUtils.readUTF8(portInfoPath);
+          const match = /^PORT=127\.0\.0\.1:(\d+)\s*$/.exec(portInfo);
+          const cookie = await IOUtils.read(cookiePath);
+          if (match && cookie.length == 32) {
+            const control = new TorControl(Number(match[1]));
+            this._control = control;
+            await control.send(
+              "AUTHENTICATE " +
+                Array.from(cookie, byte =>
+                  byte.toString(16).padStart(2, "0")
+                ).join("")
+            );
+            await control.send("TAKEOWNERSHIP");
+            await control.send("RESETCONF __OwningControllerProcess");
+            const listeners = await control.send("GETINFO net/listeners/socks");
+            const socks = /^net\/listeners\/socks="127\.0\.0\.1:(\d+)"$/.exec(
+              listeners[0]
+            );
+            if (!socks) {
+              throw new Error("Tor did not provide a local SOCKS listener");
+            }
+            await this._restoreAuthorizations();
+            this._lastError = "";
+            this._port = Number(socks[1]);
+            this._notifyState();
+            return this._port;
+          }
+        }
+        await new Promise(resolve => setTimeout(resolve, START_INTERVAL_MS));
       }
-      if (this._process != process) {
-        throw new Error(this._lastError || "Arti exited during startup");
-      }
-      await new Promise(resolve => setTimeout(resolve, START_INTERVAL_MS));
+      throw new Error("Tor did not open its control connection in time");
+    } catch (error) {
+      this._control?.close();
+      this._control = null;
+      await process.kill();
+      throw error;
     }
-    await process.kill();
-    throw new Error("Arti did not open its SOCKS proxy in time");
   },
 
-  async _readSocksPort(portInfoPath) {
-    if (!(await IOUtils.exists(portInfoPath))) {
-      return 0;
+  async _restoreAuthorizations() {
+    let entries;
+    try {
+      entries = await OnionAuthStore.load();
+    } catch {
+      // Cancelling Primary Password leaves public onion browsing available.
+      return;
     }
-    const portInfo = await IOUtils.readJSON(portInfoPath).catch(() => null);
-    const entry = portInfo?.ports?.find(
-      item =>
-        item.protocol == "socks" && /^inet:127\.0\.0\.1:\d+$/.test(item.address)
-    );
-    return entry ? Number(entry.address.split(":").at(-1)) : 0;
+    for (const entry of entries.values()) {
+      if (!entry.key) {
+        continue;
+      }
+      await this._control.send(
+        `ONION_CLIENT_AUTH_ADD ${entry.address} x25519:${entry.key}`
+      );
+    }
+  },
+
+  _queueAuthorization(operation) {
+    const task = this._authorizationUpdates.then(operation);
+    this._authorizationUpdates = task.catch(() => {});
+    return task;
+  },
+
+  setOnionAuthorization(address, value) {
+    return this._queueAuthorization(async () => {
+      address = onionAddress(address);
+      const previous = (await OnionAuthStore.load()).get(address);
+      const key = onionPrivateKey(value.key || previous?.key);
+      await this.ensureProxy();
+      await this._control.send(
+        `ONION_CLIENT_AUTH_ADD ${address} x25519:${key}`
+      );
+      try {
+        await OnionAuthStore.update(address, { ...value, key });
+      } catch (error) {
+        await this._control.send(
+          previous?.key
+            ? `ONION_CLIENT_AUTH_ADD ${address} x25519:${previous.key}`
+            : `ONION_CLIENT_AUTH_REMOVE ${address}`
+        );
+        throw error;
+      }
+    });
+  },
+
+  removeOnionAuthorization(address) {
+    return this._queueAuthorization(async () => {
+      address = onionAddress(address);
+      const entry = (await OnionAuthStore.load()).get(address);
+      if (this._control && entry?.key) {
+        await this._control.send(`ONION_CLIENT_AUTH_REMOVE ${address}`);
+      }
+      await OnionAuthStore.update(address, null);
+      await this.completeOnionAuthorization(address);
+    });
+  },
+
+  setOnionPrivacy(address, privateMode) {
+    return this._queueAuthorization(async () => {
+      address = onionAddress(address);
+      if (typeof privateMode != "boolean") {
+        throw new Error("Private mode must be true or false");
+      }
+      const entry = (await OnionAuthStore.load()).get(address);
+      await OnionAuthStore.update(address, {
+        ...entry,
+        key: entry?.key ?? null,
+        privateMode,
+      });
+      await this.completeOnionAuthorization(address);
+    });
+  },
+
+  async stop() {
+    this._stopping = true;
+    this._control?.close();
+    this._control = null;
+    if (this._startTask) {
+      await this._startTask.catch(() => {});
+    }
+    const process = this._process;
+    if (process) {
+      await process.kill(10000);
+      await process.wait();
+    }
+    this._process = null;
+    this._port = 0;
+    await this._authorizationUpdates;
+    OnionAuthStore.lock();
   },
 
   _isolationKey(channel) {
@@ -523,26 +820,31 @@ export const TorRouting = {
   },
 
   applyFilter(channel, proxyInfo, callback) {
-    if (
-      channel.loadInfo?.originAttributes.userContextId != this.userContextId
-    ) {
+    if (!this.isTorContext(channel.loadInfo?.originAttributes.userContextId)) {
       callback.onProxyFilterResult(proxyInfo);
       return;
     }
-    const isolationKey = this._isolationKey(channel);
-    const torProxy = lazy.ProxyService.newProxyInfoWithAuth(
-      "socks",
-      "127.0.0.1",
-      this._port || DEAD_PROXY_PORT,
-      `wildbuzzard-${isolationKey}`,
-      isolationKey,
-      "",
-      isolationKey,
-      Ci.nsIProxyInfo.TRANSPARENT_PROXY_RESOLVES_HOST,
-      PROXY_TIMEOUT_SECONDS,
-      null
-    );
-    callback.onProxyFilterResult(torProxy);
+    const applyTorProxy = () => {
+      const isolationKey = this._isolationKey(channel);
+      const torProxy = lazy.ProxyService.newProxyInfoWithAuth(
+        "socks",
+        "127.0.0.1",
+        this._port || DEAD_PROXY_PORT,
+        `wildbuzzard-${isolationKey}`,
+        isolationKey,
+        "",
+        isolationKey,
+        Ci.nsIProxyInfo.TRANSPARENT_PROXY_RESOLVES_HOST,
+        PROXY_TIMEOUT_SECONDS,
+        null
+      );
+      callback.onProxyFilterResult(torProxy);
+    };
+    if (this._port) {
+      applyTorProxy();
+    } else {
+      this.ensureProxy().then(applyTorProxy, applyTorProxy);
+    }
   },
 
   _notifyState(targetWindow = null) {
@@ -562,7 +864,7 @@ export const TorRouting = {
       BrowsingContext.get(loadInfo?.browsingContextID ?? 0);
     const topContext = context?.top ?? context;
     const browser = topContext?.embedderElement ?? null;
-    let win = browser?.ownerGlobal ?? null;
+    let win = browser?.documentGlobal ?? null;
     let tab = win?.gBrowser?.getTabForBrowser(browser) ?? null;
     if (!tab && loadInfo?.browsingContextID) {
       for (const candidateWindow of Services.wm.getEnumerator(
@@ -588,35 +890,54 @@ export const TorRouting = {
     };
   },
 
-  observe(subject, topic) {
+  observe(subject, topic, data) {
+    if (topic == "wildbuzzard-onion-authorization-needed") {
+      const browser = subject;
+      const uri = browser.currentURI;
+      if (this.isOnionURI(uri)) {
+        this.promptOnionAuthorization(
+          browser,
+          uri,
+          data == "onionAuthFailed"
+        ).catch(() =>
+          console.error("Could not open onion authorization dialog")
+        );
+      }
+      return;
+    }
     if (topic == "http-on-modify-request") {
       const channel = subject.QueryInterface(Ci.nsIHttpChannel);
-      if (!this.isOnionURI(channel.URI)) {
-        return;
-      }
-      if (
-        channel.loadInfo?.originAttributes.userContextId == this.userContextId
-      ) {
+      const torContext = this.isTorContext(
+        channel.loadInfo?.originAttributes.userContextId
+      );
+      if (!torContext && !this.isOnionURI(channel.URI)) {
         return;
       }
       const { tab, topLevel, win } = this._navigationTarget(channel.loadInfo);
-      if (tab && this.isTorTab(tab)) {
+      if (
+        torContext &&
+        (!topLevel ||
+          !tab ||
+          tab.userContextId == this.contextIdForURI(channel.URI))
+      ) {
         return;
       }
-      channel.cancel(Cr.NS_BINDING_ABORTED);
       if (tab && topLevel) {
-        this.routeOnion(win, tab, channel.URI.spec);
+        this.routeOnion(win, tab, channel.URI.spec, { reloadIfSame: true });
       }
+      channel.cancel(Cr.NS_BINDING_ABORTED);
       return;
     }
     if (topic != "quit-application-granted") {
       return;
     }
     Services.obs.removeObserver(this, "http-on-modify-request");
+    Services.obs.removeObserver(this, "wildbuzzard-onion-authorization-needed");
     lazy.ProxyService.unregisterChannelFilter(this);
     this.clearData();
-    this._process?.kill();
-    this._process = null;
+    this._stopping = true;
+    this._control?.close();
+    this._control = null;
   },
 
   QueryInterface: ChromeUtils.generateQI([

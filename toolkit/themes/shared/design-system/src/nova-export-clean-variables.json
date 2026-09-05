@@ -438,8 +438,8 @@
           "Smart Light (WIP)": "{color/green/40}"
         },
         "primary": {
-          "Light": "{color/violet/50}",
-          "Dark": "{color/violet/30}",
+          "Light": "#4a4a4a",
+          "Dark": "#c8c8c8",
           "HCM": "{Highlight}",
           "Private": "{color/violet/20}",
           "deemphasized": {
@@ -450,15 +450,15 @@
             "Smart Light (WIP)": "rgba(117, 41, 232, 0.10000000149011612)"
           },
           "hover": {
-            "Light": "{color/violet/60}",
-            "Dark": "{color/violet/20}",
+            "Light": "#363636",
+            "Dark": "#d8d8d8",
             "HCM": "{SelectedItem}",
             "Private": "{color/violet/20}",
             "Smart Light (WIP)": "{color/violet/60}"
           },
           "active": {
-            "Light": "{color/violet/70}",
-            "Dark": "{color/violet/10}",
+            "Light": "#292929",
+            "Dark": "#e6e6e6",
             "HCM": "{color/accent/primary/hover}",
             "Private": "{color/violet/10}",
             "Smart Light (WIP)": "{color/violet/70}"
@@ -620,8 +620,8 @@
           "Smart Light (WIP)": "{color/red/10}"
         },
         "information": {
-          "Light": "{color/violet/10}",
-          "Dark": "{color/violet/70}",
+          "Light": "#e6e6e6",
+          "Dark": "#363636",
           "HCM": "{background/color/canvas}",
           "Private": "{color/violet/70}",
           "Smart Light (WIP)": "{color/blue/10}"
@@ -664,15 +664,15 @@
           "HCM": "{ButtonFace}",
           "Private": "rgba(54, 45, 81, 0)",
           "hover": {
-            "Light": "{color/violet-desaturated/20}",
-            "Dark": "{color/violet-desaturated/50}",
+            "Light": "{color/gray/20}",
+            "Dark": "{color/gray/50}",
             "HCM": "{SelectedItemText}",
             "Private": "{color/violet-desaturated/50}",
             "Smart Light (WIP)": "rgba(172, 61, 234, 0.15000000596046448)"
           },
           "active": {
-            "Light": "{color/violet-desaturated/30}",
-            "Dark": "{color/violet-desaturated/40}",
+            "Light": "{color/gray/30}",
+            "Dark": "{color/gray/40}",
             "HCM": "{SelectedItemText}",
             "Private": "{color/violet-desaturated/40}",
             "Smart Light (WIP)": "rgba(172, 61, 234, 0.30000001192092896)"
@@ -711,8 +711,8 @@
               "Smart Light (WIP)": "{color/violet/80}"
             },
             "disabled": {
-              "Light": "{color/violet-desaturated/50}",
-              "Dark": "{color/violet-desaturated/40}",
+              "Light": "{color/gray/50}",
+              "Dark": "{color/gray/40}",
               "HCM": "{GrayText}",
               "Private": "{color/violet-desaturated/40}",
               "Smart Light (WIP)": "{button/background/color/primary}"
@@ -1057,7 +1057,7 @@
       },
       "text": {
         "color": {
-          "Light": "{color/violet/90}",
+          "Light": "{color/gray/85}",
           "Dark": "{color/gray/0}",
           "HCM": "{ButtonText}",
           "Private": "{color/violet/0}",
@@ -1349,8 +1349,8 @@
           }
         },
         "information": {
-          "Light": "{color/violet/50}",
-          "Dark": "{color/violet/20}",
+          "Light": "#4a4a4a",
+          "Dark": "#d8d8d8",
           "HCM": "{icon/color}",
           "Private": "{color/violet/20}",
           "Smart Light (WIP)": "{color/blue/40}"
@@ -2011,20 +2011,20 @@
     },
     "text": {
       "color": {
-        "Light": "{color/violet-desaturated/90}",
-        "Dark": "{color/violet-desaturated/0}",
+        "Light": "{color/gray/85}",
+        "Dark": "{color/gray/0}",
         "HCM": "{CanvasText}",
         "Private": "#FFFFFF",
         "deemphasized": {
-          "Light": "rgba(12, 27, 51, 0.699999988079071)",
-          "Dark": "rgba(240, 245, 251, 0.699999988079071)",
+          "Light": "rgba(34, 34, 34, 0.7)",
+          "Dark": "rgba(250, 250, 250, 0.7)",
           "HCM": "{CanvasText}",
           "Private": "rgba(251, 251, 254, 0.699999988079071)",
           "Smart Light (WIP)": "rgba(43, 27, 85, 0.699999988079071)"
         },
         "disabled": {
-          "Light": "rgba(12, 27, 51, 0.4000000059604645)",
-          "Dark": "rgba(240, 245, 251, 0.4000000059604645)",
+          "Light": "rgba(34, 34, 34, 0.4)",
+          "Dark": "rgba(250, 250, 250, 0.4)",
           "HCM": "{GrayText}",
           "Private": "rgba(251, 251, 254, 0.4000000059604645)",
           "Smart Light (WIP)": "rgba(21, 20, 26, 0.4000000059604645)"
@@ -2133,8 +2133,8 @@
         },
         "text": {
           "color": {
-            "Light": "{color/violet-desaturated/70}",
-            "Dark": "{color/violet-desaturated/10}",
+            "Light": "{color/gray/65}",
+            "Dark": "{color/gray/15}",
             "HCM": "{text/color}",
             "Private": "{color/violet-desaturated/10}",
             "Smart Light (WIP)": "{text/color}",
@@ -2491,15 +2491,15 @@
       "background": {
         "color": {
           "gradient-leading": {
-            "Light": "#e7f3ff",
-            "Dark": "#0d2640",
+            "Light": "#e6e6e6",
+            "Dark": "#252525",
             "HCM": "{Canvas}",
             "Private": "{color/violet-desaturated/90}",
             "Smart Light (WIP)": "{toolbar/background/color}"
           },
           "gradient-trailing": {
-            "Light": "{color/violet/30}",
-            "Dark": "#081a2d",
+            "Light": "#e6e6e6",
+            "Dark": "#252525",
             "HCM": "{Canvas}",
             "Private": "{color/violet-desaturated/90}",
             "Smart Light (WIP)": "{toolbar/background/color}"
@@ -2568,8 +2568,8 @@
             "Private": "{button/text/color/ghost/active}",
             "Smart Light (WIP)": "{toolbarbutton/icon/fill/active}"
           },
-          "Light": "{color/violet-desaturated/50}",
-          "Dark": "{color/violet-desaturated/10}",
+          "Light": "{color/gray/50}",
+          "Dark": "{color/gray/15}",
           "HCM": "{button/text/color}",
           "Private": "{color/violet-desaturated/10}",
           "Smart Light (WIP)": "{color/violet-desaturated/50}",
@@ -2642,15 +2642,15 @@
       "background": {
         "color": {
           "hover": {
-            "Light": "rgba(116, 160, 206, 0.25)",
-            "Dark": "rgba(159, 190, 222, 0.25)",
+            "Light": "rgba(100, 100, 100, 0.25)",
+            "Dark": "rgba(200, 200, 200, 0.25)",
             "HCM": "{button/background/color/hover}",
             "Private": "rgba(159, 190, 222, 0.25)",
             "Smart Light (WIP)": "#FFFFFF"
           },
           "active": {
-            "Light": "rgba(116, 160, 206, 0.4000000059604645)",
-            "Dark": "rgba(159, 190, 222, 0.4000000059604645)",
+            "Light": "rgba(100, 100, 100, 0.4)",
+            "Dark": "rgba(200, 200, 200, 0.4)",
             "HCM": "{button/background/color/active}",
             "Private": "rgba(159, 190, 222, 0.4000000059604645)",
             "Smart Light (WIP)": "#FFFFFF"
@@ -3216,61 +3216,61 @@
       },
       "gray": {
         "0": {
-          "Value": "#FCFBFF"
+          "Value": "#fafafa"
         },
         "10": {
-          "Value": "#EFEDF2"
+          "Value": "#ededed"
         },
         "15": {
-          "Value": "#E3E2E7"
+          "Value": "#e2e2e2"
         },
         "20": {
-          "Value": "#D6D5DA"
+          "Value": "#d6d6d6"
         },
         "25": {
-          "Value": "#C7C6CB"
+          "Value": "#c7c7c7"
         },
         "30": {
-          "Value": "#B7B6BA"
+          "Value": "#b7b7b7"
         },
         "35": {
-          "Value": "#A6A4A9"
+          "Value": "#a6a6a6"
         },
         "40": {
-          "Value": "#949297"
+          "Value": "#949494"
         },
         "45": {
-          "Value": "#817F84"
+          "Value": "#818181"
         },
         "50": {
-          "Value": "#67666A"
+          "Value": "#676767"
         },
         "55": {
-          "Value": "#515054"
+          "Value": "#515151"
         },
         "60": {
-          "Value": "#3F3E42"
+          "Value": "#414141"
         },
         "65": {
-          "Value": "#312F33"
+          "Value": "#363636"
         },
         "70": {
-          "Value": "#252428"
+          "Value": "#303030"
         },
         "75": {
-          "Value": "#1D1B1F"
+          "Value": "#292929"
         },
         "80": {
-          "Value": "#171519"
+          "Value": "#252525"
         },
         "85": {
-          "Value": "#131215"
+          "Value": "#222222"
         },
         "90": {
-          "Value": "#121114"
+          "Value": "#1e1e1e"
         },
         "100": {
-          "Value": "#15141A"
+          "Value": "#151515"
         },
         "05": {
           "Value": "#F7F6FB"

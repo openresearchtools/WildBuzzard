@@ -142,7 +142,7 @@
 ; We don't have a complete view of which dlls to expect when doing an artifact
 ; build because we haven't run the relevant parts of configure, so we guess
 ; here and trust what came from our source build.
-#if defined(MOZ_ARTIFACT_BUILDS) && defined(XP_WIN)
+#if defined(MOZ_TORFACT_BUILDS) && defined(XP_WIN)
 @BINPATH@/vcruntime*.dll
 @BINPATH@/msvcp*.dll
 @BINPATH@/libEGL.dll
@@ -170,10 +170,10 @@
 #endif
 @BINPATH@/@MOZ_APP_NAME@
 #endif
-#if WILDBUZZARD_ARTI_RUNTIME
-@BINPATH@/runtime/tor/arti@BIN_SUFFIX@
-@BINPATH@/runtime/tor/arti.toml
-@BINPATH@/notices/source/wildbuzzard-arti-2.5.1-provenance.zip
+#if WILDBUZZARD_TOR_RUNTIME
+@BINPATH@/runtime/tor/tor@BIN_SUFFIX@
+@BINPATH@/runtime/tor/tor.toml
+@BINPATH@/notices/source/wildbuzzard-tor-0.4.9.11-provenance.zip
 #endif
 @BINPATH@/notices/BLOCKER-ASSET-SOURCE-NOTICE
 @BINPATH@/notices/COPYING
@@ -182,15 +182,8 @@
 @BINPATH@/notices/NOTICE
 @BINPATH@/notices/SOURCE-NOTICE
 @BINPATH@/notices/blocker/SOURCES.lock.json
-@BINPATH@/notices/arti-crates/THIRD-PARTY.json
-@BINPATH@/notices/arti-crates/licenses/*
-@BINPATH@/notices/wildbuzzard-cli/THIRD-PARTY.json
-@BINPATH@/notices/wildbuzzard-cli/licenses/Apache-2.0.txt
-@BINPATH@/notices/wildbuzzard-cli/licenses/MIT-dtolnay-serde.txt
-@BINPATH@/notices/wildbuzzard-cli/licenses/Unicode-3.0.txt
-@BINPATH@/notices/wildbuzzard-cli/licenses/Unlicense.txt
-@BINPATH@/notices/wildbuzzard-cli/licenses/memchr-COPYING.txt
-@BINPATH@/notices/wildbuzzard-cli/licenses/memchr-MIT.txt
+@BINPATH@/notices/tor-notices/THIRD-PARTY.json
+@BINPATH@/notices/tor-notices/licenses/*
 @RESPATH@/application.ini
 #ifdef MOZ_UPDATER
 # update-settings.ini has been removed on macOS.
@@ -472,7 +465,7 @@ bin/libfreebl_64int_3.so
 @BINPATH@/default-browser-agent@BIN_SUFFIX@
 #endif
 
-#ifdef MOZ_ARTIFACT_BUILDS
+#ifdef MOZ_TORFACT_BUILDS
 ; Test workers unpack artifact build packages and need `jogfile.json`
 @RESPATH@/jogfile.json
 #endif

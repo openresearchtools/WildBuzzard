@@ -12,6 +12,9 @@
 #include "mozilla/RuntimeExceptionModule.h"
 #include "mozilla/ScopeExit.h"
 #include "BrowserDefines.h"
+#ifdef MOZ_WILDBUZZARD_COMMAND_LINE
+#  include "WildBuzzardCommandLine.h"
+#endif
 #if defined(XP_WIN)
 #  include <windows.h>
 #  include <stdlib.h>
@@ -338,6 +341,13 @@ static void ExpandFileDescriptorTable() {
 int main(int argc, char* argv[], char* envp[]) {
 #if defined(XP_UNIX)
   ReserveDefaultFileDescriptors();
+#endif
+
+#ifdef MOZ_WILDBUZZARD_COMMAND_LINE
+  int commandExitCode;
+  if (HandleWildBuzzardCommandLine(argc, argv, commandExitCode)) {
+    return commandExitCode;
+  }
 #endif
 
 #ifdef MOZ_BACKGROUNDTASKS

@@ -39,7 +39,7 @@ owner = "wildbuzzard"
 status = "core"
 paths = [
   "wildbuzzard/browser/components/tor",
-  "wildbuzzard/third_party/arti.toml",
+  "wildbuzzard/third_party/tor.toml",
 ]
 
 [[feature]]

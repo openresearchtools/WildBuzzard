@@ -70,8 +70,17 @@ function getCardAndCheckHeader(document, expectedHeaderL10n) {
 }
 
 function assertHappyBullets(card) {
+  Assert.ok(
+    !card.shadowRoot.querySelector(
+      "[data-l10n-id=security-privacy-status-trackers-label]"
+    ),
+    "No block counter is displayed"
+  );
   let bullets = card.shadowRoot.querySelectorAll("li");
-  Assert.equal(bullets.length, 2);
+  Assert.equal(
+    bullets.length,
+    card.strictEnabled || card.customEnabled ? 2 : 1
+  );
   for (const bullet of bullets) {
     Assert.equal(
       bullet.classList.contains("status-ok"),
@@ -586,11 +595,15 @@ add_task(async function test_update_status_indicator() {
 
   // Define testers for each UI state.
   let absent = card => {
-    let label = card.shadowRoot.querySelector("li:nth-child(3) p");
+    let label = card.shadowRoot.querySelector(
+      'p[data-l10n-id^="security-privacy-status-update-"]'
+    );
     Assert.equal(label, null, "No install status label is present");
   };
   let issue = card => {
-    let label = card.shadowRoot.querySelector("li:nth-child(3) p");
+    let label = card.shadowRoot.querySelector(
+      'p[data-l10n-id^="security-privacy-status-update-"]'
+    );
     Assert.equal(
       label.attributes.getNamedItem("data-l10n-id").value,
       "security-privacy-status-update-error-label",
@@ -598,7 +611,9 @@ add_task(async function test_update_status_indicator() {
     );
   };
   let needed = card => {
-    let label = card.shadowRoot.querySelector("li:nth-child(3) p");
+    let label = card.shadowRoot.querySelector(
+      'p[data-l10n-id^="security-privacy-status-update-"]'
+    );
     Assert.equal(
       label.attributes.getNamedItem("data-l10n-id").value,
       "security-privacy-status-update-needed-label",
@@ -606,7 +621,9 @@ add_task(async function test_update_status_indicator() {
     );
   };
   let ok = card => {
-    let label = card.shadowRoot.querySelector("li:nth-child(3) p");
+    let label = card.shadowRoot.querySelector(
+      'p[data-l10n-id^="security-privacy-status-update-"]'
+    );
     Assert.equal(
       label.attributes.getNamedItem("data-l10n-id").value,
       "security-privacy-status-up-to-date-label",
@@ -614,7 +631,9 @@ add_task(async function test_update_status_indicator() {
     );
   };
   let checking = card => {
-    let label = card.shadowRoot.querySelector("li:nth-child(3) p");
+    let label = card.shadowRoot.querySelector(
+      'p[data-l10n-id^="security-privacy-status-update-"]'
+    );
     Assert.equal(
       label.attributes.getNamedItem("data-l10n-id").value,
       "security-privacy-status-update-checking-label",
@@ -651,7 +670,11 @@ add_task(async function test_update_status_indicator() {
         info(`testing AppUpdateStatus ${status}`);
         card.appUpdateStatus = parseInt(status);
         await card.updateComplete;
-        cases[status](card);
+        if (AppConstants.MOZ_UPDATER) {
+          cases[status](card);
+        } else {
+          absent(card);
+        }
       }
     }
   );

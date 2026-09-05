@@ -43,9 +43,17 @@
                     ]
                   },
                   "search_url": {
-                    "type": "string",
-                    "format": "url",
-                    "pattern": "^(https://|http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:\\d*)?(/|$)).*$",
+                    "choices": [
+                      {
+                        "type": "string",
+                        "format": "url",
+                        "pattern": "^(https://|http://(localhost|127\\.0\\.0\\.1|\\[::1\\])(:\\d*)?(/|$)).*$"
+                      },
+                      {
+                        "type": "string",
+                        "format": "strictRelativeUrl"
+                      }
+                    ],
                     "preprocess": "localize"
                   },
                   "favicon_url": {

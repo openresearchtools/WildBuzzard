@@ -60,3 +60,5 @@ skip-if = [
   "os == 'win' && os_version == '11.26200' && arch == 'x86' && debug", # Bug 1797751
   "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && !opt", # Bug 1797751
 ]
+
+["browser_ext_local_search_provider.js"]

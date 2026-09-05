@@ -5,7 +5,7 @@
 // Branding-specific defaults. WildBuzzard does not operate an update,
 // release-note, support, telemetry, or marketing service.
 pref("startup.homepage_override_url", "");
-pref("startup.homepage_welcome_url", "about:welcome");
+pref("startup.homepage_welcome_url", "");
 pref("startup.homepage_welcome_url.additional", "");
 pref("app.update.interval", 86400);
 pref("app.update.promptWaitTime", 86400);

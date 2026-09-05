@@ -38,9 +38,7 @@ class ProductNamespaceIsolationTests(unittest.TestCase):
             'imply_option("--enable-crashreporter", False)', product_configure
         )
         self.assertNotIn("--allow-addon-sideload", product_configure)
-        self.assertIn(
-            '@depends(milestone, "MOZ_APP_VENDOR")', toolkit_configure
-        )
+        self.assertIn('@depends(milestone, "MOZ_APP_VENDOR")', toolkit_configure)
         self.assertIn('app_vendor[0] != "WildBuzzard"', toolkit_configure)
         self.assertIn(
             'imply_option("--enable-system-extension-dirs", False)',
@@ -104,9 +102,7 @@ class ProductNamespaceIsolationTests(unittest.TestCase):
         browser_control = source(
             "browser/components/wildbuzzardcontrol/WildBuzzardControlStartup.sys.mjs"
         )
-        cli_control = source(
-            "wildbuzzard/components/wildbuzzard-cli/runner/src/main.rs"
-        )
+        cli_control = source("browser/app/WildBuzzardCommandLine.cpp")
 
         for implementation in (
             remote_client,
@@ -123,8 +119,8 @@ class ProductNamespaceIsolationTests(unittest.TestCase):
         self.assertIn("org.wildbuzzard.WildBuzzard.desktop", appimage_script)
         self.assertIn('Services.env.get("XDG_STATE_HOME")', browser_control)
         self.assertNotIn('Services.env.get("XDG_DATA_HOME")', browser_control)
-        self.assertIn('env::var_os("XDG_STATE_HOME")', cli_control)
-        self.assertNotIn('env::var_os("XDG_DATA_HOME")', cli_control)
+        self.assertIn('Env("XDG_STATE_HOME")', cli_control)
+        self.assertNotIn('Env("XDG_DATA_HOME")', cli_control)
 
     def test_release_payload_enforces_product_identity(self):
         verifier = source("wildbuzzard/scripts/verify_browser_legal_payload.py")

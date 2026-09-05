@@ -9,6 +9,8 @@ ChromeUtils.defineESModuleGetters(lazy, {
   BrowserToolboxLauncher:
     "resource://devtools/client/framework/browser-toolbox/Launcher.sys.mjs",
   DevToolsShim: "chrome://devtools-startup/content/DevToolsShim.sys.mjs",
+  OnionAuthStore: "resource:///modules/OnionAuthStore.sys.mjs",
+  TorRouting: "resource:///modules/TorRouting.sys.mjs",
 });
 
 const TOOL_INFO = [
@@ -129,6 +131,11 @@ const TOOL_INFO = [
   ["torrent_control", "Torrent Control", "Control qBittorrent transfers."],
   ["torrent_add", "Torrent Add", "Add a magnet link or local torrent file."],
   [
+    "onion_auth",
+    "Onion Authorization",
+    "Manage v3 onion authorization keys and per-domain private mode. Supply private keys only in JSON through --input -.",
+  ],
+  [
     "run",
     "Browser Run",
     "Run a multi-step workflow against the native browser SDK.",
@@ -163,6 +170,13 @@ const PAGE_SCOPED = new Set([
 
 const COMMON_PAGE = { page: "number" };
 const TOOL_PARAMETERS = {
+  onion_auth: {
+    action: "string",
+    address: "string",
+    name: "string",
+    remember: "boolean",
+    privateMode: "boolean",
+  },
   tabs: {
     action: "string",
     url: "string",
@@ -525,7 +539,10 @@ function parseToolFlags(argv, tool, initial) {
     if (
       inline === undefined &&
       ["boolean", "mixed"].includes(type) &&
-      (argv[index + 1] === undefined || argv[index + 1].startsWith("--"))
+      (argv[index + 1] === undefined ||
+        argv[index + 1].startsWith("--") ||
+        (type === "boolean" &&
+          !/^(?:1|0|true|false|yes|no|on|off|null)$/i.test(argv[index + 1])))
     ) {
       args[property] = true;
       continue;
@@ -560,7 +577,12 @@ function ref(value) {
 }
 
 function ensureInput(value) {
-  const parsed = JSON.parse(value);
+  let parsed;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw new Error("--input must contain valid JSON");
+  }
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("--input must contain a JSON object");
   }
@@ -606,7 +628,10 @@ function resultPage(result) {
 // eslint-disable-next-line complexity
 function applyPositionals(tool, args, values) {
   const take = () => values.shift();
-  if (tool === "tabs") {
+  if (tool === "onion_auth") {
+    args.action ??= take() ?? "list";
+    args.address ??= take();
+  } else if (tool === "tabs") {
     const first = take();
     const actions = new Set([
       "list",
@@ -654,7 +679,9 @@ function applyPositionals(tool, args, values) {
       args.ref ??= ref(take());
     }
     if (kind === "fill" || kind === "select") {
-      args.ref ??= ref(take());
+      if (kind !== "fill" || !args.fields?.length) {
+        args.ref ??= ref(take());
+      }
       args.value ??= take() ?? "";
       if (kind === "fill") {
         args.clear ??= true;
@@ -782,6 +809,9 @@ function help(tool) {
     }
     if (name === "devtools") {
       return `wildbuzzard devtools [open|close|browser-toolbox|TOOL|protocol METHOD [JSON]] [--page ID]\n\nOpen or control native Mozilla DevTools for the session page. TOOL may be inspector, accessibility, webconsole, netmonitor, jsdebugger, styleeditor, storage, performance, or memory.`;
+    }
+    if (name === "onion_auth") {
+      return "wildbuzzard onion-auth [list|set|remove|privacy] [ADDRESS]\n\nFor set, supply a JSON object through --input - with address, key, optional name, remember (default false), and privateMode (default true for a new site). Private keys are never returned.\n\nUse onion-auth privacy ADDRESS --private-mode false to keep this site's login cookies and history while still using Tor. Use --private-mode true to restore private mode. Turning off private mode also remembers the site's key in encrypted storage. Restoring private mode keeps the saved key.\n\nExample: wildbuzzard --json --input - onion-auth set < authorization.json";
     }
     const flags = Object.keys(TOOL_PARAMETERS[name])
       .map(
@@ -957,7 +987,34 @@ async function devtools(argv, cwd, session, input, signal) {
   };
 }
 
+async function onionAuthorization(args, inputSource, input) {
+  const action = args.action;
+  if (action === "set") {
+    if (inputSource !== "-" || typeof input.key !== "string") {
+      throw new Error("Supply the private key in JSON through --input -");
+    }
+    await lazy.TorRouting.setOnionAuthorization(args.address, args);
+    await lazy.TorRouting.completeOnionAuthorization(args.address);
+  } else if (action === "privacy") {
+    await lazy.TorRouting.setOnionPrivacy(args.address, args.privateMode);
+  } else if (action === "remove") {
+    await lazy.TorRouting.removeOnionAuthorization(args.address);
+  } else if (action !== "list") {
+    throw new Error("onion-auth action must be list, set, remove, or privacy");
+  }
+  const entries = await lazy.OnionAuthStore.list();
+  return {
+    content: [{ type: "text", text: JSON.stringify(entries, null, 2) }],
+    details: { action, authorizations: entries },
+  };
+}
+
 async function execute(request, signal) {
+  // DOM commands must run in a promise job outside the socket callback.
+  await new Promise(resolve => Services.tm.dispatchToMainThread(resolve));
+  if (signal?.aborted) {
+    throw new Error("WildBuzzard command was cancelled");
+  }
   if (request.version !== 1 || !Array.isArray(request.argv)) {
     throw new Error("invalid Wild Buzzard command request");
   }
@@ -1078,6 +1135,14 @@ async function execute(request, signal) {
     args.code ??= await IOUtils.readUTF8(absolute(cwd, codeFile));
   }
   applyPositionals(command, args, parsed.positionals);
+  if (command === "onion_auth") {
+    const result = await onionAuthorization(args, inputSource, input);
+    return {
+      exitCode: 0,
+      stdout: printResult(command, result, [], json),
+      stderr: "",
+    };
+  }
   if (PAGE_SCOPED.has(command) && args.page === undefined) {
     const page = currentPages.get(session);
     if (page === undefined) {

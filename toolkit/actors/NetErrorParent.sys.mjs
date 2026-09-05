@@ -197,6 +197,27 @@ export class NetErrorParent extends EscapablePageParent {
 
   receiveMessage(message) {
     switch (message.name) {
+      case "Browser:OnionAuthorizationNeeded": {
+        if (
+          this.browsingContext != this.browsingContext.top ||
+          this.manager != this.browsingContext.currentWindowGlobal
+        ) {
+          break;
+        }
+        const uri = this.manager.documentURI;
+        const error = new URL(uri.spec).searchParams.get("e");
+        if (
+          uri.spec.startsWith("about:neterror?") &&
+          ["onionAuthRequired", "onionAuthFailed"].includes(error)
+        ) {
+          Services.obs.notifyObservers(
+            this.browser,
+            "wildbuzzard-onion-authorization-needed",
+            error
+          );
+        }
+        break;
+      }
       case "Browser:EnableOnlineMode":
         // Reset network state and refresh the page.
         Services.io.offline = false;

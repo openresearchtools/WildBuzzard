@@ -8,20 +8,25 @@ if (Services.prefs.getBoolPref("browser.settings-redesign.enabled", false)) {
   // The appearance and tabs panes already have Mozilla modules in their
   // slots, so the WildBuzzard group modules load here instead.
   const appearancePane = SettingPaneManager.get("appearance");
-  appearancePane.groupIds = [
-    "wildbuzzardBrowserStyle",
-    "wildbuzzardAppearanceDetails",
-    "wildbuzzardThemeColors",
-    "wildbuzzardStatusBar",
-    ...appearancePane.groupIds,
-  ];
+  appearancePane.groupIds = ["wildbuzzardThemeColors"];
   ChromeUtils.importESModule(
     "chrome://browser/content/wildbuzzard/settings/wildbuzzardAppearance.mjs",
     { global: "current" }
   );
 
+  const aboutPane = SettingPaneManager.get("about");
+  aboutPane.groupIds = ["wildbuzzardAbout", "updates", "wildbuzzardAboutLinks"];
+  ChromeUtils.importESModule(
+    "chrome://browser/content/wildbuzzard/settings/wildbuzzardAbout.mjs",
+    { global: "current" }
+  );
+
   const tabsPane = SettingPaneManager.get("tabsBrowsing");
-  tabsPane.groupIds = ["wildbuzzardTabs", ...tabsPane.groupIds];
+  tabsPane.groupIds = [
+    "wildbuzzardTabs",
+    "wildbuzzardSpelling",
+    ...tabsPane.groupIds,
+  ];
   ChromeUtils.importESModule(
     "chrome://browser/content/wildbuzzard/settings/wildbuzzardTabs.mjs",
     { global: "current" }

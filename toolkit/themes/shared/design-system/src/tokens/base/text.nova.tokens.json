@@ -2,22 +2,22 @@
   "color": {
     "@base": {
       "value": {
-        "light": "{color.violet-desaturated.90}",
-        "dark": "{color.violet-desaturated.0}",
+        "light": "{color.gray.85}",
+        "dark": "{color.gray.0}",
         "forcedColors": "CanvasText"
       }
     },
     "deemphasized": {
       "value": {
-        "light": "rgba(12, 27, 51, 0.7)",
-        "dark": "rgba(240, 245, 251, 0.7)",
+        "light": "rgba(34, 34, 34, 0.7)",
+        "dark": "rgba(250, 250, 250, 0.7)",
         "forcedColors": "CanvasText"
       }
     },
     "disabled": {
       "value": {
-        "light": "rgba(12, 27, 51, 0.4)",
-        "dark": "rgba(240, 245, 251, 0.4)",
+        "light": "rgba(34, 34, 34, 0.4)",
+        "dark": "rgba(250, 250, 250, 0.4)",
         "forcedColors": "GrayText"
       }
     },

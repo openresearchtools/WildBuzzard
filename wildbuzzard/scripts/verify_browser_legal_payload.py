@@ -3,22 +3,8 @@
 
 import argparse
 import configparser
-import importlib.util
+import json
 from pathlib import Path
-
-PROVENANCE_SPEC = importlib.util.spec_from_file_location(
-    "runner_crate_provenance",
-    Path(__file__).with_name("runner_crate_provenance.py"),
-)
-PROVENANCE = importlib.util.module_from_spec(PROVENANCE_SPEC)
-PROVENANCE_SPEC.loader.exec_module(PROVENANCE)
-
-ARTI_SPEC = importlib.util.spec_from_file_location(
-    "arti_crate_provenance",
-    Path(__file__).with_name("arti_crate_provenance.py"),
-)
-ARTI_PROVENANCE = importlib.util.module_from_spec(ARTI_SPEC)
-ARTI_SPEC.loader.exec_module(ARTI_PROVENANCE)
 
 
 class ValidationError(Exception):
@@ -63,40 +49,10 @@ def verify_file(path, expected):
         raise ValidationError(f"legal file differs from its source: {path}")
 
 
-def runner_payloads(source_root):
-    runner_root = (
-        source_root / "wildbuzzard" / "components" / "wildbuzzard-cli" / "runner"
-    )
-    inventory_path = runner_root / "third_party" / "THIRD-PARTY.json"
-    license_root = runner_root / "third_party" / "licenses"
-    try:
-        inventory = PROVENANCE.validate_inventory(
-            runner_root / "Cargo.lock", inventory_path, license_root
-        )
-    except PROVENANCE.ValidationError as error:
-        raise ValidationError(str(error)) from error
-    payloads = {"THIRD-PARTY.json": inventory_path}
-    for package in inventory["packages"]:
-        for license_file in package["licenseFiles"]:
-            relative = license_file["installedPath"]
-            payloads[relative] = runner_root / "third_party" / relative
-    return payloads
-
-
-def arti_payloads(source_root):
-    arti_root = source_root / "third_party" / "arti"
-    legal_root = source_root / "wildbuzzard" / "third_party" / "arti-crates"
+def tor_payloads(source_root):
+    legal_root = source_root / "wildbuzzard" / "third_party" / "tor-notices"
     inventory_path = legal_root / "THIRD-PARTY.json"
-    license_root = legal_root / "licenses"
-    try:
-        inventory = ARTI_PROVENANCE.validate_inventory(
-            arti_root / "Cargo.lock",
-            inventory_path,
-            license_root,
-            source_root / "wildbuzzard" / "third_party" / "arti.toml",
-        )
-    except ARTI_PROVENANCE.ValidationError as error:
-        raise ValidationError(str(error)) from error
+    inventory = json.loads(inventory_path.read_text())
     payloads = {"THIRD-PARTY.json": inventory_path}
     for package in inventory["packages"]:
         for license_file in package["licenseFiles"]:
@@ -155,10 +111,8 @@ def verify_payload(source_root, browser_root, documentation_root=None):
     expected = expected_payloads(source_root)
     for name, source in expected.items():
         verify_file(browser_root / "notices" / name, source)
-    runner = runner_payloads(source_root)
-    verify_exact_tree(browser_root / "notices" / "wildbuzzard-cli", runner)
-    arti = arti_payloads(source_root)
-    verify_exact_tree(browser_root / "notices" / "arti-crates", arti)
+    tor = tor_payloads(source_root)
+    verify_exact_tree(browser_root / "notices" / "tor-notices", tor)
     blocker = {
         "SOURCES.lock.json": source_root
         / "browser"
@@ -179,8 +133,7 @@ def verify_payload(source_root, browser_root, documentation_root=None):
         }
         for destination, source_name in documentation_names.items():
             verify_file(documentation_root / destination, expected[source_name])
-        verify_exact_tree(documentation_root / "runner-third-party", runner)
-        verify_exact_tree(documentation_root / "arti-third-party", arti)
+        verify_exact_tree(documentation_root / "tor-third-party", tor)
         verify_exact_tree(documentation_root / "blocker", blocker)
 
 

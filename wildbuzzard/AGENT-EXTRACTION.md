@@ -16,7 +16,7 @@ without discarding browser features added after the Agent appeared.
 | `35c82d73c1d3` | ESR 153 adaptation of the Waterfox integration | Retained |
 | `06fc020e461d` | Complete native content-blocker integration | Retained |
 
-Later Widevine, Tor/Arti, qBittorrent/libtorrent, blocker, and Waterfox-derived
+Later Widevine, Tor/Tor, qBittorrent/libtorrent, blocker, and Waterfox-derived
 browser changes are retained by feature ownership, not reverted as a range.
 The original integration branch remains an immutable recovery source.
 
@@ -32,7 +32,7 @@ The following remain browser-owned:
 
 - reviewed Waterfox UI and privacy components;
 - native content blocking;
-- Tor/Arti routing and toolbar controls;
+- Tor/Tor routing and toolbar controls;
 - Widevine acquisition with a user-disable preference;
 - native qBittorrent downloads and transfer management;
 - generic authenticated browser control and CLI;

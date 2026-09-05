@@ -74,7 +74,9 @@ function handlePreconnect(request, response, params) {
 function handleLogpointScript(request, response) {
   response.setHeader("Content-Type", "application/javascript", false);
   response.write(
-    "globalThis.wildBuzzardLogpointRuns = (globalThis.wildBuzzardLogpointRuns || 0) + 1;"
+    "function runLogpointFixture() {\n" +
+      "globalThis.wildBuzzardLogpointRuns = (globalThis.wildBuzzardLogpointRuns || 0) + 1;\n" +
+      "}\nrunLogpointFixture();"
   );
 }
 

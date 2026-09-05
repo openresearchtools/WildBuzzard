@@ -27,7 +27,7 @@ add_task(async function test_logpoint_survives_reload() {
       "set_logpoint",
       {
         expression: '"reload-hit"',
-        line: 1,
+        line: 2,
         page,
         url: LOGPOINT_SCRIPT,
       },

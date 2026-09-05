@@ -283,6 +283,7 @@ export class EngineURL {
     switch (templateURI.scheme) {
       case "http":
       case "https":
+      case "moz-extension":
         this.template = template;
         break;
       default:

@@ -470,6 +470,7 @@ let JSWINDOWACTORS = {
       esModuleURI: "resource://gre/actors/NetErrorChild.sys.mjs",
       events: {
         DOMDocElementInserted: {},
+        DOMContentLoaded: {},
         click: {},
       },
     },

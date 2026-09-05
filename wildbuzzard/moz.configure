@@ -12,85 +12,85 @@ imply_option("--enable-crashreporter", False)
 set_define("MOZ_WILDBUZZARD", True)
 
 option(
-    "--with-wildbuzzard-arti",
+    "--with-wildbuzzard-tor",
     nargs=1,
-    help="Path to the Arti binary bundled with WildBuzzard",
+    help="Path to the Tor binary bundled with WildBuzzard",
 )
 
 
-@depends("--with-wildbuzzard-arti")
+@depends("--with-wildbuzzard-tor")
 @imports("os")
-def wildbuzzard_arti(value):
+def wildbuzzard_tor(value):
     if not value:
         return
     path = os.path.abspath(value[0])
     if not os.path.isfile(path):
-        die(f"Cannot find Arti at {path}")
+        die(f"Cannot find Tor at {path}")
     return path
 
 
-set_config("WILDBUZZARD_ARTI", wildbuzzard_arti)
+set_config("WILDBUZZARD_TOR", wildbuzzard_tor)
 
 option(
-    "--with-wildbuzzard-arti-config",
+    "--with-wildbuzzard-tor-config",
     nargs=1,
-    help="Path to the metadata for the Arti binary bundled with WildBuzzard",
+    help="Path to the metadata for the Tor binary bundled with WildBuzzard",
 )
 
 
-@depends("--with-wildbuzzard-arti-config", wildbuzzard_arti)
+@depends("--with-wildbuzzard-tor-config", wildbuzzard_tor)
 @imports("os")
-def wildbuzzard_arti_config(value, binary):
+def wildbuzzard_tor_config(value, binary):
     if bool(value) != bool(binary):
-        die("The Arti binary and metadata must be configured together")
+        die("The Tor binary and metadata must be configured together")
     if not value:
         return
     path = os.path.abspath(value[0])
     if not os.path.isfile(path):
-        die(f"Cannot find Arti metadata at {path}")
+        die(f"Cannot find Tor metadata at {path}")
     return path
 
 
-set_config("WILDBUZZARD_ARTI_CONFIG", wildbuzzard_arti_config)
+set_config("WILDBUZZARD_TOR_CONFIG", wildbuzzard_tor_config)
 
 option(
-    "--with-wildbuzzard-arti-provenance",
+    "--with-wildbuzzard-tor-provenance",
     nargs=1,
-    help="Path to the pinned Arti SBOM, source binding, and license provenance ZIP",
+    help="Path to the pinned Tor source binding and license provenance ZIP",
 )
 
 
 @depends(
-    "--with-wildbuzzard-arti-provenance",
-    wildbuzzard_arti,
-    wildbuzzard_arti_config,
+    "--with-wildbuzzard-tor-provenance",
+    wildbuzzard_tor,
+    wildbuzzard_tor_config,
     build_environment.topsrcdir,
 )
 @imports("os")
 @imports("sys")
-def wildbuzzard_arti_provenance(value, binary, config, topsrcdir):
+def wildbuzzard_tor_provenance(value, binary, config, topsrcdir):
     if bool(value) != bool(binary and config):
-        die("The Arti binary, metadata, and provenance must be configured together")
+        die("The Tor binary, metadata, and provenance must be configured together")
     if not value:
         return
     path = os.path.abspath(value[0])
     if not os.path.isfile(path):
-        die(f"Cannot find Arti provenance at {path}")
+        die(f"Cannot find Tor provenance at {path}")
     validator = os.path.join(
-        topsrcdir, "wildbuzzard", "scripts", "arti-runtime-provenance.py"
+        topsrcdir, "wildbuzzard", "scripts", "tor-runtime-provenance.py"
     )
     inventory = os.path.join(
         topsrcdir,
         "wildbuzzard",
         "third_party",
-        "arti-crates",
+        "tor-notices",
         "THIRD-PARTY.json",
     )
     pin = os.path.join(
         topsrcdir,
         "wildbuzzard",
         "third_party",
-        "arti.toml",
+        "tor.toml",
     )
     check_cmd_output(
         sys.executable,
@@ -108,17 +108,17 @@ def wildbuzzard_arti_provenance(value, binary, config, topsrcdir):
         path,
         "--inventory",
         inventory,
-        onerror=lambda: die("Arti runtime provenance does not match the release pin"),
+        onerror=lambda: die("Tor runtime provenance does not match the release pin"),
     )
     return path
 
 
-set_config("WILDBUZZARD_ARTI_PROVENANCE", wildbuzzard_arti_provenance)
+set_config("WILDBUZZARD_TOR_PROVENANCE", wildbuzzard_tor_provenance)
 
 
-@depends(wildbuzzard_arti, wildbuzzard_arti_config, wildbuzzard_arti_provenance)
-def wildbuzzard_has_arti(binary, config, provenance):
+@depends(wildbuzzard_tor, wildbuzzard_tor_config, wildbuzzard_tor_provenance)
+def wildbuzzard_has_tor(binary, config, provenance):
     return bool(binary and config and provenance)
 
 
-set_define("WILDBUZZARD_ARTI_RUNTIME", wildbuzzard_has_arti)
+set_define("WILDBUZZARD_TOR_RUNTIME", wildbuzzard_has_tor)

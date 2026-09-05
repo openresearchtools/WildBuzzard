@@ -9,8 +9,8 @@
     },
     "information": {
       "value": {
-        "light": "{color.blue.60}",
-        "dark": "{color.blue.20}",
+        "light": "#4a4a4a",
+        "dark": "#d8d8d8",
         "prefersContrast": "{icon.color.@base}"
       }
     },

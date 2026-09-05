@@ -60,6 +60,32 @@ export let PlacesBrowserStartup = {
     this.initPlaces({ initialMigrationPerformed: true });
   },
 
+  async removeStockFirefoxBookmarks() {
+    const pref = "browser.bookmarks.wildbuzzard.stockBookmarksRemoved";
+    if (Services.prefs.getBoolPref(pref, false)) {
+      return;
+    }
+    const tree = await lazy.PlacesUtils.promiseBookmarksTree(
+      lazy.PlacesUtils.bookmarks.menuGuid
+    );
+    const stockURLs = new Set([
+      "https://support.mozilla.org/products/firefox",
+      "https://support.mozilla.org/kb/customize-firefox-controls-buttons-and-toolbars?utm_source=firefox-browser&utm_medium=default-bookmarks&utm_campaign=customize",
+      "https://www.mozilla.org/contribute/",
+      "https://www.mozilla.org/about/",
+    ]);
+    for (const folder of tree.children ?? []) {
+      if (
+        folder.title === "Mozilla Firefox" &&
+        folder.children?.length === 4 &&
+        folder.children.every(item => stockURLs.has(item.uri))
+      ) {
+        await lazy.PlacesUtils.bookmarks.remove(folder.guid);
+      }
+    }
+    Services.prefs.setBoolPref(pref, true);
+  },
+
   /**
    * Initialize Places
    * - imports the bookmarks html file if bookmarks database is empty, try to
@@ -254,6 +280,8 @@ export let PlacesBrowserStartup = {
         }
       }
 
+      await this.removeStockFirefoxBookmarks();
+
       // Initialize bookmark archiving on idle.
       // If the last backup has been created before the last browser session,
       // and is days old, be more aggressive with the idle timer.
@@ -328,6 +356,15 @@ export let PlacesBrowserStartup = {
   },
 
   async maybeAddImportButton() {
+    if (!Services.prefs.getBoolPref("browser.aboutwelcome.enabled", true)) {
+      if (
+        Services.prefs.getBoolPref("browser.bookmarks.addedImportButton", false)
+      ) {
+        lazy.PlacesUIUtils.removeImportButton();
+      }
+      return;
+    }
+
     // First check if we've already added the import button, in which
     // case we should check for events indicating we can remove it.
     if (

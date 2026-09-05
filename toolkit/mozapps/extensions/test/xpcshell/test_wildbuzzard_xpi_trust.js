@@ -6,11 +6,11 @@ gUseRealCertChecks = true;
 
 const EXTENSIONS = [
   {
-    artifact: "wildbuzzard-torrent-search-0.1.0.xpi",
+    artifact: "wildbuzzard-torrent-search-0.1.1.xpi",
     id: "torrent-search@extensions.wildbuzzard",
   },
   {
-    artifact: "wildbuzzard-web-search-0.1.0.xpi",
+    artifact: "wildbuzzard-web-search-0.1.1.xpi",
     id: "web-search@extensions.wildbuzzard",
   },
 ];
@@ -30,6 +30,7 @@ async function fixtureXPI(artifact) {
   );
   const file = AddonTestUtils.tempDir.clone();
   file.append(artifact);
+  AddonTestUtils.tempXPIs.push(file);
   await IOUtils.write(file.path, bytes);
   return file;
 }
@@ -41,6 +42,7 @@ async function modifiedCopy(file) {
   modified[bytes.length] = 1;
   const destination = AddonTestUtils.tempDir.clone();
   destination.append(`modified-${file.leafName}`);
+  AddonTestUtils.tempXPIs.push(destination);
   await IOUtils.write(destination.path, modified);
   return destination;
 }

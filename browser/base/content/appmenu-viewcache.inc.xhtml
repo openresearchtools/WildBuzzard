@@ -93,6 +93,10 @@
                      data-l10n-id="appmenuitem-downloads"
                      key="key_openDownloads"
                      command="Tools:Downloads"/>
+      <toolbarbutton id="appMenu-torrents-button"
+                     class="subviewbutton"
+                     data-l10n-id="appmenuitem-torrents"
+                     command="Tools:Torrents"/>
       <toolbarbutton id="appMenu-passwords-button"
                      class="subviewbutton"
                      data-l10n-id="appmenuitem-passwords"
@@ -126,10 +130,7 @@
                      data-l10n-id="appmenuitem-find-in-page"
                      key="key_find"
                      command="cmd_find"/>
-      <toolbarbutton id="appMenu-translate-button"
-                     class="subviewbutton"
-                     data-l10n-id="appmenuitem-translate"
-                     command="cmd_translate"/>
+
       <toolbaritem id="appMenu-zoom-controls" class="subviewbutton toolbaritem-combined-buttons" closemenu="none">
         <label class="toolbarbutton-text" data-l10n-id="appmenuitem-zoom"/>
         <toolbarbutton id="appMenu-zoomReduce-button2"
@@ -168,6 +169,7 @@
                      closemenu="none"
                      />
       <toolbarbutton id="appMenu-report-broken-site-button"
+                     hidden="true"
                      class="subviewbutton subviewbutton-nav"
                      data-l10n-id="appmenuitem-report-broken-site"
                      closemenu="none"
@@ -450,10 +452,7 @@
                      class="subviewbutton"
                      data-l10n-id="appmenu-customizetoolbar"
                      command="cmd_CustomizeToolbars"/>
-      <toolbarbutton id="appmenu-abouttranslations-button"
-                     class="subviewbutton"
-                     data-l10n-id="appmenu-abouttranslations"
-                     command="cmd_openAboutTranslations"/>
+
       <toolbarseparator/>
       <html:h2 id="appmenu-developer-tools"
           data-l10n-id="appmenu-developer-tools-subheader"

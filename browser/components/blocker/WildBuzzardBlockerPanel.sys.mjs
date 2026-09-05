@@ -19,7 +19,6 @@ ChromeUtils.defineESModuleGetters(lazy, {
 const PREF_BRANCH = "wildbuzzard.blocker.";
 const PREF_ENABLED = "wildbuzzard.blocker.enabled";
 const PREF_UI_ENABLED = "wildbuzzard.blocker.ui.enabled";
-const PREF_SHOW_BADGE = "wildbuzzard.blocker.showBadge";
 
 XPCOMUtils.defineLazyPreferenceGetter(
   lazy,
@@ -27,18 +26,13 @@ XPCOMUtils.defineLazyPreferenceGetter(
   PREF_UI_ENABLED,
   false
 );
-XPCOMUtils.defineLazyPreferenceGetter(lazy, "showBadge", PREF_SHOW_BADGE, true);
 XPCOMUtils.defineLazyPreferenceGetter(lazy, "enabled", PREF_ENABLED, true);
 
-const TOPIC_BLOCKED_COUNT_UPDATED = "WildBuzzardBlocker:BlockedCountUpdated";
-const TOPIC_BLOCKED_COUNTS_CLEARED = "WildBuzzardBlocker:BlockedCountsCleared";
 const TOPIC_CONTENT_BLOCKING_EVENT = "SiteProtection:ContentBlockingEvent";
 
 const OBSERVED_TOPICS = [
   "browser-delayed-startup-finished",
   TOPIC_CONTENT_BLOCKING_EVENT,
-  TOPIC_BLOCKED_COUNT_UPDATED,
-  TOPIC_BLOCKED_COUNTS_CLEARED,
 ];
 
 const HTML_NS = "http://www.w3.org/1999/xhtml";
@@ -53,18 +47,14 @@ const PANEL_IDS = {
   mainView: "wildbuzzard-blocker-mainView",
   headerSection: "wildbuzzard-blocker-header-section",
   header: "wildbuzzard-blocker-header-label",
-  blockedCount: "wildbuzzard-blocker-panel-blocked-count",
   settingsButton: "wildbuzzard-blocker-settings-button",
   siteToggle: "wildbuzzard-blocker-panel-site-toggle",
 };
 
 const L10N_IDS = {
   notAvailable: "wildbuzzard-blocker-panel-not-available",
-  disabled: "wildbuzzard-blocker-panel-disabled",
-  siteExcepted: "wildbuzzard-blocker-panel-site-excepted",
   settingsButton: "wildbuzzard-blocker-panel-settings-button",
   headerHost: "protections-header",
-  stats: "wildbuzzard-blocker-stats",
   toggle: "wildbuzzard-blocker-panel-toggle",
 };
 
@@ -177,35 +167,6 @@ export const WildBuzzardBlockerPanel = {
     toggleSectionHeader.appendChild(toggleBox);
     toggleSection.appendChild(toggleSectionHeader);
     body.appendChild(toggleSection);
-
-    body.appendChild(createXUL(doc, "toolbarseparator"));
-
-    const statsSection = createXUL(doc, "vbox", {
-      class: "protections-popup-section",
-    });
-
-    const statsRow = createXUL(doc, "hbox", {
-      align: "center",
-      style:
-        "margin: var(--arrowpanel-menuitem-margin); padding: var(--arrowpanel-menuitem-padding);",
-    });
-
-    const statsIcon = createXUL(doc, "image", {
-      class: "protections-popup-footer-icon protections-popup-show-report-icon",
-    });
-    statsRow.appendChild(statsIcon);
-
-    const blockedCount = createXUL(doc, "label", {
-      class: "text-deemphasized",
-      flex: "1",
-      id: PANEL_IDS.blockedCount,
-    });
-    setNodeL10nAttributes(doc, blockedCount, L10N_IDS.stats, {
-      count: 0,
-    });
-    statsRow.appendChild(blockedCount);
-    statsSection.appendChild(statsRow);
-    body.appendChild(statsSection);
 
     mainView.appendChild(body);
 
@@ -547,21 +508,13 @@ export const WildBuzzardBlockerPanel = {
     }
   },
 
-  _readBlockedCount(browserId) {
-    if (!browserId || !lazy.enabled) {
-      return 0;
-    }
-
-    return Number(WildBuzzardBlockerService.getBlockedCount(browserId) || 0);
-  },
-
   _refreshAllWindows() {
     this._forEachBrowserWindow(win => {
       this._refreshWindow(win);
     });
   },
 
-  _refreshPanelForWindow(win, blockedCount, enabled) {
+  _refreshPanelForWindow(win, enabled) {
     const doc = win?.document;
     if (!doc) {
       return;
@@ -570,18 +523,11 @@ export const WildBuzzardBlockerPanel = {
     const host = this._getCurrentHost(win);
     const protectable = this._isCurrentPageProtectable(win);
     const activeEnabled = enabled ?? lazy.enabled;
-    const browserId = this._getCurrentBrowserId(win);
     const options = { isPrivate: this._isPrivateWindow(win) };
     const excepted = host
       ? WildBuzzardBlockerService.isSiteExcepted(host, options)
       : false;
     const siteBlockingEnabled = activeEnabled && protectable && !excepted;
-
-    const count =
-      blockedCount !== undefined
-        ? blockedCount
-        : this._readBlockedCount(browserId);
-    const visibleBadgeCount = siteBlockingEnabled ? count : 0;
 
     const header = doc.getElementById(PANEL_IDS.header);
     if (header) {
@@ -600,34 +546,17 @@ export const WildBuzzardBlockerPanel = {
       setNodeL10nAttributes(doc, siteToggle, L10N_IDS.toggle);
     }
 
-    const blockedCountLabel = doc.getElementById(PANEL_IDS.blockedCount);
-    if (blockedCountLabel) {
-      if (!activeEnabled) {
-        setNodeL10nAttributes(doc, blockedCountLabel, L10N_IDS.disabled);
-      } else if (excepted) {
-        setNodeL10nAttributes(doc, blockedCountLabel, L10N_IDS.siteExcepted);
-      } else {
-        setNodeL10nAttributes(doc, blockedCountLabel, L10N_IDS.stats, {
-          count,
-        });
-      }
-    }
-
-    this._updateToolbarButtonForWindow(win, visibleBadgeCount, protectable);
+    this._updateToolbarButtonForWindow(win, protectable);
   },
 
   _refreshWindow(win) {
-    const browserId = this._getCurrentBrowserId(win);
-
     if (!win?.document) {
       return;
     }
 
     this._injectPanelIntoWindow(win);
 
-    const blockedCount = this._readBlockedCount(browserId);
-
-    this._refreshPanelForWindow(win, blockedCount, lazy.enabled);
+    this._refreshPanelForWindow(win, lazy.enabled);
   },
 
   _setSiteExceptionForCurrentSite(win, disableForSite, sourceNode = null) {
@@ -714,7 +643,7 @@ export const WildBuzzardBlockerPanel = {
     this._styledWindows.delete(win);
   },
 
-  _updateToolbarButtonForWindow(win, blockedCount, protectable) {
+  _updateToolbarButtonForWindow(win, protectable) {
     const button =
       lazy.CustomizableUI.getWidget(WIDGET_ID)?.forWindow(win)?.node || null;
 
@@ -730,14 +659,7 @@ export const WildBuzzardBlockerPanel = {
       return;
     }
 
-    button.setAttribute("badged", "true");
-
-    if (lazy.showBadge && blockedCount > 0) {
-      const badgeValue = String(blockedCount);
-      button.setAttribute("badge", badgeValue);
-    } else {
-      button.removeAttribute("badge");
-    }
+    button.removeAttribute("badge");
 
     button.toggleAttribute("page-not-protectable", !protectable);
   },
@@ -775,11 +697,6 @@ export const WildBuzzardBlockerPanel = {
 
       case TOPIC_CONTENT_BLOCKING_EVENT:
         this._onSiteProtectionEvent(subject);
-        break;
-
-      case TOPIC_BLOCKED_COUNT_UPDATED:
-      case TOPIC_BLOCKED_COUNTS_CLEARED:
-        this._refreshAllWindows();
         break;
     }
   },

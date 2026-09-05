@@ -2503,15 +2503,6 @@ security-privacy-status-problem-header = { -brand-short-name } recommends some s
 security-privacy-status-ok-label = Enhanced Tracking Protection is on
 security-privacy-status-problem-label = We found settings affecting your protection
 security-privacy-status-problem-helper-label = View issues
-security-privacy-status-pending-trackers-label = Looking up how many trackers { -brand-short-name } blocked over the last month
-
-# This label tells the user how many trackers we have blocked for them.
-# Variables:
-#   $trackerCount (Number) - Number of trackers we have blocked in the last month
-security-privacy-status-trackers-label = { $trackerCount ->
-      [one] { $trackerCount } tracker blocked over the last month
-      *[other] { $trackerCount } trackers blocked over the last month
-  }
 # This string appears under "Enhanced Tracking Protection is on" when a user has enabled "Strict" in Enhanced Tracking Protection advanced settings
 security-privacy-status-strict-enabled-label = You have <a data-l10n-name="strict-tracking-protection">strict protection</a>
 # This string appears under "Enhanced Tracking Protection is on" when a user has enabled "Custom" in Enhanced Tracking Protection advanced settings

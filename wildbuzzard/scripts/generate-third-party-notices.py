@@ -7,16 +7,12 @@ import html
 import importlib.util
 import json
 import os
+import re
 from pathlib import Path
 
 SOURCE_ROOT = Path(__file__).resolve().parents[2]
 BODY_PATH = (
-    SOURCE_ROOT
-    / "browser"
-    / "base"
-    / "content"
-    / "overrides"
-    / "app-license-body.html"
+    SOURCE_ROOT / "browser" / "base" / "content" / "overrides" / "app-license-body.html"
 )
 COPYRIGHT_PATH = SOURCE_ROOT / "wildbuzzard" / "packaging" / "copyright"
 
@@ -32,49 +28,58 @@ def load_module(name, path):
     return module
 
 
+def source_component(source_root, anchor, name, paths):
+    files = []
+    for relative in paths:
+        contents = (source_root / relative).read_bytes()
+        files.append({
+            "sourcePath": relative,
+            "installedPath": relative,
+            "sha256": hashlib.sha256(contents).hexdigest(),
+        })
+    return {
+        "anchor": anchor,
+        "name": name,
+        "path": name,
+        "legalRoot": source_root,
+        "inventory": {"packages": [{
+            "name": name,
+            "version": "",
+            "license": "See original notices below",
+            "licenseFiles": files,
+        }]},
+    }
+
+
 def components(source_root):
-    scripts = source_root / "wildbuzzard" / "scripts"
-    runner_module = load_module(
-        "runner_crate_provenance", scripts / "runner_crate_provenance.py"
-    )
-    arti_module = load_module(
-        "arti_crate_provenance", scripts / "arti_crate_provenance.py"
-    )
-    runner_root = (
-        source_root / "wildbuzzard" / "components" / "wildbuzzard-cli" / "runner"
-    )
-    runner_legal = runner_root / "third_party"
-    arti_legal = source_root / "wildbuzzard" / "third_party" / "arti-crates"
-    try:
-        runner = runner_module.validate_inventory(
-            runner_root / "Cargo.lock",
-            runner_legal / "THIRD-PARTY.json",
-            runner_legal / "licenses",
-        )
-        arti = arti_module.validate_inventory(
-            source_root / "third_party" / "arti" / "Cargo.lock",
-            arti_legal / "THIRD-PARTY.json",
-            arti_legal / "licenses",
-            source_root / "wildbuzzard" / "third_party" / "arti.toml",
-        )
-    except (runner_module.ValidationError, arti_module.ValidationError) as error:
-        raise ValidationError(str(error)) from error
-    return (
-        {
-            "anchor": "wildbuzzard-arti-third-party",
-            "name": "Arti third-party notices",
-            "path": "runtime/tor/arti",
-            "inventory": arti,
-            "legalRoot": arti_legal,
-        },
-        {
-            "anchor": "wildbuzzard-cli-third-party",
-            "name": "WildBuzzard CLI third-party notices",
-            "path": "/usr/bin/wildbuzzard",
-            "inventory": runner,
-            "legalRoot": runner_legal,
-        },
-    )
+    result = [source_component(source_root, "wildbuzzard-project-notices",
+        "WildBuzzard and search plugin licences and source notices", [
+            "LICENSE", "COPYING", "wildbuzzard/SOURCE-NOTICE",
+            "wildbuzzard/BLOCKER-ASSET-SOURCE-NOTICE",
+            "wildbuzzard/components/wildbuzzard-cli/NOTICE",
+            "wildbuzzard/components/wildbuzzard-cli/MOZILLA-MCP-LICENSE",
+            "wildbuzzard/browser/branding/LICENSE",
+            "wildbuzzard/browser/extensions/web-search/extension/LICENSE",
+            "wildbuzzard/browser/extensions/torrent-search/extension/LICENSE",
+        ]), source_component(source_root, "wildbuzzard-spelling-notices",
+        "English UK and US spelling dictionary notices", [
+            "extensions/spellcheck/locales/en-US/hunspell/README_en_GB.txt",
+            "extensions/spellcheck/locales/en-US/hunspell/README_en_US.txt",
+            "extensions/spellcheck/locales/en-US/hunspell/en-GB.SOURCE.json",
+        ])]
+    for slug, name, path in [
+        ("tor", "Tor third-party notices", "runtime/tor/tor"),
+        ("torrent", "Torrent engine third-party notices", "runtime/torrent"),
+    ]:
+        legal_root = source_root / "wildbuzzard" / "third_party" / (slug + "-notices")
+        result.append({
+            "anchor": "wildbuzzard-" + slug + "-third-party",
+            "name": name,
+            "path": path,
+            "inventory": json.loads((legal_root / "THIRD-PARTY.json").read_text()),
+            "legalRoot": legal_root,
+        })
+    return result
 
 
 def notice_documents(component):
@@ -96,7 +101,7 @@ def notice_documents(component):
             )
             if notice["contents"].encode("utf-8") != contents:
                 raise ValidationError(f"conflicting license digest: {path}")
-            notice["packages"].add(f"{package['name']} {package['version']}")
+            notice["packages"].add(f"{package['name']} {package['version']}".strip())
             notice["sourcePaths"].add(entry["sourcePath"])
     return notices
 
@@ -107,7 +112,10 @@ def declared_license(package):
 
 def html_preformatted(contents):
     escaped = html.escape(contents, quote=False).splitlines()
-    return "\n".join(f"            {line}" for line in escaped)
+    return "\n".join(
+        "            " + re.sub(r"[ \t]+$", lambda match: "".join("&#32;" if char == " " else "&#9;" for char in match[0]), line).replace("\t", "&#9;") if line else ""
+        for line in escaped
+    )
 
 
 def html_body(component_list):
@@ -122,11 +130,11 @@ def html_body(component_list):
             f'    <h1 id="{component["anchor"]}">{html.escape(component["name"])}</h1>',
             "  </td>",
             "  <td>",
-            f"    <p>This notice applies to <code>{html.escape(component['path'])}</code> and its statically linked Cargo dependencies.</p>",
+            f"    <p>This notice applies to <code>{html.escape(component['path'])}</code> and the components identified below.</p>",
             "    <ul>",
         ])
         for package in component["inventory"]["packages"]:
-            identity = f"{package['name']} {package['version']}"
+            identity = f"{package['name']} {package['version']}".strip()
             output.append(
                 "      <li><code>"
                 + html.escape(identity)
@@ -189,7 +197,7 @@ def text_body(component_list):
                 "=" * 78,
                 "",
             ])
-    return "\n".join(output).rstrip() + "\n"
+    return "\n".join(line.rstrip() for line in "\n".join(output).splitlines()).rstrip() + "\n"
 
 
 def output_documents(source_root):
@@ -215,8 +223,14 @@ def main():
         documents = output_documents(SOURCE_ROOT)
         for path, contents in documents.items():
             if arguments.check:
-                if path.is_symlink() or not path.is_file() or path.read_bytes() != contents:
-                    raise ValidationError(f"generated third-party notice is stale: {path}")
+                if (
+                    path.is_symlink()
+                    or not path.is_file()
+                    or path.read_bytes() != contents
+                ):
+                    raise ValidationError(
+                        f"generated third-party notice is stale: {path}"
+                    )
             else:
                 update(path, contents)
     except (OSError, UnicodeError, json.JSONDecodeError, ValidationError) as error:

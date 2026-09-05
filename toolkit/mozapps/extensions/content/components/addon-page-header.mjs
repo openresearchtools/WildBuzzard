@@ -9,14 +9,6 @@ class AddonPageHeader extends AboutAddonsHTMLElement {
     return `
       <template>
         <div class="sticky-container">
-          <div class="main-search">
-            <label
-              for="search-addons"
-              class="search-label"
-              data-l10n-id="default-heading-search-label"
-            ></label>
-            <search-addons></search-addons>
-          </div>
           <div class="main-heading">
             <moz-button
               type="ghost"

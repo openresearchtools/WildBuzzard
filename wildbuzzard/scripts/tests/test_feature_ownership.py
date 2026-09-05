@@ -137,7 +137,8 @@ class FeatureOwnershipTests(unittest.TestCase):
             for payload in excluded:
                 self.assertIn(payload, text, f"{path.name}: {payload}")
         appimage = packagers[0].read_text(encoding="utf-8")
-        self.assertIn("wildbuzzard-native-client", appimage)
+        self.assertIn("ln -s ../lib/wildbuzzard/wildbuzzard", appimage)
+        self.assertNotIn("wildbuzzard-native-client", appimage)
 
     def test_browser_deb_keeps_discovery_clis_optional(self):
         source = (ROOT / "wildbuzzard" / "scripts" / "package-deb.sh").read_text(
@@ -164,13 +165,10 @@ class FeatureOwnershipTests(unittest.TestCase):
             dist.mkdir()
             for version in ("153.1.0", "153.1.1"):
                 (dist / f"wildbuzzard-{version}.en-US.linux-x86_64.tar.xz").touch()
-            arti = root / "arti"
+            tor = root / "tor"
             torrent = root / "torrent"
-            arti.mkdir()
+            tor.mkdir()
             torrent.mkdir()
-            cli = root / "wildbuzzard"
-            cli.write_text("", encoding="utf-8")
-            cli.chmod(0o755)
             result = subprocess.run(
                 [
                     "bash",
@@ -179,12 +177,10 @@ class FeatureOwnershipTests(unittest.TestCase):
                     str(dist),
                     "--output-dir",
                     str(output),
-                    "--arti-dir",
-                    str(arti),
+                    "--tor-dir",
+                    str(tor),
                     "--qbittorrent-runtime",
                     str(torrent),
-                    "--cli-binary",
-                    str(cli),
                 ],
                 check=False,
                 capture_output=True,
@@ -197,11 +193,12 @@ class FeatureOwnershipTests(unittest.TestCase):
         source = (ROOT / "wildbuzzard" / "scripts" / "package-deb.sh").read_text(
             encoding="utf-8"
         )
-        self.assertIn("--arti-dir", source)
+        self.assertIn("--tor-dir", source)
         self.assertIn("--qbittorrent-runtime", source)
-        self.assertIn("--cli-binary", source)
+        self.assertNotIn("--cli-binary", source)
         self.assertNotIn("cargo build", source)
-        self.assertNotIn("python3", source)
+        self.assertIn('"${script_dir}/tor-runtime-provenance.py" validate', source)
+        self.assertNotIn('"${script_dir}/tor-runtime-provenance.py" create', source)
         self.assertNotIn("node ", source)
 
     def test_project_package_identity_is_authenticated(self):

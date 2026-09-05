@@ -54,10 +54,10 @@
    other teams. Each should be removed after its token has been imported. */
 .urlbar,
 #searchbar {
-  --chrome-box-shadow: rgba(89, 57, 168, 0.15);
+  --chrome-box-shadow: rgba(0, 0, 0, 0.15);
 
   @media (prefers-color-scheme: dark) {
-    --chrome-box-shadow: rgba(152, 113, 255, 0.15);
+    --chrome-box-shadow: rgba(0, 0, 0, 0.3);
   }
 
   @media not -moz-pref("browser.nova.enabled") {

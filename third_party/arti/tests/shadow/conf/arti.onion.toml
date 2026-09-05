@@ -1,3 +1,0 @@
-# Enable onion addresses
-[address_filter]
-allow_onion_addrs=true

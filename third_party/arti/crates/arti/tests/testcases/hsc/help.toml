@@ -1,3 +1,0 @@
-bin.name = "arti"
-args = "hsc --help"
-status.code = 0

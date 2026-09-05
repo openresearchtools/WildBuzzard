@@ -1,12 +1,13 @@
 :root {
   color-scheme: light dark;
-  --background: Canvas;
-  --foreground: CanvasText;
+  --background: light-dark(#f5f5f5, #1f1f1f);
+  --foreground: light-dark(#202020, #eeeeee);
   --muted: color-mix(in srgb, CanvasText 65%, Canvas);
   --border: color-mix(in srgb, CanvasText 20%, Canvas);
   --surface: color-mix(in srgb, CanvasText 5%, Canvas);
-  --accent: AccentColor;
-  --accent-text: AccentColorText;
+  --accent: light-dark(#555555, #cccccc);
+  --accent-text: light-dark(#ffffff, #202020);
+  accent-color: var(--accent);
   font: menu;
 }
 
@@ -195,6 +196,13 @@ dialog::backdrop {
 }
 
 @media (forced-colors: active) {
+  :root {
+    --background: Canvas;
+    --foreground: CanvasText;
+    --accent: Highlight;
+    --accent-text: HighlightText;
+  }
+
   .result,
   dialog,
   input,
@@ -202,4 +210,13 @@ dialog::backdrop {
   button {
     border-color: CanvasText;
   }
+}
+
+a {
+  color: var(--accent);
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--accent-text);
 }

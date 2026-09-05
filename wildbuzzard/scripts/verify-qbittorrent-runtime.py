@@ -9,7 +9,6 @@ import re
 import subprocess
 from pathlib import Path, PurePosixPath
 
-
 FORBIDDEN_COMPONENTS = {
     "__pycache__",
     "bench",
@@ -139,9 +138,8 @@ def main():
         "platform": "linux-x64",
         "architecture": "x86_64",
     }
-    if (
-        not re.fullmatch(r"[0-9a-f]{40}", commit)
-        or any(manifest.get(name) != value for name, value in expected_manifest.items())
+    if not re.fullmatch(r"[0-9a-f]{40}", commit) or any(
+        manifest.get(name) != value for name, value in expected_manifest.items()
     ):
         raise SystemExit("unsupported qBittorrent runtime manifest")
 
@@ -182,7 +180,9 @@ def main():
     if sum(entry["size"] for entry in files.values()) > MAX_RUNTIME_BYTES:
         raise SystemExit("qBittorrent runtime exceeds its installed-size budget")
     declared_files = manifest.get("files")
-    if not isinstance(declared_files, list) or any(not isinstance(item, dict) for item in declared_files):
+    if not isinstance(declared_files, list) or any(
+        not isinstance(item, dict) for item in declared_files
+    ):
         raise SystemExit("runtime manifest has no exact file inventory")
     declared = {item.get("path"): item for item in declared_files}
     if len(declared) != len(declared_files) or declared != files:
@@ -195,6 +195,8 @@ def main():
         raise SystemExit("runtime payload digest differs")
 
     binary = (root / "bin/qbittorrent-nox").read_bytes()
+    if b"WildBuzzard requires a browser-owned lifetime pipe." not in binary:
+        raise SystemExit("qBittorrent binary lacks browser lifetime enforcement")
     for marker in (
         b"SearchPluginManager",
         b"nova2.py",
@@ -228,10 +230,14 @@ def main():
         or source_offer.get("wildbuzzardCommit") != commit
     ):
         raise SystemExit("unsupported qBittorrent source offer")
-    external_sources = source_offer.get("correspondingSource", {}).get("externalArtifacts")
+    external_sources = source_offer.get("correspondingSource", {}).get(
+        "externalArtifacts"
+    )
     validate_external_sources(external_sources, commit)
     if set(source_offer.get("correspondingSource", {})) != {"externalArtifacts"}:
-        raise SystemExit("corresponding source must remain outside the installed runtime")
+        raise SystemExit(
+            "corresponding source must remain outside the installed runtime"
+        )
     if external_sources != manifest.get("externalSourceArtifacts"):
         raise SystemExit("runtime manifest and source offer differ")
     if arguments.artifacts:
@@ -250,8 +256,12 @@ def main():
         != "e9f9f468f45fe73b1fe56a235438d802d51fd45dd55b52f06b212029bce458b8"
     ):
         raise SystemExit("unsupported runtime component inventory")
-    components = inventory.get("runtimeLibraries", []) + inventory.get("qt", {}).get("plugins", [])
-    component_paths = {entry.get("path") for entry in components if isinstance(entry, dict)}
+    components = inventory.get("runtimeLibraries", []) + inventory.get("qt", {}).get(
+        "plugins", []
+    )
+    component_paths = {
+        entry.get("path") for entry in components if isinstance(entry, dict)
+    }
     actual_components = {
         relative
         for relative in files
@@ -261,15 +271,25 @@ def main():
         raise SystemExit("runtime component inventory is incomplete or duplicated")
     for entry in components:
         path = entry["path"]
-        if entry.get("sha256") != files[path]["sha256"] or entry.get("size") != files[path]["size"]:
+        if (
+            entry.get("sha256") != files[path]["sha256"]
+            or entry.get("size") != files[path]["size"]
+        ):
             raise SystemExit(f"runtime component digest differs: {path}")
         if entry.get("component") == "Qt":
             if entry.get("componentVersion") != "6.10.2":
                 raise SystemExit(f"unexpected Qt component version: {path}")
         else:
-            required = ("binaryPackage", "binaryVersion", "sourcePackage", "sourceVersion")
+            required = (
+                "binaryPackage",
+                "binaryVersion",
+                "sourcePackage",
+                "sourceVersion",
+            )
             if any(not entry.get(field) for field in required):
-                raise SystemExit(f"runtime component lacks Debian source identity: {path}")
+                raise SystemExit(
+                    f"runtime component lacks Debian source identity: {path}"
+                )
     system_packages = inventory.get("systemPackages")
     if not isinstance(system_packages, list):
         raise SystemExit("runtime inventory lacks system package provenance")
@@ -285,22 +305,29 @@ def main():
             or copyright_path.is_symlink()
             or digest(copyright_path) != package.get("copyrightSha256")
         ):
-            raise SystemExit(f"system package copyright differs: {package.get('binaryPackage')}")
+            raise SystemExit(
+                f"system package copyright differs: {package.get('binaryPackage')}"
+            )
     if inventory.get("externalSourceArtifacts") != external_sources:
         raise SystemExit("component inventory and source offer differ")
 
-    sbom = load_json(
-        root / "share/doc/wildbuzzard-qbittorrent-runtime/sbom.spdx.json"
-    )
+    sbom = load_json(root / "share/doc/wildbuzzard-qbittorrent-runtime/sbom.spdx.json")
     if sbom.get("spdxVersion") != "SPDX-2.3" or sbom.get("dataLicense") != "CC0-1.0":
         raise SystemExit("invalid qBittorrent SPDX document")
     packages = sbom.get("packages")
     if not isinstance(packages, list) or not packages:
         raise SystemExit("qBittorrent SPDX document has no packages")
     for package in packages:
-        for field in ("downloadLocation", "licenseConcluded", "licenseDeclared", "copyrightText"):
+        for field in (
+            "downloadLocation",
+            "licenseConcluded",
+            "licenseDeclared",
+            "copyrightText",
+        ):
             if not package.get(field) or package[field] == "NOASSERTION":
-                raise SystemExit(f"SPDX package has unresolved {field}: {package.get('name')}")
+                raise SystemExit(
+                    f"SPDX package has unresolved {field}: {package.get('name')}"
+                )
     license_ids = {
         entry.get("licenseId") for entry in sbom.get("hasExtractedLicensingInfos", [])
     }
@@ -309,7 +336,9 @@ def main():
             r"[^A-Za-z0-9.+-]", "-", package["sourcePackage"]
         )
         if expected_id not in license_ids:
-            raise SystemExit(f"SPDX lacks extracted system licensing: {package['sourcePackage']}")
+            raise SystemExit(
+                f"SPDX lacks extracted system licensing: {package['sourcePackage']}"
+            )
 
     environment = os.environ.copy()
     environment["LD_LIBRARY_PATH"] = str(root / "lib")

@@ -59,6 +59,8 @@ for output in "${work_dir}" "${artifact_dir}"; do
   esac
 done
 
+python3 -I -B "${wildbuzzard}/wildbuzzard/scripts/firefox_release.py" check --versions-only
+
 export TMPDIR="${work_dir}/tmp"
 export UV_CACHE_DIR="${work_dir}/cache/uv"
 export XDG_CACHE_HOME="${work_dir}/cache/xdg"
@@ -104,15 +106,6 @@ install -m 0644 -- \
 install -m 0644 -- \
   "${browser_run}/build-manifest.txt" \
   "${artifact_dir}/browser-build-manifest.txt"
-
-cargo build \
-  --locked \
-  --release \
-  --target-dir "${work_dir}/cli-target" \
-  --manifest-path "${wildbuzzard}/wildbuzzard/components/wildbuzzard-cli/runner/Cargo.toml"
-install -m 0755 -- \
-  "${work_dir}/cli-target/release/wildbuzzard-native-client" \
-  "${artifact_dir}/wildbuzzard-native-client"
 
 cat >"${artifact_dir}/browser-artifact-manifest.txt" <<EOF
 wildbuzzard_commit=${commit}

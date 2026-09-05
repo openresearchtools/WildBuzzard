@@ -273,12 +273,6 @@ const DEFAULT_ACTIONS = {
     label: "quickactions-settings2",
     onPick: openUrlFun("about:preferences"),
   },
-  themes: {
-    l10nCommands: ["quickactions-cmd-themes2"],
-    icon: "chrome://mozapps/skin/extensions/category-themes.svg",
-    label: "quickactions-themes",
-    onPick: openAddonsUrl("addons://list/theme"),
-  },
   translate: {
     l10nCommands: ["quickactions-cmd-translate"],
     icon: "chrome://browser/skin/translations.svg",

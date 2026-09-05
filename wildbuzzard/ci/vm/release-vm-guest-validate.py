@@ -2024,7 +2024,7 @@ return result;
 
 def validate_tor_egress(runner, result_dir, account, environment):
     check_code = """
-const data = JSON.parse(document.body.innerText.trim());
+const data = JSON.parse((globalThis.JSONView?.json?.textContent ?? document.body.innerText).trim());
 const ip = String(data.IP || "");
 if (!ip) {
   throw new Error("Tor check returned no IP address");

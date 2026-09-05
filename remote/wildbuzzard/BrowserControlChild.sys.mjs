@@ -1450,11 +1450,21 @@ export class WildBuzzardBrowserControlChild extends JSWindowActorChild {
   }
 
   #installLogpointOnScript(script, logpoint) {
+    for (const child of script.getChildScripts()) {
+      this.#installLogpointOnScript(child, logpoint);
+    }
     const positions = script.getPossibleBreakpoints({ line: logpoint.line });
     if (!positions.length) {
       return;
     }
     for (const { offset } of positions) {
+      if (
+        logpoint.live.some(
+          site => site.script === script && site.offset === offset
+        )
+      ) {
+        continue;
+      }
       const handler = {
         hit: frame => {
           const result = {

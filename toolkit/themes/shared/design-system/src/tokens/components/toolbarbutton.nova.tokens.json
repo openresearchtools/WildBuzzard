@@ -13,8 +13,8 @@
       "@base": {
         "value": {
           "nativeTheme": "currentColor",
-          "light": "{color.violet-desaturated.50}",
-          "dark": "{color.violet-desaturated.10}",
+          "light": "{color.gray.50}",
+          "dark": "{color.gray.15}",
           "forcedColors": "{button.text.color.@base}"
         }
       },
@@ -37,15 +37,15 @@
     "color": {
       "hover": {
         "value": {
-          "light": "rgba(116, 160, 206, 0.25)",
-          "dark": "rgba(159, 190, 222, 0.25)",
+          "light": "rgba(100, 100, 100, 0.25)",
+          "dark": "rgba(200, 200, 200, 0.25)",
           "forcedColors": "{button.background.color.hover}"
         }
       },
       "active": {
         "value": {
-          "light": "rgba(116, 160, 206, 0.4)",
-          "dark": "rgba(159, 190, 222, 0.4)",
+          "light": "rgba(100, 100, 100, 0.4)",
+          "dark": "rgba(200, 200, 200, 0.4)",
           "forcedColors": "{button.background.color.active}"
         }
       }

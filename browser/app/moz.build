@@ -51,6 +51,12 @@ SOURCES += [
     "nsBrowserApp.cpp",
 ]
 
+if CONFIG["MOZ_APP_NAME"] == "wildbuzzard" and CONFIG["OS_ARCH"] == "Linux":
+    DEFINES["MOZ_WILDBUZZARD_COMMAND_LINE"] = True
+    SOURCES += ["WildBuzzardCommandLine.cpp"]
+    LOCAL_INCLUDES += ["/toolkit/components/jsoncpp/include"]
+    USE_LIBS += ["jsoncpp"]
+
 # Neither channel-prefs.js nor firefox.exe want to end up in dist/bin/browser.
 DIST_SUBDIR = ""
 

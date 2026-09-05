@@ -953,6 +953,11 @@ PRStatus nsSOCKSSocketInfo::ReadV5ConnectResponseTop() {
              "08, Address type not supported."));
         c = PR_BAD_ADDRESS_ERROR;
         break;
+      case 0xF4:
+      case 0xF5:
+        // Preserve Tor onion authorization failures for the browser prompt.
+        c = res;
+        break;
       default:
         LOGERROR(("socks5: connect failed."));
         break;

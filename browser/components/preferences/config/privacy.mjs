@@ -31,10 +31,6 @@ const lazy = XPCOMUtils.declareLazy({
   IPProtection:
     "moz-src:///browser/components/ipprotection/IPProtection.sys.mjs",
   BANDWIDTH: "chrome://browser/content/ipprotection/ipprotection-constants.mjs",
-  TrackingDBService: {
-    service: "@mozilla.org/tracking-db-service;1",
-    iid: Ci.nsITrackingDBService,
-  },
   listManager: {
     service: "@mozilla.org/url-classifier/listmanager;1",
     iid: Ci.nsIUrlListManager,
@@ -1164,14 +1160,6 @@ SettingGroupManager.registerGroups({
           },
         ],
       },
-      {
-        id: "protectionsDashboardLink",
-        l10nId: "preferences-etp-status-protections-dashboard-link",
-        control: "moz-box-link",
-        controlAttrs: {
-          href: "about:protections",
-        },
-      },
     ],
   },
   etpBanner: {
@@ -1915,34 +1903,6 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
   });
 
   Preferences.addSetting(
-    /** @type {{ cachedValue: number, loadTrackerCount: (emitChange: SettingEmitChange) => Promise<void> } & SettingConfig} */ ({
-      id: "trackerCount",
-      cachedValue: null,
-      async loadTrackerCount(emitChange) {
-        const now = new Date();
-        const aMonthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        /** @type {{ getResultByName: (_: string) => number }[]} */
-        const events = await lazy.TrackingDBService.getEventsByDateRange(
-          aMonthAgo,
-          now
-        );
-
-        const total = events.reduce((acc, day) => {
-          return acc + day.getResultByName("count");
-        }, 0);
-        this.cachedValue = total;
-        emitChange();
-      },
-      setup(emitChange) {
-        this.loadTrackerCount(emitChange);
-      },
-      get() {
-        return this.cachedValue;
-      },
-    })
-  );
-
-  Preferences.addSetting(
     /** @type {{ cachedValue: any } & SettingConfig} */ ({
       id: "appUpdateStatus",
       cachedValue: undefined,
@@ -1988,7 +1948,6 @@ if (SECURITY_PRIVACY_STATUS_CARD_ENABLED) {
     id: "privacyCard",
     deps: [
       "appUpdateStatus",
-      "trackerCount",
       "etpStrictEnabled",
       "etpCustomEnabled",
       ...SECURITY_WARNINGS.map(warning => warning.id),

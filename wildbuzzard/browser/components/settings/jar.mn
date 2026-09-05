@@ -8,3 +8,4 @@ browser.jar:
     content/browser/wildbuzzard/settings/wildbuzzardPrivacy.mjs                (wildbuzzardPrivacy.mjs)
     content/browser/wildbuzzard/settings/wildbuzzardSearch.mjs                 (wildbuzzardSearch.mjs)
     content/browser/wildbuzzard/settings/wildbuzzardTabs.mjs                   (wildbuzzardTabs.mjs)
+    content/browser/wildbuzzard/settings/wildbuzzardAbout.mjs                  (wildbuzzardAbout.mjs)

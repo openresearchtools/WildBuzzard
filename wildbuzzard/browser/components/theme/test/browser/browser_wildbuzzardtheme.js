@@ -165,3 +165,116 @@ add_task(async function test_pending_reapply_preserves_new_theme_update() {
     }
   });
 });
+
+add_task(async function test_default_palette_without_saved_selection() {
+  const { WildBuzzardThemeColors } = ChromeUtils.importESModule(
+    "resource:///modules/WildBuzzardThemeColors.sys.mjs"
+  );
+  await SpecialPowers.pushPrefEnv({
+    set: [[THEME_PREF, DEFAULT_THEME_ID]],
+    clear: [[WILDBUZZARD_THEME_MODE_PREF], [WILDBUZZARD_THEME_COLOR_PREF]],
+  });
+  try {
+    WildBuzzardThemeColors.apply();
+    is(
+      LightweightThemeManager.themeData.theme.id,
+      WILDBUZZARD_THEME_ID,
+      "A fresh profile gets the WildBuzzard default without onboarding"
+    );
+    is(WildBuzzardThemeColors.getMode(), "system", "Default follows the OS");
+    ok(
+      LightweightThemeManager.themeData.darkTheme,
+      "System mode provides a dark variant"
+    );
+
+    for (const [mode, background] of [
+      ["light", "#f5f5f5"],
+      ["dark", "#303030"],
+    ]) {
+      WildBuzzardThemeColors.setMode(mode);
+      is(
+        LightweightThemeManager.themeData.theme.toolbarColor,
+        background,
+        `${mode} mode uses a neutral toolbar`
+      );
+      WildBuzzardThemeColors.setColor("pine");
+      WildBuzzardThemeColors.setColor("default");
+      is(
+        LightweightThemeManager.themeData.theme.toolbarColor,
+        background,
+        "Selecting Default restores the neutral palette"
+      );
+      gURLBar.focus();
+      is(
+        getComputedStyle(gURLBar.querySelector(".urlbar-input-container"))
+          .outlineColor,
+        mode === "light" ? "rgb(74, 74, 74)" : "rgb(200, 200, 200)",
+        "The focused address bar follows the neutral accent"
+      );
+    }
+    WildBuzzardThemeColors.clear();
+    const reapplied = TestUtils.topicObserved(
+      THEME_UPDATE_TOPIC,
+      subject => subject.wrappedJSObject.theme?.id === WILDBUZZARD_THEME_ID
+    );
+    updateTheme(makeThemeData(DEFAULT_THEME_ID, "#ffffff"));
+    await reapplied;
+    ok(
+      !Services.prefs.prefHasUserValue(WILDBUZZARD_THEME_MODE_PREF) &&
+        !Services.prefs.prefHasUserValue(WILDBUZZARD_THEME_COLOR_PREF),
+      "Reset and late startup theme updates need no saved selection"
+    );
+  } finally {
+    await SpecialPowers.popPrefEnv();
+  }
+});
+
+add_task(async function test_quiet_startup_defaults() {
+  const prefs = Services.prefs.getDefaultBranch("");
+  for (const pref of [
+    "browser.aboutwelcome.enabled",
+    "browser.aboutwelcome.experimentsGate.enabled",
+    "browser.startup.upgradeDialog.enabled",
+    "browser.shell.checkDefaultBrowser",
+    "browser.laterrun.enabled",
+    "browser.preonboarding.enabled",
+  ]) {
+    ok(!prefs.getBoolPref(pref), `${pref} is off by default`);
+  }
+  for (const pref of [
+    "startup.homepage_welcome_url",
+    "startup.homepage_welcome_url.additional",
+    "startup.homepage_override_url",
+  ]) {
+    is(prefs.getStringPref(pref), "", `${pref} opens no extra page`);
+  }
+});
+
+add_task(async function test_dark_web_page_defaults() {
+  await BrowserTestUtils.withNewTab(
+    'data:text/html,<meta name="color-scheme" content="dark"><body><div style="background:Canvas;color:CanvasText">Dark page</div><div id="authored" style="background:blue">Authored color</div>',
+    async browser => {
+      await SpecialPowers.spawn(browser, [], async () => {
+        const canvas = content.getComputedStyle(
+          content.document.querySelector("div")
+        );
+        is(
+          canvas.backgroundColor,
+          "rgb(30, 30, 30)",
+          "Dark Canvas is graphite"
+        );
+        is(
+          canvas.color,
+          "rgb(229, 229, 229)",
+          "Dark Canvas text stays readable"
+        );
+        is(
+          content.getComputedStyle(content.document.getElementById("authored"))
+            .backgroundColor,
+          "rgb(0, 0, 255)",
+          "The website still controls its own authored colors"
+        );
+      });
+    }
+  );
+});

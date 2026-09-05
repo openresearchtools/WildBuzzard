@@ -95,6 +95,87 @@ add_task(async function test_control_client_opens_owned_tor_tab() {
   );
 });
 
+add_task(async function test_trusted_onion_storage_and_agent_page_identity() {
+  const { OnionAuthStore } = ChromeUtils.importESModule(
+    "resource:///modules/OnionAuthStore.sys.mjs"
+  );
+  const address = "2gzyxa5ihm7nsggfxnu52rck2vv4rvmdlkiu3zzui5du4xyclen53wid";
+  const clientId = "trusted-onion-browser-test";
+  let page;
+  try {
+    await OnionAuthStore.update(address, { key: null, privateMode: false });
+    const uri = Services.io.newURI(`https://${address}.onion/`);
+    const persistentId = TorRouting.contextIdForURI(uri);
+    Assert.notEqual(persistentId, TorRouting.userContextId);
+    Assert.equal(
+      TorRouting.contextIdForURI(Services.io.newURI("https://example.com/")),
+      TorRouting.userContextId
+    );
+    const result = await BrowserControl.dispatch(
+      "tabs",
+      { action: "new", tor: true },
+      PathUtils.profileDir,
+      clientId,
+      new AbortController().signal
+    );
+    page = result.details.page;
+    const original = BrowserControl.pageForId(page);
+    const waiting = BrowserControl.dispatch(
+      "wait",
+      { page, for: "selector", value: "#trusted-onion", timeout: 5000 },
+      PathUtils.profileDir,
+      clientId,
+      new AbortController().signal
+    );
+    const normal = await TorRouting._reopenInContext(
+      window,
+      original.tab,
+      persistentId,
+      "data:text/html,<p id='trusted-onion'>Trusted site</p>"
+    );
+    Assert.ok(
+      (await waiting).details.matched,
+      "An agent wait survives replacing the tab's storage context"
+    );
+    Assert.ok(
+      TorRouting.isTorTab(normal),
+      "Normal storage still routes through Tor"
+    );
+    Assert.ok(
+      !PrivateTab.isPrivate(normal),
+      "Trusted site storage is persistent"
+    );
+    Assert.equal(
+      BrowserControl.pageForId(page).tab,
+      normal,
+      "The agent keeps its page after a storage switch"
+    );
+    Assert.equal(BrowserControl.pageOwners.get(page), clientId);
+    await OnionAuthStore.update(address, { key: null, privateMode: true });
+    Assert.equal(TorRouting.contextIdForURI(uri), TorRouting.userContextId);
+    const privateTab = await TorRouting._reopenInContext(
+      window,
+      normal,
+      TorRouting.userContextId,
+      "about:blank"
+    );
+    Assert.ok(PrivateTab.isPrivate(privateTab));
+    Assert.equal(BrowserControl.pageForId(page).tab, privateTab);
+    Assert.equal(BrowserControl.pageOwners.get(page), clientId);
+  } finally {
+    await OnionAuthStore.update(address, null);
+    if (page) {
+      await BrowserControl.dispatch(
+        "tabs",
+        { action: "close", page },
+        PathUtils.profileDir,
+        clientId,
+        new AbortController().signal
+      );
+    }
+  }
+});
+
 add_task(async function test_user_onion_navigation_reopens_as_tor() {
   const tab = await BrowserTestUtils.openNewForegroundTab(
     gBrowser,
@@ -158,10 +239,10 @@ add_task(function test_proxy_filter_uses_remote_dns_and_no_failover() {
 
   is(result.type, "socks", "Tor routing uses SOCKS5");
   is(result.host, "127.0.0.1", "The proxy is loopback-only");
-  is(result.port, TEST_PORT, "The selected Arti port is used");
+  is(result.port, TEST_PORT, "The selected Tor port is used");
   ok(
     result.flags & Ci.nsIProxyInfo.TRANSPARENT_PROXY_RESOLVES_HOST,
-    "DNS resolution happens through Arti"
+    "DNS resolution happens through Tor"
   );
   ok(result.username, "The request carries stream-isolation credentials");
   is(result.failoverProxy, null, "Tor requests cannot fail open to direct");
@@ -201,4 +282,98 @@ add_task(async function test_toolbar_reflects_selected_tab() {
   const privateTab = await TorRouting.toggle(window, torTab);
   ok(!button.hasAttribute("checked"), "The button clears outside Tor");
   BrowserTestUtils.removeTab(privateTab);
+});
+
+add_task(async function test_authorization_prompt_after_error_page_load() {
+  const server = Cc["@mozilla.org/network/server-socket;1"].createInstance(
+    Ci.nsIServerSocket
+  );
+  server.init(-1, true, -1);
+  const transports = [];
+  server.asyncListen({
+    onSocketAccepted(socket, transport) {
+      transports.push(transport);
+      const output = transport.openOutputStream(0, 0, 0);
+      const input = transport.openInputStream(0, 0, 0);
+      const pump = Cc[
+        "@mozilla.org/network/input-stream-pump;1"
+      ].createInstance(Ci.nsIInputStreamPump);
+      pump.init(input, 0, 0, false);
+      let stage = 0;
+      let buffer = "";
+      pump.asyncRead({
+        onStartRequest() {},
+        onStopRequest() {
+          output.close();
+        },
+        onDataAvailable(request, stream, offset, count) {
+          const binary = Cc["@mozilla.org/binaryinputstream;1"].createInstance(
+            Ci.nsIBinaryInputStream
+          );
+          binary.setInputStream(stream);
+          buffer += binary.readBytes(count);
+          if (stage == 0 && buffer.length >= 2 + buffer.charCodeAt(1)) {
+            const auth = buffer.slice(2).includes("\x02");
+            output.write(auth ? "\x05\x02" : "\x05\x00", 2);
+            buffer = "";
+            stage = auth ? 1 : 2;
+          } else if (stage == 1 && buffer.length >= 3 + buffer.charCodeAt(1)) {
+            const length =
+              3 +
+              buffer.charCodeAt(1) +
+              buffer.charCodeAt(2 + buffer.charCodeAt(1));
+            if (buffer.length >= length) {
+              output.write("\x01\x00", 2);
+              buffer = "";
+              stage = 2;
+            }
+          } else if (stage == 2 && buffer.length >= 7 + buffer.charCodeAt(4)) {
+            output.write("\x05\xf4\x00\x01\x00\x00\x00\x00\x00\x00", 10);
+            stage = 3;
+          }
+        },
+      });
+    },
+    onStopListening() {},
+  });
+  Services.prefs.setIntPref(TEST_PORT_PREF, server.port);
+  let tab;
+  try {
+    tab = await TorRouting.createTab(window);
+    gBrowser.selectedTab = tab;
+    const browser = tab.linkedBrowser;
+    const loaded = BrowserTestUtils.waitForErrorPage(browser);
+    BrowserTestUtils.startLoadingURIString(
+      browser,
+      "https://2gzyxa5ihm7nsggfxnu52rck2vv4rvmdlkiu3zzui5du4xyclen53wid.onion/"
+    );
+    await loaded;
+    await TestUtils.waitForCondition(
+      () => TorRouting._authorizationDialogs.has(browser),
+      "The loaded authorization error page opens its key dialog"
+    );
+    const pending = TorRouting._authorizationDialogs.get(browser);
+    await pending.dialog._dialogReady;
+    const doc = pending.dialog._frame.contentDocument;
+    Assert.equal(doc.activeElement.id, "private-key");
+    Assert.ok(doc.getElementById("private-mode").checked);
+    doc.getElementById("private-mode").click();
+    Assert.ok(
+      doc.getElementById("remember-key").checked,
+      "Trusting the site also remembers its key"
+    );
+    Assert.ok(doc.getElementById("remember-key").disabled);
+    pending.dialog.close();
+    await pending.closedPromise;
+  } finally {
+    if (tab) {
+      BrowserTestUtils.removeTab(tab);
+    }
+    server.close();
+    for (const transport of transports) {
+      transport.close(Cr.NS_OK);
+    }
+    Services.prefs.setIntPref(TEST_PORT_PREF, TEST_PORT);
+    TorRouting._port = TEST_PORT;
+  }
 });

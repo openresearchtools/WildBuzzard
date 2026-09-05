@@ -1,0 +1,71 @@
+--- a/src/app/main.cpp
++++ b/src/app/main.cpp
+@@ -29,6 +29,7 @@
+ 
+ #include <QtSystemDetection>
+ 
++#include <cerrno>
+ #include <chrono>
+ #include <cstdlib>
+ #include <memory>
+@@ -48,6 +49,9 @@
+ 
+ #include <QCoreApplication>
+ #include <QString>
++#if defined(Q_OS_UNIX) && defined(DISABLE_GUI)
++#include <QSocketNotifier>
++#endif
+ #include <QThread>
+ 
+ #ifndef DISABLE_GUI
+@@ -204,6 +208,21 @@
+ #endif
+ 
+         const QBtCommandLineParameters params = app->commandLineArgs();
++#if defined(Q_OS_UNIX) && defined(DISABLE_GUI)
++        const bool wildBuzzardMode = !qEnvironmentVariableIsEmpty("WILDBUZZARD_QBITTORRENT_SOCKET");
++        if (wildBuzzardMode)
++        {
++            struct stat inputStat {};
++            if (params.shouldDaemonize
++                || (qgetenv("WILDBUZZARD_QBITTORRENT_LIFETIME") != "stdin")
++                || (::fstat(STDIN_FILENO, &inputStat) != 0) || !S_ISFIFO(inputStat.st_mode))
++            {
++                qCritical("WildBuzzard requires a browser-owned lifetime pipe.");
++                return EXIT_FAILURE;
++            }
++            ::umask(S_IRWXG | S_IRWXO);
++        }
++#endif
+ 
+         // "show help/version" takes priority over other flags
+         if (params.showHelp)
+@@ -320,6 +339,28 @@
+ 
+         registerSignalHandlers();
+ 
++#if defined(Q_OS_UNIX) && defined(DISABLE_GUI)
++        if (wildBuzzardMode)
++        {
++            auto *lifetime = new QSocketNotifier(STDIN_FILENO, QSocketNotifier::Read, app.get());
++            QObject::connect(lifetime, &QSocketNotifier::activated, app.get(), [lifetime]
++            {
++                char byte;
++                ssize_t result;
++                do
++                {
++                    result = ::read(STDIN_FILENO, &byte, sizeof(byte));
++                }
++                while ((result < 0) && (errno == EINTR));
++                if (result <= 0)
++                {
++                    lifetime->setEnabled(false);
++                    QCoreApplication::quit();
++                }
++            });
++        }
++#endif
++
+         return app->exec();
+     }
+     catch (const CommandLineParameterError &er)

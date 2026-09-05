@@ -11,14 +11,14 @@
 
 $primary-blue: var(--color-accent-primary);
 $primary-blue-dark: var(--color-accent-primary);
-$primary-text-color-dark: rgb(43, 42, 51);
+$primary-text-color-dark: rgb(48, 48, 48);
 
 // -------------------------------------------------------------------------- //
 // Grays from http://design.firefox.com/photon/visuals/color.html
 
-$grey-30: #D7D7DB;
-$grey-60: #4A4A4F;
-$grey-90: #0C0C0D;
+$grey-30: #D7D7D7;
+$grey-60: #4A4A4A;
+$grey-90: #0C0C0C;
 
 $grey-90-10: rgba($grey-90, 0.1);
 $grey-90-20: rgba($grey-90, 0.2);
@@ -45,8 +45,8 @@ $download-icon-fill: var(--color-green-40);
 $pocket-icon-fill: #EF4056;
 $email-input-invalid: var(--color-red-10);
 
-$newtab-wordmark-default-color: #20123A;
-$newtab-wordmark-darktheme-color: rgb(251, 251, 254);
+$newtab-wordmark-default-color: #252525;
+$newtab-wordmark-darktheme-color: rgb(250, 250, 250);
 
 $in-content-page-color: var(--text-color);
 $in-content-page-color-dark: var(--text-color);
@@ -57,14 +57,14 @@ $in-content-page-color-dark: var(--text-color);
 // themes. The color set in --tabpanel-background-color (tabs.inc.css) should
 // match these colors here to avoid flashing.
 
-$in-content-page-background: #F9F9FB;
-$in-content-page-background-dark: #2B2A33;
+$in-content-page-background: #FAFAFA;
+$in-content-page-background-dark: #1E1E1E;
 $newtab-background-secondary: var(--color-white);
-$newtab-background-secondary-dark: rgb(66, 65, 77);
+$newtab-background-secondary-dark: rgb(48, 48, 48);
 
 // Mirrors $newtab-background-secondary with 15% transparency
 $newtab-background-card: color-mix(in srgb, var(--color-white) 85%, transparent);
-$newtab-background-card-dark: rgba(66, 65, 77, 85%);
+$newtab-background-card-dark: rgba(48, 48, 48, 85%);
 
 // Photon transitions from http://design.firefox.com/photon/motion/duration-and-easing.html
 $photon-easing: cubic-bezier(0.07, 0.95, 0, 1);

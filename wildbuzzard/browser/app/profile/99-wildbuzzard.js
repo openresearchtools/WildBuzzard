@@ -24,7 +24,17 @@ pref("app.releaseNotesURL.aboutDialog", "about:blank", locked);
 pref("browser.uitour.enabled", false, locked);
 pref("browser.uitour.url", "", locked);
 pref("startup.homepage_override_url", "", locked);
-pref("startup.homepage_welcome_url", "about:welcome");
+pref("startup.homepage_welcome_url", "", locked);
+
+// Start browsing immediately; setup remains available in Settings.
+pref("browser.aboutwelcome.enabled", false, locked);
+pref("browser.aboutwelcome.experimentsGate.enabled", false, locked);
+pref("browser.startup.upgradeDialog.enabled", false, locked);
+pref("browser.shell.checkDefaultBrowser", false);
+pref("browser.laterrun.enabled", false, locked);
+pref("browser.toolbars.bookmarks.visibility", "never");
+pref("browser.newtabpage.activity-stream.asrouter.providers.onboarding",
+     '{"id":"onboarding","enabled":false,"type":"local"}', locked);
 pref("startup.homepage_welcome_url.additional", "", locked);
 
 // Telemetry, studies, remote experiments, coverage, and crash submission.
@@ -399,3 +409,9 @@ pref(
   locked
 );
 pref("browser.backup.template.fallback-download.esr", "about:blank", locked);
+
+// This product ships English spelling dictionaries, without translation services.
+pref("browser.translations.enable", false, locked);
+pref("browser.translations.quickAction.enabled", false, locked);
+pref("intl.multilingual.enabled", false, locked);
+pref("intl.multilingual.downloadEnabled", false, locked);

@@ -15,7 +15,7 @@
     --background-color-critical: light-dark(var(--color-red-0), var(--color-red-90));
     --background-color-dimmed: light-dark(color-mix(in srgb, currentColor 12%, transparent), color-mix(in srgb, currentColor 17%, transparent));
     --background-color-dimmed-further: light-dark(color-mix(in srgb, currentColor 20%, transparent), color-mix(in srgb, currentColor 14%, transparent));
-    --background-color-information: light-dark(var(--color-blue-0), var(--color-blue-90));
+    --background-color-information: light-dark(#e6e6e6, #363636);
     --background-color-overlay: var(--color-black-alpha-50);
     --background-color-success: light-dark(var(--color-green-0), var(--color-green-90));
     --background-color-warning: light-dark(var(--color-yellow-0), var(--color-yellow-90));
@@ -182,10 +182,10 @@
 
     /** color **/
     --color-accent-attention: light-dark(#2ac3a2, #54ffbd);
-    --color-accent-primary: light-dark(var(--color-blue-60), var(--color-cyan-30));
-    --color-accent-primary-hover: light-dark(var(--color-blue-70), var(--color-cyan-20));
-    --color-accent-primary-active: light-dark(var(--color-blue-80), var(--color-cyan-10));
-    --color-accent-primary-selected: light-dark(var(--color-blue-60), var(--color-cyan-30));
+    --color-accent-primary: light-dark(#4a4a4a, #c8c8c8);
+    --color-accent-primary-hover: light-dark(#363636, #d8d8d8);
+    --color-accent-primary-active: light-dark(#292929, #e6e6e6);
+    --color-accent-primary-selected: light-dark(#292929, #e6e6e6);
     --color-black: #000000;
     --color-black-alpha-10: oklch(0 0 0 / 10%);
     --color-black-alpha-20: oklch(0 0 0 / 20%);
@@ -220,15 +220,15 @@
     --color-cyan-90: oklch(34% 0.14 205);
     --color-cyan-100: oklch(27% 0.1 205);
     --color-cyan-110: oklch(20% 0.05 205);
-    --color-gray-0: #fbfbfe;
-    --color-gray-20: #f0f0f4;
-    --color-gray-30: #bac2ca;
-    --color-gray-50: #bfbfc9;
-    --color-gray-60: #8f8f9d;
-    --color-gray-70: #5b5b66;
-    --color-gray-80: #23222b;
-    --color-gray-90: #1c1b22;
-    --color-gray-100: #15141a;
+    --color-gray-0: #fafafa;
+    --color-gray-20: #f0f0f0;
+    --color-gray-30: #c2c2c2;
+    --color-gray-50: #bfbfbf;
+    --color-gray-60: #8f8f8f;
+    --color-gray-70: #5b5b5b;
+    --color-gray-80: #292929;
+    --color-gray-90: #1e1e1e;
+    --color-gray-100: #151515;
     --color-green-0: oklch(97% 0.05 145);
     --color-green-10: oklch(90% 0.1 145);
     --color-green-20: oklch(83% 0.14 145);
@@ -380,7 +380,7 @@
     /** icon **/
     --icon-color: light-dark(var(--color-gray-70), var(--color-gray-0));
     --icon-color-critical: light-dark(var(--color-red-60), var(--color-red-20));
-    --icon-color-information: light-dark(var(--color-blue-60), var(--color-blue-20));
+    --icon-color-information: light-dark(#4a4a4a, #d8d8d8);
     --icon-color-success: light-dark(var(--color-green-60), var(--color-green-20));
     --icon-color-warning: light-dark(var(--color-yellow-60), var(--color-yellow-20));
     --icon-size: var(--icon-size-small);
@@ -419,10 +419,10 @@
     --opacity-deemphasized-strong: 0.6;
 
     /** panel **/
-    --panel-background-color: light-dark(var(--color-white), rgb(66, 65, 77));
+    --panel-background-color: light-dark(var(--color-white), rgb(48, 48, 48));
     --panel-background-color-dimmed: var(--background-color-dimmed);
     --panel-background-color-dimmed-further: var(--background-color-dimmed-further);
-    --panel-border-color: light-dark(rgb(240, 240, 244), rgb(82, 82, 94));
+    --panel-border-color: light-dark(rgb(240, 240, 240), rgb(82, 82, 82));
     --panel-border-radius: var(--border-radius-medium);
     --panel-box-shadow: 0 0 var(--panel-box-shadow-margin) hsla(0, 0%, 0%, 0.2);
     --panel-box-shadow-margin: 4px;
@@ -435,16 +435,16 @@
     --panel-menuitem-padding-inline: 8px;
     --panel-padding: 16px;
     --panel-padding-block: 4px;
-    --panel-text-color: light-dark(var(--color-black), rgb(251, 251, 254));
+    --panel-text-color: light-dark(var(--color-black), rgb(250, 250, 250));
     --panel-width: initial;
 
     /** popup **/
     --popup-box-shadow: var(--box-shadow-level-3);
 
     /** sidebar **/
-    --sidebar-background-color: light-dark(white, rgb(28, 27, 34));
+    --sidebar-background-color: light-dark(white, rgb(30, 30, 30));
     --sidebar-border-color: var(--card-border-color);
-    --sidebar-text-color: light-dark(rgb(21, 20, 26), rgb(249, 249, 250));
+    --sidebar-text-color: light-dark(rgb(21, 21, 21), rgb(250, 250, 250));
 
     /** size **/
     --size-image-xsmall: var(--dimension-40);
@@ -721,7 +721,7 @@
       --background-color-box-info: light-dark(var(--color-gray-15), var(--color-gray-65));
       --background-color-canvas: light-dark(var(--color-gray-0), var(--color-gray-90));
       --background-color-critical: light-dark(var(--color-red-10), var(--color-red-70));
-      --background-color-information: light-dark(var(--color-violet-10), var(--color-violet-70));
+      --background-color-information: light-dark(#e6e6e6, #363636);
       --background-color-success: light-dark(var(--color-green-10), var(--color-green-70));
       --background-color-warning: light-dark(var(--color-yellow-10), var(--color-yellow-70));
 
@@ -745,8 +745,8 @@
       /** button **/
       /* TODO Bug 1821203 - Gray use needs to be consolidated */
       --button-background-color: transparent;
-      --button-background-color-hover: light-dark(var(--color-violet-desaturated-20), var(--color-violet-desaturated-50));
-      --button-background-color-active: light-dark(var(--color-violet-desaturated-30), var(--color-violet-desaturated-40));
+      --button-background-color-hover: light-dark(var(--color-gray-20), var(--color-gray-50));
+      --button-background-color-active: light-dark(var(--color-gray-30), var(--color-gray-40));
       --button-background-color-disabled: var(--button-background-color);
       --button-background-color-destructive: light-dark(var(--color-red-50), var(--color-red-30));
       --button-background-color-destructive-hover: light-dark(var(--color-red-60), var(--color-red-20));
@@ -755,7 +755,7 @@
       --button-background-color-ghost-disabled: var(--button-background-color-ghost);
       --button-background-color-ghost-selected: var(--button-background-color-selected);
       --button-background-color-menu: var(--button-background-color-ghost);
-      --button-background-color-primary-disabled: light-dark(var(--color-violet-desaturated-50), var(--color-violet-desaturated-40));
+      --button-background-color-primary-disabled: light-dark(var(--color-gray-50), var(--color-gray-40));
       --button-border-color: var(--color-accent-primary);
       --button-border-color-destructive: var(--button-border-color-ghost);
       --button-border-color-destructive-selected: var(--button-border-color-destructive);
@@ -770,7 +770,7 @@
       --button-border-radius: var(--border-radius-xxlarge);
       --button-opacity-disabled: 0.7;
       --button-size-icon-small: var(--size-item-medium);
-      --button-text-color: light-dark(var(--color-violet-90), var(--color-gray-0));
+      --button-text-color: light-dark(var(--color-gray-85), var(--color-gray-0));
       --button-text-color-destructive: light-dark(var(--color-white), var(--button-text-color-primary));
       --button-text-color-destructive-disabled: var(--button-text-color-destructive);
       --button-text-color-destructive-selected: light-dark(var(--button-text-color-destructive), var(--button-text-color-destructive-active));
@@ -793,9 +793,7 @@
 
       /** color **/
       --color-accent-attention: light-dark(var(--color-green-40), var(--color-green-30));
-      --color-accent-primary: light-dark(var(--color-violet-50), var(--color-violet-30));
-      --color-accent-primary-hover: light-dark(var(--color-violet-60), var(--color-violet-20));
-      --color-accent-primary-active: light-dark(var(--color-violet-70), var(--color-violet-10));
+      --color-accent-primary: light-dark(#4a4a4a, #c8c8c8);
       --color-accent-primary-selected: var(--button-background-color-primary-active);
       --color-blue-0: #ecf3f8;
       --color-blue-10: #c5eafe;
@@ -817,24 +815,22 @@
       --color-cyan-70: #034554;
       --color-cyan-80: #002d38;
       --color-cyan-90: #011c23;
-      --color-gray-0: #fcfbff;
-      --color-gray-10: #efedf2;
-      --color-gray-15: #e3e2e7;
-      --color-gray-20: #d6d5da;
-      --color-gray-25: #c7c6cb;
-      --color-gray-30: #b7b6ba;
-      --color-gray-35: #a6a4a9;
-      --color-gray-40: #949297;
-      --color-gray-45: #817f84;
-      --color-gray-50: #67666a;
-      --color-gray-55: #515054;
-      --color-gray-60: #3f3e42;
-      --color-gray-65: #312f33;
-      --color-gray-70: #252428;
-      --color-gray-75: #1d1b1f;
-      --color-gray-80: #171519;
-      --color-gray-85: #131215;
-      --color-gray-90: #121114;
+      --color-gray-10: #ededed;
+      --color-gray-15: #e2e2e2;
+      --color-gray-20: #d6d6d6;
+      --color-gray-25: #c7c7c7;
+      --color-gray-30: #b7b7b7;
+      --color-gray-35: #a6a6a6;
+      --color-gray-40: #949494;
+      --color-gray-45: #818181;
+      --color-gray-50: #676767;
+      --color-gray-55: #515151;
+      --color-gray-60: #414141;
+      --color-gray-65: #363636;
+      --color-gray-70: #303030;
+      --color-gray-75: #292929;
+      --color-gray-80: #252525;
+      --color-gray-85: #222222;
       --color-green-0: #ecf4f1;
       --color-green-10: #c4f1e0;
       --color-green-20: #90e3c6;
@@ -921,7 +917,7 @@
       /** icon **/
       --icon-color: var(--text-color);
       --icon-color-critical: light-dark(var(--color-red-50), var(--color-red-20));
-      --icon-color-information: light-dark(var(--color-violet-50), var(--color-violet-20));
+      --icon-color-information: light-dark(#4a4a4a, #d8d8d8);
       --icon-color-success: light-dark(var(--color-green-50), var(--color-green-20));
       --icon-color-warning: light-dark(var(--color-yellow-50), var(--color-yellow-20));
       --icon-size-xsmall: var(--size-item-xsmall);
@@ -963,10 +959,10 @@
       --table-row-background-color-alternate: light-dark(var(--color-gray-20), var(--color-gray-65));
 
       /** text-color **/
-      --text-color: light-dark(var(--color-violet-desaturated-90), var(--color-violet-desaturated-0));
-      --text-color-disabled: light-dark(rgba(12, 27, 51, 0.4), rgba(240, 245, 251, 0.4));
+      --text-color: light-dark(var(--color-gray-85), var(--color-gray-0));
+      --text-color-disabled: light-dark(rgba(34, 34, 34, 0.4), rgba(250, 250, 250, 0.4));
       --text-color-accent-primary-selected: light-dark(var(--color-white), var(--color-gray-55));
-      --text-color-deemphasized: light-dark(rgba(12, 27, 51, 0.7), rgba(240, 245, 251, 0.7));
+      --text-color-deemphasized: light-dark(rgba(34, 34, 34, 0.7), rgba(250, 250, 250, 0.7));
       --text-color-error: light-dark(var(--color-red-50), var(--color-red-20));
 
       /** toolbar **/
@@ -975,14 +971,14 @@
       --toolbar-field-background-color-focus: var(--background-color-box);
       --toolbar-field-border-color: light-dark(var(--color-gray-20), var(--color-gray-60));
       --toolbar-field-border-color-focus: #ffffff;
-      --toolbar-field-text-color: light-dark(var(--color-violet-desaturated-70), var(--color-violet-desaturated-10));
+      --toolbar-field-text-color: light-dark(var(--color-gray-65), var(--color-gray-15));
       --toolbar-field-text-color-focus: var(--toolbar-field-text-color);
       --toolbar-padding-inline: 6px;
 
       /** toolbarbutton **/
-      --toolbarbutton-background-color-hover: light-dark(rgba(116, 160, 206, 0.25), rgba(159, 190, 222, 0.25));
-      --toolbarbutton-background-color-active: light-dark(rgba(116, 160, 206, 0.4), rgba(159, 190, 222, 0.4));
-      --toolbarbutton-icon-fill: light-dark(var(--color-violet-desaturated-50), var(--color-violet-desaturated-10));
+      --toolbarbutton-background-color-hover: light-dark(rgba(100, 100, 100, 0.25), rgba(200, 200, 200, 0.25));
+      --toolbarbutton-background-color-active: light-dark(rgba(100, 100, 100, 0.4), rgba(200, 200, 200, 0.4));
+      --toolbarbutton-icon-fill: light-dark(var(--color-gray-50), var(--color-gray-15));
       --toolbarbutton-icon-fill-attention: var(--color-accent-primary);
       --toolbarbutton-opacity-disabled: 0.4;
       --toolbarbutton-outline-color: transparent;
@@ -993,8 +989,8 @@
       --toolbarbutton-padding-inner-touch-narrow: 0;
 
       /** toolbox **/
-      --toolbox-background-color-gradient-leading: light-dark(#e7f3ff, #0d2640);
-      --toolbox-background-color-gradient-trailing: light-dark(var(--color-violet-30), #081a2d);
+      --toolbox-background-color-gradient-leading: light-dark(#e6e6e6, #252525);
+      --toolbox-background-color-gradient-trailing: light-dark(#e6e6e6, #252525);
       --toolbox-background-color-inactive: transparent;
       /* This gradient is only used for Nova */
       --toolbox-background-gradient: linear-gradient(
@@ -1081,8 +1077,6 @@
         /** color **/
         --color-accent-attention: AccentColor;
         --color-accent-primary: AccentColor;
-        --color-accent-primary-hover: SelectedItem;
-        --color-accent-primary-active: var(--color-accent-primary-hover);
         --color-accent-primary-selected: SelectedItem;
 
         /** icon **/

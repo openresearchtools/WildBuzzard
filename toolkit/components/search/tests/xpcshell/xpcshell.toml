@@ -298,3 +298,5 @@ support-files = ["settings/v1-migrate-to-webextension.json"]
 ["test_webextensions_upgrade.js"]
 
 ["test_webextensions_valid.js"]
+
+["test_wildbuzzard_engine_selection.js"]

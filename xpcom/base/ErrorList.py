@@ -470,6 +470,9 @@ with modules["NETWORK"]:
     # WebTransport Session Limit (mWebTransportMaxSessions) Exceeded
     errors["NS_ERROR_WEBTRANSPORT_SESSION_LIMIT_EXCEEDED"] = FAILURE(199)
 
+    errors["NS_ERROR_ONION_AUTH_REQUIRED"] = FAILURE(190)
+    errors["NS_ERROR_ONION_AUTH_FAILED"] = FAILURE(191)
+
     errors["NS_ERROR_WEBTRANSPORT_CODE_BASE"] = FAILURE(200)
     errors["NS_ERROR_WEBTRANSPORT_CODE_END"] = (
         errors["NS_ERROR_WEBTRANSPORT_CODE_BASE"] + 255

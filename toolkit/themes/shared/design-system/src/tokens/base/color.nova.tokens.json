@@ -1,58 +1,52 @@
 {
   "gray": {
-    "0": {
-      "value": "#fcfbff"
-    },
     "10": {
-      "value": "#efedf2"
+      "value": "#ededed"
     },
     "15": {
-      "value": "#e3e2e7"
+      "value": "#e2e2e2"
     },
     "20": {
-      "value": "#d6d5da"
+      "value": "#d6d6d6"
     },
     "25": {
-      "value": "#c7c6cb"
+      "value": "#c7c7c7"
     },
     "30": {
-      "value": "#b7b6ba"
+      "value": "#b7b7b7"
     },
     "35": {
-      "value": "#a6a4a9"
+      "value": "#a6a6a6"
     },
     "40": {
-      "value": "#949297"
+      "value": "#949494"
     },
     "45": {
-      "value": "#817f84"
+      "value": "#818181"
     },
     "50": {
-      "value": "#67666a"
+      "value": "#676767"
     },
     "55": {
-      "value": "#515054"
+      "value": "#515151"
     },
     "60": {
-      "value": "#3f3e42"
+      "value": "#414141"
     },
     "65": {
-      "value": "#312f33"
+      "value": "#363636"
     },
     "70": {
-      "value": "#252428"
+      "value": "#303030"
     },
     "75": {
-      "value": "#1d1b1f"
+      "value": "#292929"
     },
     "80": {
-      "value": "#171519"
+      "value": "#252525"
     },
     "85": {
-      "value": "#131215"
-    },
-    "90": {
-      "value": "#121114"
+      "value": "#222222"
     }
   },
   "red": {
@@ -386,25 +380,9 @@
       "@base": {
         "value": {
           "nativeTheme": "AccentColor",
-          "light": "{color.violet.50}",
-          "dark": "{color.violet.30}",
+          "light": "#4a4a4a",
+          "dark": "#c8c8c8",
           "forcedColors": "AccentColor"
-        }
-      },
-      "hover": {
-        "value": {
-          "nativeTheme": "color-mix(in srgb, black 10%, {color.accent.primary.@base})",
-          "light": "{color.violet.60}",
-          "dark": "{color.violet.20}",
-          "forcedColors": "SelectedItem"
-        }
-      },
-      "active": {
-        "value": {
-          "nativeTheme": "color-mix(in srgb, black 20%, {color.accent.primary.@base})",
-          "light": "{color.violet.70}",
-          "dark": "{color.violet.10}",
-          "forcedColors": "{color.accent.primary.hover}"
         }
       },
       "selected": {

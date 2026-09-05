@@ -2,7 +2,6 @@
 
 import contextlib
 import importlib.util
-import json
 import pathlib
 import subprocess
 import tempfile
@@ -59,6 +58,10 @@ class BuildProvenanceTests(unittest.TestCase):
         repository = root / "repository"
         (repository / "browser" / "config").mkdir(parents=True)
         (repository / "wildbuzzard").mkdir()
+        (repository / "wildbuzzard/config").mkdir()
+        (repository / "wildbuzzard/config/version.txt").write_text(
+            "153.1\n", encoding="utf-8"
+        )
         (repository / "browser" / "config" / "version.txt").write_text(
             "153.1.0\n", encoding="utf-8"
         )
@@ -133,6 +136,7 @@ class BuildProvenanceTests(unittest.TestCase):
                 "user.email=229047507+openresearchtools@users.noreply.github.com",
                 "add",
                 "wildbuzzard/upstreams.toml",
+                "wildbuzzard/config/version.txt",
             ],
             check=True,
         )
@@ -241,93 +245,85 @@ class BuildProvenanceTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 MANIFEST.verify_firefox_release_provenance(repository, head)
 
-    def arti_release(self, root):
+    def tor_release(self, root):
         repository = root / "repository"
         pin_directory = repository / "wildbuzzard" / "third_party"
         pin_directory.mkdir(parents=True)
         artifacts = {
-            "arti": root / "arti-2.5.1-linux-x86_64",
-            "artiProvenance": root / "wildbuzzard-arti-2.5.1-provenance.zip",
-            "artiSource": root / "wildbuzzard-arti-2.5.1-source.tar.xz",
-            "artiCargoVendor": root / "wildbuzzard-arti-2.5.1-cargo-vendor.tar.xz",
+            "tor": root / "tor-0.4.9.11-linux-x86_64",
+            "torProvenance": root / "wildbuzzard-tor-0.4.9.11-provenance.zip",
+            "torSource": root / "wildbuzzard-tor-0.4.9.11-source.tar",
         }
         contents = {
-            "arti": b"binary",
-            "artiProvenance": b"provenance",
-            "artiSource": b"source",
-            "artiCargoVendor": b"cargo vendor",
+            "tor": b"binary",
+            "torProvenance": b"provenance",
+            "torSource": b"source",
         }
         for name, path in artifacts.items():
             path.write_bytes(contents[name])
         digests = {name: MANIFEST.digest(path) for name, path in artifacts.items()}
-        inventory = pin_directory / "arti-crates" / "THIRD-PARTY.json"
+        inventory = pin_directory / "tor-notices" / "THIRD-PARTY.json"
         inventory.parent.mkdir()
         inventory.write_text("{}\n", encoding="utf-8")
-        (pin_directory / "arti.toml").write_text(
+        (pin_directory / "tor.toml").write_text(
             "\n".join([
-                'tag = "arti-v2.5.1"',
+                'tag = "tor-0.4.9.11"',
                 f'commit = "{"a" * 40}"',
                 f'tree = "{"b" * 40}"',
-                f'source_sha256 = "{digests["artiSource"]}"',
-                f'cargo_vendor_sha256 = "{digests["artiCargoVendor"]}"',
-                f'cargo_license_inventory_sha256 = "{MANIFEST.digest(inventory)}"',
+                f'source_sha256 = "{digests["torSource"]}"',
             ])
             + "\n",
             encoding="utf-8",
         )
-        manifest = root / "arti-build-manifest.txt"
+        manifest = root / "tor-build-manifest.txt"
         manifest.write_text(
             "\n".join([
-                "arti_tag=arti-v2.5.1",
-                f"arti_commit={'a' * 40}",
-                f"arti_tree={'b' * 40}",
-                f"artifact={artifacts['arti']}",
-                f"binary_sha256={digests['arti']}",
-                f"config={pin_directory / 'arti.toml'}",
-                f"config_sha256={MANIFEST.digest(pin_directory / 'arti.toml')}",
-                f"source={artifacts['artiSource']}",
-                f"source_sha256={digests['artiSource']}",
-                f"cargo_vendor={artifacts['artiCargoVendor']}",
-                f"cargo_vendor_sha256={digests['artiCargoVendor']}",
-                f"cargo_license_inventory={inventory}",
-                f"cargo_license_inventory_sha256={MANIFEST.digest(inventory)}",
-                f"provenance={artifacts['artiProvenance']}",
-                f"provenance_sha256={digests['artiProvenance']}",
+                "tor_tag=tor-0.4.9.11",
+                f"tor_commit={'a' * 40}",
+                f"tor_tree={'b' * 40}",
+                f"artifact={artifacts['tor']}",
+                f"binary_sha256={digests['tor']}",
+                f"config={pin_directory / 'tor.toml'}",
+                f"config_sha256={MANIFEST.digest(pin_directory / 'tor.toml')}",
+                f"source={artifacts['torSource']}",
+                f"source_sha256={digests['torSource']}",
+                f"provenance={artifacts['torProvenance']}",
+                f"provenance_sha256={digests['torProvenance']}",
             ])
             + "\n",
             encoding="utf-8",
         )
         return manifest, artifacts, repository
 
-    def test_arti_artifacts_match_the_exact_source_build_and_pins(self):
+    def test_tor_artifacts_match_the_exact_source_build_and_pins(self):
         with tempfile.TemporaryDirectory() as directory:
-            release = self.arti_release(pathlib.Path(directory))
+            release = self.tor_release(pathlib.Path(directory))
             with mock.patch.object(
                 MANIFEST.subprocess,
                 "run",
                 return_value=subprocess.CompletedProcess([], 0, "", ""),
             ):
-                MANIFEST.verify_arti_build_provenance(*release)
+                MANIFEST.verify_tor_build_provenance(*release)
 
-    def test_rejects_arti_source_that_differs_from_the_build_manifest(self):
+    def test_rejects_tor_source_that_differs_from_the_build_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
-            manifest, artifacts, repository = self.arti_release(pathlib.Path(directory))
-            artifacts["artiSource"].write_bytes(b"different")
+            manifest, artifacts, repository = self.tor_release(pathlib.Path(directory))
+            artifacts["torSource"].write_bytes(b"different")
             with self.assertRaises(SystemExit):
-                MANIFEST.verify_arti_build_provenance(manifest, artifacts, repository)
+                MANIFEST.verify_tor_build_provenance(manifest, artifacts, repository)
 
-    def test_rejects_arti_source_digest_that_differs_from_the_pin(self):
+    def test_rejects_tor_source_digest_that_differs_from_the_pin(self):
         with tempfile.TemporaryDirectory() as directory:
-            manifest, artifacts, repository = self.arti_release(pathlib.Path(directory))
-            pin = repository / "wildbuzzard" / "third_party" / "arti.toml"
+            manifest, artifacts, repository = self.tor_release(pathlib.Path(directory))
+            pin = repository / "wildbuzzard" / "third_party" / "tor.toml"
             pin.write_text(
                 pin.read_text(encoding="utf-8").replace(
-                    MANIFEST.digest(artifacts["artiSource"]), "c" * 64
+                    MANIFEST.digest(artifacts["torSource"]), "c" * 64
                 ),
                 encoding="utf-8",
             )
             with self.assertRaises(SystemExit):
-                MANIFEST.verify_arti_build_provenance(manifest, artifacts, repository)
+                MANIFEST.verify_tor_build_provenance(manifest, artifacts, repository)
 
 
 class ReleasePayloadTests(unittest.TestCase):
@@ -416,19 +412,29 @@ class ReleasePayloadTests(unittest.TestCase):
                 members.setdefault(parent.as_posix(), ["directory"])
                 parent = parent.parent
         members[""] = ["directory"]
+        members["usr/bin/wildbuzzard"] = [("symlink", "/opt/wildbuzzard/wildbuzzard")]
         return members
 
-    def test_requires_arti_corresponding_source(self):
+    def test_browser_command_must_link_to_the_actual_browser(self):
+        for entry in [
+            "file",
+            ("symlink", "/tmp/wildbuzzard"),
+            ("symlink", "/opt/wildbuzzard/helper"),
+        ]:
+            with self.subTest(entry=entry):
+                members = self.browser_debian_members()
+                members["usr/bin/wildbuzzard"] = [entry]
+                with self.assertRaises(SystemExit):
+                    MANIFEST.verify_browser_debian_runtime_members(members)
+
+    def test_requires_tor_corresponding_source(self):
         self.assertEqual(
-            MANIFEST.REQUIRED_ARTIFACTS["artiSource"],
-            "wildbuzzard-arti-*-source.tar.xz",
-        )
-        self.assertEqual(
-            MANIFEST.REQUIRED_ARTIFACTS["artiCargoVendor"],
-            "wildbuzzard-arti-*-cargo-vendor.tar.xz",
+            MANIFEST.REQUIRED_ARTIFACTS["torSource"],
+            "wildbuzzard-tor-*-source.tar",
         )
 
-    def test_arti_legal_payload_is_exact_in_browser_and_documentation(self):
+
+    def test_tor_legal_payload_is_exact_in_browser_and_documentation(self):
         repository = HERE.parents[2]
         with contextlib.ExitStack() as stack:
             for name in (
@@ -443,10 +449,10 @@ class ReleasePayloadTests(unittest.TestCase):
                         set(getattr(MANIFEST, name)),
                     )
                 )
-            MANIFEST.configure_arti_legal_paths(repository)
+            MANIFEST.configure_tor_legal_paths(repository)
             members = {path: ["file"] for path in MANIFEST.BROWSER_DEB_LEGAL_PATHS}
             MANIFEST.verify_browser_debian_legal_members(members)
-            members["opt/wildbuzzard/notices/arti-crates/tests/fixture"] = ["file"]
+            members["opt/wildbuzzard/notices/tor-notices/tests/fixture"] = ["file"]
             with self.assertRaises(SystemExit):
                 MANIFEST.verify_browser_debian_legal_members(members)
 
@@ -455,21 +461,6 @@ class ReleasePayloadTests(unittest.TestCase):
             MANIFEST.REQUIRED_ARTIFACTS["blockerAssetSource"],
             "wildbuzzard-blocker-assets-source.tar.xz",
         )
-
-    def test_requires_runner_crate_corresponding_source(self):
-        self.assertEqual(
-            MANIFEST.REQUIRED_ARTIFACTS["runnerCratesSource"],
-            "wildbuzzard-runner-crates-source.tar.xz",
-        )
-        for relative in MANIFEST.RUNNER_CRATE_LEGAL_RELATIVE_PATHS:
-            self.assertIn(
-                f"opt/wildbuzzard/notices/wildbuzzard-cli/{relative}",
-                MANIFEST.BROWSER_DEB_LEGAL_PATHS,
-            )
-            self.assertIn(
-                f"usr/share/doc/wildbuzzard/runner-third-party/{relative}",
-                MANIFEST.BROWSER_DEB_LEGAL_PATHS,
-            )
 
     def test_requires_and_cross_checks_qbittorrent_source_artifacts(self):
         release_builder = (HERE.parents[1] / "ci" / "build-release.sh").read_text(

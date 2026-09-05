@@ -3,6 +3,9 @@ firefox-appdir = "browser"
 
 ["test_qbittorrent_uds_transport.js"]
 
+["test_qbittorrent_runtime.js"]
+run-if = ["os == 'linux'"]
+
 ["test_qbittorrent_web_bridge.js"]
 
 ["test_torrent_document_policy.js"]

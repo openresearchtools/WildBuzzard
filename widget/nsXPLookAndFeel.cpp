@@ -724,8 +724,8 @@ nscolor nsXPLookAndFeel::GetStandinForNativeColor(ColorID aID,
 // Taken from in-content/common.inc.css's dark theme.
 Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
   nscolor color = NS_RGB(0, 0, 0);
-  static constexpr nscolor kWindowBackground = NS_RGB(28, 27, 34);
-  static constexpr nscolor kWindowText = NS_RGB(251, 251, 254);
+  static constexpr nscolor kWindowBackground = NS_RGB(30, 30, 30);
+  static constexpr nscolor kWindowText = NS_RGB(229, 229, 229);
   switch (aID) {
     case ColorID::Window:  // --background-color-canvas
     case ColorID::Background:
@@ -736,26 +736,26 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
       break;
 
     case ColorID::Menu:
-      color = NS_RGB(0x2b, 0x2a, 0x33);
+      color = NS_RGB(48, 48, 48);
       break;
 
     case ColorID::MozMenuhovertext:
     case ColorID::MozMenubarhovertext:
     case ColorID::Menutext:
-      color = NS_RGB(0xfb, 0xfb, 0xfe);
+      color = kWindowText;
       break;
 
     case ColorID::MozMenuhover:
-      color = NS_RGB(0x52, 0x52, 0x5e);
+      color = NS_RGB(82, 82, 82);
       break;
 
     case ColorID::MozMenuhoverdisabled:
-      color = NS_RGB(0x3a, 0x39, 0x44);
+      color = NS_RGB(58, 58, 58);
       break;
 
     case ColorID::MozOddtreerow:
     case ColorID::MozDialog:  // --background-color-box
-      color = NS_RGB(35, 34, 43);
+      color = NS_RGB(41, 41, 41);
       break;
     case ColorID::Windowtext:  // --text-color
     case ColorID::MozDialogtext:
@@ -783,24 +783,24 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
     case ColorID::Graytext:     // opacity: 0.4 of kWindowText blended over the
                              // "Window" background color, which happens to be
                              // the same :-)
-      color = NS_ComposeColors(kWindowBackground, NS_RGBA(251, 251, 254, 102));
+      color = NS_ComposeColors(kWindowBackground, NS_RGBA(229, 229, 229, 102));
       break;
     case ColorID::Threedshadow:
     case ColorID::Threedlightshadow:
     case ColorID::Threedhighlight:
     case ColorID::Buttonborder:
     case ColorID::MozButtondisabledborder:
-      color = NS_RGB(0x8f, 0x8f, 0x9d);
+      color = NS_RGB(143, 143, 143);
       break;
     case ColorID::MozButtonactiveborder:
-      color = NS_RGB(0xd0, 0xd0, 0xd7);
+      color = NS_RGB(208, 208, 208);
       break;
     case ColorID::MozButtonhoverborder:
       color = NS_RGB(0xb1, 0xb1, 0xb1);
       break;
     case ColorID::MozCellhighlight:
     case ColorID::Selecteditem:  // --color-accent-primary-selected
-      color = NS_RGB(0, 221, 255);
+      color = NS_RGB(200, 200, 200);
       break;
     case ColorID::MozSidebar:
     case ColorID::Field:
@@ -812,25 +812,25 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
     case ColorID::MozCombobox:
     case ColorID::MozCellhighlighttext:
     case ColorID::Selecteditemtext:  // --text-color-accent-primary-selected
-      color = NS_RGB(43, 42, 51);
+      color = NS_RGB(48, 48, 48);
       break;
     case ColorID::Threeddarkshadow:  // Same as Threedlightshadow but with the
                                      // background.
     case ColorID::MozDisabledfield:  // opacity: 0.4 of the face above blended
                                      // over the "Window" background color.
     case ColorID::MozButtondisabledface:
-      color = NS_ComposeColors(kWindowBackground, NS_RGBA(43, 42, 51, 102));
+      color = NS_ComposeColors(kWindowBackground, NS_RGBA(48, 48, 48, 102));
       break;
     case ColorID::MozButtonhoverface:  // --button-background-color-hover
     case ColorID::MozColheaderhover:
-      color = NS_RGB(82, 82, 94);
+      color = NS_RGB(82, 82, 82);
       break;
     case ColorID::MozButtonactiveface:  // --button-background-color-active
     case ColorID::MozColheaderactive:
-      color = NS_RGB(91, 91, 102);
+      color = NS_RGB(91, 91, 91);
       break;
     case ColorID::Highlight:
-      color = NS_RGBA(0, 221, 255, 78);
+      color = NS_RGBA(200, 200, 200, 78);
       break;
     case ColorID::Highlighttext:
       color = NS_SAME_AS_FOREGROUND_COLOR;
@@ -860,7 +860,7 @@ Maybe<nscolor> nsXPLookAndFeel::GenericDarkColor(ColorID aID) {
     case ColorID::MozHeaderbarinactive:
     case ColorID::Activecaption:
     case ColorID::Inactivecaption:
-      color = NS_RGB(28, 27, 34);
+      color = NS_RGB(30, 30, 30);
       break;
     case ColorID::MozAutofillBackground:
       // This is the light version of this color, but darkened to have good

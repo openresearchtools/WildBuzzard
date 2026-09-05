@@ -1,0 +1,4 @@
+browser.jar:
+    content/browser/tor/onionAuth.xhtml (content/onionAuth.xhtml)
+    content/browser/tor/onionAuth.js (content/onionAuth.js)
+    content/browser/tor/onionAuth.css (content/onionAuth.css)

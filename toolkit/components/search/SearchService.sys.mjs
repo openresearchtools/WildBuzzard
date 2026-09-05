@@ -779,7 +779,12 @@ export const SearchService = new (class SearchService {
       }
     }
 
-    if (extension.isAppProvided) {
+    if (
+      extension.isAppProvided &&
+      !extension.manifest.chrome_settings_overrides.search_provider.search_url.startsWith(
+        extension.baseURI.spec
+      )
+    ) {
       lazy.logConsole.error(
         "Installing search engines from application provided webExtensions is no longer supported",
         extension.id

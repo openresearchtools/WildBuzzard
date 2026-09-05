@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 
-DIRS += ["browser", "third_party/arti-crates"]
+DIRS += ["browser", "third_party/tor-notices"]
 
 PYTHON_UNITTEST_MANIFESTS += ["scripts/tests/python.toml"]
 
@@ -17,53 +17,39 @@ FINAL_TARGET_FILES.notices["blocker"] += [
     "/browser/components/blocker/assets/SOURCES.lock.json",
 ]
 
-FINAL_TARGET_FILES.notices["wildbuzzard-cli"] += [
-    "components/wildbuzzard-cli/runner/third_party/THIRD-PARTY.json",
-]
-
-FINAL_TARGET_FILES.notices["wildbuzzard-cli"]["licenses"] += [
-    "components/wildbuzzard-cli/runner/third_party/licenses/Apache-2.0.txt",
-    "components/wildbuzzard-cli/runner/third_party/licenses/memchr-COPYING.txt",
-    "components/wildbuzzard-cli/runner/third_party/licenses/memchr-MIT.txt",
-    "components/wildbuzzard-cli/runner/third_party/licenses/MIT-dtolnay-serde.txt",
-    "components/wildbuzzard-cli/runner/third_party/licenses/Unicode-3.0.txt",
-    "components/wildbuzzard-cli/runner/third_party/licenses/Unlicense.txt",
-]
-
-if CONFIG["WILDBUZZARD_ARTI"]:
-    arti_name = "arti" + CONFIG["BIN_SUFFIX"]
-    arti_config_name = "arti.toml"
-    arti_provenance_name = "wildbuzzard-arti-2.5.1-provenance.zip"
-    GENERATED_FILES += [arti_name, arti_config_name, arti_provenance_name]
-    arti_binary = GENERATED_FILES[arti_name]
-    arti_binary.script = "copy_executable.py"
-    arti_binary.flags = [CONFIG["WILDBUZZARD_ARTI"]]
-    arti_binary.extra_deps = [
-        "%" + CONFIG["WILDBUZZARD_ARTI"],
-        "%" + CONFIG["WILDBUZZARD_ARTI_CONFIG"],
-        "%" + CONFIG["WILDBUZZARD_ARTI_PROVENANCE"],
-        "scripts/arti-runtime-provenance.py",
-        "scripts/arti_crate_provenance.py",
-        "third_party/arti.toml",
-        "third_party/arti-crates/THIRD-PARTY.json",
+if CONFIG["WILDBUZZARD_TOR"]:
+    tor_name = "tor" + CONFIG["BIN_SUFFIX"]
+    tor_config_name = "tor.toml"
+    tor_provenance_name = "wildbuzzard-tor-0.4.9.11-provenance.zip"
+    GENERATED_FILES += [tor_name, tor_config_name, tor_provenance_name]
+    tor_binary = GENERATED_FILES[tor_name]
+    tor_binary.script = "copy_executable.py"
+    tor_binary.flags = [CONFIG["WILDBUZZARD_TOR"]]
+    tor_binary.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_TOR"],
+        "%" + CONFIG["WILDBUZZARD_TOR_CONFIG"],
+        "%" + CONFIG["WILDBUZZARD_TOR_PROVENANCE"],
+        "scripts/tor-runtime-provenance.py",
+        "third_party/tor.toml",
+        "third_party/tor-notices/THIRD-PARTY.json",
     ]
-    arti_config = GENERATED_FILES[arti_config_name]
-    arti_config.script = "copy_file.py"
-    arti_config.flags = [CONFIG["WILDBUZZARD_ARTI_CONFIG"]]
-    arti_config.extra_deps = [
-        "%" + CONFIG["WILDBUZZARD_ARTI_CONFIG"],
+    tor_config = GENERATED_FILES[tor_config_name]
+    tor_config.script = "copy_file.py"
+    tor_config.flags = [CONFIG["WILDBUZZARD_TOR_CONFIG"]]
+    tor_config.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_TOR_CONFIG"],
     ]
-    arti_provenance = GENERATED_FILES[arti_provenance_name]
-    arti_provenance.script = "copy_file.py"
-    arti_provenance.flags = [CONFIG["WILDBUZZARD_ARTI_PROVENANCE"]]
-    arti_provenance.extra_deps = [
-        "%" + CONFIG["WILDBUZZARD_ARTI_PROVENANCE"],
+    tor_provenance = GENERATED_FILES[tor_provenance_name]
+    tor_provenance.script = "copy_file.py"
+    tor_provenance.flags = [CONFIG["WILDBUZZARD_TOR_PROVENANCE"]]
+    tor_provenance.extra_deps = [
+        "%" + CONFIG["WILDBUZZARD_TOR_PROVENANCE"],
     ]
 
     FINAL_TARGET_FILES.runtime["tor"] += [
-        "!" + arti_name,
-        "!" + arti_config_name,
+        "!" + tor_name,
+        "!" + tor_config_name,
     ]
     FINAL_TARGET_FILES.notices["source"] += [
-        "!" + arti_provenance_name,
+        "!" + tor_provenance_name,
     ]

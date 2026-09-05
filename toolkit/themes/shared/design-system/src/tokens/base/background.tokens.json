@@ -42,8 +42,8 @@
     },
     "information": {
       "value": {
-        "light": "{color.blue.0}",
-        "dark": "{color.blue.90}",
+        "light": "#e6e6e6",
+        "dark": "#363636",
         "prefersContrast": "{background.color.canvas}"
       }
     },

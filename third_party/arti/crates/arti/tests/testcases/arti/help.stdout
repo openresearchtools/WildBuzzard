@@ -1,4 +1,0 @@
-A Rust Tor implementation.
-
-Usage: arti <SUBCOMMAND> [OPTIONS]
-...

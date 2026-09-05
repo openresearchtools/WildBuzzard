@@ -67,7 +67,7 @@ const kSubviewEvents = ["ViewShowing", "ViewHiding"];
  * The current version. We can use this to auto-add new default widgets as necessary.
  * (would be const but isn't because of testing purposes)
  */
-var kVersion = 30;
+var kVersion = 31;
 
 /**
  * Buttons removed from built-ins by version they were removed. kVersion must be
@@ -77,6 +77,7 @@ var kVersion = 30;
 var ObsoleteBuiltinButtons = {
   "feed-button": 15,
   "wildbuzzard-agent-toolbar-button": 30,
+  "wildbuzzard-torrent-toolbar-button": 31,
 };
 
 /**
@@ -366,7 +367,6 @@ var CustomizableUIInternal = {
       "wildbuzzard-tor-toolbar-button",
       "wildbuzzard-blocker-toolbar-button",
       "urlbar-container",
-      "wildbuzzard-torrent-toolbar-button",
       "spring",
       "downloads-button",
       AppConstants.MOZ_DEV_EDITION ? "developer-button" : null,
@@ -385,7 +385,6 @@ var CustomizableUIInternal = {
           "firefox-view-button",
           "wildbuzzard-tor-toolbar-button",
           "wildbuzzard-blocker-toolbar-button",
-          "wildbuzzard-torrent-toolbar-button",
           "alltabs-button",
         ],
         defaultCollapsed: false,
@@ -893,27 +892,23 @@ var CustomizableUIInternal = {
       }
     }
 
-    if (currentVersion < 29) {
-      const navbarPlacements =
-        gSavedState.placements[CustomizableUI.AREA_NAVBAR];
-      if (
-        navbarPlacements &&
-        !navbarPlacements.includes("wildbuzzard-torrent-toolbar-button")
-      ) {
-        const urlbarIndex = navbarPlacements.indexOf("urlbar-container");
-        navbarPlacements.splice(
-          urlbarIndex === -1 ? navbarPlacements.length : urlbarIndex + 1,
-          0,
-          "wildbuzzard-torrent-toolbar-button"
-        );
-      }
-    }
-
     if (currentVersion < 30) {
       for (const placements of Object.values(gSavedState.placements)) {
         let index;
         while (
           (index = placements.indexOf("wildbuzzard-agent-toolbar-button")) !==
+          -1
+        ) {
+          placements.splice(index, 1);
+        }
+      }
+    }
+
+    if (currentVersion < 31) {
+      for (const placements of Object.values(gSavedState.placements)) {
+        let index;
+        while (
+          (index = placements.indexOf("wildbuzzard-torrent-toolbar-button")) !==
           -1
         ) {
           placements.splice(index, 1);

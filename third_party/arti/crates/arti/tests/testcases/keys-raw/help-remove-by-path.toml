@@ -1,3 +1,0 @@
-bin.name = "arti"
-args = "keys-raw remove-by-id -h"
-status.code = 0

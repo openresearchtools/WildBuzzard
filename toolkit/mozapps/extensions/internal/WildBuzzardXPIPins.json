@@ -2,13 +2,13 @@
   "extensions": [
     {
       "extensionId": "torrent-search@extensions.wildbuzzard",
-      "sha256": "176e853031c4ba790f310a2ee6c7945992309995f828ae46c8eb31df906fbe6c",
-      "version": "0.1.0"
+      "sha256": "ffe34d9802318eb7114fdd665244de05e660bfbd3ae90dec69eaaddae071afbc",
+      "version": "0.1.1"
     },
     {
       "extensionId": "web-search@extensions.wildbuzzard",
-      "sha256": "2c1e195a7749da3041b3eef336a87d5845d5b2d6ca4990d50544323cb45eb0f0",
-      "version": "0.1.0"
+      "sha256": "435a331ccabb226365839d4986acb18b81da8be6d3bc53e548f80b7761250fc2",
+      "version": "0.1.1"
     }
   ],
   "hashAlgorithm": "sha256",

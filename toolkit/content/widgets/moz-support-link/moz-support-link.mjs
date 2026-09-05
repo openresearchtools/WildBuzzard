@@ -102,6 +102,14 @@ export default class MozSupportLink extends HTMLAnchorElement {
 
   #setHref() {
     let supportPage = this.getAttribute("support-page") ?? "";
+    if (
+      !MozSupportLink.SUPPORT_URL ||
+      MozSupportLink.SUPPORT_URL.startsWith("about:blank")
+    ) {
+      this.hidden = true;
+      this.removeAttribute("href");
+      return;
+    }
     let base = MozSupportLink.SUPPORT_URL + supportPage;
     this.href = this.hasAttribute("utm-content")
       ? formatUTMParams(this.getAttribute("utm-content"), base)

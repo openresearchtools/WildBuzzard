@@ -286,7 +286,7 @@ const CONFIG_PANES = Object.freeze({
   etp: {
     parent: "privacy",
     l10nId: "preferences-etp-header",
-    groupIds: ["etpBanner", "etpAdvanced"],
+    groupIds: ["etpAdvanced"],
     replaces: "privacy",
   },
   etpCustomize: {
@@ -319,18 +319,7 @@ const CONFIG_PANES = Object.freeze({
     module: "chrome://browser/content/preferences/config/home-startup.mjs",
     replaces: "home",
   },
-  languages: {
-    l10nId: "preferences-languages-header3",
-    iconSrc: "chrome://browser/skin/translations.svg",
-    groupIds: [
-      "browserLanguage",
-      "websiteLanguage",
-      "translations",
-      "spellCheck",
-    ],
-    module: "chrome://browser/content/preferences/config/languages.mjs",
-    visible: () => srdSectionEnabled("languages"),
-  },
+
   manageAddresses: {
     parent: "passwordsAutofill",
     l10nId: "autofill-addresses-manage-addresses-title",
@@ -448,17 +437,7 @@ const CONFIG_PANES = Object.freeze({
     module: "chrome://browser/content/preferences/config/tabs-browsing.mjs",
     visible: () => srdSectionEnabled("tabsBrowsing"),
   },
-  translations: {
-    parent: srdSectionEnabled("languages") ? "languages" : "general",
-    l10nId: "settings-translations-subpage-header",
-    groupIds: [
-      "translationsAutomaticTranslation",
-      "translationsDownloadLanguages",
-    ],
-    iconSrc: "chrome://browser/skin/translations.svg",
-    module: "chrome://browser/content/preferences/config/translations.mjs",
-    visible: () => srdSectionEnabled("translations"),
-  },
+
   containers: {
     parent: srdSectionEnabled("tabsBrowsing") ? "tabsBrowsing" : "general",
     l10nId: "containers-section-header2",
