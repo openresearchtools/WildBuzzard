@@ -85,6 +85,10 @@ const DEFAULT_LABS_RECIPES = [
   }),
 ];
 
+add_setup(function setup() {
+  registerCleanupFunction(NimbusTestUtils.disableSignatureVerification());
+});
+
 async function setupLabsTest(recipes) {
   await SpecialPowers.pushPrefEnv({
     set: [

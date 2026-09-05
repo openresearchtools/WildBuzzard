@@ -49,7 +49,7 @@ const DYNAMIC_TYPE_VIEW_TEMPLATE = {
 const IS_UPGRADING_SCHEMELESS = SpecialPowers.getBoolPref(
   "dom.security.https_first_schemeless"
 );
-// eslint-disable-next-line @microsoft/sdl/no-insecure-url
+// eslint-disable-next-line sdl/no-insecure-url
 const DEFAULT_URL_SCHEME = IS_UPGRADING_SCHEMELESS ? "https://" : "http://";
 const DUMMY_PAGE =
   DEFAULT_URL_SCHEME +

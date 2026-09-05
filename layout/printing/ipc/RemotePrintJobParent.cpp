@@ -7,6 +7,10 @@
 #include "PrintTranslator.h"
 #include "gfxContext.h"
 #include "mozilla/ProfilerMarkers.h"
+#include "mozilla/dom/BrowserParent.h"
+#include "mozilla/dom/CanonicalBrowsingContext.h"
+#include "mozilla/dom/ContentParent.h"
+#include "mozilla/dom/WindowGlobalParent.h"
 #include "nsAnonymousTemporaryFile.h"
 #include "nsAppDirectoryServiceDefs.h"
 #include "nsComponentManagerUtils.h"
@@ -24,7 +28,7 @@
 namespace mozilla::layout {
 
 RemotePrintJobParent::RemotePrintJobParent(nsIPrintSettings* aPrintSettings)
-    : mPrintSettings(aPrintSettings), mStatus(NS_ERROR_UNEXPECTED) {
+    : mPrintSettings(aPrintSettings) {
   MOZ_COUNT_CTOR(RemotePrintJobParent);
 }
 
@@ -35,39 +39,62 @@ mozilla::ipc::IPCResult RemotePrintJobParent::RecvInitializePrint(
     MOZ_ASSERT_UNREACHABLE("Unexpected redundant call to RecvInitializePrint");
     return IPC_FAIL(this, "Unexpected redundant call to RecvInitializePrint");
   }
+  RefPtr bc = dom::CanonicalBrowsingContext::Get(aBrowsingContextId);
+  if (NS_WARN_IF(!bc || bc->IsDiscarded())) {
+    // TODO(emilio, bug 2060039): It would be nicer if we just got a
+    // WindowContext via IPC, rather than an ID. It'd be even better if we could
+    // associate with the right browsing context / BrowserParent to begin with,
+    // but by the time we create the print job we don't have yet created the
+    // static clone of the document we're printing, which is what we would be
+    // interested in...
+    FailInitialization(NS_ERROR_ABORT);
+    return IPC_OK();
+  }
+  RefPtr wgp = bc->GetCurrentWindowGlobal();
+  if (NS_WARN_IF(!wgp)) {
+    FailInitialization(NS_ERROR_ABORT);
+    return IPC_OK();
+  }
+  RefPtr bp = wgp->GetBrowserParent();
+  if (NS_WARN_IF(!bp || bp->Manager() != Manager())) {
+    FailInitialization(NS_ERROR_ABORT);
+    return IPC_OK();
+  }
   mInitializeReceived = true;
+  mBrowsingContextId = aBrowsingContextId;
+  mWindowContextId = wgp->InnerWindowId();
+  mTabId = bp->GetTabId();
 
 #if defined(ACCESSIBILITY) && defined(MOZ_ENABLE_SKIA_PDF)
   if (auto* builder =
           mozilla::a11y::PdfStructTreeBuilder::Get(aBrowsingContextId)) {
-    nsString title;
-    title.Assign(aDocumentTitle);
     RefPtr{builder->GetReadyPromise()}->Then(
         GetMainThreadSerialEventTarget(), __func__,
-        [self = RefPtr{this}, title, aBrowsingContextId, aStartPage, aEndPage] {
-          self->InitializePrint(title, aBrowsingContextId, aStartPage,
-                                aEndPage);
-        });
+        [self = RefPtr{this}, title = nsString(aDocumentTitle), aStartPage,
+         aEndPage] { self->InitializePrint(title, aStartPage, aEndPage); });
     return IPC_OK();
   }
 #endif
-  InitializePrint(aDocumentTitle, aBrowsingContextId, aStartPage, aEndPage);
+  InitializePrint(aDocumentTitle, aStartPage, aEndPage);
   return IPC_OK();
 }
 
+void RemotePrintJobParent::FailInitialization(nsresult aRv) {
+  MOZ_ASSERT(NS_FAILED(aRv));
+  (void)SendPrintInitializationResult(aRv, FileDescriptor());
+  mStatus = aRv;
+  (void)Send__delete__(this);
+}
+
 void RemotePrintJobParent::InitializePrint(const nsAString& aDocumentTitle,
-                                           const uint64_t& aBrowsingContextId,
                                            const int32_t& aStartPage,
                                            const int32_t& aEndPage) {
   PROFILER_MARKER_TEXT("RemotePrintJobParent", LAYOUT_Printing, {},
                        "RemotePrintJobParent::InitializePrint"_ns);
 
-  nsresult rv = InitializePrintDevice(aDocumentTitle, aBrowsingContextId,
-                                      aStartPage, aEndPage);
+  nsresult rv = InitializePrintDevice(aDocumentTitle, aStartPage, aEndPage);
   if (NS_FAILED(rv)) {
-    (void)SendPrintInitializationResult(rv, FileDescriptor());
-    mStatus = rv;
-    (void)Send__delete__(this);
+    FailInitialization(rv);
     return;
   }
 
@@ -75,9 +102,7 @@ void RemotePrintJobParent::InitializePrint(const nsAString& aDocumentTitle,
   FileDescriptor fd;
   rv = PrepareNextPageFD(&fd);
   if (NS_FAILED(rv)) {
-    (void)SendPrintInitializationResult(rv, FileDescriptor());
-    mStatus = rv;
-    (void)Send__delete__(this);
+    FailInitialization(rv);
     return;
   }
 
@@ -85,8 +110,8 @@ void RemotePrintJobParent::InitializePrint(const nsAString& aDocumentTitle,
 }
 
 nsresult RemotePrintJobParent::InitializePrintDevice(
-    const nsAString& aDocumentTitle, const uint64_t& aBrowsingContextId,
-    const int32_t& aStartPage, const int32_t& aEndPage) {
+    const nsAString& aDocumentTitle, const int32_t& aStartPage,
+    const int32_t& aEndPage) {
   AUTO_PROFILER_MARKER_TEXT("RemotePrintJobParent", LAYOUT_Printing, {},
                             "RemotePrintJobParent::InitializePrintDevice"_ns);
 
@@ -112,7 +137,7 @@ nsresult RemotePrintJobParent::InitializePrintDevice(
   mPrintSettings->GetToFileName(fileName);
 
   rv = mPrintDeviceContext->BeginDocument(
-      aDocumentTitle, fileName, aBrowsingContextId, aStartPage, aEndPage);
+      aDocumentTitle, fileName, mBrowsingContextId, aStartPage, aEndPage);
   if (NS_FAILED(rv)) {
     NS_WARNING_ASSERTION(rv == NS_ERROR_ABORT,
                          "Failed to initialize print device");
@@ -162,7 +187,7 @@ mozilla::ipc::IPCResult RemotePrintJobParent::RecvProcessPage(
     deps.Insert(i);
   }
 
-  gfx::CrossProcessPaint::Start(std::move(deps),
+  gfx::CrossProcessPaint::Start(mTabId, mWindowContextId, std::move(deps),
                                 gfx::CrossProcessPaintFlags::ForPrinting)
       ->Then(
           GetCurrentSerialEventTarget(), __func__,

@@ -286,7 +286,7 @@ add_task(async function https() {
 });
 
 add_task(async function http() {
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   await doTest("http://example.com/test/other/page.htm");
 });
 

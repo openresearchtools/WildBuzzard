@@ -212,7 +212,7 @@ add_task(async function testNonUrlClipboardSuggestion() {
         "ftp://example.com",
         "https://example.com[invalid]",
         // Testing http because it is considered as a valid URL.
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         "http://",
         "https://example.com some text",
         "https://example.com/ some text",

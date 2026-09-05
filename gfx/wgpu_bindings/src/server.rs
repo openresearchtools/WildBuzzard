@@ -108,31 +108,13 @@ pub struct WebGPUParentPtr(*mut core::ffi::c_void);
 pub struct Global {
     owner: WebGPUParentPtr,
     global: wgc::global::Global,
-    swap_chain_configs: Mutex<HashMap<SwapChainId, SwapChainConfig>>,
-}
 
-/// Values for the descriptor when creating textures for an active swap chain.
-#[derive(Clone)]
-struct SwapChainConfig {
-    size: wgt::Extent3d,
-    format: wgt::TextureFormat,
-    usage: wgt::TextureUsages,
-    view_formats: Vec<wgt::TextureFormat>,
-}
-
-impl SwapChainConfig {
-    fn to_texture_descriptor(&self) -> wgc::resource::TextureDescriptor<'static> {
-        wgt::TextureDescriptor {
-            label: Some(Cow::Borrowed("swap chain texture")),
-            size: self.size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgt::TextureDimension::D2,
-            format: self.format,
-            usage: self.usage,
-            view_formats: self.view_formats.clone(),
-        }
-    }
+    /// Swap chain texture descriptors.
+    ///
+    /// We store the descriptors because they should not change over the life of a swap chain. The
+    /// descriptors here are not necessarily valid; they must still only be passed to validating
+    /// wgpu-core APIs.
+    swap_chain_configs: Mutex<HashMap<SwapChainId, wgc::resource::TextureDescriptor<'static>>>,
 }
 
 impl std::ops::Deref for Global {
@@ -1690,8 +1672,8 @@ extern "C" {
         parent: WebGPUParentPtr,
         device_id: id::DeviceId,
         queue_id: id::QueueId,
-        width: i32,
-        height: i32,
+        width: u32,
+        height: u32,
         format: crate::SurfaceFormat,
         buffer_ids: *const id::BufferId,
         buffer_ids_length: usize,
@@ -2169,13 +2151,15 @@ impl Global {
             #[allow(unused_variables)]
             DeviceAction::CreateTexture(id, desc, swap_chain_id) => {
                 let desc = if let Some(swap_chain_id) = swap_chain_id {
+                    // n.b. Just because a swap chain is known, does not mean that the configuration
+                    // is valid.
                     self.swap_chain_configs
                         .lock()
                         .unwrap()
                         .get(&swap_chain_id)
                         .cloned()
                         .expect("CreateTexture for unknown swap chain {swap_chain_id:?}")
-                        .to_texture_descriptor()
+                        .map_label(|_| None)
                 } else {
                     desc
                 };
@@ -2199,24 +2183,6 @@ impl Global {
                     return;
                 }
 
-                if [
-                    desc.size.width,
-                    desc.size.height,
-                    desc.size.depth_or_array_layers,
-                ]
-                .contains(&0)
-                {
-                    self.create_texture_error(Some(id), &desc);
-                    error_buf.init(
-                        ErrMsg {
-                            message: "size is zero".into(),
-                            r#type: ErrorType::Validation,
-                        },
-                        device_id,
-                    );
-                    return;
-                }
-
                 let use_shared_texture = if let Some(id) = swap_chain_id {
                     unsafe { wgpu_server_use_shared_texture_for_swap_chain(self.owner, id) }
                 } else {
@@ -2224,38 +2190,9 @@ impl Global {
                 };
 
                 if use_shared_texture {
-                    let limits = self.device_limits(device_id);
-                    if desc.size.width > limits.max_texture_dimension_2d
-                        || desc.size.height > limits.max_texture_dimension_2d
-                    {
+                    if let Some(err) = self.device_validate_texture_descriptor(device_id, &desc) {
                         self.create_texture_error(Some(id), &desc);
-                        error_buf.init(
-                            ErrMsg {
-                                message: "size exceeds limits.max_texture_dimension_2d".into(),
-                                r#type: ErrorType::Validation,
-                            },
-                            device_id,
-                        );
-                        return;
-                    }
-
-                    let features = self.device_features(device_id);
-                    if desc.format == wgt::TextureFormat::Bgra8Unorm
-                        && desc.usage.contains(wgt::TextureUsages::STORAGE_BINDING)
-                        && !features.contains(wgt::Features::BGRA8UNORM_STORAGE)
-                    {
-                        self.create_texture_error(Some(id), &desc);
-                        error_buf.init(
-                            ErrMsg {
-                                message: concat!(
-                                    "Bgra8Unorm with GPUStorageBinding usage ",
-                                    "with BGRA8UNORM_STORAGE disabled"
-                                )
-                                .into(),
-                                r#type: ErrorType::Validation,
-                            },
-                            device_id,
-                        );
+                        error_buf.init(err, device_id);
                         return;
                     }
 
@@ -3089,41 +3026,78 @@ unsafe fn process_message(
         Message::CreateSwapChain {
             device_id,
             queue_id,
-            width,
-            height,
+            desc,
             format,
-            texture_format,
-            usage,
-            view_formats,
             buffer_ids,
             remote_texture_owner_id,
             use_shared_texture_in_swap_chain,
         } => {
-            global.swap_chain_configs.lock().unwrap().insert(
-                SwapChainId(remote_texture_owner_id.0),
-                SwapChainConfig {
-                    size: wgt::Extent3d {
-                        width: width as u32,
-                        height: height as u32,
-                        depth_or_array_layers: 1,
-                    },
-                    format: texture_format,
+            let (sanitized_desc, size) = {
+                let wgt::TextureDescriptor {
+                    size: wgt::Extent3d { width, height, .. },
+                    format,
                     usage,
                     view_formats,
-                },
+                    ..
+                } = desc;
+
+                let size = wgt::Extent3d {
+                    width,
+                    height,
+                    ..wgt::Extent3d::default()
+                };
+
+                (
+                    wgt::TextureDescriptor {
+                        label: None,
+                        size,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgt::TextureDimension::D2,
+                        format,
+                        usage,
+                        view_formats: Vec::from(view_formats),
+                    },
+                    size
+                )
+            };
+
+            unsafe {
+                assert!(wgpu_texture_format_is_valid_for_webidl(&nsCString::from(
+                    serde_json::to_value(&sanitized_desc.format)
+                        .unwrap()
+                        .as_str()
+                        .unwrap(),
+                ),));
+            }
+
+            let res = global.device_validate_texture_descriptor(device_id, &sanitized_desc);
+
+            // In order to support `getCurrentTexture()` on invalid canvas configurations,
+            // we store the configuration even when it is not valid.
+            global.swap_chain_configs.lock().unwrap().insert(
+                SwapChainId(remote_texture_owner_id.0),
+                sanitized_desc,
             );
-            wgpu_parent_create_swap_chain(
-                global.owner,
-                device_id,
-                queue_id,
-                width,
-                height,
-                format,
-                buffer_ids.as_ptr(),
-                buffer_ids.len(),
-                remote_texture_owner_id,
-                use_shared_texture_in_swap_chain,
-            );
+
+            if let Some(err) = res {
+                // This is a validation error from the device timeline
+                // steps of `GPUCanvasContext.configure`.
+                error_buf.init(err, device_id);
+            } else {
+                wgpu_parent_create_swap_chain(
+                    global.owner,
+                    device_id,
+                    queue_id,
+                    size.width,
+                    size.height,
+                    format,
+                    buffer_ids.as_ptr(),
+                    buffer_ids.len(),
+                    remote_texture_owner_id,
+                    use_shared_texture_in_swap_chain,
+                );
+            }
         }
         Message::SwapChainPresent {
             texture_id,

@@ -20,7 +20,7 @@ const SITE_TRACKER = "itisatracker.org";
 const ORIGIN_TRACKER = `https://${SITE_TRACKER}`;
 
 const SITE_TRACKER_B = "trackertest.org";
-// eslint-disable-next-line @microsoft/sdl/no-insecure-url
+// eslint-disable-next-line sdl/no-insecure-url
 const ORIGIN_TRACKER_B = `http://${SITE_TRACKER_B}`;
 
 // Test message used for observing when the record-bounces method in

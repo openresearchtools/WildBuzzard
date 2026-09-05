@@ -537,6 +537,10 @@ Preferences.addSetting({
 
 Preferences.addSetting({
   id: "managePasswordExceptions",
+  disabled: () =>
+    Services.prefs.prefIsLocked(
+      "pref.privacy.disable_button.view_passwords_exceptions"
+    ),
   onUserClick: () => {
     PasswordSettingHelpers.showPasswordExceptions();
   },
@@ -593,7 +597,10 @@ Preferences.addSetting({
   },
   visible: () => {
     let policy = Services.policies.getActivePolicies();
-    return policy?.PasswordManagerEnabled !== false;
+    return (
+      policy?.PasswordManagerEnabled !== false &&
+      !Services.prefs.prefIsLocked("pref.privacy.disable_button.view_passwords")
+    );
   },
 });
 

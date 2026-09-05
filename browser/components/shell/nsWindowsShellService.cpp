@@ -99,24 +99,6 @@ using namespace ABI::Windows::UI::StartScreen;
 
 #define REG_FAILED(val) (val != ERROR_SUCCESS)
 
-#ifdef DEBUG
-#  define NS_ENSURE_HRESULT(hres, ret)                    \
-    do {                                                  \
-      HRESULT result = hres;                              \
-      if (MOZ_UNLIKELY(FAILED(result))) {                 \
-        mozilla::SmprintfPointer msg = mozilla::Smprintf( \
-            "NS_ENSURE_HRESULT(%s, %s) failed with "      \
-            "result 0x%" PRIX32,                          \
-            #hres, #ret, static_cast<uint32_t>(result));  \
-        NS_WARNING(msg.get());                            \
-        return ret;                                       \
-      }                                                   \
-    } while (false)
-#else
-#  define NS_ENSURE_HRESULT(hres, ret) \
-    if (MOZ_UNLIKELY(FAILED(hres))) return ret
-#endif
-
 using namespace mozilla;
 using mozilla::intl::Localization;
 
@@ -1921,7 +1903,7 @@ static bool PollAppsFolderForShortcut(const nsAString& aAppUserModelId,
 static Result<nsString, nsresult> EnsurePinnableShortcutExists(
     bool aPrivateBrowsing, const nsAString& aAppUserModelId,
     const nsAString& aShortcutName, const nsAString& aShortcutSubstring,
-    nsIFile* aGreDir, const ShortcutLocations& location) {
+    nsIFile* aGreDir, const ShortcutLocations& aLocation) {
   MOZ_DIAGNOSTIC_ASSERT(
       !NS_IsMainThread(),
       "EnsurePinnableShortcutExists should be called off main thread only");
@@ -1950,9 +1932,12 @@ static Result<nsString, nsresult> EnsurePinnableShortcutExists(
     MOZ_TRY(CreateShortcutImpl(exeFile, arguments, aShortcutName, exeFile,
                                // Icon indexes are defined as Resource IDs, but
                                // CreateShortcutImpl needs an index.
-                               IDI_APPICON - 1, aAppUserModelId, location,
+                               IDI_APPICON - 1, aAppUserModelId, aLocation,
                                linkName));
+
+    shortcutPath.Assign(aLocation.shortcutFile->NativePath());
   }
+
   MOZ_TRY(EnsureShellAppsFolderShortcut(aAppUserModelId));
 
   return shortcutPath;

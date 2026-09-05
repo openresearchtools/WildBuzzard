@@ -33,6 +33,13 @@
 
 constexpr auto COOKIES_SCHEMA_VERSION = 17;
 
+// Maximum size of the write-ahead log before sqlite checkpoints it, and the
+// extra amount it is allowed to grow before being truncated back. Both values
+// are taken from Places, see DATABASE_MAX_WAL_BYTES and
+// DATABASE_JOURNAL_OVERHEAD_BYTES in toolkit/components/places/Database.cpp.
+constexpr int32_t COOKIES_MAX_WAL_BYTES = 2048000;
+constexpr int32_t COOKIES_JOURNAL_OVERHEAD_BYTES = 2048000;
+
 // parameter indexes; see |Read|
 constexpr auto IDX_NAME = 0;
 constexpr auto IDX_VALUE = 1;
@@ -2239,11 +2246,40 @@ nsresult CookiePersistentStorage::InitDBConnInternal() {
   // make operations on the table asynchronous, for performance
   mDBConn->ExecuteSimpleSQL("PRAGMA synchronous = OFF"_ns);
 
-  // Use write-ahead-logging for performance. We cap the autocheckpoint limit at
-  // 16 pages (around 500KB).
+  // Use write-ahead-logging for performance.
   mDBConn->ExecuteSimpleSQL(nsLiteralCString(MOZ_STORAGE_UNIQUIFY_QUERY_STR
                                              "PRAGMA journal_mode = WAL"));
-  mDBConn->ExecuteSimpleSQL("PRAGMA wal_autocheckpoint = 16"_ns);
+
+  // With synchronous = NORMAL every checkpoint costs two fsyncs, so the WAL is
+  // capped in bytes rather than in pages.
+  int32_t pageSize = 0;
+  {
+    nsCOMPtr<mozIStorageStatement> stmt;
+    rv = mDBConn->CreateStatement(
+        nsLiteralCString(MOZ_STORAGE_UNIQUIFY_QUERY_STR "PRAGMA page_size"),
+        getter_AddRefs(stmt));
+    if (NS_SUCCEEDED(rv)) {
+      bool hasResult = false;
+      if (NS_SUCCEEDED(stmt->ExecuteStep(&hasResult)) && hasResult) {
+        (void)stmt->GetInt32(0, &pageSize);
+      }
+    }
+  }
+
+  if (pageSize <= 0 && NS_FAILED(mDBConn->GetDefaultPageSize(&pageSize))) {
+    pageSize = 0;
+  }
+
+  if (pageSize > 0) {
+    nsAutoCString checkpointPragma("PRAGMA wal_autocheckpoint = ");
+    checkpointPragma.AppendInt(COOKIES_MAX_WAL_BYTES / pageSize);
+    mDBConn->ExecuteSimpleSQL(checkpointPragma);
+  }
+
+  nsAutoCString journalSizePragma("PRAGMA journal_size_limit = ");
+  journalSizePragma.AppendInt(COOKIES_MAX_WAL_BYTES +
+                              COOKIES_JOURNAL_OVERHEAD_BYTES);
+  mDBConn->ExecuteSimpleSQL(journalSizePragma);
 
   // cache frequently used statements (for insertion, deletion, and updating)
   rv = mDBConn->CreateAsyncStatement(

@@ -49,6 +49,7 @@
 #include "nsHttpChannel.h"
 #include "nsIBrowser.h"
 #include "nsIClassifiedChannel.h"
+#include "nsIContentPolicy.h"
 #include "nsIHttpChannelInternal.h"
 #include "nsINetworkInterceptController.h"
 #include "nsIStreamConverterService.h"
@@ -1136,6 +1137,15 @@ auto DocumentLoadListener::OpenObject(
 
   MOZ_ASSERT(!mIsDocumentLoad);
 
+  // The content policy type is child-controlled; object loads must only
+  // ever claim to be object or embed loads, as the parent bases
+  // type-keyed security decisions (cookies, third-party status) on it.
+  if (aContentPolicyType != nsIContentPolicy::TYPE_INTERNAL_OBJECT &&
+      aContentPolicyType != nsIContentPolicy::TYPE_INTERNAL_EMBED) {
+    *aRv = NS_ERROR_UNEXPECTED;
+    return nullptr;
+  }
+
   auto sandboxFlags = aLoadState->TriggeringSandboxFlags();
 
   RefPtr<LoadInfo> loadInfo = CreateObjectLoadInfo(
@@ -2055,6 +2065,20 @@ bool DocumentLoadListener::MaybeTriggerProcessSwitch(
     MOZ_LOG(gProcessIsolationLog, LogLevel::Error,
             ("Process Switch Abort: non-remote target process for subframe"));
     return false;
+  }
+
+  // ParentProcessDocumentChannel applies the same check to loads which started
+  // in the parent, so do it here for loads switching into the parent.
+  if (options.mRemoteType == NOT_REMOTE_TYPE &&
+      currentRemoteType != NOT_REMOTE_TYPE) {
+    nsCOMPtr<nsIURI> uri;
+    MOZ_ALWAYS_SUCCEEDS(NS_GetFinalChannelURI(mChannel, getter_AddRefs(uri)));
+    if (NS_WARN_IF(!nsDocShell::CanLoadInParentProcess(uri))) {
+      MOZ_LOG(gProcessIsolationLog, LogLevel::Error,
+              ("Process Switch Abort: %s is not loadable in the parent",
+               uri->GetSpecOrDefault().get()));
+      return false;
+    }
   }
 
   *aWillSwitchToRemote = !options.mRemoteType.IsEmpty();

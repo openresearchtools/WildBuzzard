@@ -930,6 +930,10 @@ async function clickAddressDoorhangerButton(buttonType, subType) {
     return;
   }
 
+  // The doorhanger's strings are applied asynchronously. An untranslated label
+  // has an empty rect, so the synthesized click would land on its container.
+  await notification.ownerDocument.l10n.translateFragment(notification);
+
   EventUtils.synthesizeMouseAtCenter(button, {});
 }
 

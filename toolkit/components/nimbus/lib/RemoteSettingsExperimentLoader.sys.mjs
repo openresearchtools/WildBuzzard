@@ -310,9 +310,10 @@ export class RemoteSettingsExperimentLoader {
         this.#shutdownBlocker
       );
 
-      this.setTimer();
-
       this._enabled = true;
+
+      // The timer must be set *after* we are enabled, otherwise it is a no-op.
+      this.setTimer();
     }
 
     await this.updateRecipes("enabled", { forceSync });
@@ -669,12 +670,19 @@ export class RemoteSettingsExperimentLoader {
       recipes = await client.get({
         forceSync,
         emptyListFallback: false, // Throw instead of returning an empty list.
+        verifySignature: true,
       });
     } catch (e) {
-      const reason =
-        e instanceof lazy.RemoteSettingsClient.EmptyDatabaseError
-          ? lazy.NimbusTelemetry.RemoteSettingsSyncErrorReason.NOT_YET_SYNCED
-          : lazy.NimbusTelemetry.RemoteSettingsSyncErrorReason.GET_EXCEPTION;
+      const { RemoteSettingsSyncErrorReason } = lazy.NimbusTelemetry;
+      let reason;
+
+      if (e instanceof lazy.RemoteSettingsClient.EmptyDatabaseError) {
+        reason = RemoteSettingsSyncErrorReason.NOT_YET_SYNCED;
+      } else if (e instanceof lazy.RemoteSettingsClient.MissingSignatureError) {
+        reason = RemoteSettingsSyncErrorReason.MISSING_SIGNATURE;
+      } else {
+        reason = RemoteSettingsSyncErrorReason.GET_EXCEPTION;
+      }
 
       throw new RemoteSettingsSyncError(client.collectionName, reason, {
         cause: e,

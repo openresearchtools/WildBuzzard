@@ -1382,6 +1382,12 @@ bool ContentParent::ValidatePrincipal(
                                                      aOptions);
 }
 
+NS_IMETHODIMP ContentParent::ValidatePrincipalXPCOM(nsIPrincipal* aPrincipal,
+                                                    bool* aRetVal) {
+  *aRetVal = ValidatePrincipal(aPrincipal);
+  return NS_OK;
+}
+
 /*static*/
 already_AddRefed<RemoteBrowser> ContentParent::CreateBrowser(
     const TabContext& aContext, Element* aFrameElement,
@@ -5881,7 +5887,7 @@ mozilla::ipc::IPCResult ContentParent::RecvStoreAndBroadcastBlobURLRegistration(
     return IPC_FAIL(this, "No principal");
   }
 
-  if (!ValidatePrincipal(aPrincipal, {ValidatePrincipalOptions::AllowSystem})) {
+  if (!ValidatePrincipal(aPrincipal)) {
     return PrincipalValidationIpcFail(aPrincipal, this, __func__);
   }
 
@@ -7443,7 +7449,8 @@ mozilla::ipc::IPCResult ContentParent::RecvNotifyOnHistoryReload(
   bool canReload = false;
   Maybe<NotNull<RefPtr<nsDocShellLoadState>>> loadState;
   Maybe<bool> reloadActiveEntry;
-  if (!aContext.IsNullOrDiscarded()) {
+  if (!aContext.IsNullOrDiscarded() &&
+      aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
     aContext.get_canonical()->NotifyOnHistoryReload(
         aForceReload, canReload, loadState, reloadActiveEntry);
   }
@@ -7465,6 +7472,11 @@ mozilla::ipc::IPCResult ContentParent::RecvHistoryCommit(
       return IPC_FAIL(
           this, "Could not get canonical. aContext.get_canonical() fails.");
     }
+
+    if (!canonical->IsOwnedByProcess(ChildID())) {
+      return IPC_OK();
+    }
+
     canonical->SessionHistoryCommit(aLoadID, aChangeID, aLoadType,
                                     aCloneEntryChildren, aChannelExpired,
                                     aCacheKey);
@@ -7478,6 +7490,10 @@ mozilla::ipc::IPCResult ContentParent::RecvHistoryGo(
     bool aCheckForCancelation, HistoryGoResolver&& aResolveRequestedIndex) {
   if (!aContext.IsNullOrDiscarded()) {
     RefPtr<CanonicalBrowsingContext> canonical = aContext.get_canonical();
+    if (!canonical->Top()->IsKnownInSubTree(ChildID())) {
+      return IPC_OK();
+    }
+
     aResolveRequestedIndex(canonical->HistoryGo(
         aOffset, aHistoryEpoch, aRequireUserInteraction, aUserActivation,
         aCheckForCancelation, Some(ChildID())));
@@ -7491,6 +7507,10 @@ mozilla::ipc::IPCResult ContentParent::RecvNavigationTraverse(
     NavigationTraverseResolver&& aResolver) {
   if (!aContext.IsNullOrDiscarded()) {
     RefPtr<CanonicalBrowsingContext> canonical = aContext.get_canonical();
+    if (!canonical->Top()->IsKnownInSubTree(ChildID())) {
+      return IPC_OK();
+    }
+
     canonical->NavigationTraverse(aKey, aHistoryEpoch, aUserActivation,
                                   aCheckForCancelation, Some(ChildID()),
                                   aResolver);
@@ -7506,7 +7526,7 @@ mozilla::ipc::IPCResult ContentParent::RecvSynchronizeLayoutHistoryState(
   }
 
   BrowsingContext* bc = aContext.GetMaybeDiscarded();
-  if (!bc) {
+  if (!bc || !bc->Canonical()->IsOwnedByProcess(ChildID())) {
     return IPC_OK();
   }
   SessionHistoryEntry* entry = bc->Canonical()->GetActiveSessionHistoryEntry();
@@ -7519,6 +7539,10 @@ mozilla::ipc::IPCResult ContentParent::RecvSynchronizeLayoutHistoryState(
 mozilla::ipc::IPCResult ContentParent::RecvSessionHistoryEntryTitle(
     const MaybeDiscarded<BrowsingContext>& aContext, const nsAString& aTitle) {
   if (aContext.IsNullOrDiscarded()) {
+    return IPC_OK();
+  }
+
+  if (!aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
     return IPC_OK();
   }
 
@@ -7537,6 +7561,10 @@ ContentParent::RecvSessionHistoryEntryScrollRestorationIsManual(
     return IPC_OK();
   }
 
+  if (!aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
+    return IPC_OK();
+  }
+
   SessionHistoryEntry* entry =
       aContext.get_canonical()->GetActiveSessionHistoryEntry();
   if (entry) {
@@ -7552,6 +7580,10 @@ mozilla::ipc::IPCResult ContentParent::RecvSessionHistoryEntryScrollPosition(
     return IPC_OK();
   }
 
+  if (!aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
+    return IPC_OK();
+  }
+
   SessionHistoryEntry* entry =
       aContext.get_canonical()->GetActiveSessionHistoryEntry();
   if (entry) {
@@ -7564,6 +7596,10 @@ mozilla::ipc::IPCResult
 ContentParent::RecvSessionHistoryEntryStoreWindowNameInContiguousEntries(
     const MaybeDiscarded<BrowsingContext>& aContext, const nsAString& aName) {
   if (aContext.IsNullOrDiscarded()) {
+    return IPC_OK();
+  }
+
+  if (!aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
     return IPC_OK();
   }
 
@@ -7590,6 +7626,10 @@ mozilla::ipc::IPCResult ContentParent::RecvSessionHistoryEntryCacheKey(
     return IPC_OK();
   }
 
+  if (!aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
+    return IPC_OK();
+  }
+
   SessionHistoryEntry* entry =
       aContext.get_canonical()->GetActiveSessionHistoryEntry();
   if (entry) {
@@ -7606,7 +7646,7 @@ mozilla::ipc::IPCResult ContentParent::RecvSessionHistoryEntryWireframe(
   }
 
   BrowsingContext* bc = aContext.GetMaybeDiscarded();
-  if (!bc) {
+  if (!bc || !bc->Canonical()->IsOwnedByProcess(ChildID())) {
     return IPC_OK();
   }
 
@@ -7625,6 +7665,10 @@ ContentParent::RecvGetLoadingSessionHistoryInfoFromParent(
     return IPC_OK();
   }
 
+  if (!aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
+    return IPC_OK();
+  }
+
   Maybe<LoadingSessionHistoryInfo> info;
   aContext.get_canonical()->GetLoadingSessionHistoryInfoFromParent(info);
   aResolver(info);
@@ -7636,6 +7680,10 @@ mozilla::ipc::IPCResult ContentParent::RecvSynchronizeNavigationAPIState(
     const MaybeDiscarded<BrowsingContext>& aContext,
     NotNull<nsStructuredCloneContainer*> aState) {
   if (aContext.IsNullOrDiscarded()) {
+    return IPC_OK();
+  }
+
+  if (!aContext.get_canonical()->IsOwnedByProcess(ChildID())) {
     return IPC_OK();
   }
 
@@ -7725,8 +7773,12 @@ mozilla::ipc::IPCResult ContentParent::RecvHistoryReload(
     const MaybeDiscarded<BrowsingContext>& aContext,
     const uint32_t aReloadFlags) {
   if (!aContext.IsNullOrDiscarded()) {
-    nsCOMPtr<nsISHistory> shistory =
-        aContext.get_canonical()->GetSessionHistory();
+    RefPtr<CanonicalBrowsingContext> canonical = aContext.get_canonical();
+    if (!canonical->IsOwnedByProcess(ChildID())) {
+      return IPC_OK();
+    }
+
+    nsCOMPtr<nsISHistory> shistory = canonical->GetSessionHistory();
     if (shistory) {
       shistory->Reload(aReloadFlags);
     }

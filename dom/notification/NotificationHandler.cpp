@@ -12,6 +12,7 @@
 #include "mozilla/dom/Promise-inl.h"
 #include "mozilla/dom/Promise.h"
 #include "mozilla/dom/ServiceWorkerManager.h"
+#include "mozilla/dom/ServiceWorkerUtils.h"
 #include "mozilla/ipc/PBackgroundSharedTypes.h"
 #include "xpcprivate.h"
 
@@ -130,6 +131,14 @@ NS_IMETHODIMP NotificationHandler::RespondOnClick(
 
           nsAutoString scope;
           MOZ_TRY(entry->GetServiceWorkerRegistrationScope(scope));
+
+          nsCOMPtr<nsIURI> scopeURI;
+          MOZ_TRY(NS_NewURI(getter_AddRefs(scopeURI), scope));
+
+          ServiceWorkerScopeIsValid(principal, scopeURI, aRv);
+          if (aRv.Failed()) {
+            return NS_OK;
+          }
 
           IPCNotification notification =
               MOZ_TRY(NotificationStorageEntry::ToIPC(*entry));

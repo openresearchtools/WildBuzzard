@@ -16,7 +16,7 @@ const TEST_DATA = [
   },
   {
     input: "http:\n//\nexample.\ncom",
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     expected: UrlbarTestUtils.trimURL("http://example.com"),
   },
   {

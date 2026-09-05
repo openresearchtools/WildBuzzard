@@ -1485,6 +1485,8 @@ skip-if = [
   "os == 'win' && os_version == '11.26200' && arch == 'x86_64' && socketprocess_networking",
 ]
 
+["test_proxy_auth_securityInfo.js"]
+
 ["test_proxy_cancel.js"]
 run-sequentially = ["true"] # node server exceptions dont replay well
 

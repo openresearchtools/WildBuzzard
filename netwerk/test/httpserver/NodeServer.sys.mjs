@@ -1664,7 +1664,7 @@ export class NodeServer {
     let req = new XMLHttpRequest({ mozAnon: true, mozSystem: true });
     const serverIP =
       AppConstants.platform == "android" ? "10.0.2.2" : "127.0.0.1";
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     req.open("POST", `http://${serverIP}:${h2Port}${path}`);
     req.channel.QueryInterface(Ci.nsIHttpChannelInternal).bypassProxy = true;
     req.channel.loadFlags |= Ci.nsIChannel.LOAD_BYPASS_URL_CLASSIFIER;

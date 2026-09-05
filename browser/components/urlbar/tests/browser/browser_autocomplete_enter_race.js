@@ -9,7 +9,7 @@
 
 // The order of these tests matters!
 
-// eslint-disable-next-line @microsoft/sdl/no-insecure-url
+// eslint-disable-next-line sdl/no-insecure-url
 const DEFAULT_URL_SCHEME = "http://";
 
 add_setup(async function () {

@@ -3639,7 +3639,7 @@ nsresult PresShell::ScrollContentIntoView(nsIContent* aContent,
                                           ScrollFlags aScrollFlags) {
   NS_ENSURE_TRUE(aContent, NS_ERROR_NULL_POINTER);
   RefPtr<Document> composedDoc = aContent->GetComposedDoc();
-  NS_ENSURE_STATE(composedDoc);
+  NS_ENSURE_STATE(composedDoc == mDocument);
 
   NS_ASSERTION(mDidInitialize, "should have done initial reflow by now");
 
@@ -3741,8 +3741,9 @@ void PresShell::DoScrollContentIntoView() {
 
   nsIFrame* frame = mContentToScrollTo->GetPrimaryFrame();
 
-  if (!frame || frame->IsHiddenByContentVisibilityOnAnyAncestor(
-                    nsIFrame::IncludeContentVisibility::Hidden)) {
+  if (mContentToScrollTo->OwnerDoc() != mDocument || !frame ||
+      frame->IsHiddenByContentVisibilityOnAnyAncestor(
+          nsIFrame::IncludeContentVisibility::Hidden)) {
     mContentToScrollTo->RemoveProperty(nsGkAtoms::scrolling);
     mContentToScrollTo = nullptr;
     return;

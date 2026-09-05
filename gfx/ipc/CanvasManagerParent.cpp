@@ -13,6 +13,7 @@
 #include "mozilla/layers/CompositorThread.h"
 #include "mozilla/layers/ISurfaceAllocator.h"
 #include "mozilla/layers/SharedSurfacesParent.h"
+#include "mozilla/StaticPrefs_dom.h"
 #include "mozilla/StaticPrefs_gfx.h"
 #include "mozilla/StaticPrefs_webgl.h"
 #include "mozilla/webgpu/WebGPUParent.h"
@@ -140,7 +141,8 @@ already_AddRefed<dom::PWebGLParent> CanvasManagerParent::AllocPWebGLParent() {
 
 already_AddRefed<webgpu::PWebGPUParent>
 CanvasManagerParent::AllocPWebGPUParent() {
-  if (NS_WARN_IF(!gfxVars::AllowWebGPU())) {
+  if (NS_WARN_IF(!gfxVars::AllowWebGPU() ||
+                 !StaticPrefs::dom_webgpu_enabled())) {
     MOZ_ASSERT_UNREACHABLE("AllocPWebGPUParent without WebGPU");
     return nullptr;
   }

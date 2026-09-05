@@ -3170,8 +3170,8 @@ mozilla::ipc::IPCResult BrowserChild::RecvRenderLayers(const bool& aEnabled) {
   } else {
     // NOTE: We want to call in even without a root frame (we might paint the
     // canvas background in that case).
-    presShell->PaintAndRequestComposite(presShell->GetRootFrame(),
-                                        mPuppetWidget->GetWindowRenderer(),
+    RefPtr<WindowRenderer> renderer = mPuppetWidget->GetWindowRenderer();
+    presShell->PaintAndRequestComposite(presShell->GetRootFrame(), renderer,
                                         PaintFlags::None);
   }
   presShell->SuppressDisplayport(false);

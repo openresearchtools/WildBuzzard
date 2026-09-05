@@ -39,7 +39,7 @@ use api::{AlphaType, BorderDetails, BorderDisplayItem, BuiltDisplayList, BuiltDi
 use api::{ClipId, ColorF, CommonItemProperties, ComplexClipRegion, ComponentTransferFuncType, RasterSpace};
 use api::{DebugFlags, DisplayItem, DisplayItemRef, ExtendMode, ExternalScrollId, FilterData};
 use api::{FilterOp, FontInstanceKey, FontSize, GlyphInstance, GlyphOptions, GradientStop};
-use api::{IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, QualitySettings};
+use api::{IdNamespace, IframeDisplayItem, ImageKey, ImageRendering, ItemRange, ColorDepth, QualitySettings};
 use api::{LineOrientation, LineStyle, NinePatchBorderSource, PipelineId, MixBlendMode, StackingContextFlags};
 use api::{PropertyBinding, ReferenceFrameKind, ScrollFrameDescriptor};
 use api::{APZScrollGeneration, HasScrollLinkedEffect, Shadow, SpatialId, StickyFrameDescriptor, ImageMask, ItemTag};
@@ -86,6 +86,7 @@ use crate::render_backend::SceneView;
 use crate::resource_cache::ImageRequest;
 use crate::scene::{BuiltScene, Scene, ScenePipeline, SceneStats, StackingContextHelpers};
 use crate::scene_builder_thread::Interners;
+use crate::space::SpaceSnapper;
 use crate::spatial_node::{
     ReferenceFrameInfo, StickyFrameInfo, ScrollFrameKind, SpatialNodeType
 };
@@ -886,6 +887,9 @@ impl<'a> SceneBuilder<'a> {
         }
         struct BuildContext<'a> {
             pipeline_id: PipelineId,
+            /// Namespace the items traversed in this context are allowed to
+            /// reference resources from. See `ScenePipeline::namespace`.
+            namespace: IdNamespace,
             kind: ContextKind<'a>,
         }
 
@@ -901,6 +905,7 @@ impl<'a> SceneBuilder<'a> {
 
         let mut stack = vec![BuildContext {
             pipeline_id: root_pipeline_id,
+            namespace: root_pipeline.namespace,
             kind: ContextKind::Root,
         }];
         let mut traversal = root_pipeline.display_list.iter();
@@ -928,7 +933,9 @@ impl<'a> SceneBuilder<'a> {
                             continue;
                         }
 
-                        let snapshot = info.snapshot;
+                        let snapshot = info.snapshot.filter(|snapshot| {
+                            validate_image_key(snapshot.key.as_image(), bc.namespace)
+                        });
 
                         let composition_operations = CompositeOps::new(
                             filter_ops_for_compositing(item.filters()),
@@ -949,6 +956,7 @@ impl<'a> SceneBuilder<'a> {
 
                         let new_context = BuildContext {
                             pipeline_id: bc.pipeline_id,
+                            namespace: bc.namespace,
                             kind: ContextKind::StackingContext {
                                 sc_info,
                             },
@@ -966,6 +974,7 @@ impl<'a> SceneBuilder<'a> {
 
                         let new_context = BuildContext {
                             pipeline_id: bc.pipeline_id,
+                            namespace: bc.namespace,
                             kind: ContextKind::ReferenceFrame,
                         };
                         stack.push(bc);
@@ -981,13 +990,20 @@ impl<'a> SceneBuilder<'a> {
                         profile_scope!("iframe");
 
                         let space = self.get_space(info.space_and_clip.spatial_id);
-                        let subtraversal = match self.push_iframe(info, space) {
+                        // Note: the referenced pipeline is not checked against the
+                        // parent pipeline's namespace. Nesting pipelines across
+                        // namespaces is legitimate (a content process embeds the
+                        // pipelines of its out-of-process iframes and of its async
+                        // image pipelines), so validating iframe references needs
+                        // ownership information webrender doesn't have.
+                        let (namespace, subtraversal) = match self.push_iframe(info, space) {
                             Some(pair) => pair,
                             None => continue,
                         };
 
                         let new_context = BuildContext {
                             pipeline_id: info.pipeline_id,
+                            namespace,
                             kind: ContextKind::Iframe {
                                 parent_traversal: mem::replace(&mut traversal, subtraversal),
                             },
@@ -997,7 +1013,7 @@ impl<'a> SceneBuilder<'a> {
                         continue 'outer;
                     }
                     _ => {
-                        self.build_item(item);
+                        self.build_item(item, bc.namespace);
                     }
                 };
             }
@@ -1126,11 +1142,20 @@ impl<'a> SceneBuilder<'a> {
             },
         };
 
-        // The reference-frame origin is snapped to the device pixel grid at
-        // frame time (`SpatialNode::update`, gated on `should_snap`), where the
-        // accumulated ancestor transform is known. A local-space round here
-        // can't account for a fractional ancestor transform; see bug 1580534.
-        let origin = info.origin;
+        let snap_origin = match info.reference_frame.kind {
+            ReferenceFrameKind::Transform { should_snap, .. } => should_snap,
+            ReferenceFrameKind::Perspective { .. } => false,
+        };
+
+        let origin = if snap_origin {
+            // Snap in device space (via the parent's accumulated transform),
+            // not by rounding the local-space origin. With a fractional
+            // ancestor transform (e.g. `transform: translate(0.4px)`) a
+            // plain `round()` snaps to the wrong integer device pixel.
+            self.snap_point_to_device(info.origin, parent_space)
+        } else {
+            info.origin
+        };
 
         self.push_reference_frame(
             info.reference_frame.id,
@@ -1173,7 +1198,7 @@ impl<'a> SceneBuilder<'a> {
         &mut self,
         info: &IframeDisplayItem,
         spatial_node_index: SpatialNodeIndex,
-    ) -> Option<BuiltDisplayListIter<'a>> {
+    ) -> Option<(IdNamespace, BuiltDisplayListIter<'a>)> {
         let iframe_pipeline_id = info.pipeline_id;
         let pipeline = match self.scene.pipelines.get(&iframe_pipeline_id) {
             Some(pipeline) => pipeline,
@@ -1198,13 +1223,19 @@ impl<'a> SceneBuilder<'a> {
 
         let bounds = info.bounds;
 
-        // The iframe's reference-frame origin is snapped to the device pixel
-        // grid at frame time (`SpatialNode::update`, gated on `should_snap`),
-        // where the accumulated ancestor transform is known. Rounding the
-        // local-space `bounds.min` here picks the wrong integer under a
-        // fractional ancestor transform (e.g. `transform: translate(0.4px)`);
-        // see bug 1580534.
-        let origin = bounds.min;
+        // Snap the iframe's reference-frame origin to integer device
+        // pixels. `build_reference_frame` does the equivalent for
+        // DisplayItem::PushReferenceFrame via the `should_snap` flag;
+        // this code path skips build_reference_frame and goes directly
+        // to `push_reference_frame`, so we apply the same snap here.
+        // The snap must be done in device space (via the parent's
+        // accumulated transform), not by rounding the local-space
+        // `bounds.min` -- with a fractional ancestor transform (e.g.
+        // `transform: translate(0.4px)`) the local round picks the wrong
+        // integer and the iframe lands a sub-pixel away from where the
+        // pre-snap-pass scene-build snapper would have placed it (bug
+        // 1580534).
+        let snapped_origin = self.snap_point_to_device(bounds.min, spatial_node_index);
         let iframe_size = bounds.size();
 
         let spatial_node_index = self.push_reference_frame(
@@ -1218,7 +1249,7 @@ impl<'a> SceneBuilder<'a> {
                 should_snap: true,
                 paired_with_perspective: false,
             },
-            origin.to_vector(),
+            snapped_origin.to_vector(),
             true,
         );
 
@@ -1254,7 +1285,7 @@ impl<'a> SceneBuilder<'a> {
             iframe_pipeline_id,
         );
 
-        Some(pipeline.display_list.iter())
+        Some((pipeline.namespace, pipeline.display_list.iter()))
     }
 
     fn get_space(
@@ -1283,8 +1314,7 @@ impl<'a> SceneBuilder<'a> {
         // If no bounds rect is given, default to clip rect. The external
         // scroll offset embedded in the DL coordinates by Gecko has already
         // been removed by the display-list builder. Snap is not applied here;
-        // it happens at frame time in the in-frame picture-graph passes (see
-        // `SpaceSnapper`).
+        // it happens at frame time (see `frame_snap::snap_frame_rects`).
         let clip_rect = common.clip_rect;
         let prim_rect = bounds.unwrap_or(clip_rect);
         let unsnapped_rect = prim_rect;
@@ -1320,13 +1350,41 @@ impl<'a> SceneBuilder<'a> {
         )
     }
 
+    /// Snap a point in `target_spatial_node`'s local space to integer
+    /// device pixels. Equivalent to `point.round()` when the target's
+    /// accumulated transform is integer-aligned, but rounds in device
+    /// space when an ancestor introduces a fractional offset (e.g.
+    /// `transform: translate(0.4px)`). Replaces the scene-build snap
+    /// path that was removed when frame-time snapping landed — used
+    /// for reference-frame origins, which are spatial-tree-shape
+    /// inputs and so must still be snapped at scene build (the
+    /// frame-time snap pass only touches prim / clip rects).
+    fn snap_point_to_device(
+        &self,
+        point: LayoutPoint,
+        target_spatial_node: SpatialNodeIndex,
+    ) -> LayoutPoint {
+        let root = self.spatial_tree.root_reference_frame_index();
+        let mut snapper = SpaceSnapper::new(root, RasterPixelScale::new(1.0));
+        snapper.set_target_spatial_node(target_spatial_node, self.spatial_tree);
+        snapper.snap_point(&point)
+    }
+
+    /// `namespace` is the id namespace this display list is allowed to reference
+    /// resources from; items referencing anything else are dropped. See
+    /// `validate_resource_namespace`.
     fn build_item<'b>(
         &'b mut self,
         item: DisplayItemRef,
+        namespace: IdNamespace,
     ) {
         match *item.item() {
             DisplayItem::Image(ref info) => {
                 profile_scope!("image");
+
+                if !validate_image_key(info.image_key, namespace) {
+                    return;
+                }
 
                 let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
@@ -1347,6 +1405,10 @@ impl<'a> SceneBuilder<'a> {
             }
             DisplayItem::RepeatingImage(ref info) => {
                 profile_scope!("repeating_image");
+
+                if !validate_image_key(info.image_key, namespace) {
+                    return;
+                }
 
                 let (layout, unsnapped_rect, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
@@ -1373,6 +1435,10 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::YuvImage(ref info) => {
                 profile_scope!("yuv_image");
 
+                if !validate_yuv_data(&info.yuv_data, namespace) {
+                    return;
+                }
+
                 let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
@@ -1391,6 +1457,10 @@ impl<'a> SceneBuilder<'a> {
             }
             DisplayItem::Text(ref info) => {
                 profile_scope!("text");
+
+                if !validate_font_instance_key(info.font_key, namespace) {
+                    return;
+                }
 
                 // TODO(aosmond): Snapping text primitives does not make much sense, given the
                 // primitive bounds and clip are supposed to be conservative, not definitive.
@@ -1705,6 +1775,14 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::Border(ref info) => {
                 profile_scope!("border");
 
+                if let BorderDetails::NinePatch(ref border) = info.details {
+                    if let NinePatchBorderSource::Image(key, _) = border.source {
+                        if !validate_image_key(key, namespace) {
+                            return;
+                        }
+                    }
+                }
+
                 let (layout, _, spatial_node_index, clip_node_id) = self.process_common_properties_with_bounds(
                     &info.common,
                     info.bounds,
@@ -1721,10 +1799,23 @@ impl<'a> SceneBuilder<'a> {
             DisplayItem::ImageMaskClip(ref info) => {
                 profile_scope!("image_clip");
 
+                // The clip node has to be defined either way, since later clip
+                // chain items refer to it by id. Neutralize a foreign mask into
+                // an empty one, which clips everything out, rather than dropping
+                // the clip and letting the masked content draw unclipped.
+                let image_mask = if validate_image_key(info.image_mask.image, namespace) {
+                    info.image_mask
+                } else {
+                    ImageMask {
+                        image: ImageKey::DUMMY,
+                        rect: LayoutRect::zero(),
+                    }
+                };
+
                 self.add_image_mask_clip_node(
                     info.id,
                     info.spatial_id,
-                    &info.image_mask,
+                    &image_mask,
                     info.fill_rule,
                     item.points(),
                 );
@@ -3436,23 +3527,34 @@ impl<'a> SceneBuilder<'a> {
                 flags,
             );
 
-            // Store glyph pen positions relative to the prim rect origin. The
-            // display-list builder has already removed the external scroll
-            // offset from both the glyph positions and the prim rect, so the
-            // difference is scroll-invariant and the intern key stays stable
-            // across pre-scroll offset changes.
+            // The display-list builder has already removed the external scroll
+            // offset from both the glyph positions and the prim rect (bug 2044856,
+            // which landed after the patch being reverted here), so the prim rect
+            // origin is already the space the glyph positions are relative to and
+            // needs no further adjustment.
+            let dl_prim_origin = prim_info.rect.min.to_vector();
+
+            // Anchor the run on the first glyph's pen position. `run_origin` is the
+            // offset from the prim origin to the run pen origin -- invariant under
+            // pre-scroll because both terms are normalized the same way. Per-glyph
+            // positions are stored relative to the first glyph, also invariant.
             //
             // TODO(gw): It'd be nice not to have to allocate here for creating
             //           the primitive key, when the common case is that the
             //           hash will match and we won't end up creating a new
             //           primitive template.
-            let prim_origin = prim_info.rect.min.to_vector();
+            let first_glyph_origin = glyph_range
+                .iter()
+                .next()
+                .map(|g| g.point.to_vector())
+                .unwrap_or_else(LayoutVector2D::zero);
+            let run_origin = first_glyph_origin - dl_prim_origin;
             let glyphs = glyph_range
                 .iter()
                 .map(|glyph| {
                     GlyphInstance {
                         index: glyph.index,
-                        point: glyph.point - prim_origin,
+                        point: glyph.point - first_glyph_origin,
                     }
                 })
                 .collect();
@@ -3467,6 +3569,7 @@ impl<'a> SceneBuilder<'a> {
             TextRun {
                 glyphs,
                 font,
+                run_origin,
                 shadow: false,
                 requested_raster_space,
             }
@@ -3536,13 +3639,7 @@ impl<'a> SceneBuilder<'a> {
         image_rendering: ImageRendering,
     ) {
         let format = yuv_data.get_format();
-        let yuv_key = match yuv_data {
-            YuvData::NV12(plane_0, plane_1) => [plane_0, plane_1, ImageKey::DUMMY],
-            YuvData::P010(plane_0, plane_1) => [plane_0, plane_1, ImageKey::DUMMY],
-            YuvData::NV16(plane_0, plane_1) => [plane_0, plane_1, ImageKey::DUMMY],
-            YuvData::PlanarYCbCr(plane_0, plane_1, plane_2) => [plane_0, plane_1, plane_2],
-            YuvData::InterleavedYCbCr(plane_0) => [plane_0, ImageKey::DUMMY, ImageKey::DUMMY],
-        };
+        let yuv_key = yuv_planes(&yuv_data);
 
         self.add_nonshadowable_primitive(
             spatial_node_index,
@@ -4692,6 +4789,60 @@ fn read_gradient_stops(stops: ItemRange<GradientStop>) -> Vec<GradientStopKey> {
             color: stop.color.into(),
         }
     }).collect()
+}
+
+/// Resource keys embedded in display items are only unique within the id
+/// namespace that minted them, and all namespaces of a window share a single
+/// `ResourceCache`. A key read out of a display item must be checked against
+/// the namespace the display list was submitted with before it can be used
+/// to look a resource up.
+fn resource_namespace_matches(key_namespace: IdNamespace, namespace: IdNamespace) -> bool {
+    // Namespace 0 is never handed out, so it is only ever the "no resource"
+    // sentinel (`ImageKey::DUMMY` and friends) and cannot name a resource.
+    key_namespace == namespace || key_namespace.0 == 0
+}
+
+fn validate_resource_namespace(
+    key_namespace: IdNamespace,
+    namespace: IdNamespace,
+    kind: &'static str,
+) -> bool {
+    if resource_namespace_matches(key_namespace, namespace) {
+        return true;
+    }
+
+    warn!(
+        "Ignoring {} referencing id namespace {:?} from a display list owned by {:?}",
+        kind, key_namespace, namespace,
+    );
+    debug_assert!(false, "display list references a resource of a foreign id namespace");
+
+    false
+}
+
+fn validate_image_key(key: ImageKey, namespace: IdNamespace) -> bool {
+    validate_resource_namespace(key.0, namespace, "image key")
+}
+
+/// The planes a `YuvData` actually references, padded with `ImageKey::DUMMY`.
+/// Shared by validation and `add_yuv_image` so that the set of keys checked is
+/// by construction the set of keys used.
+fn yuv_planes(yuv_data: &YuvData) -> [ImageKey; 3] {
+    match *yuv_data {
+        YuvData::NV12(p0, p1)
+        | YuvData::P010(p0, p1)
+        | YuvData::NV16(p0, p1) => [p0, p1, ImageKey::DUMMY],
+        YuvData::PlanarYCbCr(p0, p1, p2) => [p0, p1, p2],
+        YuvData::InterleavedYCbCr(p0) => [p0, ImageKey::DUMMY, ImageKey::DUMMY],
+    }
+}
+
+fn validate_yuv_data(yuv_data: &YuvData, namespace: IdNamespace) -> bool {
+    yuv_planes(yuv_data).iter().all(|key| validate_image_key(*key, namespace))
+}
+
+fn validate_font_instance_key(key: FontInstanceKey, namespace: IdNamespace) -> bool {
+    validate_resource_namespace(key.0, namespace, "font instance key")
 }
 
 /// A helper for reusing the scene builder's memory allocations and dropping

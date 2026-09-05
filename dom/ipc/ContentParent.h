@@ -683,6 +683,8 @@ class ContentParent final : public PContentParent,
   // store BlobURLs in the parent process.
   void TransmitBlobDataIfBlobURL(nsIURI* aURI, const OriginAttributes& aAttrs);
 
+  nsIDOMProcessParent* ProcessParent() override { return this; }
+
   void OnCompositorDeviceReset() override;
 
   // Control the priority of the IPC messages for input events.

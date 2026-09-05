@@ -59,6 +59,26 @@ const lazy = XPCOMUtils.declareLazy({
 });
 
 /**
+ * @typedef {object} LocalSearchMode
+ *   Represents a local search mode, e.g. bookmarks.
+ *
+ * @property {Values<typeof UrlbarUtils.RESULT_SOURCE>} source
+ *   The source which the search mode will search.
+ * @property {Values<typeof lazy.UrlbarShared.RESTRICT_TOKENS>} restrict
+ *   The restrict token that is associated with the search (*, %, $ etc).
+ * @property {string} icon
+ *   The URL of the icon associated with the search mode in preferences.
+ * @property {string} pref
+ *   The suffix of the preference associated with if the mode is displayed
+ *   in the lists or not (prefix with `browser.urlbar.`).
+ * @property {string} telemetryLabel
+ *   The telemetry label for recording searches in this mode.
+ * @property {string} uiLabel
+ *   The L10n ID to use for the UI label.
+ *   Has a value and an accesskey attribute.
+ */
+
+/**
  * Parses a URL and returns the origin parts needed for moz_origins lookups.
  * Returns null if the URL is unparseable.
  *
@@ -269,23 +289,6 @@ export var UrlbarUtils = {
   // Search mode objects corresponding to the local shortcuts in the view, in
   // order they appear.  Pref names are relative to the `browser.urlbar` branch.
   get LOCAL_SEARCH_MODES() {
-    /**
-     * @typedef {object} LocalSearchMode
-     * @property {Values<typeof this.RESULT_SOURCE>} source
-     *   The source which the search mode will search.
-     * @property {Values<typeof lazy.UrlbarShared.RESTRICT_TOKENS>} restrict
-     *   The restrict token that is associated with the search (*, %, $ etc).
-     * @property {string} icon
-     *   The URL of the icon associated with the search mode in preferences.
-     * @property {string} pref
-     *   The suffix of the preference associated with if the mode is displayed
-     *   in the lists or not (prefix with `browser.urlbar.`).
-     * @property {string} telemetryLabel
-     *   The telemetry label for recording searches in this mode.
-     * @property {string} uiLabel
-     *   The string to use for the UI label.
-     */
-
     return /** @type {LocalSearchMode[]} */ ([
       {
         source: this.RESULT_SOURCE.BOOKMARKS,
@@ -293,7 +296,7 @@ export var UrlbarUtils = {
         icon: "chrome://browser/skin/bookmark.svg",
         pref: "shortcuts.bookmarks",
         telemetryLabel: "bookmarks",
-        uiLabel: "urlbar-searchmode-bookmarks2",
+        uiLabel: "urlbar-searchmode-bookmarks3",
       },
       {
         source: this.RESULT_SOURCE.TABS,
@@ -301,7 +304,7 @@ export var UrlbarUtils = {
         icon: "chrome://browser/skin/tabs.svg",
         pref: "shortcuts.tabs",
         telemetryLabel: "tabs",
-        uiLabel: "urlbar-searchmode-tabs2",
+        uiLabel: "urlbar-searchmode-tabs3",
       },
       {
         source: this.RESULT_SOURCE.HISTORY,
@@ -309,7 +312,7 @@ export var UrlbarUtils = {
         icon: "chrome://browser/skin/history.svg",
         pref: "shortcuts.history",
         telemetryLabel: "history",
-        uiLabel: "urlbar-searchmode-history2",
+        uiLabel: "urlbar-searchmode-history3",
       },
       {
         source: this.RESULT_SOURCE.ACTIONS,
@@ -317,7 +320,7 @@ export var UrlbarUtils = {
         icon: "chrome://browser/skin/quickactions.svg",
         pref: "shortcuts.actions",
         telemetryLabel: "actions",
-        uiLabel: "urlbar-searchmode-actions2",
+        uiLabel: "urlbar-searchmode-actions3",
       },
     ]);
   },

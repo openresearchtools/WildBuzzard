@@ -42,6 +42,7 @@
 #include "mozilla/dom/ServiceWorkerParent.h"
 #include "mozilla/dom/ServiceWorkerRegistrar.h"
 #include "mozilla/dom/ServiceWorkerRegistrationParent.h"
+#include "mozilla/dom/ServiceWorkerUtils.h"
 #include "mozilla/dom/SessionStorageManager.h"
 #include "mozilla/dom/SharedWorkerParent.h"
 #include "mozilla/dom/StorageActivityService.h"
@@ -461,6 +462,21 @@ BackgroundParentImpl::AllocPBackgroundSessionStorageServiceParent() {
   return MakeAndAddRef<mozilla::dom::BackgroundSessionStorageServiceParent>();
 }
 
+mozilla::ipc::IPCResult
+BackgroundParentImpl::RecvPBackgroundSessionStorageServiceConstructor(
+    mozilla::dom::PBackgroundSessionStorageServiceParent* aActor) {
+  AssertIsInMainProcess();
+  AssertIsOnBackgroundThread();
+
+  // ClearStoragesForOrigin is not scoped to any origin the sender is allowed
+  // to touch, so only the parent process may construct this actor.
+  if (BackgroundParent::IsOtherProcessActor(this)) {
+    return IPC_FAIL(aActor, "Wrong actor");
+  }
+
+  return IPC_OK();
+}
+
 mozilla::ipc::IPCResult BackgroundParentImpl::RecvCreateFileSystemManagerParent(
     const PrincipalInfo& aPrincipalInfo,
     Endpoint<PFileSystemManagerParent>&& aParentEndpoint,
@@ -536,6 +552,16 @@ mozilla::ipc::IPCResult BackgroundParentImpl::RecvCreateNotificationParent(
     return IPC_FAIL(
         this,
         "Invalid aEffectiveStoragePrincipal for CreateNotificationParent");
+  }
+  if (!aScope.IsEmpty()) {
+    nsCOMPtr<nsIURI> scopeURI;
+    NS_ENSURE_SUCCESS(NS_NewURI(getter_AddRefs(scopeURI), aScope),
+                      IPC_FAIL(this, "Malformed scope parameter"));
+    IgnoredErrorResult rv;
+    dom::ServiceWorkerScopeIsValid(aPrincipal, scopeURI, rv);
+    if (rv.Failed()) {
+      return IPC_FAIL(this, "Invalid scope parameter");
+    }
   }
 
   dom::notification::NotificationParentArgs args{

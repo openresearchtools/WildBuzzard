@@ -215,7 +215,7 @@ add_task(async function test_pages() {
     policies: {
       SitePolicies: [
         {
-          // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+          // eslint-disable-next-line sdl/no-insecure-url
           Match: ["*.example.com"],
           Policies: { DisableJit: true },
         },
@@ -251,7 +251,7 @@ add_task(async function test_pages() {
     );
   });
 
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   await BrowserTestUtils.withNewTab("http://example.com/", browser => {
     assertJitStateForBrowsingContext(
       browser.browsingContext,
@@ -298,7 +298,7 @@ add_task(async function test_workers_no_policy() {
     policies: {
       SitePolicies: [
         {
-          // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+          // eslint-disable-next-line sdl/no-insecure-url
           Match: ["*.example.com"],
           Policies: {},
         },
@@ -358,7 +358,7 @@ add_task(async function test_workers_with_policy() {
     policies: {
       SitePolicies: [
         {
-          // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+          // eslint-disable-next-line sdl/no-insecure-url
           Match: ["*.example.com"],
           Policies: { DisableJit: true },
         },

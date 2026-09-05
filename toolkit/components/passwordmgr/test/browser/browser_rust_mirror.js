@@ -886,7 +886,7 @@ const fixedUpOriginsToTest = {
   "1.2.3.4": "moz-pwmngr-fixed://1.2.3.4",
   "ftp.example.com": "ftp://ftp.example.com",
   "ftp.1.2.3.4": "ftp://1.2.3.4",
-  "http://ftp.1.2.3.4": "ftp://1.2.3.4", // eslint-disable-line @microsoft/sdl/no-insecure-url
+  "http://ftp.1.2.3.4": "ftp://1.2.3.4", // eslint-disable-line sdl/no-insecure-url
 };
 for (const origin in fixedUpOriginsToTest) {
   add_task(async function () {

@@ -548,6 +548,62 @@ void DrawTargetRecording::DrawSurface(SourceSurface* aSurface,
       RecordedDrawSurface(aSurface, aDest, aSource, aSurfOptions, aOptions));
 }
 
+bool DrawTarget::TryToReplaySurface(SourceSurface* aSurface, const Rect& aDest,
+                                    const Rect& aSource) {
+  if (aSurface->GetType() != SurfaceType::RECORDING) {
+    return false;
+  }
+  auto* recordingSurface = static_cast<SourceSurfaceRecording*>(aSurface);
+  if (!recordingSurface->mRecorder ||
+      recordingSurface->mRecorder->GetRecorderType() != RecorderType::MEMORY) {
+    return false;
+  }
+  if (aSource.IsEmpty() || aDest.IsEmpty()) {
+    return true;
+  }
+
+  auto* memRecorder =
+      static_cast<DrawEventRecorderMemory*>(recordingSurface->mRecorder.get());
+  if (!memRecorder->mOutputStream.mValid || !memRecorder->mOutputStream.mData) {
+    return true;
+  }
+
+  // Map points in the source surface's content space to our current user
+  // space (aSource -> aDest). Pre* methods prepend, so build right-to-left:
+  // first the destination translation, then the scaling, then the source
+  // translation, giving: Translate(-aSource) * Scale * Translate(aDest).
+  Matrix mapping;
+  mapping.PreTranslate(aDest.X(), aDest.Y());
+  mapping.PreScale(aDest.Width() / aSource.Width(),
+                   aDest.Height() / aSource.Height());
+  mapping.PreTranslate(-aSource.X(), -aSource.Y());
+
+  const Matrix savedTransform = GetTransform();
+  const Matrix combined = mapping * savedTransform;
+
+  PushClipRect(aDest);
+
+  // The recording may have filtered out SetTransform calls with the same value
+  // so we need to apply the mapping ourselves to ensure it gets used even if
+  // the recording never emits a SetTransform of its own.
+  // See Translator::DrawDependentSurface.
+  SetTransform(combined);
+
+  InlineTranslator translator(this);
+  // RecordedSetTransform composes its recorded transform with this reference
+  // transform whenever it targets the reference DT (which is |this|), so
+  // every recorded inner SetTransform M ends up effectively as
+  //   M * mapping * savedTransform
+  // on the playback target.
+  translator.SetReferenceDrawTargetTransform(combined);
+  translator.TranslateRecording(memRecorder->mOutputStream.mData,
+                                memRecorder->mOutputStream.mLength);
+
+  PopClip();
+  SetTransform(savedTransform);
+  return true;
+}
+
 void DrawTargetRecording::DrawSurfaceDescriptor(
     const layers::SurfaceDescriptor& aDesc,
     const RefPtr<layers::Image>& aImageOfSurfaceDescriptor, const Rect& aDest,

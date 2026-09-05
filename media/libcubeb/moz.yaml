@@ -26,6 +26,8 @@ vendoring:
     - delay-line-bounds.patch
     - alsa-drain-contract.patch
     - wasapi-async-reconfigure-on-start.patch
+    - wasapi-output-mix-channel-count.patch
+    - winmm-destroy-work-item-uaf.patch
   skip-vendoring-steps:
     - update-moz-build
   exclude:

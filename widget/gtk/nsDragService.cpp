@@ -1566,6 +1566,14 @@ void nsDragSession::SourceEndDragSession(GdkDragContext* aContext,
   LOGDRAGSERVICE("SourceEndDragSession(%p) result %s\n", aContext,
                  kGtkDragResults[aResult]);
 
+  // GTK drops its last reference right after drag-end, so reset ours now.
+  //
+  // Clearing only from EndDragSessionImpl is not enough (bug 2058661): that
+  // runs from an async runnable, by which point the pointer already dangles.
+  if (mSourceWindow) {
+    mSourceWindow->SetDragSource(nullptr);
+  }
+
   // this just releases the list of data items that we provide
   mSourceDataItems = nullptr;
 

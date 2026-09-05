@@ -118,10 +118,8 @@ bool WeakMapBase::addEphemeronEdgesForEntry(MarkColor mapColor,
     }
   }
 
-  if (value || key->zone()->isAtomsZone()) {
-    if (!addEphemeronEdge(mapColor, key, value)) {
-      return false;
-    }
+  if (value && !addEphemeronEdge(mapColor, key, value)) {
+    return false;
   }
 
   return true;

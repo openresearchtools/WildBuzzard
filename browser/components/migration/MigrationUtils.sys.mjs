@@ -169,6 +169,7 @@ class MigrationUtils {
           "MigrationWizard:PermissionsNeeded": { wantUntrusted: true },
           "MigrationWizard:GetPermissions": { wantUntrusted: true },
           "MigrationWizard:OpenURL": { wantUntrusted: true },
+          "MigrationWizard:LaunchMacOSPasswordsApp": { wantUntrusted: true },
         },
       },
 

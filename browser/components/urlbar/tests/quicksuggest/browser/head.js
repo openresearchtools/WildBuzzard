@@ -623,7 +623,7 @@ function assertQuickSuggestPing(expectedPing) {
   }
 
   let expectedValueOverrides = {
-    contextId: expectedPingContextId(),
+    contextId: null,
   };
 
   for (let key of expectedKeys) {

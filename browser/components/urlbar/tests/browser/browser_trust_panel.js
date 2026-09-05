@@ -27,7 +27,7 @@ ChromeUtils.defineLazyGetter(this, "fxAccounts", () => {
 });
 
 const TRACKING_PAGE =
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   "http://tracking.example.org/browser/browser/base/content/test/protectionsUI/trackingPage.html";
 
 const TEST_BREACH = {
@@ -132,7 +132,7 @@ add_task(async function basic_test() {
 add_task(async function test_notsecure_label() {
   const tab = await BrowserTestUtils.openNewForegroundTab({
     gBrowser,
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     opening: "http://example.com",
     waitForLoad: true,
   });
@@ -156,7 +156,7 @@ add_task(async function test_blob_secure() {
 
   await SpecialPowers.spawn(tab.linkedBrowser, [], () => {
     let blob = new Blob(["<h2>hey!</h2>"], { type: "text/html" });
-    content.document.location = URL.createObjectURL(blob);
+    content.document.location = content.URL.createObjectURL(blob);
   });
 
   Assert.ok(
@@ -170,7 +170,7 @@ add_task(async function test_blob_secure() {
 add_task(async function test_notsecure_label_without_tracking() {
   const tab = await BrowserTestUtils.openNewForegroundTab({
     gBrowser,
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     opening: "http://example.com",
     waitForLoad: true,
   });
@@ -1041,7 +1041,7 @@ add_task(
 add_task(async function insecure_and_etp_disabled_test() {
   const tab = await BrowserTestUtils.openNewForegroundTab({
     gBrowser,
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     opening: "http://example.com",
     waitForLoad: true,
   });

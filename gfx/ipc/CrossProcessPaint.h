@@ -132,6 +132,7 @@ class CrossProcessPaint final {
                     CrossProcessPaintFlags aFlags, dom::Promise* aPromise);
 
   static RefPtr<ResolvePromise> Start(
+      dom::TabId aRootTabId, uint64_t aRootWindowContextId,
       nsTHashSet<uint64_t>&& aDependencies,
       CrossProcessPaintFlags aFlags = CrossProcessPaintFlags::None);
 
@@ -142,7 +143,8 @@ class CrossProcessPaint final {
  private:
   typedef nsTHashMap<nsUint64HashKey, PaintFragment> ReceivedFragmentMap;
 
-  CrossProcessPaint(float aScale, dom::TabId aRoot,
+  CrossProcessPaint(float aScale, dom::TabId aRootTabId,
+                    uint64_t aRootWindowContextId,
                     CrossProcessPaintFlags aFlags);
   ~CrossProcessPaint();
 
@@ -181,7 +183,9 @@ class CrossProcessPaint final {
   }
 
   MozPromiseHolder<ResolvePromise> mPromise;
-  dom::TabId mRoot;
+  // The tab id of the root page, or TabId(0) for in-process pages.
+  const dom::TabId mRootTabId;
+  const uint64_t mRootWindowContextId;
   float mScale;
   uint32_t mPendingFragments;
   ReceivedFragmentMap mReceivedFragments;

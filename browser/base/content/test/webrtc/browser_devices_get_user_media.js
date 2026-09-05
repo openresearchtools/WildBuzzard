@@ -1053,7 +1053,7 @@ var gTests = [
       let browser = gBrowser.selectedBrowser;
       BrowserTestUtils.startLoadingURIString(
         browser,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         browser.documentURI.spec.replace("https://", "http://")
       );
       await BrowserTestUtils.browserLoaded(browser);

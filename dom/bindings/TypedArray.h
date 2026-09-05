@@ -693,7 +693,11 @@ struct TypedArray_base : public SpiderMonkeyInterfaceObjectStorage,
 #endif
     JS::AutoBrittleMode abm(jsapi.cx());
     if (!JS::EnsureNonInlineArrayBufferOrView(jsapi.cx(), mImplObj)) {
-      MOZ_CRASH("small oom when moving inline data out-of-line");
+      // Fails on (small) OOM, or when trying to modify a buffer when its length
+      // is already pinned. Brittle mode, set just above, will cause the former
+      // to crash before returning false, but that is for diagnostic purposes
+      // only and could be removed at any time.
+      MOZ_CRASH("failed to make ArrayBuffer data be stored separately");
     }
     LengthPinner pinner(this);
 

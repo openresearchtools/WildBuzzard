@@ -72,7 +72,7 @@ add_task(async function unsafe_search_strings() {
     "https://example.org",
     "https://example.org/path",
     "https:// example.org/",
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     "http://",
     "http://example",
     "http://example.org",

@@ -4091,17 +4091,11 @@ nsresult HasRootDomain(const nsACString& aInput, const nsACString& aHost,
     return NS_OK;
   }
 
-  // If aHost is not found, we know we do not have it as a root domain.
-  int32_t index = nsAutoCString(aInput).Find(aHost);
-  if (index == kNotFound) {
-    return NS_OK;
-  }
-
-  // Otherwise, we have aHost as our root domain iff the index of aHost is
-  // aHost.length subtracted from our length and (since we do not have an
-  // exact match) the character before the index is a dot or slash.
-  *aResult = index > 0 && (uint32_t)index == aInput.Length() - aHost.Length() &&
-             (aInput[index - 1] == '.' || aInput[index - 1] == '/');
+  // Otherwise, we have aHost as our root domain iff aInput ends in
+  // aHost, and the character before aHost is a dot
+  *aResult = !aHost.IsEmpty() && aInput.Length() > aHost.Length() &&
+             StringEndsWith(aInput, aHost) &&
+             aInput[aInput.Length() - aHost.Length() - 1] == '.';
   return NS_OK;
 }
 

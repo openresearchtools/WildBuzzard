@@ -2712,6 +2712,10 @@ Preferences.addSetting(
 
 Preferences.addSetting({
   id: "cookieExceptions",
+  disabled: () =>
+    Services.prefs.prefIsLocked(
+      "pref.privacy.disable_button.cookie_exceptions"
+    ),
   onUserClick() {
     gSubDialog.open(
       "chrome://browser/content/preferences/dialogs/permissions.xhtml",
@@ -3090,7 +3094,7 @@ Preferences.addSetting({
   id: "viewCertificatesButton",
   deps: ["disableOpenCertManager"],
   disabled: deps => {
-    return deps.disableOpenCertManager.value;
+    return deps.disableOpenCertManager.locked;
   },
   onUserClick: () => {
     PrivacySettingHelpers.showCertificates();
@@ -3100,7 +3104,7 @@ Preferences.addSetting({
   id: "viewSecurityDevicesButton",
   deps: ["disableOpenDeviceManager"],
   disabled: deps => {
-    return deps.disableOpenDeviceManager.value;
+    return deps.disableOpenDeviceManager.locked;
   },
   onUserClick: () => {
     PrivacySettingHelpers.showSecurityDevices();
@@ -3688,6 +3692,10 @@ Preferences.addSetting({
 
 Preferences.addSetting({
   id: "etpManageExceptionsButton",
+  disabled: () =>
+    Services.prefs.prefIsLocked(
+      "pref.privacy.disable_button.tracking_protection_exceptions"
+    ),
   onUserClick() {
     let params = {
       permissionType: "trackingprotection",

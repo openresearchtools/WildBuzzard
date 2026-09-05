@@ -6,6 +6,7 @@
  * @import MozButton from "chrome://global/content/elements/moz-button.mjs";
  * @import { SearchEngine } from "moz-src:///toolkit/components/search/SearchEngine.sys.mjs"
  * @import { OpenSearchData } from "moz-src:///browser/components/search/OpenSearchManager.sys.mjs"
+ * @import { LocalSearchMode } from "moz-src:///browser/components/urlbar/UrlbarUtils.sys.mjs"
  * @import { PanelItem, PanelList } from "chrome://global/content/elements/panel-list.mjs"
  */
 const lazy = {};
@@ -674,11 +675,12 @@ export class SearchModeSwitcher {
     let menuitem = this.#createButton(undefined);
     menuitem.classList.add("searchmode-switcher-panel-search-settings-button");
     menuitem.dataset.action = "openpreferences";
+    menuitem.setAttribute("data-l10n-attrs", "accesskey");
     this.#input.document.l10n.setAttributes(
       menuitem,
       Services.prefs.getBoolPref("browser.nova.enabled", false)
-        ? "urlbar-searchmode-popup-settings-panelitem"
-        : "urlbar-searchmode-popup-search-settings-panelitem"
+        ? "urlbar-searchmode-popup-settings"
+        : "urlbar-searchmode-popup-search-settings"
     );
     this.#addCommandListeners(menuitem);
     this.#panelList.appendChild(menuitem);
@@ -690,6 +692,7 @@ export class SearchModeSwitcher {
     menuitem.classList.add("searchmode-switcher-installed");
     menuitem.setAttribute("label", engine.name);
     menuitem.setAttribute("title", engine.name);
+    menuitem.setAttribute("accesskey", engine.name[0]);
     menuitem.setAttribute("closemenu", "none");
 
     if (engine.isNew() && engine instanceof lazy.AppProvidedConfigEngine) {
@@ -704,6 +707,10 @@ export class SearchModeSwitcher {
     return menuitem;
   }
 
+  /**
+   * @param {LocalSearchMode} mode
+   * @returns {Promise<PanelItem>}
+   */
   async #buildLocalSearchButton(mode) {
     let sourceName = lazy.UrlbarUtils.getResultSourceName(mode.source);
     let { icon } = await this.#getDisplayedEngineDetails(mode);
@@ -714,11 +721,9 @@ export class SearchModeSwitcher {
     );
     menuitem.dataset.action = "localsearchmode";
     menuitem.dataset.restrict = mode.restrict;
+    menuitem.setAttribute("data-l10n-attrs", "accesskey");
     this.#addCommandListeners(menuitem);
-    this.#input.document.l10n.setAttributes(
-      menuitem,
-      `urlbar-searchmode-${sourceName}2`
-    );
+    this.#input.document.l10n.setAttributes(menuitem, mode.uiLabel);
     return menuitem;
   }
 

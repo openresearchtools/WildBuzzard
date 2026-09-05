@@ -64,7 +64,7 @@ xul|findbar {
   background-color: var(--input-text-background-color);
   color: var(--input-text-color);
 
-  :root[lwtheme] & {
+  :root[lwtheme] &:not([status="notfound"], [flash="true"]) {
     background-color: var(--toolbar-field-background-color);
     color: var(--toolbar-field-text-color);
   }

@@ -40,6 +40,9 @@ tags = "search-telemetry"
 
 ["browser_quicksuggest_ping_deletionRequest.js"]
 tags = "search-telemetry"
+skip-if = [
+  "true", # Bug 2056936 - The `quick-suggest-deletion-request` ping is disabled
+]
 
 ["browser_quicksuggest_ping_merinoAndNullValues.js"]
 tags = "search-telemetry"

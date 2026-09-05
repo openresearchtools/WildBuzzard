@@ -727,8 +727,7 @@ struct nsCSSRendering {
 
  protected:
   static gfxRect GetTextDecorationRectInternal(
-      const Point& aPt, const DecorationRectParams& aParams,
-      bool aSnapToDevicePixels);
+      const Point& aPt, const DecorationRectParams& aParams);
 
   /**
    * Returns inflated rect for painting a decoration line.

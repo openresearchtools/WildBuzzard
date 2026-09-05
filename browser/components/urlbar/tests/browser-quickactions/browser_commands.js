@@ -80,6 +80,8 @@ add_setup(async function setup() {
       ["browser.preferences.experimental.hidden", false],
     ],
   });
+
+  registerCleanupFunction(NimbusTestUtils.disableSignatureVerification());
 });
 
 const LOAD_TYPE = {

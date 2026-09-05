@@ -110,6 +110,7 @@ impl<'a> RawtestHarness<'a> {
 
         txn.set_display_list(
             *epoch,
+            self.wrench.api.get_namespace_id(),
             builder.end(),
         );
         epoch.0 += 1;
@@ -1252,6 +1253,7 @@ impl<'a> RawtestHarness<'a> {
 
         txn.set_display_list(
             Epoch(0),
+            self.wrench.api.get_namespace_id(),
             builder.end(),
         );
         txn.generate_frame(0, true, false, RenderReasons::TESTING);
@@ -1271,6 +1273,7 @@ impl<'a> RawtestHarness<'a> {
         let mut txn = Transaction::new();
         txn.set_display_list(
             Epoch(1),
+            self.wrench.api.get_namespace_id(),
             builder.end(),
         );
         self.wrench.api.send_transaction(self.wrench.document_id, txn);
@@ -1315,6 +1318,7 @@ impl<'a> RawtestHarness<'a> {
         txn.set_root_pipeline(self.wrench.root_pipeline_id);
         txn.set_display_list(
             Epoch(1),
+            self.wrench.api.get_namespace_id(),
             builder.end(),
         );
         txn.generate_frame(0, true, false, RenderReasons::TESTING);

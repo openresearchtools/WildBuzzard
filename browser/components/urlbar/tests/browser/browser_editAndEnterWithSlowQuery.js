@@ -41,7 +41,7 @@ add_setup(async function setup() {
 
 add_task(async function test_url_type() {
   const testCases = [];
-  // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+  // eslint-disable-next-line sdl/no-insecure-url
   for (let protocol of ["http://", "https://"]) {
     for (let trimURLs of [true, false]) {
       testCases.push({ testURL: protocol + "example.com/123", trimURLs });
@@ -370,10 +370,10 @@ add_task(async function test_heuristic() {
         type: UrlbarUtils.RESULT_TYPE.URL,
         source: UrlbarUtils.RESULT_SOURCE.OTHER_LOCAL,
         heuristic: true,
-        // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+        // eslint-disable-next-line sdl/no-insecure-url
         payload: { url: "http://example.com/123" },
       }),
-      // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+      // eslint-disable-next-line sdl/no-insecure-url
       loadingURL: "http://example.com/123",
       displayedValue: "example.com/123",
     },

@@ -11292,6 +11292,9 @@ nsresult nsHttpChannel::DoAuthRetry(
 
   MOZ_ASSERT(!mTransaction, "should not have a transaction");
 
+  // Clear security info so it can be repopulated by the retried connection.
+  mSecurityInfo = nullptr;
+
   // Note that we don't have to toggle |IsPending| anymore. See the reasons
   // below.
   // 1. We can't suspend the channel during "http-on-modify-request"

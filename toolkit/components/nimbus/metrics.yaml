@@ -1235,17 +1235,19 @@ nimbus_events:
             triggered an exception.
           - `null-last-modified`: The collection was empty but lastModified was
             null (i.e., not synced).
+          - `missing-signature`: Signature verification failed.
 
     bugs:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1985079
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2053781
     data_reviews:
       - https://bugzilla.mozilla.org/show_bug.cgi?id=1985079
+      - https://bugzilla.mozilla.org/show_bug.cgi?id=2053781
 
     data_sensitivity:
       - technical
     notification_emails:
       - beth@mozilla.com
-      - relud@mozilla.com
       - project-nimbus@mozilla.com
     expires: never
 

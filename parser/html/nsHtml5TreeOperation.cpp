@@ -227,6 +227,8 @@ static void AbortNodeInsertion(nsINode* aNode) {
     // Clear form for this element, since it will not actually be
     // inserted.
     formControl->ClearForm(true, true);
+  } else if (auto* image = HTMLImageElement::FromNode(aNode)) {
+    image->ClearForm(true);
   }
 }
 

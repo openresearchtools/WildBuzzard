@@ -1990,13 +1990,13 @@ already_AddRefed<Promise> VideoFrame::CopyTo(
     }
   }
 
-  return ProcessTypedArraysFixed(aDestination, [&](const Span<uint8_t>& aData) {
+  Sequence<PlaneLayout> planeLayouts;
+  nsCString errorMessage;
+  bool ok = ProcessTypedArraysFixed(aDestination, [&](const Span<uint8_t>& aData) {
     if (aData.size_bytes() < layout.mAllocationSize) {
-      p->MaybeRejectWithTypeError("Destination buffer is too small");
-      return p.forget();
+      errorMessage.Assign("Destination buffer is too small");
+      return false;
     }
-
-    Sequence<PlaneLayout> planeLayouts;
 
     nsTArray<Format::Plane> planes = mResource->mFormat->Planes();
     MOZ_ASSERT(layout.mComputedLayouts.Length() == planes.Length());
@@ -2009,8 +2009,8 @@ already_AddRefed<Promise> VideoFrame::CopyTo(
 
       PlaneLayout* pl = planeLayouts.AppendElement(fallible);
       if (!pl) {
-        p->MaybeRejectWithTypeError("Out of memory");
-        return p.forget();
+        errorMessage.Assign("Out of memory");
+        return false;
       }
       pl->mOffset = l.mDestinationOffset;
       pl->mStride = l.mDestinationStride;
@@ -2026,18 +2026,24 @@ already_AddRefed<Promise> VideoFrame::CopyTo(
       if (!mResource->CopyTo(planes[i], {origin, size},
                              aData.From(destinationOffset),
                              static_cast<size_t>(l.mDestinationStride))) {
-        p->MaybeRejectWithTypeError(
+        errorMessage.Assign(
             nsPrintfCString("Failed to copy image data in %s plane",
                             mResource->mFormat->PlaneName(planes[i])));
-        return p.forget();
+        return false;
       }
     }
 
     MOZ_ASSERT(layout.mComputedLayouts.Length() == planes.Length());
-
-    p->MaybeResolve(planeLayouts);
-    return p.forget();
+    return true;
   });
+
+  if (ok) {
+    p->MaybeResolve(planeLayouts);
+  } else {
+    p->MaybeRejectWithTypeError(errorMessage);
+  }
+
+  return p.forget();
 }
 
 // https://w3c.github.io/webcodecs/#dom-videoframe-clone

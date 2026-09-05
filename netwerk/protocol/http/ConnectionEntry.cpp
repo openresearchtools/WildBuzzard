@@ -1039,7 +1039,7 @@ bool ConnectionEntry::MaybeProcessCoalescingKeys(nsIDNSAddrRecord* dnsRecord,
          "Established New Coalescing Key # %d for host "
          "%s [%s] hash:%" PRIu32,
          i, mConnInfo->Origin(), newKey.get(), hash));
-    mCoalescingKeys.AppendElement(hash);
+    mCoalescingKeys.AppendElement(CoalescingKey{hash, newKey});
   }
   return true;
 }
@@ -1116,7 +1116,7 @@ ConnectionEntry::GetServerCertHashes() {
   return mServerCertHashes;
 }
 
-const HashNumber& ConnectionEntry::OriginFrameHashKey() {
+const CoalescingKey& ConnectionEntry::OriginFrameHashKey() {
   MOZ_ASSERT(OnSocketThread(), "not on socket thread");
   if (mOriginFrameHashKey.isNothing()) {
     mOriginFrameHashKey.emplace(nsHttpConnectionInfo::BuildOriginFrameHashKey(

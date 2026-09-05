@@ -665,7 +665,7 @@ NS_IMETHODIMP HTMLEditor::NotifySelectionChanged(Document* aDocument,
   }
 
   if (mHasFocus) {
-    if (auto focusedElement = GetFocusedElement()) {
+    if (RefPtr focusedElement = GetFocusedElement()) {
       // Selection may have moved into/out of contenteditable=false, so
       // we should update IME state to reflect that.
       auto newStateOrError = GetPreferredIMEState();
@@ -7391,7 +7391,7 @@ void HTMLEditor::NotifyEditingHostMaybeChanged() {
   }
 
   // Compute current editing host.
-  Element* const editingHost = ComputeEditingHost();
+  const RefPtr<Element> editingHost = ComputeEditingHost();
   if (NS_WARN_IF(!editingHost)) {
     return;
   }

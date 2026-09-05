@@ -42,6 +42,9 @@ var gSearchResultsPane = {
   subItems: new Map(),
 
   searchResultsHighlighted: false,
+  /** @type {AbortController | null} */
+  searchAbortController: null,
+  searchCompleted: true,
 
   searchableNodes: new Set([
     "button",
@@ -280,7 +283,15 @@ var gSearchResultsPane = {
       return;
     }
 
-    let subQuery = this.query && query.includes(this.query);
+    if (this.searchAbortController) {
+      this.searchAbortController.abort();
+    }
+    this.searchAbortController = new AbortController();
+    let signal = this.searchAbortController.signal;
+
+    let subQuery =
+      this.searchCompleted && this.query && query.includes(this.query);
+    this.searchCompleted = false;
     this.query = query;
 
     // If there is a query, don't reshow the existing hidden subitems yet
@@ -292,6 +303,9 @@ var gSearchResultsPane = {
     let noResultsEl = document.getElementById("no-results-message");
     if (this.query) {
       await gotoPref("paneSearchResults");
+      if (signal.aborted) {
+        return;
+      }
       srHeader.hidden = false;
 
       let resultsFound = false;
@@ -340,7 +354,7 @@ var gSearchResultsPane = {
           ts = await new Promise(resolve =>
             window.requestAnimationFrame(resolve)
           );
-          if (query !== this.query) {
+          if (signal.aborted) {
             return;
           }
         }
@@ -361,6 +375,9 @@ var gSearchResultsPane = {
           let anyGroupMatched = false;
           for (let group of groups) {
             let matched = await this.searchWithinNode(group, this.query);
+            if (signal.aborted) {
+              return;
+            }
             if (matched) {
               group.classList.remove("visually-hidden");
               anyGroupMatched = true;
@@ -371,6 +388,9 @@ var gSearchResultsPane = {
           let paneMatched = anyGroupMatched;
           if (!paneMatched) {
             paneMatched = await this.searchWithinNode(child, this.query);
+            if (signal.aborted) {
+              return;
+            }
             if (paneMatched) {
               // Pane title or pane-level content matched but no specific group
               // did. Re-query with the base selector to make sure previously
@@ -391,11 +411,18 @@ var gSearchResultsPane = {
         }
 
         if (
-          !child.classList.contains("header") &&
-          (!child.classList.contains("subcategory") ||
-            child.localName == "setting-group") &&
-          (await this.searchWithinNode(child, this.query))
+          child.classList.contains("header") ||
+          (child.classList.contains("subcategory") &&
+            child.localName !== "setting-group")
         ) {
+          child.classList.add("visually-hidden");
+          continue;
+        }
+        let childMatched = await this.searchWithinNode(child, this.query);
+        if (signal.aborted) {
+          return;
+        }
+        if (childMatched) {
           child.classList.remove("visually-hidden");
 
           // Show the preceding search-header if one exists.
@@ -438,7 +465,7 @@ var gSearchResultsPane = {
         // against an intermediate layout (e.g. while the no-results message was
         // still visible). Now that layout has settled, reposition them all.
         await new Promise(resolve => requestAnimationFrame(resolve));
-        if (query !== this.query) {
+        if (signal.aborted) {
           return;
         }
         this._recomputeTooltipPositions();
@@ -452,6 +479,9 @@ var gSearchResultsPane = {
       );
       let defaultPane = redesignEnabled ? "paneSync" : "paneGeneral";
       await gotoPref(defaultPane);
+      if (signal.aborted) {
+        return;
+      }
       srHeader.hidden = true;
 
       // Hide some special second level headers in normal view
@@ -460,6 +490,7 @@ var gSearchResultsPane = {
       }
     }
 
+    this.searchCompleted = true;
     window.dispatchEvent(
       new CustomEvent("PreferencesSearchCompleted", { detail: query })
     );
@@ -484,6 +515,9 @@ var gSearchResultsPane = {
    * @param {boolean} forceSearch Allow this node to be searched.
    * @returns {Promise<boolean>}
    *    Returns true when found in at least one childNode, false otherwise
+   *
+   * Follow-up: abort is checked between searchWithinNode calls, not inside one,
+   * so a stale call already running can add duplicate ranges.
    */
   async searchWithinNode(nodeObject, searchPhrase, forceSearch = false) {
     let matchesFound = false;

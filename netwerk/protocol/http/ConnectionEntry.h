@@ -9,6 +9,7 @@
 #include "PendingTransactionQueue.h"
 #include "ConnectionAttemptPool.h"
 #include "mozilla/WeakPtr.h"
+#include "nsHttpConnectionInfo.h"
 #include "nsTHashSet.h"
 
 namespace mozilla {
@@ -124,7 +125,7 @@ class ConnectionEntry : public SupportsWeakPtr {
   // to build the hash key for hosts in the same ip pool.
   //
 
-  nsTArray<HashNumber> mCoalescingKeys;
+  nsTArray<CoalescingKey> mCoalescingKeys;
 
   // This is a list of addresses matching the coalescing keys.
   // This is necessary to check if the origin's DNS entries
@@ -236,7 +237,7 @@ class ConnectionEntry : public SupportsWeakPtr {
 
   const nsTArray<RefPtr<nsIWebTransportHash>>& GetServerCertHashes();
 
-  const HashNumber& OriginFrameHashKey();
+  const CoalescingKey& OriginFrameHashKey();
 
  private:
   void MaybeRemoveFromPendingSet();
@@ -265,7 +266,7 @@ class ConnectionEntry : public SupportsWeakPtr {
   PendingTransactionQueue mPendingQ;
   ~ConnectionEntry();
 
-  Maybe<HashNumber> mOriginFrameHashKey;
+  Maybe<CoalescingKey> mOriginFrameHashKey;
 
   bool mRetriedDifferentIPFamilyForHttp3 = false;
 };

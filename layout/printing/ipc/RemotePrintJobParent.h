@@ -8,8 +8,6 @@
 #include "mozilla/RefPtr.h"
 #include "mozilla/UniquePtr.h"
 #include "mozilla/gfx/CrossProcessPaint.h"
-#include "mozilla/gfx/Point.h"
-#include "mozilla/gfx/RecordedEvent.h"
 #include "mozilla/layout/PRemotePrintJobParent.h"
 #include "mozilla/layout/printing/DrawEventRecorder.h"
 #include "nsCOMArray.h"
@@ -19,8 +17,7 @@ class nsDeviceContext;
 class nsIPrintSettings;
 class nsIWebProgressListener;
 
-namespace mozilla {
-namespace layout {
+namespace mozilla::layout {
 
 class PrintTranslator;
 
@@ -66,11 +63,11 @@ class RemotePrintJobParent final : public PRemotePrintJobParent {
   ~RemotePrintJobParent() final;
 
   void InitializePrint(const nsAString& aDocumentTitle,
-                       const uint64_t& aBrowsingContextId,
                        const int32_t& aStartPage, const int32_t& aEndPage);
 
+  void FailInitialization(nsresult);
+
   nsresult InitializePrintDevice(const nsAString& aDocumentTitle,
-                                 const uint64_t& aBrowsingContextId,
                                  const int32_t& aStartPage,
                                  const int32_t& aEndPage);
 
@@ -94,13 +91,22 @@ class RemotePrintJobParent final : public PRemotePrintJobParent {
   UniquePtr<PrintTranslator> mPrintTranslator;
   nsCOMArray<nsIWebProgressListener> mPrintProgressListeners;
   PRFileDescStream mCurrentPageStream;
-  nsresult mStatus;
+
+  // Once initialized, these are the various IDs of the page we're printing.
+  // Note that static documents don't navigate around so the BC vs WC
+  // distinction isn't particularly relevant here.
+  // TODO(emilio): It'd be more consistent to use the WindowGlobal id
+  // consistently, probably, but that percolates into our a11y code.
+  uint64_t mBrowsingContextId{0};
+  uint64_t mWindowContextId{0};
+  dom::TabId mTabId{0};
+
+  nsresult mStatus = NS_ERROR_UNEXPECTED;
   bool mIsDoingPrinting = false;
-  bool mInitializeReceived =
-      false;  // True after RecvInitializePrint is called.
+  // True after RecvInitializePrint is called.
+  bool mInitializeReceived = false;
 };
 
-}  // namespace layout
-}  // namespace mozilla
+}  // namespace mozilla::layout
 
 #endif  // mozilla_layout_RemotePrintJobParent_h

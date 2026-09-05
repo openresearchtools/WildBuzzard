@@ -269,7 +269,7 @@ Preferences.addSetting({
 Preferences.addSetting({
   id: "showUpdateHistory",
   deps: ["disableShowUpdateHistory"],
-  disabled: deps => deps.disableShowUpdateHistory.value,
+  disabled: deps => deps.disableShowUpdateHistory.locked,
   onUserClick: () => UpdatesHelpers.showUpdates(),
 });
 

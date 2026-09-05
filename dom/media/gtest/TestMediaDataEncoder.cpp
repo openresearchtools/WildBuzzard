@@ -367,6 +367,55 @@ Result<Ok, nsresult> IsValidAVCC(const mozilla::MediaRawData* aSample,
   return Ok();
 }
 
+// Validate the encoded output shared by the H264 encode tests. In the lossy
+// real-time 4K path the encoder may drop frames, including the frame that
+// carried a forced-keyframe request. aToleratesKeyframeDrop selects whether
+// that path still requires every requested keyframe (single-frame submission,
+// which has enough slack not to drop one) or only a stream that starts with a
+// keyframe (batch submission, which can drop a forced-keyframe frame).
+static void CheckH264EncodeOutput(const MediaDataEncoder::EncodedData& aOutput,
+                                  size_t aExpectedFrames,
+                                  size_t aInputKeyframes, Usage aUsage,
+                                  bool aIs4KOrLarger, bool aIsAVCC,
+                                  bool aToleratesKeyframeDrop) {
+  const bool lossyRealtime = aUsage == Usage::Realtime && aIs4KOrLarger;
+  if (lossyRealtime) {
+    // Realtime encoding may drop frames for large frame sizes.
+    EXPECT_LE(aOutput.Length(), aExpectedFrames);
+  } else {
+    EXPECT_EQ(aOutput.Length(), aExpectedFrames);
+  }
+
+  ASSERT_FALSE(aOutput.IsEmpty());
+
+  if (lossyRealtime && aToleratesKeyframeDrop) {
+    // A dropped frame can be the one that requested a forced keyframe, so the
+    // output may contain fewer keyframes than requested; require only that the
+    // stream still starts with a keyframe.
+    EXPECT_TRUE(aOutput[0]->mKeyframe);
+  } else {
+    EXPECT_GE(GetKeyFrameCount(aOutput), aInputKeyframes);
+  }
+
+  if (aIsAVCC) {
+    uint8_t naluSize = GetNALUSize(aOutput[0]).unwrapOr(0);
+    EXPECT_GT(naluSize, 0);
+    EXPECT_LE(naluSize, 4);
+    for (const auto& frame : aOutput) {
+      if (frame->mExtraData && !frame->mExtraData->IsEmpty()) {
+        naluSize = GetNALUSize(frame).unwrapOr(0);
+        EXPECT_GT(naluSize, 0);
+        EXPECT_LE(naluSize, 4);
+      }
+      EXPECT_TRUE(IsValidAVCC(frame, naluSize).isOk());
+    }
+  } else {
+    for (const auto& frame : aOutput) {
+      EXPECT_TRUE(AnnexB::IsAnnexB(*frame));
+    }
+  }
+}
+
 static already_AddRefed<MediaDataEncoder> CreateH264Encoder(
     Usage aUsage = Usage::Realtime,
     EncoderConfig::SampleFormat aFormat =
@@ -438,30 +487,9 @@ static void H264EncodesTest(Usage aUsage,
     EncodeResult r = GET_OR_RETURN_ON_ERROR(
         EncodeWithInputStats(e, numFrames, aFrameSource));
     output = std::move(r.mEncodedData);
-    if (aUsage == Usage::Realtime && is4KOrLarger) {
-      // Realtime encoding may drop frames for large frame sizes.
-      EXPECT_LE(output.Length(), numFrames);
-    } else {
-      EXPECT_EQ(output.Length(), numFrames);
-    }
-    EXPECT_GE(GetKeyFrameCount(output), r.mInputKeyframes);
-    if (isAVCC) {
-      uint8_t naluSize = GetNALUSize(output[0]).unwrapOr(0);
-      EXPECT_GT(naluSize, 0);
-      EXPECT_LE(naluSize, 4);
-      for (auto frame : output) {
-        if (frame->mExtraData && !frame->mExtraData->IsEmpty()) {
-          naluSize = GetNALUSize(frame).unwrapOr(0);
-          EXPECT_GT(naluSize, 0);
-          EXPECT_LE(naluSize, 4);
-        }
-        EXPECT_TRUE(IsValidAVCC(frame, naluSize).isOk());
-      }
-    } else {
-      for (auto frame : output) {
-        EXPECT_TRUE(AnnexB::IsAnnexB(*frame));
-      }
-    }
+    CheckH264EncodeOutput(output, numFrames, r.mInputKeyframes, aUsage,
+                          is4KOrLarger, isAVCC,
+                          /* aToleratesKeyframeDrop */ false);
 
     WaitForShutdown(e);
   });
@@ -526,30 +554,9 @@ static void H264EncodeBatchTest(
     EncodeResult r = GET_OR_RETURN_ON_ERROR(
         EncodeBatchWithInputStats(e, numFrames, aFrameSource, batchSize));
     MediaDataEncoder::EncodedData output = std::move(r.mEncodedData);
-    if (aUsage == Usage::Realtime && is4KOrLarger) {
-      // Realtime encoding may drop frames for large frame sizes.
-      EXPECT_LE(output.Length(), numFrames);
-    } else {
-      EXPECT_EQ(output.Length(), numFrames);
-    }
-    EXPECT_GE(GetKeyFrameCount(output), r.mInputKeyframes);
-    if (isAVCC) {
-      uint8_t naluSize = GetNALUSize(output[0]).unwrapOr(0);
-      EXPECT_GT(naluSize, 0);
-      EXPECT_LE(naluSize, 4);
-      for (auto frame : output) {
-        if (frame->mExtraData && !frame->mExtraData->IsEmpty()) {
-          naluSize = GetNALUSize(frame).unwrapOr(0);
-          EXPECT_GT(naluSize, 0);
-          EXPECT_LE(naluSize, 4);
-        }
-        EXPECT_TRUE(IsValidAVCC(frame, naluSize).isOk());
-      }
-    } else {
-      for (auto frame : output) {
-        EXPECT_TRUE(AnnexB::IsAnnexB(*frame));
-      }
-    }
+    CheckH264EncodeOutput(output, numFrames, r.mInputKeyframes, aUsage,
+                          is4KOrLarger, isAVCC,
+                          /* aToleratesKeyframeDrop */ true);
 
     WaitForShutdown(e);
   });
@@ -757,6 +764,66 @@ TEST_F(MediaDataEncoderTest, H264AVCC) {
     WaitForShutdown(e);
   });
 }
+#endif
+
+#ifdef XP_MACOSX
+static already_AddRefed<MediaData> CreateNV12Frame(const gfx::IntSize& aSize) {
+  layers::PlanarYCbCrData data;
+  data.mPictureRect = gfx::IntRect(0, 0, aSize.width, aSize.height);
+  data.mYStride = aSize.width;
+  data.mCbCrStride = aSize.width;
+  data.mChromaSubsampling = gfx::ChromaSubsampling::HALF_WIDTH_AND_HEIGHT;
+  data.mCbSkip = 1;
+  data.mCrSkip = 1;
+  const auto ySize = data.YDataSize();
+  const auto cbcrSize = data.CbCrDataSize();
+  const size_t yBytes = static_cast<size_t>(data.mYStride) * ySize.height;
+  const size_t cbcrBytes =
+      static_cast<size_t>(data.mCbCrStride) * cbcrSize.height;
+  auto buffer = MakeUnique<uint8_t[]>(yBytes + cbcrBytes);
+  std::fill_n(buffer.get(), yBytes, static_cast<uint8_t>(235));
+  std::fill_n(buffer.get() + yBytes, cbcrBytes, static_cast<uint8_t>(128));
+  data.mYChannel = buffer.get();
+  data.mCbChannel = buffer.get() + yBytes;
+  data.mCrChannel = data.mCbChannel + 1;
+  RefPtr<layers::NVImage> image = new layers::NVImage();
+  if (NS_FAILED(image->SetData(data))) {
+    return nullptr;
+  }
+  RefPtr<MediaData> frame = VideoData::CreateFromImage(
+      aSize, 0, media::TimeUnit::Zero(),
+      media::TimeUnit::FromMicroseconds(FRAME_DURATION), image, true,
+      media::TimeUnit::Zero());
+  return frame.forget();
+}
+
+TEST_F(MediaDataEncoderTest, H264EncodeNV12Input) {
+  RUN_IF_SUPPORTED(CodecType::H264, []() {
+    const gfx::IntSize size(640, 480);
+    RefPtr<MediaDataEncoder> encoder = CreateH264Encoder(
+        Usage::Record,
+        EncoderConfig::SampleFormat(dom::ImageBitmapFormat::YUV420SP_NV12),
+        size, ScalabilityMode::None, AsVariant(kH264SpecificAVCC));
+    if (!encoder) {
+      return;
+    }
+    ASSERT_TRUE(EnsureInit(encoder));
+    RefPtr<MediaData> frame = CreateNV12Frame(size);
+    ASSERT_TRUE(frame);
+    auto encoded = WaitFor(encoder->Encode(frame));
+    ASSERT_TRUE(encoded.isOk());
+    MediaDataEncoder::EncodedData output = encoded.unwrap();
+    auto drained = Drain(encoder);
+    ASSERT_TRUE(drained.isOk());
+    output.AppendElements(std::move(drained.unwrap()));
+    WaitForShutdown(encoder);
+    CheckH264EncodeOutput(output, 1, 1, Usage::Record,
+                          /* aIs4KOrLarger */ false,
+                          /* aIsAVCC */ true,
+                          /* aToleratesKeyframeDrop */ false);
+  });
+}
+
 #endif
 
 // For Android HW encoder only.

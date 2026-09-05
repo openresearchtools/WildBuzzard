@@ -92,6 +92,24 @@ AppleVTDecoder::~AppleVTDecoder() { MOZ_COUNT_DTOR(AppleVTDecoder); }
 
 RefPtr<MediaDataDecoder::InitPromise> AppleVTDecoder::Init() {
   AUTO_PROFILER_LABEL("AppleVTDecoder::Init", MEDIA_PLAYBACK);
+  if (mSession) {
+    MOZ_ASSERT_UNREACHABLE(
+        "Cannot initialize decoder again without shutting down");
+    return InitPromise::CreateAndReject(
+        MediaResult(NS_ERROR_ALREADY_INITIALIZED,
+                    RESULT_DETAIL("Decoder initialization already attempted")),
+        __func__);
+  }
+
+  if (mFormat) {
+    MOZ_ASSERT_UNREACHABLE(
+        "Cannot initialize decoder again after previous initialization failed");
+    return InitPromise::CreateAndReject(
+        MediaResult(NS_ERROR_DOM_MEDIA_FATAL_ERR,
+                    RESULT_DETAIL("Previous decoder initialization failed")),
+        __func__);
+  }
+
   MediaResult rv = InitializeSession();
 
   if (NS_SUCCEEDED(rv)) {

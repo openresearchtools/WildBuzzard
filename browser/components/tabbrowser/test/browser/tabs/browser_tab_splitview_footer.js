@@ -144,7 +144,7 @@ add_task(async function test_security_warning() {
   promiseLoaded = BrowserTestUtils.browserLoaded(tab2.linkedBrowser);
   BrowserTestUtils.startLoadingURIString(
     tab2.linkedBrowser,
-    "http://example.com/" // eslint-disable-line @microsoft/sdl/no-insecure-url
+    "http://example.com/" // eslint-disable-line sdl/no-insecure-url
   );
   await promiseLoaded;
   Assert.ok(

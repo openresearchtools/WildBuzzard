@@ -5,7 +5,7 @@
 async function test_back_button(x, y) {
   // If the first button is the back button, set up history.
   let firstLocation =
-    // eslint-disable-next-line @microsoft/sdl/no-insecure-url
+    // eslint-disable-next-line sdl/no-insecure-url
     "http://example.org/browser/browser/base/content/test/general/dummy_page.html";
   await BrowserTestUtils.openNewForegroundTab(gBrowser, firstLocation);
   await SpecialPowers.spawn(gBrowser.selectedBrowser, [], async function () {
