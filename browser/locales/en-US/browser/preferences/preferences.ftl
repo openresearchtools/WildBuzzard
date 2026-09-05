@@ -110,8 +110,8 @@ pane-experimental-reset =
 
 help-button-label2 = { -brand-short-name } support
   .title = { -brand-short-name } support
-addons-button-label2 = Extensions and themes
-  .title = Extensions and themes
+addons-button-label2 = Extensions
+  .title = Extensions
 
 focus-search =
     .key = f
@@ -165,7 +165,7 @@ extension-controlling-proxy-config = <img data-l10n-name ="icon"/> <strong>{ $na
 # <img data-l10n-name="menu-icon"/> will be replaced with Menu icon
 extension-controlled-enable = To enable the extension go to <img data-l10n-name="addons-icon"/> Add-ons in the <img data-l10n-name="menu-icon"/> menu.
 
-extension-controlled-enable-2 = To re-enable this extension visit <a data-l10n-name="addons-link">Extensions and themes</a>.
+extension-controlled-enable-2 = To re-enable this extension visit <a data-l10n-name="addons-link">Extensions</a>.
 # This string is shown to notify the user that their home page or new tab preferences
 # are being controlled by an extension.
 extension-controlling-homepage = { $name } controls some of your homepage settings.
@@ -396,7 +396,7 @@ preferences-web-appearance-override-warning3 =
     .message = Your contrast control settings are overriding website appearance.
 
 preferences-web-appearance-link =
-    .label = Manage { -brand-short-name } themes in Extensions & Themes
+    .label = Manage extensions
 
 preferences-contrast-control-group =
     .label = Website contrast
@@ -1185,7 +1185,7 @@ search-delete-engine =
 search-enable-engine =
     .title = Enable search engine
 search-outlink-to-extensions-page =
-    .title = Manage in extensions and themes
+    .title = Manage in extensions
 
 search-choose-engine-column =
     .label = Search Engine
@@ -1473,7 +1473,7 @@ sync-engine-payment-methods2 =
 
 sync-engine-addons =
     .label = Add-ons
-    .tooltiptext = Extensions and themes for Firefox desktop
+    .tooltiptext = Extensions for { -brand-short-name } desktop
     .accesskey = A
 
 sync-engine-settings =

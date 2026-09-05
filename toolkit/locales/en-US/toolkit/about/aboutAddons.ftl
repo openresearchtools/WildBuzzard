@@ -12,7 +12,7 @@ search-header =
 ##   $domain - Domain name where add-ons are available (e.g. addons.mozilla.org)
 
 list-empty-get-extensions-message =
-    Get extensions and themes on <a data-l10n-name="get-extensions">{ $domain }</a>
+    Get extensions on <a data-l10n-name="get-extensions">{ $domain }</a>
 
 list-empty-get-dictionaries-message =
     Get dictionaries on <a data-l10n-name="get-extensions">{ $domain }</a>
@@ -325,7 +325,7 @@ header-back-button =
 # We hard code "Firefox" because we do not want to imply that a Firefox fork is
 # making this recommendation.
 discopane-intro3 =
-    Extensions and themes let you customize { -brand-product-name }. They can boost privacy,
+    Extensions let you customize { -brand-product-name }. They can boost privacy,
     enhance productivity, improve media, change the way { -brand-product-name } looks, and
     so much more. These small software programs are often developed by a third party. Here’s
     a selection Firefox <a data-l10n-name="learn-more-trigger">recommends</a> for
